@@ -1,23 +1,234 @@
 #!/usr/bin/env bun
 
 /**
- * Ouroboros CLI entry point.
- * This is a placeholder for Phase 1 — the full REPL and argument parsing
- * will be implemented in a subsequent ticket.
+ * Ouroboros CLI Entry Point
+ *
+ * Parses arguments with Commander.js and launches either:
+ * - Interactive REPL (default, no arguments)
+ * - Single-shot mode (piped input or `-m "prompt"`)
+ *
+ * CLI flags:
+ *   --model <provider/model>  Override model selection
+ *   --verbose / -v            Show tool call details
+ *   --no-stream               Wait for full response before printing
+ *   --config <path>           Path to .ouroboros config file
  */
+
+import { Command } from 'commander'
 import { loadConfig } from '@src/config'
+import { createProvider } from '@src/llm/provider'
+import { createRegistry } from '@src/tools/registry'
+import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'
+import { startRepl } from '@src/cli/repl'
+import { createSingleShotHandler } from '@src/cli/single-shot'
+import { Renderer } from '@src/cli/renderer'
+import { type Result, ok, err } from '@src/types'
 
-function main() {
-  const result = loadConfig()
+// ── CLI program definition ──────────────────────────────────────────
 
-  if (!result.ok) {
-    console.error(result.error.message)
+const program = new Command()
+
+program
+  .name('ouroboros')
+  .description('Ouroboros — a recursive self-improving AI agent')
+  .version('0.1.0')
+  .option('--model <model>', 'Override model selection (e.g., anthropic/claude-sonnet-4-20250514 or openai/gpt-4o)')
+  .option('-v, --verbose', 'Show tool call details (name, args, result)')
+  .option('--no-stream', 'Wait for full response before printing')
+  .option('--config <path>', 'Path to .ouroboros config file directory')
+  .option('-m, --message <prompt>', 'Process a single prompt and exit')
+
+// ── Main ─────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  program.parse(process.argv)
+  const opts = program.opts<{
+    model?: string
+    verbose?: boolean
+    stream: boolean
+    config?: string
+    message?: string
+  }>()
+
+  // Load config
+  const configResult = loadConfig(opts.config)
+  if (!configResult.ok) {
+    process.stderr.write(`${configResult.error.message}\n`)
     process.exit(1)
   }
 
-  console.log('Ouroboros v0.1.0')
-  console.log(`Provider: ${result.value.model.provider}`)
-  console.log(`Model: ${result.value.model.name}`)
+  let config = configResult.value
+
+  // Apply --model override
+  if (opts.model) {
+    const parseResult = parseModelFlag(opts.model)
+    if (!parseResult.ok) {
+      process.stderr.write(`${parseResult.error.message}\n`)
+      process.exit(1)
+    }
+    config = {
+      ...config,
+      model: {
+        ...config.model,
+        provider: parseResult.value.provider,
+        name: parseResult.value.name
+      }
+    }
+  }
+
+  const verbose = opts.verbose === true
+  const noStream = !opts.stream
+
+  // Create LLM provider
+  const providerResult = createProvider(config.model)
+  if (!providerResult.ok) {
+    process.stderr.write(`${providerResult.error.message}\n`)
+    process.exit(1)
+  }
+
+  // Create tool registry with auto-discovery
+  const registry = await createRegistry()
+
+  // Create a mutable event dispatch target.
+  // The Agent stores `onEvent` at construction time, so we use a proxy
+  // that forwards to whatever handler is currently set.
+  let currentHandler: AgentEventHandler = () => {}
+  const eventProxy: AgentEventHandler = (event: AgentEvent) => {
+    currentHandler(event)
+  }
+
+  // Create agent
+  const agent = new Agent({
+    model: providerResult.value,
+    toolRegistry: registry,
+    onEvent: eventProxy
+  })
+
+  // Determine mode: single-shot or interactive
+  const prompt = await detectPrompt(opts.message)
+
+  if (prompt !== null) {
+    // Single-shot mode
+    const { handler } = createSingleShotHandler({ verbose, noStream })
+    currentHandler = handler
+
+    try {
+      const result = await agent.run(prompt)
+      // Ensure output ends with a newline
+      process.stdout.write('\n')
+      process.exit(result.maxIterationsReached ? 1 : 0)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      process.stderr.write(`Fatal error: ${message}\n`)
+      process.exit(1)
+    }
+  } else {
+    // Interactive REPL mode
+    const renderer = new Renderer({
+      verbose,
+      isTTY: process.stdout.isTTY === true
+    })
+
+    renderer.writeBanner(config.model.provider, config.model.name)
+
+    await startRepl({
+      agent,
+      verbose,
+      setEventHandler: (handler: AgentEventHandler) => {
+        currentHandler = handler
+      }
+    })
+  }
 }
 
-main()
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Parse the --model flag value.
+ *
+ * Accepted formats:
+ *   "anthropic/claude-sonnet-4-20250514"  → provider=anthropic, name=claude-sonnet-4-20250514
+ *   "openai/gpt-4o"               → provider=openai, name=gpt-4o
+ *   "claude-sonnet-4-20250514"            → provider=anthropic (default), name=claude-sonnet-4-20250514
+ */
+function parseModelFlag(
+  value: string
+): Result<{ provider: 'anthropic' | 'openai' | 'openai-compatible'; name: string }> {
+  const parts = value.split('/')
+
+  if (parts.length === 1) {
+    // No provider prefix — use default
+    return ok({ provider: 'anthropic', name: parts[0] })
+  }
+
+  if (parts.length === 2) {
+    const [providerStr, name] = parts
+    const validProviders = ['anthropic', 'openai', 'openai-compatible'] as const
+    const provider = validProviders.find(p => p === providerStr)
+
+    if (!provider) {
+      return err(
+        new Error(
+          `Invalid provider "${providerStr}" in --model flag. ` +
+            `Valid providers: ${validProviders.join(', ')}. ` +
+            `Usage: --model provider/model-name`
+        )
+      )
+    }
+
+    return ok({ provider, name })
+  }
+
+  return err(new Error(`Invalid --model format: "${value}". Usage: --model provider/model-name`))
+}
+
+/**
+ * Detect the prompt for single-shot mode.
+ *
+ * Returns the prompt string if in single-shot mode, or null for interactive mode.
+ *
+ * Single-shot is triggered by:
+ * 1. `-m "prompt"` flag
+ * 2. Piped stdin (stdin is not a TTY)
+ */
+async function detectPrompt(messageFlag?: string): Promise<string | null> {
+  // Explicit -m flag takes priority
+  if (messageFlag) {
+    return messageFlag
+  }
+
+  // Check for piped stdin
+  if (!process.stdin.isTTY) {
+    return readStdin()
+  }
+
+  // No prompt detected — interactive mode
+  return null
+}
+
+/**
+ * Read all of stdin into a string (for piped input).
+ */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+
+  return new Promise((resolve, reject) => {
+    process.stdin.on('data', (chunk: Buffer) => {
+      chunks.push(chunk)
+    })
+
+    process.stdin.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf-8').trim())
+    })
+
+    process.stdin.on('error', reject)
+  })
+}
+
+// ── Entry point ─────────────────────────────────────────────────────
+
+main().catch(e => {
+  const message = e instanceof Error ? e.message : String(e)
+  process.stderr.write(`Fatal error: ${message}\n`)
+  process.exit(1)
+})
