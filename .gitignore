@@ -1,0 +1,32 @@
+**/.idea
+**/node_modules
+**/dist
+.DS_Store
+temp.md
+platform/frontend/coverage/**/*
+platform/frontend/html/**/*
+platform/frontend/vitest-report.xml
+.pnpm-store
+
+# Playwright Agents
+.planner/**/*
+.playwright-mcp/**/*
+
+# Codex
+output/**/*
+
+# Claude
+.claude/worktrees
+.claude/launch.json
+.claude/settings.local.json
+.claude/**/evals.json
+
+# Serena
+.serena/
+
+# VSCode
+.vscode/
+progress.md
+
+# Tickets
+tickets/**/*
