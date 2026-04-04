@@ -25,7 +25,7 @@ describe('ToolRegistry', () => {
   // -----------------------------------------------------------------------
   // Feature test: Registry discovers all tools
   // -----------------------------------------------------------------------
-  test('discovers all 8 tool files from src/tools/', async () => {
+  test('discovers all 9 tool files from src/tools/', async () => {
     const toolsDir = resolve(import.meta.dir, '../../src/tools')
     await registry.discover(toolsDir)
 
@@ -38,11 +38,12 @@ describe('ToolRegistry', () => {
       'file-edit',
       'file-read',
       'file-write',
+      'skill-manager',
       'todo',
       'web-fetch',
       'web-search',
     ])
-    expect(registry.size).toBe(8)
+    expect(registry.size).toBe(9)
   })
 
   test('getTools() returns metadata with name, description, and parameters', async () => {
