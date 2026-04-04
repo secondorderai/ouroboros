@@ -1,0 +1,632 @@
+import { describe, test, expect, beforeEach } from 'bun:test'
+import { Agent, type AgentEvent, type AgentOptions } from '@src/agent'
+import { ToolRegistry } from '@src/tools/registry'
+import { z } from 'zod'
+import { ok } from '@src/types'
+import type { ToolDefinition } from '@src/tools/types'
+import type { LanguageModelV1, LanguageModelV1StreamPart } from 'ai'
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Create a mock LanguageModelV1 that yields predetermined stream parts
+ * across multiple turns. Each call to doStream() consumes the next entry
+ * from the `turns` array.
+ */
+function createMockModel(turns: LanguageModelV1StreamPart[][]): LanguageModelV1 {
+  let turnIndex = 0
+
+  return {
+    specificationVersion: 'v1',
+    provider: 'mock',
+    modelId: 'mock-model',
+    defaultObjectGenerationMode: undefined,
+
+    doGenerate: async () => {
+      throw new Error('doGenerate not used by agent — use doStream')
+    },
+
+    doStream: async () => {
+      const parts = turns[turnIndex] ?? []
+      turnIndex++
+
+      return {
+        stream: new ReadableStream<LanguageModelV1StreamPart>({
+          start(controller) {
+            for (const part of parts) {
+              controller.enqueue(part)
+            }
+            controller.close()
+          }
+        }),
+        rawCall: { rawPrompt: null, rawSettings: {} },
+        rawResponse: { headers: {} },
+        warnings: []
+      }
+    }
+  }
+}
+
+/** Create a simple tool definition for testing. */
+function makeTool(name: string, handler?: (args: Record<string, unknown>) => unknown): ToolDefinition {
+  return {
+    name,
+    description: `Test tool: ${name}`,
+    schema: z.object({ input: z.string().optional() }),
+    execute: async args => ok(handler ? handler(args as Record<string, unknown>) : { output: `${name} executed` })
+  }
+}
+
+/** Collect all events from an agent run. */
+function collectEvents(): { events: AgentEvent[]; handler: (e: AgentEvent) => void } {
+  const events: AgentEvent[] = []
+  return { events, handler: (e: AgentEvent) => events.push(e) }
+}
+
+/** Build default agent options with overrides. */
+function makeAgentOptions(
+  model: LanguageModelV1,
+  registry: ToolRegistry,
+  overrides?: Partial<AgentOptions>
+): AgentOptions {
+  return {
+    model,
+    toolRegistry: registry,
+    // Override system prompt builder and providers to avoid filesystem access
+    systemPromptBuilder: () => 'You are a test assistant.',
+    memoryProvider: () => '',
+    skillCatalogProvider: () => [],
+    ...overrides
+  }
+}
+
+// ── Feature Tests ────────────────────────────────────────────────────
+
+describe('Agent', () => {
+  let registry: ToolRegistry
+
+  beforeEach(() => {
+    registry = new ToolRegistry()
+  })
+
+  // -------------------------------------------------------------------
+  // Test: Simple text response (no tool calls)
+  // -------------------------------------------------------------------
+  describe('simple text response', () => {
+    test('agent emits text chunks and turn completes with full text', async () => {
+      const model = createMockModel([
+        [
+          { type: 'text-delta', textDelta: 'Hello' },
+          { type: 'text-delta', textDelta: ', world!' },
+          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 10, completionTokens: 5 } }
+        ]
+      ])
+
+      const { events, handler } = collectEvents()
+      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
+
+      const result = await agent.run('Say hello')
+
+      expect(result.text).toBe('Hello, world!')
+      expect(result.iterations).toBe(1)
+      expect(result.maxIterationsReached).toBe(false)
+
+      // Check text events were emitted
+      const textEvents = events.filter(e => e.type === 'text')
+      expect(textEvents).toHaveLength(2)
+      expect(textEvents[0]).toEqual({ type: 'text', text: 'Hello' })
+      expect(textEvents[1]).toEqual({ type: 'text', text: ', world!' })
+
+      // Check turn-complete event
+      const turnComplete = events.find(e => e.type === 'turn-complete')
+      expect(turnComplete).toBeDefined()
+      if (turnComplete?.type === 'turn-complete') {
+        expect(turnComplete.text).toBe('Hello, world!')
+        expect(turnComplete.iterations).toBe(1)
+      }
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // Test: Single tool call round-trip
+  // -------------------------------------------------------------------
+  describe('single tool call round-trip', () => {
+    test('agent calls tool, injects result, and LLM produces final response', async () => {
+      registry.register(makeTool('bash', () => ({ output: 'hi\n', exitCode: 0 })))
+
+      const model = createMockModel([
+        // Turn 1: LLM responds with a tool call
+        [
+          {
+            type: 'tool-call',
+            toolCallType: 'function',
+            toolCallId: 'call_1',
+            toolName: 'bash',
+            args: '{"input":"echo hi"}'
+          },
+          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 15 } }
+        ],
+        // Turn 2: LLM produces final text after seeing tool result
+        [
+          { type: 'text-delta', textDelta: 'The command output: hi' },
+          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 30, completionTokens: 10 } }
+        ]
+      ])
+
+      const { events, handler } = collectEvents()
+      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
+
+      const result = await agent.run('Run echo hi')
+
+      expect(result.text).toBe('The command output: hi')
+      expect(result.iterations).toBe(2)
+
+      // Check tool events
+      const toolStarts = events.filter(e => e.type === 'tool-call-start')
+      expect(toolStarts).toHaveLength(1)
+      if (toolStarts[0]?.type === 'tool-call-start') {
+        expect(toolStarts[0].toolName).toBe('bash')
+        expect(toolStarts[0].toolCallId).toBe('call_1')
+      }
+
+      const toolEnds = events.filter(e => e.type === 'tool-call-end')
+      expect(toolEnds).toHaveLength(1)
+      if (toolEnds[0]?.type === 'tool-call-end') {
+        expect(toolEnds[0].toolName).toBe('bash')
+        expect(toolEnds[0].isError).toBe(false)
+      }
+
+      // Verify conversation history includes tool call and result
+      const history = agent.getConversationHistory()
+      const toolMsg = history.find(m => m.role === 'tool')
+      expect(toolMsg).toBeDefined()
+      if (toolMsg?.role === 'tool') {
+        expect(toolMsg.content).toHaveLength(1)
+        expect(toolMsg.content[0].toolCallId).toBe('call_1')
+        expect(toolMsg.content[0].toolName).toBe('bash')
+      }
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // Test: Multi-tool response
+  // -------------------------------------------------------------------
+  describe('multi-tool response', () => {
+    test('multiple tool calls in one LLM response are executed and results injected', async () => {
+      registry.register(makeTool('file-read', args => ({ content: `contents of ${args.input}` })))
+      registry.register(makeTool('bash', () => ({ output: 'done', exitCode: 0 })))
+
+      const model = createMockModel([
+        // Turn 1: LLM responds with two tool calls
+        [
+          {
+            type: 'tool-call',
+            toolCallType: 'function',
+            toolCallId: 'call_a',
+            toolName: 'file-read',
+            args: '{"input":"file1.txt"}'
+          },
+          {
+            type: 'tool-call',
+            toolCallType: 'function',
+            toolCallId: 'call_b',
+            toolName: 'file-read',
+            args: '{"input":"file2.txt"}'
+          },
+          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 20 } }
+        ],
+        // Turn 2: LLM produces final text
+        [
+          { type: 'text-delta', textDelta: 'Both files have been read.' },
+          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 50, completionTokens: 10 } }
+        ]
+      ])
+
+      const { events, handler } = collectEvents()
+      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
+
+      const result = await agent.run('Read two files')
+
+      expect(result.text).toBe('Both files have been read.')
+      expect(result.iterations).toBe(2)
+
+      // Both tool calls should have been made
+      const toolStarts = events.filter(e => e.type === 'tool-call-start')
+      expect(toolStarts).toHaveLength(2)
+
+      const toolEnds = events.filter(e => e.type === 'tool-call-end')
+      expect(toolEnds).toHaveLength(2)
+
+      // Verify both results were injected
+      const history = agent.getConversationHistory()
+      const toolMsg = history.find(m => m.role === 'tool')
+      expect(toolMsg).toBeDefined()
+      if (toolMsg?.role === 'tool') {
+        expect(toolMsg.content).toHaveLength(2)
+        expect(toolMsg.content[0].toolCallId).toBe('call_a')
+        expect(toolMsg.content[1].toolCallId).toBe('call_b')
+      }
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // Test: Multi-turn conversation
+  // -------------------------------------------------------------------
+  describe('multi-turn conversation', () => {
+    test('agent remembers prior turns within a session', async () => {
+      // Turn 1: user says name, LLM acknowledges
+      // Turn 2: user asks name, LLM recalls from history
+      let callCount = 0
+      const model: LanguageModelV1 = {
+        specificationVersion: 'v1',
+        provider: 'mock',
+        modelId: 'mock-model',
+        defaultObjectGenerationMode: undefined,
+
+        doGenerate: async () => {
+          throw new Error('Not used')
+        },
+
+        doStream: async ({ prompt }) => {
+          callCount++
+          // Check that the conversation history grows between turns
+          const messageCount = (prompt as unknown[]).length
+
+          let responseText: string
+          if (callCount === 1) {
+            responseText = 'Nice to meet you, Alice!'
+          } else {
+            // On second call, the conversation should contain prior messages
+            // (system + user1 + assistant1 + user2 = at least 4 messages)
+            expect(messageCount).toBeGreaterThanOrEqual(4)
+            responseText = 'Your name is Alice.'
+          }
+
+          return {
+            stream: new ReadableStream<LanguageModelV1StreamPart>({
+              start(controller) {
+                controller.enqueue({ type: 'text-delta', textDelta: responseText })
+                controller.enqueue({
+                  type: 'finish',
+                  finishReason: 'stop',
+                  usage: { promptTokens: 10, completionTokens: 10 }
+                })
+                controller.close()
+              }
+            }),
+            rawCall: { rawPrompt: null, rawSettings: {} },
+            rawResponse: { headers: {} },
+            warnings: []
+          }
+        }
+      }
+
+      const agent = new Agent(makeAgentOptions(model, registry))
+
+      const result1 = await agent.run('My name is Alice')
+      expect(result1.text).toBe('Nice to meet you, Alice!')
+
+      const result2 = await agent.run("What's my name?")
+      expect(result2.text).toBe('Your name is Alice.')
+
+      // Verify conversation history has all 4 messages (user, assistant, user, assistant)
+      const history = agent.getConversationHistory()
+      expect(history).toHaveLength(4)
+      expect(history[0]).toEqual({ role: 'user', content: 'My name is Alice' })
+      expect(history[1]).toEqual({ role: 'assistant', content: 'Nice to meet you, Alice!' })
+      expect(history[2]).toEqual({ role: 'user', content: "What's my name?" })
+      expect(history[3]).toEqual({ role: 'assistant', content: 'Your name is Alice.' })
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // Test: Max iteration guard
+  // -------------------------------------------------------------------
+  describe('max iteration guard', () => {
+    test('loop stops after max iterations and returns limit message', async () => {
+      registry.register(makeTool('bash', () => ({ output: 'looping' })))
+
+      // Mock LLM that always responds with a tool call (infinite loop)
+      const model: LanguageModelV1 = {
+        specificationVersion: 'v1',
+        provider: 'mock',
+        modelId: 'mock-model',
+        defaultObjectGenerationMode: undefined,
+
+        doGenerate: async () => {
+          throw new Error('Not used')
+        },
+
+        doStream: async () => {
+          return {
+            stream: new ReadableStream<LanguageModelV1StreamPart>({
+              start(controller) {
+                controller.enqueue({
+                  type: 'tool-call',
+                  toolCallType: 'function',
+                  toolCallId: `call_${Date.now()}_${Math.random()}`,
+                  toolName: 'bash',
+                  args: '{"input":"loop"}'
+                })
+                controller.enqueue({
+                  type: 'finish',
+                  finishReason: 'tool-calls',
+                  usage: { promptTokens: 10, completionTokens: 5 }
+                })
+                controller.close()
+              }
+            }),
+            rawCall: { rawPrompt: null, rawSettings: {} },
+            rawResponse: { headers: {} },
+            warnings: []
+          }
+        }
+      }
+
+      const { events, handler } = collectEvents()
+      const agent = new Agent(
+        makeAgentOptions(model, registry, {
+          maxIterations: 3,
+          onEvent: handler
+        })
+      )
+
+      const result = await agent.run('Do something')
+
+      expect(result.maxIterationsReached).toBe(true)
+      expect(result.iterations).toBe(3)
+      expect(result.text).toContain('maximum of 3 iterations')
+
+      // Should have emitted an error event about hitting the limit
+      const errorEvents = events.filter(e => e.type === 'error')
+      const limitError = errorEvents.find(e => e.type === 'error' && !e.recoverable)
+      expect(limitError).toBeDefined()
+
+      // Should have emitted a turn-complete event
+      const turnComplete = events.find(e => e.type === 'turn-complete')
+      expect(turnComplete).toBeDefined()
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // Test: LLM error recovery
+  // -------------------------------------------------------------------
+  describe('LLM error recovery', () => {
+    test('agent handles LLM error and recovers on retry', async () => {
+      let callCount = 0
+      const model: LanguageModelV1 = {
+        specificationVersion: 'v1',
+        provider: 'mock',
+        modelId: 'mock-model',
+        defaultObjectGenerationMode: undefined,
+
+        doGenerate: async () => {
+          throw new Error('Not used')
+        },
+
+        doStream: async () => {
+          callCount++
+
+          if (callCount === 1) {
+            // First call fails
+            throw new Error('fetch failed: ECONNRESET')
+          }
+
+          // Second call succeeds
+          return {
+            stream: new ReadableStream<LanguageModelV1StreamPart>({
+              start(controller) {
+                controller.enqueue({ type: 'text-delta', textDelta: 'Recovered successfully!' })
+                controller.enqueue({
+                  type: 'finish',
+                  finishReason: 'stop',
+                  usage: { promptTokens: 20, completionTokens: 10 }
+                })
+                controller.close()
+              }
+            }),
+            rawCall: { rawPrompt: null, rawSettings: {} },
+            rawResponse: { headers: {} },
+            warnings: []
+          }
+        }
+      }
+
+      const { events, handler } = collectEvents()
+      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
+
+      const result = await agent.run('Hello')
+
+      expect(result.text).toBe('Recovered successfully!')
+      // First iteration fails, second succeeds
+      expect(result.iterations).toBe(2)
+      expect(result.maxIterationsReached).toBe(false)
+
+      // Should have emitted a recoverable error event
+      const errorEvents = events.filter(e => e.type === 'error' && e.recoverable)
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1)
+    })
+
+    test('agent handles mid-stream errors and recovers', async () => {
+      let callCount = 0
+      const model: LanguageModelV1 = {
+        specificationVersion: 'v1',
+        provider: 'mock',
+        modelId: 'mock-model',
+        defaultObjectGenerationMode: undefined,
+
+        doGenerate: async () => {
+          throw new Error('Not used')
+        },
+
+        doStream: async () => {
+          callCount++
+
+          if (callCount === 1) {
+            // First call: stream starts but then errors
+            return {
+              stream: new ReadableStream<LanguageModelV1StreamPart>({
+                start(controller) {
+                  controller.enqueue({ type: 'text-delta', textDelta: 'Partial...' })
+                  controller.error(new Error('Connection reset'))
+                }
+              }),
+              rawCall: { rawPrompt: null, rawSettings: {} },
+              rawResponse: { headers: {} },
+              warnings: []
+            }
+          }
+
+          // Second call succeeds
+          return {
+            stream: new ReadableStream<LanguageModelV1StreamPart>({
+              start(controller) {
+                controller.enqueue({ type: 'text-delta', textDelta: 'Full response after recovery.' })
+                controller.enqueue({
+                  type: 'finish',
+                  finishReason: 'stop',
+                  usage: { promptTokens: 20, completionTokens: 15 }
+                })
+                controller.close()
+              }
+            }),
+            rawCall: { rawPrompt: null, rawSettings: {} },
+            rawResponse: { headers: {} },
+            warnings: []
+          }
+        }
+      }
+
+      const { handler } = collectEvents()
+      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
+
+      const result = await agent.run('Hello')
+
+      expect(result.text).toBe('Full response after recovery.')
+      expect(result.maxIterationsReached).toBe(false)
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // Additional tests
+  // -------------------------------------------------------------------
+
+  describe('conversation management', () => {
+    test('clearHistory() resets conversation state', async () => {
+      const model = createMockModel([
+        [
+          { type: 'text-delta', textDelta: 'First response' },
+          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 5 } }
+        ]
+      ])
+
+      const agent = new Agent(makeAgentOptions(model, registry))
+      await agent.run('Hello')
+
+      expect(agent.getConversationHistory()).toHaveLength(2) // user + assistant
+
+      agent.clearHistory()
+      expect(agent.getConversationHistory()).toHaveLength(0)
+    })
+
+    test('getConversationHistory() returns a copy', async () => {
+      const model = createMockModel([
+        [
+          { type: 'text-delta', textDelta: 'Response' },
+          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 5 } }
+        ]
+      ])
+
+      const agent = new Agent(makeAgentOptions(model, registry))
+      await agent.run('Hello')
+
+      const history1 = agent.getConversationHistory()
+      const history2 = agent.getConversationHistory()
+
+      // Should be equal but not the same reference
+      expect(history1).toEqual(history2)
+      expect(history1).not.toBe(history2)
+    })
+  })
+
+  describe('tool error handling', () => {
+    test('tool execution errors are reported as tool results, not crashes', async () => {
+      registry.register({
+        name: 'failing-tool',
+        description: 'A tool that always fails',
+        schema: z.object({ input: z.string().optional() }),
+        execute: async () => {
+          throw new Error('Tool crashed!')
+        }
+      })
+
+      const model = createMockModel([
+        // Turn 1: LLM calls the failing tool
+        [
+          {
+            type: 'tool-call',
+            toolCallType: 'function',
+            toolCallId: 'call_fail',
+            toolName: 'failing-tool',
+            args: '{}'
+          },
+          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 5 } }
+        ],
+        // Turn 2: LLM acknowledges the error
+        [
+          { type: 'text-delta', textDelta: 'The tool failed, let me try another approach.' },
+          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 30, completionTokens: 15 } }
+        ]
+      ])
+
+      const { events, handler } = collectEvents()
+      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
+
+      const result = await agent.run('Use the failing tool')
+
+      // Agent should not crash — it should get a response
+      expect(result.text).toBe('The tool failed, let me try another approach.')
+
+      // The tool-call-end event should indicate an error
+      const toolEnd = events.find(e => e.type === 'tool-call-end')
+      expect(toolEnd).toBeDefined()
+      if (toolEnd?.type === 'tool-call-end') {
+        expect(toolEnd.isError).toBe(true)
+        expect(toolEnd.result).toContain('Tool crashed!')
+      }
+    })
+  })
+
+  describe('system prompt building', () => {
+    test('system prompt builder is called with tools, skills, and memory', async () => {
+      registry.register(makeTool('test-tool'))
+
+      let capturedOptions: unknown = null
+      const model = createMockModel([
+        [
+          { type: 'text-delta', textDelta: 'Ok' },
+          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 1 } }
+        ]
+      ])
+
+      const agent = new Agent(
+        makeAgentOptions(model, registry, {
+          systemPromptBuilder: opts => {
+            capturedOptions = opts
+            return 'Test system prompt'
+          },
+          memoryProvider: () => 'Test memory content',
+          skillCatalogProvider: () => [{ name: 'test-skill', description: 'A test skill', status: 'core' as const }]
+        })
+      )
+
+      await agent.run('Test')
+
+      expect(capturedOptions).toBeDefined()
+      const opts = capturedOptions as { tools: unknown[]; skills: unknown[]; memory: string }
+      expect(opts.tools).toHaveLength(1)
+      expect(opts.skills).toHaveLength(1)
+      expect(opts.memory).toBe('Test memory content')
+    })
+  })
+})
