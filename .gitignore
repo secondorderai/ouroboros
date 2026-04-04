@@ -8,6 +8,14 @@ platform/frontend/html/**/*
 platform/frontend/vitest-report.xml
 .pnpm-store
 
+# Bun
+bun.lockb
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+
 # Playwright Agents
 .planner/**/*
 .playwright-mcp/**/*
