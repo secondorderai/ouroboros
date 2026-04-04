@@ -1,0 +1,137 @@
+import { describe, test, expect, beforeEach } from 'bun:test'
+import { ToolRegistry } from '@src/tools/registry'
+import { z } from 'zod'
+import { ok } from '@src/types'
+import type { ToolDefinition } from '@src/tools/types'
+import { resolve } from 'node:path'
+
+/** Helper: create a minimal valid tool definition. */
+function makeTool(name: string): ToolDefinition {
+  return {
+    name,
+    description: `A test tool called ${name}`,
+    schema: z.object({ input: z.string() }),
+    execute: async (args) => ok({ echo: (args as { input: string }).input }),
+  }
+}
+
+describe('ToolRegistry', () => {
+  let registry: ToolRegistry
+
+  beforeEach(() => {
+    registry = new ToolRegistry()
+  })
+
+  // -----------------------------------------------------------------------
+  // Feature test: Registry discovers all tools
+  // -----------------------------------------------------------------------
+  test('discovers all 8 tool files from src/tools/', async () => {
+    const toolsDir = resolve(import.meta.dir, '../../src/tools')
+    await registry.discover(toolsDir)
+
+    const tools = registry.getTools()
+    const names = tools.map((t) => t.name).sort()
+
+    expect(names).toEqual([
+      'ask-user',
+      'bash',
+      'file-edit',
+      'file-read',
+      'file-write',
+      'todo',
+      'web-fetch',
+      'web-search',
+    ])
+    expect(registry.size).toBe(8)
+  })
+
+  test('getTools() returns metadata with name, description, and parameters', async () => {
+    registry.register(makeTool('test-tool'))
+
+    const tools = registry.getTools()
+    expect(tools).toHaveLength(1)
+    expect(tools[0].name).toBe('test-tool')
+    expect(tools[0].description).toBe('A test tool called test-tool')
+    expect(tools[0].parameters).toEqual({
+      type: 'object',
+      properties: {
+        input: { type: 'string' },
+      },
+      required: ['input'],
+    })
+  })
+
+  test('getTool() returns the tool definition by name', () => {
+    const tool = makeTool('my-tool')
+    registry.register(tool)
+
+    expect(registry.getTool('my-tool')).toBe(tool)
+    expect(registry.getTool('nonexistent')).toBeUndefined()
+  })
+
+  // -----------------------------------------------------------------------
+  // Feature test: Registry rejects invalid args
+  // -----------------------------------------------------------------------
+  test('executeTool rejects invalid arguments', async () => {
+    registry.register(makeTool('echo'))
+
+    // input should be string, not number
+    const result = await registry.executeTool('echo', { input: 123 })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('Invalid arguments')
+      expect(result.error.message).toContain('echo')
+    }
+  })
+
+  test('executeTool returns error for unknown tool', async () => {
+    const result = await registry.executeTool('nonexistent', {})
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('Unknown tool')
+    }
+  })
+
+  test('executeTool succeeds with valid arguments', async () => {
+    registry.register(makeTool('echo'))
+
+    const result = await registry.executeTool('echo', { input: 'hello' })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value).toEqual({ echo: 'hello' })
+    }
+  })
+
+  test('executeTool catches thrown errors from tool execute', async () => {
+    registry.register({
+      name: 'broken',
+      description: 'A tool that throws',
+      schema: z.object({}),
+      execute: async () => {
+        throw new Error('kaboom')
+      },
+    })
+
+    const result = await registry.executeTool('broken', {})
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('threw unexpectedly')
+      expect(result.error.message).toContain('kaboom')
+    }
+  })
+
+  test('skips non-tool files during discovery', async () => {
+    // Discover from the tools directory — types.ts and registry.ts should be skipped
+    const toolsDir = resolve(import.meta.dir, '../../src/tools')
+    await registry.discover(toolsDir)
+
+    // Verify types.ts and registry.ts are NOT registered as tools
+    expect(registry.getTool('types')).toBeUndefined()
+    expect(registry.getTool('registry')).toBeUndefined()
+  })
+
+  test('handles non-existent directory gracefully', async () => {
+    await registry.discover('/nonexistent/path/tools')
+    expect(registry.size).toBe(0)
+  })
+})

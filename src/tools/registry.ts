@@ -1,0 +1,197 @@
+import { readdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { z } from 'zod'
+import { type Result, err } from '@src/types'
+import type { ToolDefinition, ToolMetadata } from './types'
+
+/** Files that should never be loaded as tools. */
+const SKIP_FILES = new Set(['types.ts', 'registry.ts', '.gitkeep'])
+
+/**
+ * The tool registry.
+ *
+ * Auto-discovers tool modules from a directory, validates their exports,
+ * and provides lookup / dispatch helpers used by the agent loop.
+ */
+export class ToolRegistry {
+  private tools = new Map<string, ToolDefinition>()
+
+  /** Register a single tool definition (useful for testing). */
+  register(tool: ToolDefinition): void {
+    this.tools.set(tool.name, tool)
+  }
+
+  /**
+   * Auto-discover and register all valid tool modules in the given directory.
+   *
+   * Skips files in `SKIP_FILES` and any module that doesn't conform to
+   * the `ToolDefinition` interface (logs a warning instead of crashing).
+   */
+  async discover(directory?: string): Promise<void> {
+    const dir = directory ?? resolve(import.meta.dir)
+
+    let files: string[]
+    try {
+      files = readdirSync(dir).filter(
+        (f) => f.endsWith('.ts') && !SKIP_FILES.has(f),
+      )
+    } catch {
+      // Directory doesn't exist or isn't readable — nothing to discover.
+      return
+    }
+
+    for (const file of files) {
+      const modulePath = join(dir, file)
+      try {
+        const mod = await import(modulePath)
+        if (isToolDefinition(mod)) {
+          this.tools.set(mod.name, mod as ToolDefinition)
+        } else if (isToolDefinition(mod.default)) {
+          this.tools.set(mod.default.name, mod.default as ToolDefinition)
+        }
+        // Silently skip modules that don't export a valid tool definition.
+      } catch {
+        // Import failed — skip this file.
+      }
+    }
+  }
+
+  /** Return metadata for all registered tools (for system prompt injection). */
+  getTools(): ToolMetadata[] {
+    return Array.from(this.tools.values()).map(toMetadata)
+  }
+
+  /** Return a single tool definition by name, or undefined. */
+  getTool(name: string): ToolDefinition | undefined {
+    return this.tools.get(name)
+  }
+
+  /** Number of registered tools. */
+  get size(): number {
+    return this.tools.size
+  }
+
+  /**
+   * Validate arguments against the tool's schema, then execute.
+   *
+   * Returns `Result` — never throws, even if the tool itself misbehaves.
+   */
+  async executeTool(name: string, args: unknown): Promise<Result<unknown>> {
+    const tool = this.tools.get(name)
+    if (!tool) {
+      return err(new Error(`Unknown tool: "${name}"`))
+    }
+
+    // Validate args against the Zod schema.
+    const parsed = tool.schema.safeParse(args)
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((i) => `${i.path.join('.')}: ${i.message}`)
+        .join('; ')
+      return err(new Error(`Invalid arguments for tool "${name}": ${issues}`))
+    }
+
+    try {
+      return await tool.execute(parsed.data)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      return err(new Error(`Tool "${name}" threw unexpectedly: ${message}`))
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isToolDefinition(obj: unknown): obj is ToolDefinition {
+  if (obj == null || typeof obj !== 'object') return false
+  const t = obj as Record<string, unknown>
+  return (
+    typeof t.name === 'string' &&
+    typeof t.description === 'string' &&
+    t.schema instanceof z.ZodObject &&
+    typeof t.execute === 'function'
+  )
+}
+
+function toMetadata(tool: ToolDefinition): ToolMetadata {
+  // Use zodToJsonSchema-compatible approach: Zod's .shape gives us the raw
+  // shape. For a lightweight conversion we just describe the schema fields.
+  return {
+    name: tool.name,
+    description: tool.description,
+    parameters: zodSchemaToJsonSchema(tool.schema),
+  }
+}
+
+/**
+ * Minimal Zod-to-JSON-Schema converter.
+ *
+ * Covers the primitive types we actually use in tool schemas
+ * (string, number, boolean, enum, array, optional wrappers).
+ * For anything more complex, consider `zod-to-json-schema` package.
+ */
+function zodSchemaToJsonSchema(schema: z.ZodObject<z.ZodRawShape>): Record<string, unknown> {
+  const shape = schema.shape
+  const properties: Record<string, unknown> = {}
+  const required: string[] = []
+
+  for (const [key, value] of Object.entries(shape)) {
+    const { jsonSchema, isOptional } = zodTypeToJsonSchema(value as z.ZodTypeAny)
+    properties[key] = jsonSchema
+    if (!isOptional) {
+      required.push(key)
+    }
+  }
+
+  return {
+    type: 'object',
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+  }
+}
+
+function zodTypeToJsonSchema(schema: z.ZodTypeAny): { jsonSchema: Record<string, unknown>; isOptional: boolean } {
+  // Unwrap optional / default
+  if (schema instanceof z.ZodOptional) {
+    const inner = zodTypeToJsonSchema(schema._def.innerType)
+    return { jsonSchema: inner.jsonSchema, isOptional: true }
+  }
+  if (schema instanceof z.ZodDefault) {
+    const inner = zodTypeToJsonSchema(schema._def.innerType)
+    return { jsonSchema: { ...inner.jsonSchema, default: schema._def.defaultValue() }, isOptional: true }
+  }
+
+  // Primitives
+  if (schema instanceof z.ZodString) {
+    return { jsonSchema: { type: 'string' }, isOptional: false }
+  }
+  if (schema instanceof z.ZodNumber) {
+    return { jsonSchema: { type: 'number' }, isOptional: false }
+  }
+  if (schema instanceof z.ZodBoolean) {
+    return { jsonSchema: { type: 'boolean' }, isOptional: false }
+  }
+
+  // Enum
+  if (schema instanceof z.ZodEnum) {
+    return { jsonSchema: { type: 'string', enum: schema._def.values }, isOptional: false }
+  }
+
+  // Array
+  if (schema instanceof z.ZodArray) {
+    const inner = zodTypeToJsonSchema(schema._def.type)
+    return { jsonSchema: { type: 'array', items: inner.jsonSchema }, isOptional: false }
+  }
+
+  // Fallback
+  return { jsonSchema: {}, isOptional: false }
+}
+
+/** Convenience: create a registry with auto-discovered tools. */
+export async function createRegistry(directory?: string): Promise<ToolRegistry> {
+  const registry = new ToolRegistry()
+  await registry.discover(directory)
+  return registry
+}
