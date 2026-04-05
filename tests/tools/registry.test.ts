@@ -35,6 +35,8 @@ describe('ToolRegistry', () => {
     expect(names).toEqual([
       'ask-user',
       'bash',
+      'dream',
+      'evolution',
       'file-edit',
       'file-read',
       'file-write',
@@ -170,6 +172,8 @@ describe('ToolRegistry', () => {
     expect(names).toEqual([
       'ask-user',
       'bash',
+      'dream',
+      'evolution',
       'file-edit',
       'file-read',
       'file-write',
