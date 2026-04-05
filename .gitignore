@@ -8,6 +8,11 @@ platform/frontend/html/**/*
 platform/frontend/vitest-report.xml
 .pnpm-store
 
+# Environment
+.env
+.env.local
+.env.*.local
+
 # Bun
 bun.lockb
 
@@ -38,3 +43,4 @@ progress.md
 
 # Tickets
 tickets/**/*
+.agents/**/*
