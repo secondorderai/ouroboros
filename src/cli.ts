@@ -14,15 +14,15 @@
  *   --config <path>           Path to .ouroboros config file
  */
 
-import { Command } from 'commander'
+import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'
+import { Renderer } from '@src/cli/renderer'
+import { startRepl } from '@src/cli/repl'
+import { createSingleShotHandler } from '@src/cli/single-shot'
 import { loadConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { createRegistry } from '@src/tools/registry'
-import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'
-import { startRepl } from '@src/cli/repl'
-import { createSingleShotHandler } from '@src/cli/single-shot'
-import { Renderer } from '@src/cli/renderer'
-import { type Result, ok, err } from '@src/types'
+import { type Result, err, ok } from '@src/types'
+import { Command } from 'commander'
 
 // ── CLI program definition ──────────────────────────────────────────
 
@@ -32,10 +32,7 @@ program
   .name('ouroboros')
   .description('Ouroboros — a recursive self-improving AI agent')
   .version('0.1.0')
-  .option(
-    '--model <model>',
-    'Override model selection (e.g., anthropic/claude-sonnet-4-20250514 or openai/gpt-4o)',
-  )
+  .option('--model <model>', 'Override model selection (e.g., openai/gpt-5.4)')
   .option('-v, --verbose', 'Show tool call details (name, args, result)')
   .option('--no-stream', 'Wait for full response before printing')
   .option('--config <path>', 'Path to .ouroboros config file directory')
@@ -165,7 +162,7 @@ async function main(): Promise<void> {
  *
  * Accepted formats:
  *   "anthropic/claude-sonnet-4-20250514"  → provider=anthropic, name=claude-sonnet-4-20250514
- *   "openai/gpt-4o"               → provider=openai, name=gpt-4o
+ *   "openai/gpt-5.4"               → provider=openai, name=gpt-5.4
  *   "claude-sonnet-4-20250514"            → provider=anthropic (default), name=claude-sonnet-4-20250514
  */
 function parseModelFlag(

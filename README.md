@@ -173,7 +173,7 @@ import { Agent } from './src/agent'
 import { createProvider } from './src/llm/provider'
 import { createRegistry } from './src/tools/registry'
 
-const model = createProvider({ provider: 'anthropic', name: 'claude-sonnet-4-20250514' })
+const model = createProvider({ provider: 'openai', name: 'gpt-5.4' })
 const toolRegistry = await createRegistry()
 
 const agent = new Agent({
