@@ -179,4 +179,18 @@ describe('ToolRegistry', () => {
     ])
     expect(bundledRegistry.size).toBe(10)
   })
+
+  test('all built-in tools produce JSON Schema with type: "object" (AI SDK requirement)', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+
+    const bundledRegistry = await createRegistry()
+    const tools = bundledRegistry.getTools()
+
+    for (const tool of tools) {
+      expect(tool.parameters).toBeDefined()
+      expect(
+        (tool.parameters as { type?: string }).type,
+      ).toBe('object')
+    }
+  })
 })
