@@ -1,21 +1,35 @@
 import { describe, test, expect } from 'bun:test'
 import { streamResponse, generateResponse } from '@src/llm/streaming'
 import type { LLMMessage, StreamChunk, LLMCallOptions } from '@src/llm/types'
-import type { LanguageModelV2StreamPart } from '@ai-sdk/provider'
+import type { LanguageModelV3FinishReason, LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 
 /**
- * Create a mock LanguageModelV2 that returns predetermined responses.
+ * V3 finish event helper — builds the nested usage/finishReason structure.
+ */
+function v3Finish(finishReason: LanguageModelV3FinishReason['unified'], inputTokens: number, outputTokens: number) {
+  return {
+    type: 'finish' as const,
+    finishReason: { unified: finishReason, raw: finishReason },
+    usage: {
+      inputTokens: { total: inputTokens, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+      outputTokens: { total: outputTokens, text: undefined, reasoning: undefined },
+    },
+  }
+}
+
+/**
+ * Create a mock LanguageModelV3 that returns predetermined responses.
  * This avoids making real API calls in tests.
  */
 function createMockModel(options: {
-  streamParts?: LanguageModelV2StreamPart[]
+  streamParts?: LanguageModelV3StreamPart[]
   generateText?: string
   generateToolCalls?: Array<{ toolCallId: string; toolName: string; input: string }>
   error?: Error
 }): LanguageModel {
   return {
-    specificationVersion: 'v2',
+    specificationVersion: 'v3',
     provider: 'mock',
     modelId: 'mock-model',
     supportedUrls: {},
@@ -43,10 +57,8 @@ function createMockModel(options: {
 
       return {
         content,
-        finishReason: 'stop' as const,
-        usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
-        rawCall: { rawPrompt: null, rawSettings: {} },
-        rawResponse: { headers: {} },
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: { inputTokens: { total: 10 }, outputTokens: { total: 20 } },
         warnings: [],
       }
     },
@@ -57,7 +69,7 @@ function createMockModel(options: {
       const parts = options.streamParts ?? []
 
       return {
-        stream: new ReadableStream<LanguageModelV2StreamPart>({
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
           start(controller) {
             for (const part of parts) {
               controller.enqueue(part)
@@ -65,8 +77,6 @@ function createMockModel(options: {
             controller.close()
           },
         }),
-        rawCall: { rawPrompt: null, rawSettings: {} },
-        rawResponse: { headers: {} },
         warnings: [],
       }
     },
@@ -112,14 +122,12 @@ describe('streamResponse', () => {
   test('yields text chunks incrementally', async () => {
     const model = createMockModel({
       streamParts: [
-        { type: 'text-delta', id: 'td1', delta: 'Hello' },
-        { type: 'text-delta', id: 'td2', delta: ' world' },
-        { type: 'text-delta', id: 'td3', delta: '!' },
-        {
-          type: 'finish',
-          finishReason: 'stop',
-          usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 },
-        },
+        { type: 'text-start', id: 'tx1' },
+        { type: 'text-delta', id: 'tx1', delta: 'Hello' },
+        { type: 'text-delta', id: 'tx1', delta: ' world' },
+        { type: 'text-delta', id: 'tx1', delta: '!' },
+        { type: 'text-end', id: 'tx1' },
+        v3Finish('stop', 5, 3),
       ],
     })
 
@@ -144,17 +152,16 @@ describe('streamResponse', () => {
   test('parses tool calls from stream', async () => {
     const model = createMockModel({
       streamParts: [
+        { type: 'tool-input-start', id: 'call_123', toolName: 'read_file' },
+        { type: 'tool-input-delta', id: 'call_123', delta: '{"path":"/tmp/test.txt"}' },
+        { type: 'tool-input-end', id: 'call_123' },
         {
           type: 'tool-call',
           toolCallId: 'call_123',
           toolName: 'read_file',
           input: '{"path":"/tmp/test.txt"}',
         },
-        {
-          type: 'finish',
-          finishReason: 'tool-calls',
-          usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
-        },
+        v3Finish('tool-calls', 10, 15),
       ],
     })
 
@@ -184,12 +191,10 @@ describe('streamResponse', () => {
   test('yields finish event with usage information', async () => {
     const model = createMockModel({
       streamParts: [
-        { type: 'text-delta', id: 'td4', delta: 'Done' },
-        {
-          type: 'finish',
-          finishReason: 'stop',
-          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        },
+        { type: 'text-start', id: 'tx2' },
+        { type: 'text-delta', id: 'tx2', delta: 'Done' },
+        { type: 'text-end', id: 'tx2' },
+        v3Finish('stop', 100, 50),
       ],
     })
 
@@ -217,13 +222,11 @@ describe('streamResponse', () => {
   test('resolves text promise with full accumulated text', async () => {
     const model = createMockModel({
       streamParts: [
-        { type: 'text-delta', id: 'td5', delta: 'Hello' },
-        { type: 'text-delta', id: 'td6', delta: ' world' },
-        {
-          type: 'finish',
-          finishReason: 'stop',
-          usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
-        },
+        { type: 'text-start', id: 'tx3' },
+        { type: 'text-delta', id: 'tx3', delta: 'Hello' },
+        { type: 'text-delta', id: 'tx3', delta: ' world' },
+        { type: 'text-end', id: 'tx3' },
+        v3Finish('stop', 5, 2),
       ],
     })
 
@@ -252,6 +255,11 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
+    // Suppress unhandled rejections from promises that reject when doStream throws
+    result.value.text.catch(() => {})
+    result.value.toolCalls.catch(() => {})
+    result.value.usage.catch(() => {})
+
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
       chunks.push(chunk)
@@ -268,7 +276,7 @@ describe('streamResponse', () => {
     // When the underlying ReadableStream errors, the AI SDK throws during iteration.
     // Our createChunkStream catches these and yields error chunks.
     const failingModel = {
-      specificationVersion: 'v2',
+      specificationVersion: 'v3',
       provider: 'mock',
       modelId: 'mock-model',
       supportedUrls: {},
@@ -278,14 +286,13 @@ describe('streamResponse', () => {
       },
 
       doStream: async () => ({
-        stream: new ReadableStream<LanguageModelV2StreamPart>({
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
           start(controller) {
-            controller.enqueue({ type: 'text-delta', id: 'td7', delta: 'Partial' })
+            controller.enqueue({ type: 'text-start', id: 'tx4' })
+            controller.enqueue({ type: 'text-delta', id: 'tx4', delta: 'Partial' })
             controller.error(new Error('fetch failed: ECONNRESET'))
           },
         }),
-        rawCall: { rawPrompt: null, rawSettings: {} },
-        rawResponse: { headers: {} },
         warnings: [],
       }),
     } as LanguageModel
@@ -294,6 +301,11 @@ describe('streamResponse', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
+
+    // Suppress unhandled rejections from promises that reject on stream error
+    result.value.text.catch(() => {})
+    result.value.toolCalls.catch(() => {})
+    result.value.usage.catch(() => {})
 
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
@@ -318,6 +330,11 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
+    // Suppress unhandled rejections from promises that reject when doStream throws
+    result.value.text.catch(() => {})
+    result.value.toolCalls.catch(() => {})
+    result.value.usage.catch(() => {})
+
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
       chunks.push(chunk)
@@ -339,6 +356,11 @@ describe('streamResponse', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
+
+    // Suppress unhandled rejections from promises that reject when doStream throws
+    result.value.text.catch(() => {})
+    result.value.toolCalls.catch(() => {})
+    result.value.usage.catch(() => {})
 
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {

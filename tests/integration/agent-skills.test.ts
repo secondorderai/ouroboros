@@ -15,7 +15,7 @@ import {
   _resetSkills,
 } from '@src/tools/skill-manager'
 import { buildSystemPrompt } from '@src/llm/prompt'
-import { createInspectingMockModel, textDelta, finishStop } from '../helpers/mock-llm'
+import { createInspectingMockModel, textBlock, finishStop } from '../helpers/mock-llm'
 import {
   makeTempDir,
   cleanupTempDir,
@@ -134,7 +134,7 @@ describe('Agent + Skills Integration', () => {
             : systemMsg.content,
         )
       }
-      return [textDelta('I can see the available skills.'), finishStop()]
+      return [...textBlock('I can see the available skills.'), finishStop()]
     })
 
     const catalog = getSkillCatalog()

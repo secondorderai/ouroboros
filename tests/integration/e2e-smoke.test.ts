@@ -28,8 +28,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   createMockModel,
-  textDelta,
-  toolCall,
+  textBlock,
+  toolCallBlock,
   finishStop,
   finishToolCalls,
 } from '../helpers/mock-llm'
@@ -65,7 +65,7 @@ describe('E2E Smoke Test', () => {
     const model = createMockModel([
       // Step 1: LLM calls file-write
       [
-        toolCall('call_write', 'file-write', {
+        ...toolCallBlock('call_write', 'file-write', {
           path: filePath,
           content: fileContent,
         }),
@@ -73,15 +73,17 @@ describe('E2E Smoke Test', () => {
       ],
       // Step 2: LLM calls file-read after write succeeds
       [
-        toolCall('call_read', 'file-read', {
+        ...toolCallBlock('call_read', 'file-read', {
           path: filePath,
         }),
         finishToolCalls(),
       ],
       // Step 3: LLM produces final summary text
       [
-        textDelta("I created the file hello.txt with the content 'Hello from Ouroboros'. "),
-        textDelta('After reading it back, I can confirm the file contains: Hello from Ouroboros'),
+        ...textBlock(
+          "I created the file hello.txt with the content 'Hello from Ouroboros'. ",
+          'After reading it back, I can confirm the file contains: Hello from Ouroboros',
+        ),
         finishStop(),
       ],
     ])
@@ -224,9 +226,9 @@ describe('E2E Smoke Test', () => {
     // Turn 2: Another text response that references turn 1
     const model = createMockModel([
       // Turn 1
-      [textDelta('I understand. You want me to call you Alice.'), finishStop()],
+      [...textBlock('I understand. You want me to call you Alice.'), finishStop()],
       // Turn 2
-      [textDelta('Your name is Alice, as you told me earlier.'), finishStop()],
+      [...textBlock('Your name is Alice, as you told me earlier.'), finishStop()],
     ])
 
     const agent = new Agent(makeAgentOptions(model, registry))
@@ -261,19 +263,19 @@ describe('E2E Smoke Test', () => {
     const model = createMockModel([
       // Step 1: LLM tries to read a non-existent file
       [
-        toolCall('call_read_bad', 'file-read', { path: join(tempDir, 'nonexistent.txt') }),
+        ...toolCallBlock('call_read_bad', 'file-read', { path: join(tempDir, 'nonexistent.txt') }),
         finishToolCalls(),
       ],
       // Step 2: LLM sees the error and writes the file instead
       [
-        toolCall('call_write', 'file-write', {
+        ...toolCallBlock('call_write', 'file-write', {
           path: filePath,
           content: 'Recovery content',
         }),
         finishToolCalls(),
       ],
       // Step 3: Final response
-      [textDelta('The file did not exist, so I created it with recovery content.'), finishStop()],
+      [...textBlock('The file did not exist, so I created it with recovery content.'), finishStop()],
     ])
 
     const { events, handler } = collectEvents()

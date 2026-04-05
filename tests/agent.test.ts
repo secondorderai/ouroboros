@@ -4,21 +4,21 @@ import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
-import type { LanguageModelV2StreamPart } from '@ai-sdk/provider'
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
- * Create a mock LanguageModelV2 that yields predetermined stream parts
+ * Create a mock LanguageModelV3 that yields predetermined stream parts
  * across multiple turns. Each call to doStream() consumes the next entry
  * from the `turns` array.
  */
-function createMockModel(turns: LanguageModelV2StreamPart[][]): LanguageModel {
+function createMockModel(turns: LanguageModelV3StreamPart[][]): LanguageModel {
   let turnIndex = 0
 
   return {
-    specificationVersion: 'v2',
+    specificationVersion: 'v3',
     provider: 'mock',
     modelId: 'mock-model',
     supportedUrls: {},
@@ -32,7 +32,7 @@ function createMockModel(turns: LanguageModelV2StreamPart[][]): LanguageModel {
       turnIndex++
 
       return {
-        stream: new ReadableStream<LanguageModelV2StreamPart>({
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
           start(controller) {
             for (const part of parts) {
               controller.enqueue(part)
@@ -40,8 +40,6 @@ function createMockModel(turns: LanguageModelV2StreamPart[][]): LanguageModel {
             controller.close()
           },
         }),
-        rawCall: { rawPrompt: null, rawSettings: {} },
-        rawResponse: { headers: {} },
         warnings: [],
       }
     },
@@ -101,12 +99,17 @@ describe('Agent', () => {
     test('agent emits text chunks and turn completes with full text', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', id: 't1', delta: 'Hello' },
-          { type: 'text-delta', id: 't2', delta: ', world!' },
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'Hello' },
+          { type: 'text-delta', id: 'tx1', delta: ', world!' },
+          { type: 'text-end', id: 'tx1' },
           {
             type: 'finish',
-            finishReason: 'stop',
-            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
           },
         ],
       ])
@@ -146,6 +149,8 @@ describe('Agent', () => {
       const model = createMockModel([
         // Turn 1: LLM responds with a tool call
         [
+          { type: 'tool-input-start', id: 'call_1', toolName: 'bash' },
+          { type: 'tool-input-end', id: 'call_1' },
           {
             type: 'tool-call',
             toolCallId: 'call_1',
@@ -154,17 +159,25 @@ describe('Agent', () => {
           },
           {
             type: 'finish',
-            finishReason: 'tool-calls',
-            usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 15, text: undefined, reasoning: undefined },
+            },
           },
         ],
         // Turn 2: LLM produces final text after seeing tool result
         [
-          { type: 'text-delta', id: 't1', delta: 'The command output: hi' },
+          { type: 'text-start', id: 'tx2' },
+          { type: 'text-delta', id: 'tx2', delta: 'The command output: hi' },
+          { type: 'text-end', id: 'tx2' },
           {
             type: 'finish',
-            finishReason: 'stop',
-            usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40 },
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 30, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 10, text: undefined, reasoning: undefined },
+            },
           },
         ],
       ])
@@ -215,12 +228,16 @@ describe('Agent', () => {
       const model = createMockModel([
         // Turn 1: LLM responds with two tool calls
         [
+          { type: 'tool-input-start', id: 'call_a', toolName: 'file-read' },
+          { type: 'tool-input-end', id: 'call_a' },
           {
             type: 'tool-call',
             toolCallId: 'call_a',
             toolName: 'file-read',
             input: '{"input":"file1.txt"}',
           },
+          { type: 'tool-input-start', id: 'call_b', toolName: 'file-read' },
+          { type: 'tool-input-end', id: 'call_b' },
           {
             type: 'tool-call',
             toolCallId: 'call_b',
@@ -229,17 +246,25 @@ describe('Agent', () => {
           },
           {
             type: 'finish',
-            finishReason: 'tool-calls',
-            usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 20, text: undefined, reasoning: undefined },
+            },
           },
         ],
         // Turn 2: LLM produces final text
         [
-          { type: 'text-delta', id: 't1', delta: 'Both files have been read.' },
+          { type: 'text-start', id: 'tx2' },
+          { type: 'text-delta', id: 'tx2', delta: 'Both files have been read.' },
+          { type: 'text-end', id: 'tx2' },
           {
             type: 'finish',
-            finishReason: 'stop',
-            usage: { inputTokens: 50, outputTokens: 10, totalTokens: 60 },
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 50, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 10, text: undefined, reasoning: undefined },
+            },
           },
         ],
       ])
@@ -280,7 +305,7 @@ describe('Agent', () => {
       // Turn 2: user asks name, LLM recalls from history
       let callCount = 0
       const model = {
-        specificationVersion: 'v2',
+        specificationVersion: 'v3',
         provider: 'mock',
         modelId: 'mock-model',
         supportedUrls: {},
@@ -295,6 +320,7 @@ describe('Agent', () => {
           const messageCount = (prompt as unknown[]).length
 
           let responseText: string
+          const textId = `tx${callCount}`
           if (callCount === 1) {
             responseText = 'Nice to meet you, Alice!'
           } else {
@@ -305,19 +331,22 @@ describe('Agent', () => {
           }
 
           return {
-            stream: new ReadableStream<LanguageModelV2StreamPart>({
+            stream: new ReadableStream<LanguageModelV3StreamPart>({
               start(controller) {
-                controller.enqueue({ type: 'text-delta', id: 't1', delta: responseText })
+                controller.enqueue({ type: 'text-start', id: textId })
+                controller.enqueue({ type: 'text-delta', id: textId, delta: responseText })
+                controller.enqueue({ type: 'text-end', id: textId })
                 controller.enqueue({
                   type: 'finish',
-                  finishReason: 'stop',
-                  usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                    outputTokens: { total: 10, text: undefined, reasoning: undefined },
+                  },
                 })
                 controller.close()
               },
             }),
-            rawCall: { rawPrompt: null, rawSettings: {} },
-            rawResponse: { headers: {} },
             warnings: [],
           }
         },
@@ -350,7 +379,7 @@ describe('Agent', () => {
 
       // Mock LLM that always responds with a tool call (infinite loop)
       const model = {
-        specificationVersion: 'v2',
+        specificationVersion: 'v3',
         provider: 'mock',
         modelId: 'mock-model',
         supportedUrls: {},
@@ -360,25 +389,29 @@ describe('Agent', () => {
         },
 
         doStream: async () => {
+          const callId = `call_${Date.now()}_${Math.random()}`
           return {
-            stream: new ReadableStream<LanguageModelV2StreamPart>({
+            stream: new ReadableStream<LanguageModelV3StreamPart>({
               start(controller) {
+                controller.enqueue({ type: 'tool-input-start', id: callId, toolName: 'bash' })
+                controller.enqueue({ type: 'tool-input-end', id: callId })
                 controller.enqueue({
                   type: 'tool-call',
-                  toolCallId: `call_${Date.now()}_${Math.random()}`,
+                  toolCallId: callId,
                   toolName: 'bash',
                   input: '{"input":"loop"}',
                 })
                 controller.enqueue({
                   type: 'finish',
-                  finishReason: 'tool-calls',
-                  usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                    outputTokens: { total: 5, text: undefined, reasoning: undefined },
+                  },
                 })
                 controller.close()
               },
             }),
-            rawCall: { rawPrompt: null, rawSettings: {} },
-            rawResponse: { headers: {} },
             warnings: [],
           }
         },
@@ -416,7 +449,7 @@ describe('Agent', () => {
     test('agent handles LLM error and recovers on retry', async () => {
       let callCount = 0
       const model = {
-        specificationVersion: 'v2',
+        specificationVersion: 'v3',
         provider: 'mock',
         modelId: 'mock-model',
         supportedUrls: {},
@@ -435,23 +468,26 @@ describe('Agent', () => {
 
           // Second call succeeds
           return {
-            stream: new ReadableStream<LanguageModelV2StreamPart>({
+            stream: new ReadableStream<LanguageModelV3StreamPart>({
               start(controller) {
+                controller.enqueue({ type: 'text-start', id: 'tx1' })
                 controller.enqueue({
                   type: 'text-delta',
-                  id: 't1',
+                  id: 'tx1',
                   delta: 'Recovered successfully!',
                 })
+                controller.enqueue({ type: 'text-end', id: 'tx1' })
                 controller.enqueue({
                   type: 'finish',
-                  finishReason: 'stop',
-                  usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 20, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                    outputTokens: { total: 10, text: undefined, reasoning: undefined },
+                  },
                 })
                 controller.close()
               },
             }),
-            rawCall: { rawPrompt: null, rawSettings: {} },
-            rawResponse: { headers: {} },
             warnings: [],
           }
         },
@@ -475,7 +511,7 @@ describe('Agent', () => {
     test('agent handles mid-stream errors and recovers', async () => {
       let callCount = 0
       const model = {
-        specificationVersion: 'v2',
+        specificationVersion: 'v3',
         provider: 'mock',
         modelId: 'mock-model',
         supportedUrls: {},
@@ -490,37 +526,39 @@ describe('Agent', () => {
           if (callCount === 1) {
             // First call: stream starts but then errors
             return {
-              stream: new ReadableStream<LanguageModelV2StreamPart>({
+              stream: new ReadableStream<LanguageModelV3StreamPart>({
                 start(controller) {
-                  controller.enqueue({ type: 'text-delta', id: 't1', delta: 'Partial...' })
+                  controller.enqueue({ type: 'text-start', id: 'tx1' })
+                  controller.enqueue({ type: 'text-delta', id: 'tx1', delta: 'Partial...' })
                   controller.error(new Error('Connection reset'))
                 },
               }),
-              rawCall: { rawPrompt: null, rawSettings: {} },
-              rawResponse: { headers: {} },
               warnings: [],
             }
           }
 
           // Second call succeeds
           return {
-            stream: new ReadableStream<LanguageModelV2StreamPart>({
+            stream: new ReadableStream<LanguageModelV3StreamPart>({
               start(controller) {
+                controller.enqueue({ type: 'text-start', id: 'tx2' })
                 controller.enqueue({
                   type: 'text-delta',
-                  id: 't2',
+                  id: 'tx2',
                   delta: 'Full response after recovery.',
                 })
+                controller.enqueue({ type: 'text-end', id: 'tx2' })
                 controller.enqueue({
                   type: 'finish',
-                  finishReason: 'stop',
-                  usage: { inputTokens: 20, outputTokens: 15, totalTokens: 35 },
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 20, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                    outputTokens: { total: 15, text: undefined, reasoning: undefined },
+                  },
                 })
                 controller.close()
               },
             }),
-            rawCall: { rawPrompt: null, rawSettings: {} },
-            rawResponse: { headers: {} },
             warnings: [],
           }
         },
@@ -544,11 +582,16 @@ describe('Agent', () => {
     test('clearHistory() resets conversation state', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', id: 't1', delta: 'First response' },
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'First response' },
+          { type: 'text-end', id: 'tx1' },
           {
             type: 'finish',
-            finishReason: 'stop',
-            usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 5, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
           },
         ],
       ])
@@ -565,11 +608,16 @@ describe('Agent', () => {
     test('getConversationHistory() returns a copy', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', id: 't1', delta: 'Response' },
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'Response' },
+          { type: 'text-end', id: 'tx1' },
           {
             type: 'finish',
-            finishReason: 'stop',
-            usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 5, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
           },
         ],
       ])
@@ -600,6 +648,8 @@ describe('Agent', () => {
       const model = createMockModel([
         // Turn 1: LLM calls the failing tool
         [
+          { type: 'tool-input-start', id: 'call_fail', toolName: 'failing-tool' },
+          { type: 'tool-input-end', id: 'call_fail' },
           {
             type: 'tool-call',
             toolCallId: 'call_fail',
@@ -608,17 +658,25 @@ describe('Agent', () => {
           },
           {
             type: 'finish',
-            finishReason: 'tool-calls',
-            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
           },
         ],
         // Turn 2: LLM acknowledges the error
         [
-          { type: 'text-delta', id: 't1', delta: 'The tool failed, let me try another approach.' },
+          { type: 'text-start', id: 'tx2' },
+          { type: 'text-delta', id: 'tx2', delta: 'The tool failed, let me try another approach.' },
+          { type: 'text-end', id: 'tx2' },
           {
             type: 'finish',
-            finishReason: 'stop',
-            usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 30, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 15, text: undefined, reasoning: undefined },
+            },
           },
         ],
       ])
@@ -648,11 +706,16 @@ describe('Agent', () => {
       let capturedOptions: unknown = null
       const model = createMockModel([
         [
-          { type: 'text-delta', id: 't1', delta: 'Ok' },
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'Ok' },
+          { type: 'text-end', id: 'tx1' },
           {
             type: 'finish',
-            finishReason: 'stop',
-            usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 },
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 5, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 1, text: undefined, reasoning: undefined },
+            },
           },
         ],
       ])

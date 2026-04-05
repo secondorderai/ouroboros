@@ -10,8 +10,8 @@ import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
 import {
   createMockModel,
-  textDelta,
-  toolCall,
+  textBlock,
+  toolCallBlock,
   finishStop,
   finishToolCalls,
 } from '../helpers/mock-llm'
@@ -32,9 +32,9 @@ describe('Agent + Tools Integration', () => {
 
     const model = createMockModel([
       // Turn 1: LLM requests a tool call
-      [toolCall('call_1', 'bash', { input: 'echo hello' }), finishToolCalls()],
+      [...toolCallBlock('call_1', 'bash', { input: 'echo hello' }), finishToolCalls()],
       // Turn 2: LLM produces final text after seeing tool result
-      [textDelta('The command output: hello'), finishStop()],
+      [...textBlock('The command output: hello'), finishStop()],
     ])
 
     const { events, handler } = collectEvents()
@@ -77,10 +77,10 @@ describe('Agent + Tools Integration', () => {
 
     const model = createMockModel([
       // Turn 1: LLM calls the failing tool
-      [toolCall('call_err', 'failing-tool', { input: 'test' }), finishToolCalls()],
+      [...toolCallBlock('call_err', 'failing-tool', { input: 'test' }), finishToolCalls()],
       // Turn 2: LLM acknowledges the error gracefully
       [
-        textDelta('The tool failed with a permission error. Let me try another approach.'),
+        ...textBlock('The tool failed with a permission error. Let me try another approach.'),
         finishStop(),
       ],
     ])
@@ -138,9 +138,9 @@ describe('Agent + Tools Integration', () => {
     const model = createMockModel([
       // Turn 1: LLM calls bash with args that will fail schema validation
       // (the mock tool schema expects { input: z.string().optional() })
-      [toolCall('call_bad_args', 'bash', { input: 'test' }), finishToolCalls()],
+      [...toolCallBlock('call_bad_args', 'bash', { input: 'test' }), finishToolCalls()],
       // Turn 2: LLM responds after seeing the tool result
-      [textDelta('The tool executed successfully.'), finishStop()],
+      [...textBlock('The tool executed successfully.'), finishStop()],
     ])
 
     const { events, handler } = collectEvents()
@@ -179,12 +179,12 @@ describe('Agent + Tools Integration', () => {
 
     const model = createMockModel([
       // Turn 1: LLM calls file-write
-      [toolCall('call_write', 'file-write', { input: 'write it' }), finishToolCalls()],
+      [...toolCallBlock('call_write', 'file-write', { input: 'write it' }), finishToolCalls()],
       // Turn 2: LLM calls file-read after seeing write result
-      [toolCall('call_read', 'file-read', { input: 'read it' }), finishToolCalls()],
+      [...toolCallBlock('call_read', 'file-read', { input: 'read it' }), finishToolCalls()],
       // Turn 3: LLM produces final text
       [
-        textDelta('I wrote the file and read it back. The content is: Hello from test'),
+        ...textBlock('I wrote the file and read it back. The content is: Hello from test'),
         finishStop(),
       ],
     ])
@@ -229,8 +229,8 @@ describe('Agent + Tools Integration', () => {
     })
 
     const model = createMockModel([
-      [toolCall('call_crash', 'crasher', {}), finishToolCalls()],
-      [textDelta('The tool crashed, but I can handle it.'), finishStop()],
+      [...toolCallBlock('call_crash', 'crasher', {}), finishToolCalls()],
+      [...textBlock('The tool crashed, but I can handle it.'), finishStop()],
     ])
 
     const { events, handler } = collectEvents()
@@ -269,12 +269,12 @@ describe('Agent + Tools Integration', () => {
     const model = createMockModel([
       // Turn 1: LLM calls both tools in parallel
       [
-        toolCall('call_a', 'tool-a', { input: 'go' }),
-        toolCall('call_b', 'tool-b', { input: 'go' }),
+        ...toolCallBlock('call_a', 'tool-a', { input: 'go' }),
+        ...toolCallBlock('call_b', 'tool-b', { input: 'go' }),
         finishToolCalls(),
       ],
       // Turn 2: Final text
-      [textDelta('Both tools completed successfully.'), finishStop()],
+      [...textBlock('Both tools completed successfully.'), finishStop()],
     ])
 
     const agent = new Agent(makeAgentOptions(model, registry))

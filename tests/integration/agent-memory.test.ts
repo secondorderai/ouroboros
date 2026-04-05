@@ -19,8 +19,8 @@ import { join } from 'node:path'
 import {
   createMockModel,
   createInspectingMockModel,
-  textDelta,
-  toolCall,
+  textBlock,
+  toolCallBlock,
   finishStop,
   finishToolCalls,
 } from '../helpers/mock-llm'
@@ -63,7 +63,7 @@ describe('Agent + Memory Integration', () => {
             : systemMsg.content,
         )
       }
-      return [textDelta('I can see the memory context.'), finishStop()]
+      return [...textBlock('I can see the memory context.'), finishStop()]
     })
 
     const memoryContent = getMemoryIndex(tempDir)
@@ -112,7 +112,7 @@ describe('Agent + Memory Integration', () => {
     const model = createMockModel([
       // Turn 1: LLM writes a topic
       [
-        toolCall('call_write', 'memory', {
+        ...toolCallBlock('call_write', 'memory', {
           action: 'write-topic',
           name: 'test-topic',
           content: 'Important: the sky is blue',
@@ -121,14 +121,14 @@ describe('Agent + Memory Integration', () => {
       ],
       // Turn 2: LLM reads it back
       [
-        toolCall('call_read', 'memory', {
+        ...toolCallBlock('call_read', 'memory', {
           action: 'read-topic',
           name: 'test-topic',
         }),
         finishToolCalls(),
       ],
       // Turn 3: Final response
-      [textDelta('I stored and retrieved the information. The sky is blue.'), finishStop()],
+      [...textBlock('I stored and retrieved the information. The sky is blue.'), finishStop()],
     ])
 
     const agent = new Agent(makeAgentOptions(model, registry))
@@ -160,7 +160,7 @@ describe('Agent + Memory Integration', () => {
       const sessionId = sessionResult.value
 
       // Run an agent conversation
-      const model = createMockModel([[textDelta('Hello! How can I help you today?'), finishStop()]])
+      const model = createMockModel([[...textBlock('Hello! How can I help you today?'), finishStop()]])
 
       const agent = new Agent(makeAgentOptions(model, registry))
       await agent.run('Hi there')
@@ -212,9 +212,9 @@ describe('Agent + Memory Integration', () => {
 
       const model = createMockModel([
         // Turn 1: Tool call
-        [toolCall('call_1', 'bash', { command: 'ls' }), finishToolCalls()],
+        [...toolCallBlock('call_1', 'bash', { command: 'ls' }), finishToolCalls()],
         // Turn 2: Final text
-        [textDelta('Here are the files.'), finishStop()],
+        [...textBlock('Here are the files.'), finishStop()],
       ])
 
       const agent = new Agent(makeAgentOptions(model, registry))
