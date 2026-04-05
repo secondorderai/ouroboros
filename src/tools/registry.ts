@@ -118,13 +118,6 @@ function toMetadata(tool: ToolDefinition): ToolMetadata {
   let parameters: Record<string, unknown>
   if (tool.schema instanceof z.ZodObject) {
     parameters = zodSchemaToJsonSchema(tool.schema)
-  } else if (tool.schema instanceof z.ZodDiscriminatedUnion) {
-    // Merge all variant schemas into a single JSON Schema with oneOf
-    const variants = (tool.schema as z.ZodDiscriminatedUnion<string, z.ZodObject<z.ZodRawShape>[]>)
-      .options as z.ZodObject<z.ZodRawShape>[]
-    parameters = {
-      oneOf: variants.map((v) => zodSchemaToJsonSchema(v)),
-    }
   } else {
     parameters = {}
   }

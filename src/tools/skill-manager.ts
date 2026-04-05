@@ -309,12 +309,18 @@ export const description =
   'Manage the skill catalog: list available skills, activate a skill to load its full instructions, ' +
   'deactivate a skill to free context, or get detailed info about a specific skill.'
 
-export const schema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('list') }),
-  z.object({ action: z.literal('activate'), skill: z.string() }),
-  z.object({ action: z.literal('deactivate'), skill: z.string() }),
-  z.object({ action: z.literal('info'), skill: z.string() }),
-])
+export const schema = z.object({
+  action: z
+    .enum(['list', 'activate', 'deactivate', 'info'])
+    .describe('The skill management operation to perform'),
+  skill: z
+    .string()
+    .optional()
+    .describe('Skill name (required for activate, deactivate, and info actions)'),
+}).refine(
+  (data) => data.action === 'list' || (data.skill !== undefined && data.skill.length > 0),
+  { message: 'skill name is required for activate, deactivate, and info actions', path: ['skill'] },
+)
 
 export const execute: TypedToolExecute<typeof schema, unknown> = async (
   args,
@@ -335,15 +341,16 @@ export const execute: TypedToolExecute<typeof schema, unknown> = async (
     }
 
     case 'activate': {
-      return activateSkill(args.skill)
+      // Refine guarantees skill is present for non-list actions
+      return activateSkill(args.skill!)
     }
 
     case 'deactivate': {
-      return deactivateSkill(args.skill)
+      return deactivateSkill(args.skill!)
     }
 
     case 'info': {
-      return getSkillInfo(args.skill)
+      return getSkillInfo(args.skill!)
     }
 
     default:
