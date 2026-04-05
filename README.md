@@ -54,9 +54,8 @@ Ouroboros is configured via a `.ouroboros` JSON file in the project root. All fi
 ```json
 {
   "model": {
-    "provider": "anthropic",
-    "name": "claude-sonnet-4-20250514",
-    "baseUrl": "https://your-endpoint.com/v1"
+    "provider": "openai",
+    "name": "gpt-5.4"
   },
   "permissions": {
     "tier0": true,
@@ -82,8 +81,8 @@ Ouroboros is structured as a set of composable layers, each independently useful
 
 ```
             ┌──────────────────────────────────────┐
-            │        Your Application               │
-            │   CLI · Web · JSON-RPC · Slack bot    │
+            │        Your Application              │
+            │   CLI · Web · JSON-RPC · Slack bot   │
             └──────────────┬───────────────────────┘
                            │ onEvent callback
   ┌────────────────────────┼───────────────────────────────┐
@@ -111,10 +110,12 @@ Ouroboros is structured as a set of composable layers, each independently useful
   │    └──────────────────────────────────────────────┘    │
   └────────────────────────────────────────────────────────┘
             ┌──────────────────────────────────────┐
-            │   RSI Layer (optional, Phase 2)       │
-            │   crystallize · self-test · dream     │
+            │   RSI Layer (optional, Phase 2)      │
+            │   crystallize · self-test · dream    │
             └──────────────────────────────────────┘
 ```
+
+![Full diagram](./doc/architecture.svg).
 
 **Agent loop.** The `Agent` class runs a ReAct loop that streams LLM responses, detects tool calls, executes them in parallel via the tool registry, and feeds results back until the task is complete. It emits events — it never prints directly — so any consumer (CLI, web server, test harness) can drive it.
 
@@ -215,12 +216,10 @@ bun run lint          # Prettier check
 bun run ts-check     # TypeScript type checking
 ```
 
-## Contributing
+## Development Diary
 
-All tools must follow the registry pattern — export `name`, `description`, `schema` (Zod), and `execute` (async, returns `Result<T, Error>`). Tools never throw; they return `{ ok: false, error }` on failure.
-
-See [CLAUDE.md](CLAUDE.md) for full development conventions.
+[doc/DIARY.md](doc/DIARY.md) is a narrative log of how Ouroboros came to life, written from the agent's own perspective.
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE) for details.
