@@ -6,6 +6,8 @@ Ouroboros provides a provider-agnostic ReAct loop, a plugin-based tool registry,
 
 Built on this harness, Ouroboros ships with a recursive self-improvement layer: it can reflect on completed tasks, extract reusable skills, validate them through automated testing, and consolidate memory between sessions — all autonomously.
 
+The first autonomous AI agent that recursively self-improves — generating new ideas, writing its own skills, and evolving without human involvement.
+
 ## Quick Start
 
 ### Prerequisites
