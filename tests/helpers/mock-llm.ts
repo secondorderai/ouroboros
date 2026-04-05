@@ -42,7 +42,12 @@ export function createMockModel(turns: LanguageModelV3StreamPart[][]): LanguageM
           type: 'finish' as const,
           finishReason: { unified: 'stop' as const, raw: 'stop' },
           usage: {
-            inputTokens: { total: 0, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+            inputTokens: {
+              total: 0,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
             outputTokens: { total: 0, text: undefined, reasoning: undefined },
           },
         },
@@ -111,7 +116,12 @@ export function createInspectingMockModel(
 
 function v3Usage(inputTokens: number, outputTokens: number) {
   return {
-    inputTokens: { total: inputTokens, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+    inputTokens: {
+      total: inputTokens,
+      noCache: undefined,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+    },
     outputTokens: { total: outputTokens, text: undefined, reasoning: undefined },
   }
 }

@@ -146,7 +146,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 1, text: undefined, reasoning: undefined },
             },
           },
@@ -187,7 +192,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 5, text: undefined, reasoning: undefined },
             },
           },
@@ -242,7 +252,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
             usage: {
-              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 15, text: undefined, reasoning: undefined },
             },
           },
@@ -256,7 +271,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 30, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 30,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 10, text: undefined, reasoning: undefined },
             },
           },
@@ -308,7 +328,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
             usage: {
-              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 15, text: undefined, reasoning: undefined },
             },
           },
@@ -321,7 +346,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 30, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 30,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 10, text: undefined, reasoning: undefined },
             },
           },
@@ -376,7 +406,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 5, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 5,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 1, text: undefined, reasoning: undefined },
             },
           },
@@ -480,7 +515,12 @@ describe('CLI', () => {
                   type: 'finish',
                   finishReason: { unified: 'error', raw: 'error' },
                   usage: {
-                    inputTokens: { total: 5, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                    inputTokens: {
+                      total: 5,
+                      noCache: undefined,
+                      cacheRead: undefined,
+                      cacheWrite: undefined,
+                    },
                     outputTokens: { total: 1, text: undefined, reasoning: undefined },
                   },
                 })
@@ -523,7 +563,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 10, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 5, text: undefined, reasoning: undefined },
             },
           },
@@ -537,7 +582,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 20, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 20,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 8, text: undefined, reasoning: undefined },
             },
           },
@@ -640,7 +690,12 @@ describe('CLI', () => {
             type: 'finish',
             finishReason: { unified: 'stop', raw: 'stop' },
             usage: {
-              inputTokens: { total: 5, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              inputTokens: {
+                total: 5,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
               outputTokens: { total: 1, text: undefined, reasoning: undefined },
             },
           },

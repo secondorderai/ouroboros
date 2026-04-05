@@ -275,7 +275,10 @@ describe('E2E Smoke Test', () => {
         finishToolCalls(),
       ],
       // Step 3: Final response
-      [...textBlock('The file did not exist, so I created it with recovery content.'), finishStop()],
+      [
+        ...textBlock('The file did not exist, so I created it with recovery content.'),
+        finishStop(),
+      ],
     ])
 
     const { events, handler } = collectEvents()

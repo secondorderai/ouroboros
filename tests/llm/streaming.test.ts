@@ -7,12 +7,21 @@ import type { LanguageModel } from 'ai'
 /**
  * V3 finish event helper — builds the nested usage/finishReason structure.
  */
-function v3Finish(finishReason: LanguageModelV3FinishReason['unified'], inputTokens: number, outputTokens: number) {
+function v3Finish(
+  finishReason: LanguageModelV3FinishReason['unified'],
+  inputTokens: number,
+  outputTokens: number,
+) {
   return {
     type: 'finish' as const,
     finishReason: { unified: finishReason, raw: finishReason },
     usage: {
-      inputTokens: { total: inputTokens, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+      inputTokens: {
+        total: inputTokens,
+        noCache: undefined,
+        cacheRead: undefined,
+        cacheWrite: undefined,
+      },
       outputTokens: { total: outputTokens, text: undefined, reasoning: undefined },
     },
   }
@@ -58,7 +67,15 @@ function createMockModel(options: {
       return {
         content,
         finishReason: { unified: 'stop', raw: 'stop' },
-        usage: { inputTokens: { total: 10 }, outputTokens: { total: 20 } },
+        usage: {
+          inputTokens: {
+            total: 10,
+            noCache: undefined,
+            cacheRead: undefined,
+            cacheWrite: undefined,
+          },
+          outputTokens: { total: 20, text: undefined, reasoning: undefined },
+        },
         warnings: [],
       }
     },
@@ -80,7 +97,7 @@ function createMockModel(options: {
         warnings: [],
       }
     },
-  } as LanguageModel
+  } as unknown as LanguageModel
 }
 
 const testMessages: LLMMessage[] = [
