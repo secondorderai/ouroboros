@@ -4,23 +4,24 @@ import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
-import type { LanguageModelV1, LanguageModelV1StreamPart } from 'ai'
+import type { LanguageModelV2StreamPart } from '@ai-sdk/provider'
+import type { LanguageModel } from 'ai'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
- * Create a mock LanguageModelV1 that yields predetermined stream parts
+ * Create a mock LanguageModelV2 that yields predetermined stream parts
  * across multiple turns. Each call to doStream() consumes the next entry
  * from the `turns` array.
  */
-function createMockModel(turns: LanguageModelV1StreamPart[][]): LanguageModelV1 {
+function createMockModel(turns: LanguageModelV2StreamPart[][]): LanguageModel {
   let turnIndex = 0
 
   return {
-    specificationVersion: 'v1',
+    specificationVersion: 'v2',
     provider: 'mock',
     modelId: 'mock-model',
-    defaultObjectGenerationMode: undefined,
+    supportedUrls: {},
 
     doGenerate: async () => {
       throw new Error('doGenerate not used by agent — use doStream')
@@ -31,29 +32,33 @@ function createMockModel(turns: LanguageModelV1StreamPart[][]): LanguageModelV1 
       turnIndex++
 
       return {
-        stream: new ReadableStream<LanguageModelV1StreamPart>({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
           start(controller) {
             for (const part of parts) {
               controller.enqueue(part)
             }
             controller.close()
-          }
+          },
         }),
         rawCall: { rawPrompt: null, rawSettings: {} },
         rawResponse: { headers: {} },
-        warnings: []
+        warnings: [],
       }
-    }
-  }
+    },
+  } as LanguageModel
 }
 
 /** Create a simple tool definition for testing. */
-function makeTool(name: string, handler?: (args: Record<string, unknown>) => unknown): ToolDefinition {
+function makeTool(
+  name: string,
+  handler?: (args: Record<string, unknown>) => unknown,
+): ToolDefinition {
   return {
     name,
     description: `Test tool: ${name}`,
     schema: z.object({ input: z.string().optional() }),
-    execute: async args => ok(handler ? handler(args as Record<string, unknown>) : { output: `${name} executed` })
+    execute: async (args) =>
+      ok(handler ? handler(args as Record<string, unknown>) : { output: `${name} executed` }),
   }
 }
 
@@ -65,9 +70,9 @@ function collectEvents(): { events: AgentEvent[]; handler: (e: AgentEvent) => vo
 
 /** Build default agent options with overrides. */
 function makeAgentOptions(
-  model: LanguageModelV1,
+  model: LanguageModel,
   registry: ToolRegistry,
-  overrides?: Partial<AgentOptions>
+  overrides?: Partial<AgentOptions>,
 ): AgentOptions {
   return {
     model,
@@ -76,7 +81,7 @@ function makeAgentOptions(
     systemPromptBuilder: () => 'You are a test assistant.',
     memoryProvider: () => '',
     skillCatalogProvider: () => [],
-    ...overrides
+    ...overrides,
   }
 }
 
@@ -96,10 +101,14 @@ describe('Agent', () => {
     test('agent emits text chunks and turn completes with full text', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: 'Hello' },
-          { type: 'text-delta', textDelta: ', world!' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 10, completionTokens: 5 } }
-        ]
+          { type: 'text-delta', id: 't1', delta: 'Hello' },
+          { type: 'text-delta', id: 't2', delta: ', world!' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          },
+        ],
       ])
 
       const { events, handler } = collectEvents()
@@ -112,13 +121,13 @@ describe('Agent', () => {
       expect(result.maxIterationsReached).toBe(false)
 
       // Check text events were emitted
-      const textEvents = events.filter(e => e.type === 'text')
+      const textEvents = events.filter((e) => e.type === 'text')
       expect(textEvents).toHaveLength(2)
       expect(textEvents[0]).toEqual({ type: 'text', text: 'Hello' })
       expect(textEvents[1]).toEqual({ type: 'text', text: ', world!' })
 
       // Check turn-complete event
-      const turnComplete = events.find(e => e.type === 'turn-complete')
+      const turnComplete = events.find((e) => e.type === 'turn-complete')
       expect(turnComplete).toBeDefined()
       if (turnComplete?.type === 'turn-complete') {
         expect(turnComplete.text).toBe('Hello, world!')
@@ -139,18 +148,25 @@ describe('Agent', () => {
         [
           {
             type: 'tool-call',
-            toolCallType: 'function',
             toolCallId: 'call_1',
             toolName: 'bash',
-            args: '{"input":"echo hi"}'
+            input: '{"input":"echo hi"}',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 15 } }
+          {
+            type: 'finish',
+            finishReason: 'tool-calls',
+            usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
+          },
         ],
         // Turn 2: LLM produces final text after seeing tool result
         [
-          { type: 'text-delta', textDelta: 'The command output: hi' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 30, completionTokens: 10 } }
-        ]
+          { type: 'text-delta', id: 't1', delta: 'The command output: hi' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40 },
+          },
+        ],
       ])
 
       const { events, handler } = collectEvents()
@@ -162,14 +178,14 @@ describe('Agent', () => {
       expect(result.iterations).toBe(2)
 
       // Check tool events
-      const toolStarts = events.filter(e => e.type === 'tool-call-start')
+      const toolStarts = events.filter((e) => e.type === 'tool-call-start')
       expect(toolStarts).toHaveLength(1)
       if (toolStarts[0]?.type === 'tool-call-start') {
         expect(toolStarts[0].toolName).toBe('bash')
         expect(toolStarts[0].toolCallId).toBe('call_1')
       }
 
-      const toolEnds = events.filter(e => e.type === 'tool-call-end')
+      const toolEnds = events.filter((e) => e.type === 'tool-call-end')
       expect(toolEnds).toHaveLength(1)
       if (toolEnds[0]?.type === 'tool-call-end') {
         expect(toolEnds[0].toolName).toBe('bash')
@@ -178,7 +194,7 @@ describe('Agent', () => {
 
       // Verify conversation history includes tool call and result
       const history = agent.getConversationHistory()
-      const toolMsg = history.find(m => m.role === 'tool')
+      const toolMsg = history.find((m) => m.role === 'tool')
       expect(toolMsg).toBeDefined()
       if (toolMsg?.role === 'tool') {
         expect(toolMsg.content).toHaveLength(1)
@@ -193,7 +209,7 @@ describe('Agent', () => {
   // -------------------------------------------------------------------
   describe('multi-tool response', () => {
     test('multiple tool calls in one LLM response are executed and results injected', async () => {
-      registry.register(makeTool('file-read', args => ({ content: `contents of ${args.input}` })))
+      registry.register(makeTool('file-read', (args) => ({ content: `contents of ${args.input}` })))
       registry.register(makeTool('bash', () => ({ output: 'done', exitCode: 0 })))
 
       const model = createMockModel([
@@ -201,25 +217,31 @@ describe('Agent', () => {
         [
           {
             type: 'tool-call',
-            toolCallType: 'function',
             toolCallId: 'call_a',
             toolName: 'file-read',
-            args: '{"input":"file1.txt"}'
+            input: '{"input":"file1.txt"}',
           },
           {
             type: 'tool-call',
-            toolCallType: 'function',
             toolCallId: 'call_b',
             toolName: 'file-read',
-            args: '{"input":"file2.txt"}'
+            input: '{"input":"file2.txt"}',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 20 } }
+          {
+            type: 'finish',
+            finishReason: 'tool-calls',
+            usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+          },
         ],
         // Turn 2: LLM produces final text
         [
-          { type: 'text-delta', textDelta: 'Both files have been read.' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 50, completionTokens: 10 } }
-        ]
+          { type: 'text-delta', id: 't1', delta: 'Both files have been read.' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 50, outputTokens: 10, totalTokens: 60 },
+          },
+        ],
       ])
 
       const { events, handler } = collectEvents()
@@ -231,15 +253,15 @@ describe('Agent', () => {
       expect(result.iterations).toBe(2)
 
       // Both tool calls should have been made
-      const toolStarts = events.filter(e => e.type === 'tool-call-start')
+      const toolStarts = events.filter((e) => e.type === 'tool-call-start')
       expect(toolStarts).toHaveLength(2)
 
-      const toolEnds = events.filter(e => e.type === 'tool-call-end')
+      const toolEnds = events.filter((e) => e.type === 'tool-call-end')
       expect(toolEnds).toHaveLength(2)
 
       // Verify both results were injected
       const history = agent.getConversationHistory()
-      const toolMsg = history.find(m => m.role === 'tool')
+      const toolMsg = history.find((m) => m.role === 'tool')
       expect(toolMsg).toBeDefined()
       if (toolMsg?.role === 'tool') {
         expect(toolMsg.content).toHaveLength(2)
@@ -257,17 +279,17 @@ describe('Agent', () => {
       // Turn 1: user says name, LLM acknowledges
       // Turn 2: user asks name, LLM recalls from history
       let callCount = 0
-      const model: LanguageModelV1 = {
-        specificationVersion: 'v1',
+      const model = {
+        specificationVersion: 'v2',
         provider: 'mock',
         modelId: 'mock-model',
-        defaultObjectGenerationMode: undefined,
+        supportedUrls: {},
 
         doGenerate: async () => {
           throw new Error('Not used')
         },
 
-        doStream: async ({ prompt }) => {
+        doStream: async ({ prompt }: { prompt: unknown }) => {
           callCount++
           // Check that the conversation history grows between turns
           const messageCount = (prompt as unknown[]).length
@@ -283,23 +305,23 @@ describe('Agent', () => {
           }
 
           return {
-            stream: new ReadableStream<LanguageModelV1StreamPart>({
+            stream: new ReadableStream<LanguageModelV2StreamPart>({
               start(controller) {
-                controller.enqueue({ type: 'text-delta', textDelta: responseText })
+                controller.enqueue({ type: 'text-delta', id: 't1', delta: responseText })
                 controller.enqueue({
                   type: 'finish',
                   finishReason: 'stop',
-                  usage: { promptTokens: 10, completionTokens: 10 }
+                  usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
                 })
                 controller.close()
-              }
+              },
             }),
             rawCall: { rawPrompt: null, rawSettings: {} },
             rawResponse: { headers: {} },
-            warnings: []
+            warnings: [],
           }
-        }
-      }
+        },
+      } as LanguageModel
 
       const agent = new Agent(makeAgentOptions(model, registry))
 
@@ -327,11 +349,11 @@ describe('Agent', () => {
       registry.register(makeTool('bash', () => ({ output: 'looping' })))
 
       // Mock LLM that always responds with a tool call (infinite loop)
-      const model: LanguageModelV1 = {
-        specificationVersion: 'v1',
+      const model = {
+        specificationVersion: 'v2',
         provider: 'mock',
         modelId: 'mock-model',
-        defaultObjectGenerationMode: undefined,
+        supportedUrls: {},
 
         doGenerate: async () => {
           throw new Error('Not used')
@@ -339,36 +361,35 @@ describe('Agent', () => {
 
         doStream: async () => {
           return {
-            stream: new ReadableStream<LanguageModelV1StreamPart>({
+            stream: new ReadableStream<LanguageModelV2StreamPart>({
               start(controller) {
                 controller.enqueue({
                   type: 'tool-call',
-                  toolCallType: 'function',
                   toolCallId: `call_${Date.now()}_${Math.random()}`,
                   toolName: 'bash',
-                  args: '{"input":"loop"}'
+                  input: '{"input":"loop"}',
                 })
                 controller.enqueue({
                   type: 'finish',
                   finishReason: 'tool-calls',
-                  usage: { promptTokens: 10, completionTokens: 5 }
+                  usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
                 })
                 controller.close()
-              }
+              },
             }),
             rawCall: { rawPrompt: null, rawSettings: {} },
             rawResponse: { headers: {} },
-            warnings: []
+            warnings: [],
           }
-        }
-      }
+        },
+      } as LanguageModel
 
       const { events, handler } = collectEvents()
       const agent = new Agent(
         makeAgentOptions(model, registry, {
           maxIterations: 3,
-          onEvent: handler
-        })
+          onEvent: handler,
+        }),
       )
 
       const result = await agent.run('Do something')
@@ -378,12 +399,12 @@ describe('Agent', () => {
       expect(result.text).toContain('maximum of 3 iterations')
 
       // Should have emitted an error event about hitting the limit
-      const errorEvents = events.filter(e => e.type === 'error')
-      const limitError = errorEvents.find(e => e.type === 'error' && !e.recoverable)
+      const errorEvents = events.filter((e) => e.type === 'error')
+      const limitError = errorEvents.find((e) => e.type === 'error' && !e.recoverable)
       expect(limitError).toBeDefined()
 
       // Should have emitted a turn-complete event
-      const turnComplete = events.find(e => e.type === 'turn-complete')
+      const turnComplete = events.find((e) => e.type === 'turn-complete')
       expect(turnComplete).toBeDefined()
     })
   })
@@ -394,11 +415,11 @@ describe('Agent', () => {
   describe('LLM error recovery', () => {
     test('agent handles LLM error and recovers on retry', async () => {
       let callCount = 0
-      const model: LanguageModelV1 = {
-        specificationVersion: 'v1',
+      const model = {
+        specificationVersion: 'v2',
         provider: 'mock',
         modelId: 'mock-model',
-        defaultObjectGenerationMode: undefined,
+        supportedUrls: {},
 
         doGenerate: async () => {
           throw new Error('Not used')
@@ -414,23 +435,27 @@ describe('Agent', () => {
 
           // Second call succeeds
           return {
-            stream: new ReadableStream<LanguageModelV1StreamPart>({
+            stream: new ReadableStream<LanguageModelV2StreamPart>({
               start(controller) {
-                controller.enqueue({ type: 'text-delta', textDelta: 'Recovered successfully!' })
+                controller.enqueue({
+                  type: 'text-delta',
+                  id: 't1',
+                  delta: 'Recovered successfully!',
+                })
                 controller.enqueue({
                   type: 'finish',
                   finishReason: 'stop',
-                  usage: { promptTokens: 20, completionTokens: 10 }
+                  usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
                 })
                 controller.close()
-              }
+              },
             }),
             rawCall: { rawPrompt: null, rawSettings: {} },
             rawResponse: { headers: {} },
-            warnings: []
+            warnings: [],
           }
-        }
-      }
+        },
+      } as LanguageModel
 
       const { events, handler } = collectEvents()
       const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
@@ -443,17 +468,17 @@ describe('Agent', () => {
       expect(result.maxIterationsReached).toBe(false)
 
       // Should have emitted a recoverable error event
-      const errorEvents = events.filter(e => e.type === 'error' && e.recoverable)
+      const errorEvents = events.filter((e) => e.type === 'error' && e.recoverable)
       expect(errorEvents.length).toBeGreaterThanOrEqual(1)
     })
 
     test('agent handles mid-stream errors and recovers', async () => {
       let callCount = 0
-      const model: LanguageModelV1 = {
-        specificationVersion: 'v1',
+      const model = {
+        specificationVersion: 'v2',
         provider: 'mock',
         modelId: 'mock-model',
-        defaultObjectGenerationMode: undefined,
+        supportedUrls: {},
 
         doGenerate: async () => {
           throw new Error('Not used')
@@ -465,37 +490,41 @@ describe('Agent', () => {
           if (callCount === 1) {
             // First call: stream starts but then errors
             return {
-              stream: new ReadableStream<LanguageModelV1StreamPart>({
+              stream: new ReadableStream<LanguageModelV2StreamPart>({
                 start(controller) {
-                  controller.enqueue({ type: 'text-delta', textDelta: 'Partial...' })
+                  controller.enqueue({ type: 'text-delta', id: 't1', delta: 'Partial...' })
                   controller.error(new Error('Connection reset'))
-                }
+                },
               }),
               rawCall: { rawPrompt: null, rawSettings: {} },
               rawResponse: { headers: {} },
-              warnings: []
+              warnings: [],
             }
           }
 
           // Second call succeeds
           return {
-            stream: new ReadableStream<LanguageModelV1StreamPart>({
+            stream: new ReadableStream<LanguageModelV2StreamPart>({
               start(controller) {
-                controller.enqueue({ type: 'text-delta', textDelta: 'Full response after recovery.' })
+                controller.enqueue({
+                  type: 'text-delta',
+                  id: 't2',
+                  delta: 'Full response after recovery.',
+                })
                 controller.enqueue({
                   type: 'finish',
                   finishReason: 'stop',
-                  usage: { promptTokens: 20, completionTokens: 15 }
+                  usage: { inputTokens: 20, outputTokens: 15, totalTokens: 35 },
                 })
                 controller.close()
-              }
+              },
             }),
             rawCall: { rawPrompt: null, rawSettings: {} },
             rawResponse: { headers: {} },
-            warnings: []
+            warnings: [],
           }
-        }
-      }
+        },
+      } as LanguageModel
 
       const { handler } = collectEvents()
       const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
@@ -515,9 +544,13 @@ describe('Agent', () => {
     test('clearHistory() resets conversation state', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: 'First response' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 5 } }
-        ]
+          { type: 'text-delta', id: 't1', delta: 'First response' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+          },
+        ],
       ])
 
       const agent = new Agent(makeAgentOptions(model, registry))
@@ -532,9 +565,13 @@ describe('Agent', () => {
     test('getConversationHistory() returns a copy', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: 'Response' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 5 } }
-        ]
+          { type: 'text-delta', id: 't1', delta: 'Response' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+          },
+        ],
       ])
 
       const agent = new Agent(makeAgentOptions(model, registry))
@@ -557,7 +594,7 @@ describe('Agent', () => {
         schema: z.object({ input: z.string().optional() }),
         execute: async () => {
           throw new Error('Tool crashed!')
-        }
+        },
       })
 
       const model = createMockModel([
@@ -565,18 +602,25 @@ describe('Agent', () => {
         [
           {
             type: 'tool-call',
-            toolCallType: 'function',
             toolCallId: 'call_fail',
             toolName: 'failing-tool',
-            args: '{}'
+            input: '{}',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 5 } }
+          {
+            type: 'finish',
+            finishReason: 'tool-calls',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          },
         ],
         // Turn 2: LLM acknowledges the error
         [
-          { type: 'text-delta', textDelta: 'The tool failed, let me try another approach.' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 30, completionTokens: 15 } }
-        ]
+          { type: 'text-delta', id: 't1', delta: 'The tool failed, let me try another approach.' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
+          },
+        ],
       ])
 
       const { events, handler } = collectEvents()
@@ -588,7 +632,7 @@ describe('Agent', () => {
       expect(result.text).toBe('The tool failed, let me try another approach.')
 
       // The tool-call-end event should indicate an error
-      const toolEnd = events.find(e => e.type === 'tool-call-end')
+      const toolEnd = events.find((e) => e.type === 'tool-call-end')
       expect(toolEnd).toBeDefined()
       if (toolEnd?.type === 'tool-call-end') {
         expect(toolEnd.isError).toBe(true)
@@ -604,20 +648,26 @@ describe('Agent', () => {
       let capturedOptions: unknown = null
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: 'Ok' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 1 } }
-        ]
+          { type: 'text-delta', id: 't1', delta: 'Ok' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 },
+          },
+        ],
       ])
 
       const agent = new Agent(
         makeAgentOptions(model, registry, {
-          systemPromptBuilder: opts => {
+          systemPromptBuilder: (opts) => {
             capturedOptions = opts
             return 'Test system prompt'
           },
           memoryProvider: () => 'Test memory content',
-          skillCatalogProvider: () => [{ name: 'test-skill', description: 'A test skill', status: 'core' as const }]
-        })
+          skillCatalogProvider: () => [
+            { name: 'test-skill', description: 'A test skill', status: 'core' as const },
+          ],
+        }),
       )
 
       await agent.run('Test')

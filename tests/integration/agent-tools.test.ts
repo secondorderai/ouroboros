@@ -8,14 +8,12 @@ import { describe, test, expect, beforeEach } from 'bun:test'
 import { Agent } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
-import { ok, err } from '@src/types'
-import type { ToolDefinition } from '@src/tools/types'
 import {
   createMockModel,
   textDelta,
   toolCall,
   finishStop,
-  finishToolCalls
+  finishToolCalls,
 } from '../helpers/mock-llm'
 import { makeTool, makeErrorTool, collectEvents, makeAgentOptions } from '../helpers/test-utils'
 
@@ -30,21 +28,13 @@ describe('Agent + Tools Integration', () => {
   // Test: Agent dispatches tool calls and processes results
   // -------------------------------------------------------------------
   test('agent dispatches tool calls to the registry and processes results', async () => {
-    registry.register(
-      makeTool('bash', () => ({ stdout: 'hello\n', stderr: '', exitCode: 0 }))
-    )
+    registry.register(makeTool('bash', () => ({ stdout: 'hello\n', stderr: '', exitCode: 0 })))
 
     const model = createMockModel([
       // Turn 1: LLM requests a tool call
-      [
-        toolCall('call_1', 'bash', { input: 'echo hello' }),
-        finishToolCalls()
-      ],
+      [toolCall('call_1', 'bash', { input: 'echo hello' }), finishToolCalls()],
       // Turn 2: LLM produces final text after seeing tool result
-      [
-        textDelta('The command output: hello'),
-        finishStop()
-      ]
+      [textDelta('The command output: hello'), finishStop()],
     ])
 
     const { events, handler } = collectEvents()
@@ -56,13 +46,13 @@ describe('Agent + Tools Integration', () => {
     expect(result.iterations).toBe(2)
 
     // Verify tool call events were emitted
-    const toolStarts = events.filter(e => e.type === 'tool-call-start')
+    const toolStarts = events.filter((e) => e.type === 'tool-call-start')
     expect(toolStarts).toHaveLength(1)
     if (toolStarts[0]?.type === 'tool-call-start') {
       expect(toolStarts[0].toolName).toBe('bash')
     }
 
-    const toolEnds = events.filter(e => e.type === 'tool-call-end')
+    const toolEnds = events.filter((e) => e.type === 'tool-call-end')
     expect(toolEnds).toHaveLength(1)
     if (toolEnds[0]?.type === 'tool-call-end') {
       expect(toolEnds[0].toolName).toBe('bash')
@@ -71,7 +61,7 @@ describe('Agent + Tools Integration', () => {
 
     // Verify conversation history has tool call and result
     const history = agent.getConversationHistory()
-    const toolMsg = history.find(m => m.role === 'tool')
+    const toolMsg = history.find((m) => m.role === 'tool')
     expect(toolMsg).toBeDefined()
     if (toolMsg?.role === 'tool') {
       expect(toolMsg.content[0].toolCallId).toBe('call_1')
@@ -87,15 +77,12 @@ describe('Agent + Tools Integration', () => {
 
     const model = createMockModel([
       // Turn 1: LLM calls the failing tool
-      [
-        toolCall('call_err', 'failing-tool', { input: 'test' }),
-        finishToolCalls()
-      ],
+      [toolCall('call_err', 'failing-tool', { input: 'test' }), finishToolCalls()],
       // Turn 2: LLM acknowledges the error gracefully
       [
         textDelta('The tool failed with a permission error. Let me try another approach.'),
-        finishStop()
-      ]
+        finishStop(),
+      ],
     ])
 
     const { events, handler } = collectEvents()
@@ -104,11 +91,13 @@ describe('Agent + Tools Integration', () => {
     const result = await agent.run('Read /etc/shadow')
 
     // Agent should not crash
-    expect(result.text).toBe('The tool failed with a permission error. Let me try another approach.')
+    expect(result.text).toBe(
+      'The tool failed with a permission error. Let me try another approach.',
+    )
     expect(result.iterations).toBe(2)
 
     // Tool-call-end event should indicate an error
-    const toolEnd = events.find(e => e.type === 'tool-call-end')
+    const toolEnd = events.find((e) => e.type === 'tool-call-end')
     expect(toolEnd).toBeDefined()
     if (toolEnd?.type === 'tool-call-end') {
       expect(toolEnd.isError).toBe(true)
@@ -117,7 +106,7 @@ describe('Agent + Tools Integration', () => {
 
     // The error result should be in conversation history for the LLM to see
     const history = agent.getConversationHistory()
-    const toolMsg = history.find(m => m.role === 'tool')
+    const toolMsg = history.find((m) => m.role === 'tool')
     expect(toolMsg).toBeDefined()
   })
 
@@ -149,15 +138,9 @@ describe('Agent + Tools Integration', () => {
     const model = createMockModel([
       // Turn 1: LLM calls bash with args that will fail schema validation
       // (the mock tool schema expects { input: z.string().optional() })
-      [
-        toolCall('call_bad_args', 'bash', { input: 'test' }),
-        finishToolCalls()
-      ],
+      [toolCall('call_bad_args', 'bash', { input: 'test' }), finishToolCalls()],
       // Turn 2: LLM responds after seeing the tool result
-      [
-        textDelta('The tool executed successfully.'),
-        finishStop()
-      ]
+      [textDelta('The tool executed successfully.'), finishStop()],
     ])
 
     const { events, handler } = collectEvents()
@@ -170,7 +153,7 @@ describe('Agent + Tools Integration', () => {
     expect(result.iterations).toBe(2)
 
     // Tool call should have succeeded (valid args for mock tool)
-    const toolEnd = events.find(e => e.type === 'tool-call-end')
+    const toolEnd = events.find((e) => e.type === 'tool-call-end')
     expect(toolEnd).toBeDefined()
   })
 
@@ -185,31 +168,25 @@ describe('Agent + Tools Integration', () => {
       makeTool('file-write', () => {
         writeCallCount++
         return { bytesWritten: 20, path: '/tmp/test.txt' }
-      })
+      }),
     )
     registry.register(
       makeTool('file-read', () => {
         readCallCount++
         return { content: '1\tHello from test', lines: 1, path: '/tmp/test.txt' }
-      })
+      }),
     )
 
     const model = createMockModel([
       // Turn 1: LLM calls file-write
-      [
-        toolCall('call_write', 'file-write', { input: 'write it' }),
-        finishToolCalls()
-      ],
+      [toolCall('call_write', 'file-write', { input: 'write it' }), finishToolCalls()],
       // Turn 2: LLM calls file-read after seeing write result
-      [
-        toolCall('call_read', 'file-read', { input: 'read it' }),
-        finishToolCalls()
-      ],
+      [toolCall('call_read', 'file-read', { input: 'read it' }), finishToolCalls()],
       // Turn 3: LLM produces final text
       [
         textDelta('I wrote the file and read it back. The content is: Hello from test'),
-        finishStop()
-      ]
+        finishStop(),
+      ],
     ])
 
     const { events, handler } = collectEvents()
@@ -223,7 +200,7 @@ describe('Agent + Tools Integration', () => {
     expect(readCallCount).toBe(1)
 
     // Both tool calls should appear in events
-    const toolStarts = events.filter(e => e.type === 'tool-call-start')
+    const toolStarts = events.filter((e) => e.type === 'tool-call-start')
     expect(toolStarts).toHaveLength(2)
     if (toolStarts[0]?.type === 'tool-call-start') {
       expect(toolStarts[0].toolName).toBe('file-write')
@@ -234,7 +211,7 @@ describe('Agent + Tools Integration', () => {
 
     // Verify conversation history has the full sequence
     const history = agent.getConversationHistory()
-    const toolMsgs = history.filter(m => m.role === 'tool')
+    const toolMsgs = history.filter((m) => m.role === 'tool')
     expect(toolMsgs).toHaveLength(2) // One for each tool call turn
   })
 
@@ -248,18 +225,12 @@ describe('Agent + Tools Integration', () => {
       schema: z.object({ input: z.string().optional() }),
       execute: async () => {
         throw new Error('Unexpected crash!')
-      }
+      },
     })
 
     const model = createMockModel([
-      [
-        toolCall('call_crash', 'crasher', {}),
-        finishToolCalls()
-      ],
-      [
-        textDelta('The tool crashed, but I can handle it.'),
-        finishStop()
-      ]
+      [toolCall('call_crash', 'crasher', {}), finishToolCalls()],
+      [textDelta('The tool crashed, but I can handle it.'), finishStop()],
     ])
 
     const { events, handler } = collectEvents()
@@ -269,7 +240,7 @@ describe('Agent + Tools Integration', () => {
 
     expect(result.text).toBe('The tool crashed, but I can handle it.')
 
-    const toolEnd = events.find(e => e.type === 'tool-call-end')
+    const toolEnd = events.find((e) => e.type === 'tool-call-end')
     expect(toolEnd).toBeDefined()
     if (toolEnd?.type === 'tool-call-end') {
       expect(toolEnd.isError).toBe(true)
@@ -286,13 +257,13 @@ describe('Agent + Tools Integration', () => {
       makeTool('tool-a', () => {
         executedTools.push('tool-a')
         return { result: 'A done' }
-      })
+      }),
     )
     registry.register(
       makeTool('tool-b', () => {
         executedTools.push('tool-b')
         return { result: 'B done' }
-      })
+      }),
     )
 
     const model = createMockModel([
@@ -300,13 +271,10 @@ describe('Agent + Tools Integration', () => {
       [
         toolCall('call_a', 'tool-a', { input: 'go' }),
         toolCall('call_b', 'tool-b', { input: 'go' }),
-        finishToolCalls()
+        finishToolCalls(),
       ],
       // Turn 2: Final text
-      [
-        textDelta('Both tools completed successfully.'),
-        finishStop()
-      ]
+      [textDelta('Both tools completed successfully.'), finishStop()],
     ])
 
     const agent = new Agent(makeAgentOptions(model, registry))
@@ -319,7 +287,7 @@ describe('Agent + Tools Integration', () => {
 
     // Verify both results are in conversation
     const history = agent.getConversationHistory()
-    const toolMsg = history.find(m => m.role === 'tool')
+    const toolMsg = history.find((m) => m.role === 'tool')
     expect(toolMsg).toBeDefined()
     if (toolMsg?.role === 'tool') {
       expect(toolMsg.content).toHaveLength(2)

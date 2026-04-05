@@ -1,35 +1,53 @@
 import { describe, test, expect } from 'bun:test'
 import { streamResponse, generateResponse } from '@src/llm/streaming'
 import type { LLMMessage, StreamChunk, LLMCallOptions } from '@src/llm/types'
-import type { LanguageModelV1, LanguageModelV1StreamPart } from 'ai'
+import type { LanguageModelV2StreamPart } from '@ai-sdk/provider'
+import type { LanguageModel } from 'ai'
 
 /**
- * Create a mock LanguageModelV1 that returns predetermined responses.
+ * Create a mock LanguageModelV2 that returns predetermined responses.
  * This avoids making real API calls in tests.
  */
 function createMockModel(options: {
-  streamParts?: LanguageModelV1StreamPart[]
+  streamParts?: LanguageModelV2StreamPart[]
   generateText?: string
-  generateToolCalls?: Array<{ toolCallType: 'function'; toolCallId: string; toolName: string; args: string }>
+  generateToolCalls?: Array<{ toolCallId: string; toolName: string; input: string }>
   error?: Error
-}): LanguageModelV1 {
+}): LanguageModel {
   return {
-    specificationVersion: 'v1',
+    specificationVersion: 'v2',
     provider: 'mock',
     modelId: 'mock-model',
-    defaultObjectGenerationMode: undefined,
+    supportedUrls: {},
 
     doGenerate: async () => {
       if (options.error) throw options.error
 
+      const content: Array<
+        | { type: 'text'; id: string; text: string }
+        | { type: 'tool-call'; toolCallId: string; toolName: string; input: string }
+      > = []
+      if (options.generateText) {
+        content.push({ type: 'text', id: 'gen', text: options.generateText })
+      }
+      if (options.generateToolCalls) {
+        for (const tc of options.generateToolCalls) {
+          content.push({
+            type: 'tool-call',
+            toolCallId: tc.toolCallId,
+            toolName: tc.toolName,
+            input: tc.input,
+          })
+        }
+      }
+
       return {
-        text: options.generateText ?? '',
-        toolCalls: options.generateToolCalls ?? [],
+        content,
         finishReason: 'stop' as const,
-        usage: { promptTokens: 10, completionTokens: 20 },
+        usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
         rawCall: { rawPrompt: null, rawSettings: {} },
         rawResponse: { headers: {} },
-        warnings: []
+        warnings: [],
       }
     },
 
@@ -39,25 +57,25 @@ function createMockModel(options: {
       const parts = options.streamParts ?? []
 
       return {
-        stream: new ReadableStream<LanguageModelV1StreamPart>({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
           start(controller) {
             for (const part of parts) {
               controller.enqueue(part)
             }
             controller.close()
-          }
+          },
         }),
         rawCall: { rawPrompt: null, rawSettings: {} },
         rawResponse: { headers: {} },
-        warnings: []
+        warnings: [],
       }
-    }
-  }
+    },
+  } as LanguageModel
 }
 
 const testMessages: LLMMessage[] = [
   { role: 'system', content: 'You are a helpful assistant.' },
-  { role: 'user', content: 'Hello!' }
+  { role: 'user', content: 'Hello!' },
 ]
 
 /** Tool definitions needed when the mock includes tool calls */
@@ -68,37 +86,41 @@ const testToolOptions: LLMCallOptions = {
       parameters: {
         type: 'object',
         properties: { path: { type: 'string' } },
-        required: ['path']
-      }
+        required: ['path'],
+      },
     },
     search: {
       description: 'Search for something',
       parameters: {
         type: 'object',
         properties: { query: { type: 'string' } },
-        required: ['query']
-      }
+        required: ['query'],
+      },
     },
     get_weather: {
       description: 'Get weather for a city',
       parameters: {
         type: 'object',
         properties: { city: { type: 'string' } },
-        required: ['city']
-      }
-    }
-  }
+        required: ['city'],
+      },
+    },
+  },
 }
 
 describe('streamResponse', () => {
   test('yields text chunks incrementally', async () => {
     const model = createMockModel({
       streamParts: [
-        { type: 'text-delta', textDelta: 'Hello' },
-        { type: 'text-delta', textDelta: ' world' },
-        { type: 'text-delta', textDelta: '!' },
-        { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 3 } }
-      ]
+        { type: 'text-delta', id: 'td1', delta: 'Hello' },
+        { type: 'text-delta', id: 'td2', delta: ' world' },
+        { type: 'text-delta', id: 'td3', delta: '!' },
+        {
+          type: 'finish',
+          finishReason: 'stop',
+          usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 },
+        },
+      ],
     })
 
     const result = streamResponse(model, testMessages)
@@ -112,7 +134,7 @@ describe('streamResponse', () => {
     }
 
     // Should receive all 3 text deltas
-    const textChunks = chunks.filter(c => c.type === 'text-delta')
+    const textChunks = chunks.filter((c) => c.type === 'text-delta')
     expect(textChunks).toHaveLength(3)
     expect(textChunks[0]).toEqual({ type: 'text-delta', textDelta: 'Hello' })
     expect(textChunks[1]).toEqual({ type: 'text-delta', textDelta: ' world' })
@@ -124,13 +146,16 @@ describe('streamResponse', () => {
       streamParts: [
         {
           type: 'tool-call',
-          toolCallType: 'function',
           toolCallId: 'call_123',
           toolName: 'read_file',
-          args: '{"path":"/tmp/test.txt"}'
+          input: '{"path":"/tmp/test.txt"}',
         },
-        { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 15 } }
-      ]
+        {
+          type: 'finish',
+          finishReason: 'tool-calls',
+          usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
+        },
+      ],
     })
 
     // Tool calls require tool definitions to be registered with the AI SDK
@@ -144,7 +169,7 @@ describe('streamResponse', () => {
       chunks.push(chunk)
     }
 
-    const toolCallChunks = chunks.filter(c => c.type === 'tool-call')
+    const toolCallChunks = chunks.filter((c) => c.type === 'tool-call')
     expect(toolCallChunks).toHaveLength(1)
 
     const toolCall = toolCallChunks[0]
@@ -153,15 +178,19 @@ describe('streamResponse', () => {
 
     expect(toolCall.toolCallId).toBe('call_123')
     expect(toolCall.toolName).toBe('read_file')
-    expect(toolCall.args).toEqual({ path: '/tmp/test.txt' })
+    expect(toolCall.input).toEqual({ path: '/tmp/test.txt' })
   })
 
   test('yields finish event with usage information', async () => {
     const model = createMockModel({
       streamParts: [
-        { type: 'text-delta', textDelta: 'Done' },
-        { type: 'finish', finishReason: 'stop', usage: { promptTokens: 100, completionTokens: 50 } }
-      ]
+        { type: 'text-delta', id: 'td4', delta: 'Done' },
+        {
+          type: 'finish',
+          finishReason: 'stop',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        },
+      ],
     })
 
     const result = streamResponse(model, testMessages)
@@ -174,7 +203,7 @@ describe('streamResponse', () => {
       chunks.push(chunk)
     }
 
-    const finishChunks = chunks.filter(c => c.type === 'finish')
+    const finishChunks = chunks.filter((c) => c.type === 'finish')
     expect(finishChunks).toHaveLength(1)
 
     const finish = finishChunks[0]
@@ -188,10 +217,14 @@ describe('streamResponse', () => {
   test('resolves text promise with full accumulated text', async () => {
     const model = createMockModel({
       streamParts: [
-        { type: 'text-delta', textDelta: 'Hello' },
-        { type: 'text-delta', textDelta: ' world' },
-        { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 2 } }
-      ]
+        { type: 'text-delta', id: 'td5', delta: 'Hello' },
+        { type: 'text-delta', id: 'td6', delta: ' world' },
+        {
+          type: 'finish',
+          finishReason: 'stop',
+          usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
+        },
+      ],
     })
 
     const result = streamResponse(model, testMessages)
@@ -211,7 +244,7 @@ describe('streamResponse', () => {
   test('handles stream errors from doStream as error chunks', async () => {
     // When doStream throws, the AI SDK emits an 'error' event in fullStream
     const model = createMockModel({
-      error: new Error('401 Unauthorized: Invalid API key')
+      error: new Error('401 Unauthorized: Invalid API key'),
     })
 
     const result = streamResponse(model, testMessages)
@@ -224,7 +257,7 @@ describe('streamResponse', () => {
       chunks.push(chunk)
     }
 
-    const errorChunk = chunks.find(c => c.type === 'error')
+    const errorChunk = chunks.find((c) => c.type === 'error')
     expect(errorChunk).toBeDefined()
     if (errorChunk?.type !== 'error') return
     expect(errorChunk.error).toBeInstanceOf(Error)
@@ -234,28 +267,28 @@ describe('streamResponse', () => {
   test('handles mid-stream errors as error chunks', async () => {
     // When the underlying ReadableStream errors, the AI SDK throws during iteration.
     // Our createChunkStream catches these and yields error chunks.
-    const failingModel: LanguageModelV1 = {
-      specificationVersion: 'v1',
+    const failingModel = {
+      specificationVersion: 'v2',
       provider: 'mock',
       modelId: 'mock-model',
-      defaultObjectGenerationMode: undefined,
+      supportedUrls: {},
 
       doGenerate: async () => {
         throw new Error('Not implemented')
       },
 
       doStream: async () => ({
-        stream: new ReadableStream<LanguageModelV1StreamPart>({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
           start(controller) {
-            controller.enqueue({ type: 'text-delta', textDelta: 'Partial' })
+            controller.enqueue({ type: 'text-delta', id: 'td7', delta: 'Partial' })
             controller.error(new Error('fetch failed: ECONNRESET'))
-          }
+          },
         }),
         rawCall: { rawPrompt: null, rawSettings: {} },
         rawResponse: { headers: {} },
-        warnings: []
-      })
-    }
+        warnings: [],
+      }),
+    } as LanguageModel
 
     const result = streamResponse(failingModel, testMessages)
 
@@ -269,7 +302,7 @@ describe('streamResponse', () => {
 
     // Should have at least an error chunk (the text delta may or may not appear
     // depending on AI SDK internal buffering, but the error must be captured)
-    const errorChunk = chunks.find(c => c.type === 'error')
+    const errorChunk = chunks.find((c) => c.type === 'error')
     expect(errorChunk).toBeDefined()
     if (errorChunk?.type !== 'error') return
     expect(errorChunk.error).toBeInstanceOf(Error)
@@ -277,7 +310,7 @@ describe('streamResponse', () => {
 
   test('auth error is classified with actionable message', async () => {
     const model = createMockModel({
-      error: new Error('401 Unauthorized: Invalid API key')
+      error: new Error('401 Unauthorized: Invalid API key'),
     })
 
     const result = streamResponse(model, testMessages)
@@ -290,7 +323,7 @@ describe('streamResponse', () => {
       chunks.push(chunk)
     }
 
-    const errorChunk = chunks.find(c => c.type === 'error')
+    const errorChunk = chunks.find((c) => c.type === 'error')
     expect(errorChunk).toBeDefined()
     if (errorChunk?.type !== 'error') return
     expect(errorChunk.error.message).toContain('Authentication failed')
@@ -299,7 +332,7 @@ describe('streamResponse', () => {
 
   test('rate limit error is classified with actionable message', async () => {
     const model = createMockModel({
-      error: new Error('429 Too Many Requests: rate limit exceeded')
+      error: new Error('429 Too Many Requests: rate limit exceeded'),
     })
 
     const result = streamResponse(model, testMessages)
@@ -312,7 +345,7 @@ describe('streamResponse', () => {
       chunks.push(chunk)
     }
 
-    const errorChunk = chunks.find(c => c.type === 'error')
+    const errorChunk = chunks.find((c) => c.type === 'error')
     expect(errorChunk).toBeDefined()
     if (errorChunk?.type !== 'error') return
     expect(errorChunk.error.message).toContain('Rate limited')
@@ -322,7 +355,7 @@ describe('streamResponse', () => {
 describe('generateResponse', () => {
   test('returns complete text response', async () => {
     const model = createMockModel({
-      generateText: 'Hello, I am a helpful assistant!'
+      generateText: 'Hello, I am a helpful assistant!',
     })
 
     const result = await generateResponse(model, testMessages)
@@ -342,12 +375,11 @@ describe('generateResponse', () => {
       generateText: '',
       generateToolCalls: [
         {
-          toolCallType: 'function',
           toolCallId: 'call_abc',
           toolName: 'get_weather',
-          args: '{"city":"London"}'
-        }
-      ]
+          input: '{"city":"London"}',
+        },
+      ],
     })
 
     // Tool calls require tool definitions
@@ -359,12 +391,12 @@ describe('generateResponse', () => {
     expect(result.value.toolCalls).toHaveLength(1)
     expect(result.value.toolCalls[0].toolCallId).toBe('call_abc')
     expect(result.value.toolCalls[0].toolName).toBe('get_weather')
-    expect(result.value.toolCalls[0].args).toEqual({ city: 'London' })
+    expect(result.value.toolCalls[0].input).toEqual({ city: 'London' })
   })
 
   test('auth error returns Result error', async () => {
     const model = createMockModel({
-      error: new Error('401 Unauthorized: Invalid API key provided')
+      error: new Error('401 Unauthorized: Invalid API key provided'),
     })
 
     const result = await generateResponse(model, testMessages)
@@ -378,7 +410,7 @@ describe('generateResponse', () => {
 
   test('network error returns Result error', async () => {
     const model = createMockModel({
-      error: new Error('fetch failed: ECONNREFUSED')
+      error: new Error('fetch failed: ECONNREFUSED'),
     })
 
     const result = await generateResponse(model, testMessages)
@@ -392,7 +424,7 @@ describe('generateResponse', () => {
 
   test('rate limit error returns Result error', async () => {
     const model = createMockModel({
-      error: new Error('429 Too Many Requests')
+      error: new Error('429 Too Many Requests'),
     })
 
     const result = await generateResponse(model, testMessages)

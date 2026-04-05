@@ -5,7 +5,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `ouroboros-transcripts-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const dir = join(
+    tmpdir(),
+    `ouroboros-transcripts-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  )
   mkdirSync(dir, { recursive: true })
   return dir
 }
@@ -50,14 +53,17 @@ describe('Layer 3 — Session Transcripts', () => {
     const msg1 = store.addMessage(sessionId, { role: 'user', content: 'Hello, how are you?' })
     expect(msg1.ok).toBe(true)
 
-    const msg2 = store.addMessage(sessionId, { role: 'assistant', content: 'I am doing well, thanks!' })
+    const msg2 = store.addMessage(sessionId, {
+      role: 'assistant',
+      content: 'I am doing well, thanks!',
+    })
     expect(msg2.ok).toBe(true)
 
     const msg3 = store.addMessage(sessionId, {
       role: 'tool-call',
       content: 'Calling search tool',
       toolName: 'search',
-      toolArgs: { query: 'test' }
+      toolArgs: { query: 'test' },
     })
     expect(msg3.ok).toBe(true)
 
@@ -91,7 +97,7 @@ describe('Layer 3 — Session Transcripts', () => {
     store.addMessage(s1.value, { role: 'user', content: 'We need to plan the database migration' })
     store.addMessage(s1.value, {
       role: 'assistant',
-      content: 'I can help with the database migration strategy'
+      content: 'I can help with the database migration strategy',
     })
     store.endSession(s1.value)
 

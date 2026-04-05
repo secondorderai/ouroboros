@@ -12,24 +12,15 @@ import {
   discoverSkills,
   getSkillCatalog,
   activateSkill,
-  _resetSkills
+  _resetSkills,
 } from '@src/tools/skill-manager'
 import { buildSystemPrompt } from '@src/llm/prompt'
-import type { LanguageModelV1StreamPart } from 'ai'
-import {
-  createMockModel,
-  createInspectingMockModel,
-  textDelta,
-  toolCall,
-  finishStop,
-  finishToolCalls
-} from '../helpers/mock-llm'
+import { createInspectingMockModel, textDelta, finishStop } from '../helpers/mock-llm'
 import {
   makeTempDir,
   cleanupTempDir,
   createTestSkill,
-  collectEvents,
-  makeAgentOptions
+  makeAgentOptions,
 } from '../helpers/test-utils'
 
 describe('Agent + Skills Integration', () => {
@@ -52,8 +43,18 @@ describe('Agent + Skills Integration', () => {
   // -------------------------------------------------------------------
   test('skill catalog appears in system prompt after discovery', () => {
     // Create test skills
-    createTestSkill(tempDir, 'code-review', 'Review code for quality and bugs', '## Instructions\nReview all code carefully.')
-    createTestSkill(tempDir, 'summarizer', 'Summarize text content', '## Instructions\nCreate concise summaries.')
+    createTestSkill(
+      tempDir,
+      'code-review',
+      'Review code for quality and bugs',
+      '## Instructions\nReview all code carefully.',
+    )
+    createTestSkill(
+      tempDir,
+      'summarizer',
+      'Summarize text content',
+      '## Instructions\nCreate concise summaries.',
+    )
 
     // Discover skills
     const skillDirs = [`${tempDir}/skills/core`]
@@ -65,7 +66,7 @@ describe('Agent + Skills Integration', () => {
 
     // Build system prompt with skills
     const prompt = buildSystemPrompt({
-      skills: catalog.map(s => ({ name: s.name, description: s.description }))
+      skills: catalog.map((s) => ({ name: s.name, description: s.description })),
     })
 
     // Verify skills appear in the prompt
@@ -112,7 +113,12 @@ describe('Agent + Skills Integration', () => {
   // Test: Agent uses skill catalog in system prompt during a task
   // -------------------------------------------------------------------
   test('agent uses skill catalog in system prompt during a task', async () => {
-    createTestSkill(tempDir, 'web-search', 'Search the web for information', '## Instructions\nUse web search API.')
+    createTestSkill(
+      tempDir,
+      'web-search',
+      'Search the web for information',
+      '## Instructions\nUse web search API.',
+    )
 
     discoverSkills([`${tempDir}/skills/core`], tempDir)
 
@@ -120,12 +126,12 @@ describe('Agent + Skills Integration', () => {
 
     const model = createInspectingMockModel((prompt, _callIndex) => {
       const messages = prompt as Array<{ role: string; content: unknown }>
-      const systemMsg = messages.find(m => m.role === 'system')
+      const systemMsg = messages.find((m) => m.role === 'system')
       if (systemMsg) {
         capturedSystemPrompt = String(
           Array.isArray(systemMsg.content)
-            ? (systemMsg.content as Array<{ text?: string }>).map(c => c.text ?? '').join('')
-            : systemMsg.content
+            ? (systemMsg.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('')
+            : systemMsg.content,
         )
       }
       return [textDelta('I can see the available skills.'), finishStop()]
@@ -135,8 +141,8 @@ describe('Agent + Skills Integration', () => {
     const agent = new Agent(
       makeAgentOptions(model, registry, {
         systemPromptBuilder: buildSystemPrompt,
-        skillCatalogProvider: () => catalog
-      })
+        skillCatalogProvider: () => catalog,
+      }),
     )
 
     await agent.run('What skills do you have?')
@@ -194,7 +200,7 @@ Step 4: Report findings`
 
     // System prompt should not have Skills section when catalog is empty
     const prompt = buildSystemPrompt({
-      skills: catalog.map(s => ({ name: s.name, description: s.description }))
+      skills: catalog.map((s) => ({ name: s.name, description: s.description })),
     })
     expect(prompt).not.toContain('## Skills')
   })

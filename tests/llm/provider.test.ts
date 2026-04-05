@@ -33,7 +33,7 @@ describe('createProvider', () => {
     const config: ModelConfig = {
       provider: 'anthropic',
       name: 'claude-sonnet-4-20250514',
-      baseUrl: undefined
+      baseUrl: undefined,
     }
 
     const result = createProvider(config)
@@ -42,10 +42,11 @@ describe('createProvider', () => {
     if (!result.ok) return
 
     // The model object should have the expected shape from AI SDK
-    expect(result.value).toBeDefined()
-    expect(result.value.modelId).toBe('claude-sonnet-4-20250514')
-    expect(typeof result.value.doGenerate).toBe('function')
-    expect(typeof result.value.doStream).toBe('function')
+    const model = result.value as Record<string, unknown>
+    expect(model).toBeDefined()
+    expect(model.modelId).toBe('claude-sonnet-4-20250514')
+    expect(typeof model.doGenerate).toBe('function')
+    expect(typeof model.doStream).toBe('function')
   })
 
   test('creates OpenAI model when API key is set', () => {
@@ -54,7 +55,7 @@ describe('createProvider', () => {
     const config: ModelConfig = {
       provider: 'openai',
       name: 'gpt-4o',
-      baseUrl: undefined
+      baseUrl: undefined,
     }
 
     const result = createProvider(config)
@@ -62,17 +63,18 @@ describe('createProvider', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.value).toBeDefined()
-    expect(result.value.modelId).toBe('gpt-4o')
-    expect(typeof result.value.doGenerate).toBe('function')
-    expect(typeof result.value.doStream).toBe('function')
+    const model = result.value as Record<string, unknown>
+    expect(model).toBeDefined()
+    expect(model.modelId).toBe('gpt-4o')
+    expect(typeof model.doGenerate).toBe('function')
+    expect(typeof model.doStream).toBe('function')
   })
 
   test('creates OpenAI-compatible model with baseUrl', () => {
     const config: ModelConfig = {
       provider: 'openai-compatible',
       name: 'llama-3.1-8b',
-      baseUrl: 'http://localhost:11434/v1'
+      baseUrl: 'http://localhost:11434/v1',
     }
 
     const result = createProvider(config)
@@ -80,10 +82,11 @@ describe('createProvider', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.value).toBeDefined()
-    expect(result.value.modelId).toBe('llama-3.1-8b')
-    expect(typeof result.value.doGenerate).toBe('function')
-    expect(typeof result.value.doStream).toBe('function')
+    const model = result.value as Record<string, unknown>
+    expect(model).toBeDefined()
+    expect(model.modelId).toBe('llama-3.1-8b')
+    expect(typeof model.doGenerate).toBe('function')
+    expect(typeof model.doStream).toBe('function')
   })
 
   test('returns error when Anthropic API key is missing', () => {
@@ -92,7 +95,7 @@ describe('createProvider', () => {
     const config: ModelConfig = {
       provider: 'anthropic',
       name: 'claude-sonnet-4-20250514',
-      baseUrl: undefined
+      baseUrl: undefined,
     }
 
     const result = createProvider(config)
@@ -110,7 +113,7 @@ describe('createProvider', () => {
     const config: ModelConfig = {
       provider: 'openai',
       name: 'gpt-4o',
-      baseUrl: undefined
+      baseUrl: undefined,
     }
 
     const result = createProvider(config)
@@ -126,7 +129,7 @@ describe('createProvider', () => {
     const config: ModelConfig = {
       provider: 'openai-compatible',
       name: 'some-model',
-      baseUrl: undefined
+      baseUrl: undefined,
     }
 
     const result = createProvider(config)
@@ -143,7 +146,7 @@ describe('createProvider', () => {
     const config = {
       provider: 'nonexistent' as 'anthropic',
       name: 'some-model',
-      baseUrl: undefined
+      baseUrl: undefined,
     } as ModelConfig
 
     const result = createProvider(config)

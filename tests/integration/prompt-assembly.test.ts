@@ -6,15 +6,10 @@
  * and stays within reasonable size limits.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
+import { buildSystemPrompt } from '@src/llm/prompt'
 import { ToolRegistry } from '@src/tools/registry'
-import {
-  discoverSkills,
-  getSkillCatalog,
-  _resetSkills
-} from '@src/tools/skill-manager'
+import { discoverSkills, getSkillCatalog, _resetSkills } from '@src/tools/skill-manager'
 import { getMemoryIndex } from '@src/memory/index'
-import type { ToolMetadata } from '@src/tools/types'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import {
@@ -22,7 +17,7 @@ import {
   cleanupTempDir,
   createTestSkill,
   setupMemoryDir,
-  makeTool
+  makeTool,
 } from '../helpers/test-utils'
 
 describe('Prompt + Tools + Skills Assembly', () => {
@@ -52,9 +47,9 @@ describe('Prompt + Tools + Skills Assembly', () => {
     createTestSkill(tempDir, 'web-search', 'Search the web', '## Instructions\nSearch effectively.')
     createTestSkill(tempDir, 'code-gen', 'Generate code', '## Instructions\nGenerate clean code.')
     discoverSkills([`${tempDir}/skills/core`], tempDir)
-    const skills = getSkillCatalog().map(s => ({
+    const skills = getSkillCatalog().map((s) => ({
       name: s.name,
-      description: s.description
+      description: s.description,
     }))
 
     // Set up memory
@@ -94,7 +89,7 @@ describe('Prompt + Tools + Skills Assembly', () => {
     const prompt = buildSystemPrompt({
       tools: [],
       skills: [],
-      memory: ''
+      memory: '',
     })
 
     // Base instructions should still be there
@@ -133,9 +128,9 @@ describe('Prompt + Tools + Skills Assembly', () => {
   test('prompt remains valid with only skills provided', () => {
     createTestSkill(tempDir, 'only-skill', 'The only skill', '## Body')
     discoverSkills([`${tempDir}/skills/core`], tempDir)
-    const skills = getSkillCatalog().map(s => ({
+    const skills = getSkillCatalog().map((s) => ({
       name: s.name,
-      description: s.description
+      description: s.description,
     }))
 
     const prompt = buildSystemPrompt({ skills })
@@ -177,7 +172,7 @@ describe('Prompt + Tools + Skills Assembly', () => {
       { name: 'code-review', description: 'Review code for quality and bugs' },
       { name: 'web-search', description: 'Search the web for information' },
       { name: 'summarizer', description: 'Summarize text content' },
-      { name: 'code-gen', description: 'Generate code from specifications' }
+      { name: 'code-gen', description: 'Generate code from specifications' },
     ]
 
     const memory = `# Memory Index
@@ -215,9 +210,9 @@ describe('Prompt + Tools + Skills Assembly', () => {
       schema: z.object({
         path: z.string(),
         content: z.string(),
-        overwrite: z.boolean().optional()
+        overwrite: z.boolean().optional(),
       }),
-      execute: async () => ok('done')
+      execute: async () => ok('done'),
     })
 
     const tools = registry.getTools()

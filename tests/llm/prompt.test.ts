@@ -49,10 +49,10 @@ describe('buildSystemPrompt', () => {
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string' }
+          path: { type: 'string' },
         },
-        required: ['path']
-      }
+        required: ['path'],
+      },
     }
 
     const mockTool2: ToolMetadata = {
@@ -62,10 +62,10 @@ describe('buildSystemPrompt', () => {
         type: 'object',
         properties: {
           path: { type: 'string' },
-          content: { type: 'string' }
+          content: { type: 'string' },
         },
-        required: ['path', 'content']
-      }
+        required: ['path', 'content'],
+      },
     }
 
     const prompt = buildSystemPrompt({ tools: [mockTool1, mockTool2] })
@@ -94,12 +94,12 @@ describe('buildSystemPrompt', () => {
     const mockSkill1: SkillEntry = {
       name: 'web-search',
       description: 'Search the web for information',
-      activationHint: 'Use when user asks to look something up'
+      activationHint: 'Use when user asks to look something up',
     }
 
     const mockSkill2: SkillEntry = {
       name: 'code-review',
-      description: 'Review code for quality and bugs'
+      description: 'Review code for quality and bugs',
     }
 
     const prompt = buildSystemPrompt({ skills: [mockSkill1, mockSkill2] })
@@ -151,7 +151,7 @@ describe('buildSystemPrompt', () => {
     const mockTool: ToolMetadata = {
       name: 'test-tool',
       description: 'A test tool',
-      parameters: { type: 'object', properties: {} }
+      parameters: { type: 'object', properties: {} },
     }
 
     const prompt = buildSystemPrompt({ tools: [mockTool], skills: [], memory: '' })
@@ -191,14 +191,12 @@ describe('buildSystemPrompt', () => {
         parameters: {
           type: 'object',
           properties: { command: { type: 'string' } },
-          required: ['command']
-        }
-      }
+          required: ['command'],
+        },
+      },
     ]
 
-    const skills: SkillEntry[] = [
-      { name: 'summarize', description: 'Summarize text content' }
-    ]
+    const skills: SkillEntry[] = [{ name: 'summarize', description: 'Summarize text content' }]
 
     const memory = '## Known Projects\n- ouroboros: this project'
 
@@ -218,7 +216,7 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt({
       tools: [{ name: 't', description: 'd', parameters: {} }],
       skills: [{ name: 's', description: 'd' }],
-      memory: 'some memory'
+      memory: 'some memory',
     })
 
     expect(typeof prompt).toBe('string')

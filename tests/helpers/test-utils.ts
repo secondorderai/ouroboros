@@ -10,10 +10,9 @@ import { tmpdir } from 'node:os'
 import { z } from 'zod'
 import { ok, err } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
-import type { Result } from '@src/types'
 import { ToolRegistry } from '@src/tools/registry'
-import { Agent, type AgentOptions, type AgentEvent } from '@src/agent'
-import type { LanguageModelV1 } from 'ai'
+import type { AgentOptions, AgentEvent } from '@src/agent'
+import type { LanguageModel } from 'ai'
 
 /**
  * Create a unique temporary directory for test isolation.
@@ -42,7 +41,7 @@ export function createTestSkill(
   basePath: string,
   name: string,
   description: string,
-  body: string
+  body: string,
 ): string {
   const skillDir = join(basePath, 'skills', 'core', name)
   mkdirSync(skillDir, { recursive: true })
@@ -66,7 +65,7 @@ export function setupMemoryDir(basePath: string, memoryContent = ''): void {
   writeFileSync(
     join(basePath, 'memory', 'MEMORY.md'),
     memoryContent || '# Test Memory\n\nTest memory content for integration tests.',
-    'utf-8'
+    'utf-8',
   )
 }
 
@@ -75,14 +74,14 @@ export function setupMemoryDir(basePath: string, memoryContent = ''): void {
  */
 export function makeTool(
   name: string,
-  handler?: (args: Record<string, unknown>) => unknown
+  handler?: (args: Record<string, unknown>) => unknown,
 ): ToolDefinition {
   return {
     name,
     description: `Test tool: ${name}`,
     schema: z.object({ input: z.string().optional() }),
-    execute: async (args) =>
-      ok(handler ? handler(args as Record<string, unknown>) : { output: `${name} executed` })
+    execute: async (args: Record<string, unknown>) =>
+      ok(handler ? handler(args) : { output: `${name} executed` }),
   }
 }
 
@@ -94,7 +93,7 @@ export function makeErrorTool(name: string, errorMessage: string): ToolDefinitio
     name,
     description: `Error tool: ${name}`,
     schema: z.object({ input: z.string().optional() }),
-    execute: async () => err(new Error(errorMessage))
+    execute: async () => err(new Error(errorMessage)),
   }
 }
 
@@ -112,9 +111,9 @@ export function collectEvents(): { events: AgentEvent[]; handler: (e: AgentEvent
  * to avoid filesystem access.
  */
 export function makeAgentOptions(
-  model: LanguageModelV1,
+  model: LanguageModel,
   registry: ToolRegistry,
-  overrides?: Partial<AgentOptions>
+  overrides?: Partial<AgentOptions>,
 ): AgentOptions {
   return {
     model,
@@ -122,6 +121,6 @@ export function makeAgentOptions(
     systemPromptBuilder: () => 'You are a test assistant.',
     memoryProvider: () => '',
     skillCatalogProvider: () => [],
-    ...overrides
+    ...overrides,
   }
 }

@@ -16,21 +16,19 @@ import { buildSystemPrompt } from '@src/llm/prompt'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import { join } from 'node:path'
-import type { LanguageModelV1StreamPart } from 'ai'
 import {
   createMockModel,
   createInspectingMockModel,
   textDelta,
   toolCall,
   finishStop,
-  finishToolCalls
+  finishToolCalls,
 } from '../helpers/mock-llm'
 import {
   makeTempDir,
   cleanupTempDir,
   setupMemoryDir,
-  collectEvents,
-  makeAgentOptions
+  makeAgentOptions,
 } from '../helpers/test-utils'
 
 describe('Agent + Memory Integration', () => {
@@ -57,26 +55,23 @@ describe('Agent + Memory Integration', () => {
     const model = createInspectingMockModel((prompt, _callIndex) => {
       // The prompt is an array of messages; the first one is the system message
       const messages = prompt as Array<{ role: string; content: unknown }>
-      const systemMsg = messages.find(m => m.role === 'system')
+      const systemMsg = messages.find((m) => m.role === 'system')
       if (systemMsg) {
         capturedSystemPrompt = String(
           Array.isArray(systemMsg.content)
-            ? (systemMsg.content as Array<{ text?: string }>).map(c => c.text ?? '').join('')
-            : systemMsg.content
+            ? (systemMsg.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('')
+            : systemMsg.content,
         )
       }
-      return [
-        textDelta('I can see the memory context.'),
-        finishStop()
-      ]
+      return [textDelta('I can see the memory context.'), finishStop()]
     })
 
     const memoryContent = getMemoryIndex(tempDir)
     const agent = new Agent(
       makeAgentOptions(model, registry, {
         systemPromptBuilder: buildSystemPrompt,
-        memoryProvider: () => (memoryContent.ok ? memoryContent.value : '')
-      })
+        memoryProvider: () => (memoryContent.ok ? memoryContent.value : ''),
+      }),
     )
 
     await agent.run('What do you know about the project?')
@@ -102,16 +97,16 @@ describe('Agent + Memory Integration', () => {
       schema: z.object({
         action: z.string(),
         name: z.string().optional(),
-        content: z.string().optional()
+        content: z.string().optional(),
       }),
       execute: async (args) => {
         const input = args as { action: string; name?: string; content?: string }
         return memoryExecute({
           action: input.action as 'write-topic' | 'read-topic' | 'read-index',
           name: input.name,
-          content: input.content
+          content: input.content,
         })
-      }
+      },
     })
 
     const model = createMockModel([
@@ -120,23 +115,20 @@ describe('Agent + Memory Integration', () => {
         toolCall('call_write', 'memory', {
           action: 'write-topic',
           name: 'test-topic',
-          content: 'Important: the sky is blue'
+          content: 'Important: the sky is blue',
         }),
-        finishToolCalls()
+        finishToolCalls(),
       ],
       // Turn 2: LLM reads it back
       [
         toolCall('call_read', 'memory', {
           action: 'read-topic',
-          name: 'test-topic'
+          name: 'test-topic',
         }),
-        finishToolCalls()
+        finishToolCalls(),
       ],
       // Turn 3: Final response
-      [
-        textDelta('I stored and retrieved the information. The sky is blue.'),
-        finishStop()
-      ]
+      [textDelta('I stored and retrieved the information. The sky is blue.'), finishStop()],
     ])
 
     const agent = new Agent(makeAgentOptions(model, registry))
@@ -168,12 +160,10 @@ describe('Agent + Memory Integration', () => {
       const sessionId = sessionResult.value
 
       // Run an agent conversation
-      const model = createMockModel([
-        [textDelta('Hello! How can I help you today?'), finishStop()],
-      ])
+      const model = createMockModel([[textDelta('Hello! How can I help you today?'), finishStop()]])
 
       const agent = new Agent(makeAgentOptions(model, registry))
-      const agentResult = await agent.run('Hi there')
+      await agent.run('Hi there')
 
       // Store the conversation in the transcript
       const history = agent.getConversationHistory()
@@ -217,24 +207,18 @@ describe('Agent + Memory Integration', () => {
         name: 'bash',
         description: 'Run command',
         schema: z.object({ command: z.string().optional() }),
-        execute: async () => ok({ stdout: 'result', stderr: '', exitCode: 0 })
+        execute: async () => ok({ stdout: 'result', stderr: '', exitCode: 0 }),
       })
 
       const model = createMockModel([
         // Turn 1: Tool call
-        [
-          toolCall('call_1', 'bash', { command: 'ls' }),
-          finishToolCalls()
-        ],
+        [toolCall('call_1', 'bash', { command: 'ls' }), finishToolCalls()],
         // Turn 2: Final text
-        [
-          textDelta('Here are the files.'),
-          finishStop()
-        ]
+        [textDelta('Here are the files.'), finishStop()],
       ])
 
       const agent = new Agent(makeAgentOptions(model, registry))
-      const result = await agent.run('List files')
+      await agent.run('List files')
 
       // Create session and store all messages
       const sessionResult = store.createSession()
@@ -250,9 +234,9 @@ describe('Agent + Memory Integration', () => {
           for (const tc of msg.toolCalls) {
             store.addMessage(sessionId, {
               role: 'tool-call',
-              content: `${tc.toolName}: ${JSON.stringify(tc.args)}`,
+              content: `${tc.toolName}: ${JSON.stringify(tc.input)}`,
               toolName: tc.toolName,
-              toolArgs: tc.args
+              toolArgs: tc.input,
             })
           }
         } else if (msg.role === 'assistant') {
@@ -262,7 +246,7 @@ describe('Agent + Memory Integration', () => {
             store.addMessage(sessionId, {
               role: 'tool-result',
               content: JSON.stringify(tr.result),
-              toolName: tr.toolName
+              toolName: tr.toolName,
             })
           }
         }
@@ -282,11 +266,11 @@ describe('Agent + Memory Integration', () => {
       expect(session.value.messages[0].content).toBe('List files')
 
       // Should have tool-call and tool-result messages
-      const toolCallMsgs = session.value.messages.filter(m => m.role === 'tool-call')
+      const toolCallMsgs = session.value.messages.filter((m) => m.role === 'tool-call')
       expect(toolCallMsgs.length).toBeGreaterThanOrEqual(1)
       expect(toolCallMsgs[0].toolName).toBe('bash')
 
-      const toolResultMsgs = session.value.messages.filter(m => m.role === 'tool-result')
+      const toolResultMsgs = session.value.messages.filter((m) => m.role === 'tool-result')
       expect(toolResultMsgs.length).toBeGreaterThanOrEqual(1)
     } finally {
       store.close()

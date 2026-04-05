@@ -78,8 +78,8 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'invalid-provider' }
-      })
+        model: { provider: 'invalid-provider' },
+      }),
     )
 
     const result = loadConfig(tempDir)
@@ -95,8 +95,8 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        rsi: { noveltyThreshold: 1.5 }
-      })
+        rsi: { noveltyThreshold: 1.5 },
+      }),
     )
 
     const result = loadConfig(tempDir)
@@ -112,8 +112,8 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'anthropic' }
-      })
+        model: { provider: 'anthropic' },
+      }),
     )
 
     // Env var overrides the model name
@@ -138,8 +138,8 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'anthropic', name: 'claude-3-opus' }
-      })
+        model: { provider: 'anthropic', name: 'claude-3-opus' },
+      }),
     )
 
     // Env var should override the file value
@@ -168,24 +168,24 @@ describe('loadConfig', () => {
     const config = {
       model: {
         provider: 'openai',
-        name: 'gpt-4o'
+        name: 'gpt-4o',
       },
       permissions: {
         tier0: true,
         tier1: true,
         tier2: false,
         tier3: false,
-        tier4: false
+        tier4: false,
       },
       skillDirectories: ['skills/core', 'skills/custom'],
       memory: {
         sqlitePath: 'data/sessions.db',
-        consolidationSchedule: 'daily'
+        consolidationSchedule: 'daily',
       },
       rsi: {
         noveltyThreshold: 0.5,
-        autoReflect: false
-      }
+        autoReflect: false,
+      },
     }
     writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config))
 

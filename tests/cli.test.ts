@@ -4,24 +4,25 @@ import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
-import type { LanguageModelV1, LanguageModelV1StreamPart } from 'ai'
+import type { LanguageModelV2StreamPart } from '@ai-sdk/provider'
+import type { LanguageModel } from 'ai'
 import { Renderer } from '@src/cli/renderer'
 import { createSingleShotHandler } from '@src/cli/single-shot'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
- * Create a mock LanguageModelV1 that yields predetermined stream parts
+ * Create a mock LanguageModel that yields predetermined stream parts
  * across multiple turns.
  */
-function createMockModel(turns: LanguageModelV1StreamPart[][]): LanguageModelV1 {
+function createMockModel(turns: LanguageModelV2StreamPart[][]): LanguageModel {
   let turnIndex = 0
 
   return {
-    specificationVersion: 'v1',
+    specificationVersion: 'v2',
     provider: 'mock',
     modelId: 'mock-model',
-    defaultObjectGenerationMode: undefined,
+    supportedUrls: {},
 
     doGenerate: async () => {
       throw new Error('doGenerate not used by agent — use doStream')
@@ -32,29 +33,33 @@ function createMockModel(turns: LanguageModelV1StreamPart[][]): LanguageModelV1 
       turnIndex++
 
       return {
-        stream: new ReadableStream<LanguageModelV1StreamPart>({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
           start(controller) {
             for (const part of parts) {
               controller.enqueue(part)
             }
             controller.close()
-          }
+          },
         }),
         rawCall: { rawPrompt: null, rawSettings: {} },
         rawResponse: { headers: {} },
-        warnings: []
+        warnings: [],
       }
-    }
-  }
+    },
+  } as LanguageModel
 }
 
 /** Create a simple tool definition for testing. */
-function makeTool(name: string, handler?: (args: Record<string, unknown>) => unknown): ToolDefinition {
+function makeTool(
+  name: string,
+  handler?: (args: Record<string, unknown>) => unknown,
+): ToolDefinition {
   return {
     name,
     description: `Test tool: ${name}`,
     schema: z.object({ input: z.string().optional() }),
-    execute: async args => ok(handler ? handler(args as Record<string, unknown>) : { output: `${name} executed` })
+    execute: async (args) =>
+      ok(handler ? handler(args as Record<string, unknown>) : { output: `${name} executed` }),
   }
 }
 
@@ -66,9 +71,9 @@ function collectEvents(): { events: AgentEvent[]; handler: (e: AgentEvent) => vo
 
 /** Build default agent options with overrides. */
 function makeAgentOptions(
-  model: LanguageModelV1,
+  model: LanguageModel,
   registry: ToolRegistry,
-  overrides?: Partial<AgentOptions>
+  overrides?: Partial<AgentOptions>,
 ): AgentOptions {
   return {
     model,
@@ -76,7 +81,7 @@ function makeAgentOptions(
     systemPromptBuilder: () => 'You are a test assistant.',
     memoryProvider: () => '',
     skillCatalogProvider: () => [],
-    ...overrides
+    ...overrides,
   }
 }
 
@@ -136,9 +141,13 @@ describe('CLI', () => {
     test('agent response text is written to stdout', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: '42' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 10, completionTokens: 1 } }
-        ]
+          { type: 'text-delta', id: 'msg_1', delta: '42' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11 },
+          },
+        ],
       ])
 
       // Create a mutable event dispatch proxy
@@ -147,8 +156,8 @@ describe('CLI', () => {
 
       const agent = new Agent(
         makeAgentOptions(model, registry, {
-          onEvent: eventProxy
-        })
+          onEvent: eventProxy,
+        }),
       )
 
       // Set up single-shot handler
@@ -166,11 +175,15 @@ describe('CLI', () => {
     test('noStream mode accumulates text and outputs at turn-complete', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: 'The ' },
-          { type: 'text-delta', textDelta: 'answer ' },
-          { type: 'text-delta', textDelta: 'is 42' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 10, completionTokens: 5 } }
-        ]
+          { type: 'text-delta', id: 'msg_2', delta: 'The ' },
+          { type: 'text-delta', id: 'msg_3', delta: 'answer ' },
+          { type: 'text-delta', id: 'msg_4', delta: 'is 42' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          },
+        ],
       ])
 
       let currentHandler: (event: AgentEvent) => void = () => {}
@@ -178,8 +191,8 @@ describe('CLI', () => {
 
       const agent = new Agent(
         makeAgentOptions(model, registry, {
-          onEvent: eventProxy
-        })
+          onEvent: eventProxy,
+        }),
       )
 
       const { handler } = createSingleShotHandler({ verbose: false, noStream: true })
@@ -202,8 +215,8 @@ describe('CLI', () => {
       registry.register(
         makeTool('bash', () => ({
           output: 'hello\n',
-          exitCode: 0
-        }))
+          exitCode: 0,
+        })),
       )
 
       const model = createMockModel([
@@ -211,18 +224,25 @@ describe('CLI', () => {
         [
           {
             type: 'tool-call',
-            toolCallType: 'function',
             toolCallId: 'call_1',
             toolName: 'bash',
-            args: '{"input":"echo hello"}'
+            input: '{"input":"echo hello"}',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 15 } }
+          {
+            type: 'finish',
+            finishReason: 'tool-calls',
+            usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
+          },
         ],
         // Turn 2: LLM produces final text
         [
-          { type: 'text-delta', textDelta: 'The output is hello' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 30, completionTokens: 10 } }
-        ]
+          { type: 'text-delta', id: 'msg_5', delta: 'The output is hello' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40 },
+          },
+        ],
       ])
 
       let currentHandler: (event: AgentEvent) => void = () => {}
@@ -230,8 +250,8 @@ describe('CLI', () => {
 
       const agent = new Agent(
         makeAgentOptions(model, registry, {
-          onEvent: eventProxy
-        })
+          onEvent: eventProxy,
+        }),
       )
 
       // Verbose mode, non-TTY (for clean text matching)
@@ -252,25 +272,32 @@ describe('CLI', () => {
       registry.register(
         makeTool('bash', () => ({
           output: 'hello\n',
-          exitCode: 0
-        }))
+          exitCode: 0,
+        })),
       )
 
       const model = createMockModel([
         [
           {
             type: 'tool-call',
-            toolCallType: 'function',
             toolCallId: 'call_1',
             toolName: 'bash',
-            args: '{"input":"echo hello"}'
+            input: '{"input":"echo hello"}',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 10, completionTokens: 15 } }
+          {
+            type: 'finish',
+            finishReason: 'tool-calls',
+            usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
+          },
         ],
         [
-          { type: 'text-delta', textDelta: 'The output is hello' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 30, completionTokens: 10 } }
-        ]
+          { type: 'text-delta', id: 'msg_6', delta: 'The output is hello' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40 },
+          },
+        ],
       ])
 
       let currentHandler: (event: AgentEvent) => void = () => {}
@@ -278,8 +305,8 @@ describe('CLI', () => {
 
       const agent = new Agent(
         makeAgentOptions(model, registry, {
-          onEvent: eventProxy
-        })
+          onEvent: eventProxy,
+        }),
       )
 
       // Non-verbose, non-TTY
@@ -314,14 +341,19 @@ describe('CLI', () => {
 
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: 'test' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 1 } }
-        ]
+          { type: 'text-delta', id: 'msg_7', delta: 'test' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 },
+          },
+        ],
       ])
 
       // Verify the mock model has the expected provider
-      expect(model.provider).toBe('mock')
-      expect(model.modelId).toBe('mock-model')
+      const m = model as Record<string, unknown>
+      expect(m.provider).toBe('mock')
+      expect(m.modelId).toBe('mock-model')
 
       // The actual model override is tested by creating an agent with a different model
       // and verifying it uses that model for generation
@@ -392,37 +424,37 @@ describe('CLI', () => {
 
     test('agent handles stream errors gracefully without crashing', async () => {
       // Simulate a model that errors during streaming
-      const errorModel: LanguageModelV1 = {
-        specificationVersion: 'v1',
+      const errorModel = {
+        specificationVersion: 'v2',
         provider: 'mock',
         modelId: 'mock-error',
-        defaultObjectGenerationMode: undefined,
+        supportedUrls: {},
         doGenerate: async () => {
           throw new Error('not implemented')
         },
         doStream: async () => {
           return {
-            stream: new ReadableStream<LanguageModelV1StreamPart>({
+            stream: new ReadableStream<LanguageModelV2StreamPart>({
               start(controller) {
-                controller.enqueue({ type: 'text-delta', textDelta: 'Starting...' })
+                controller.enqueue({ type: 'text-delta', id: 'msg_8', delta: 'Starting...' })
                 controller.enqueue({
                   type: 'error',
-                  error: new Error('Stream interrupted')
+                  error: new Error('Stream interrupted'),
                 })
                 controller.enqueue({
                   type: 'finish',
                   finishReason: 'error',
-                  usage: { promptTokens: 5, completionTokens: 1 }
+                  usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 },
                 })
                 controller.close()
-              }
+              },
             }),
             rawCall: { rawPrompt: null, rawSettings: {} },
             rawResponse: { headers: {} },
-            warnings: []
+            warnings: [],
           }
-        }
-      }
+        },
+      } as LanguageModel
 
       const { events, handler } = collectEvents()
       const agent = new Agent(makeAgentOptions(errorModel, registry, { onEvent: handler }))
@@ -435,7 +467,7 @@ describe('CLI', () => {
       expect(typeof result.text).toBe('string')
 
       // Should have emitted an error event
-      const errorEvents = events.filter(e => e.type === 'error')
+      const errorEvents = events.filter((e) => e.type === 'error')
       expect(errorEvents.length).toBeGreaterThanOrEqual(1)
     })
   })
@@ -448,20 +480,28 @@ describe('CLI', () => {
       const model = createMockModel([
         // First turn
         [
-          { type: 'text-delta', textDelta: 'My name is Ouroboros.' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 10, completionTokens: 5 } }
+          { type: 'text-delta', id: 'msg_9', delta: 'My name is Ouroboros.' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          },
         ],
         // Second turn
         [
-          { type: 'text-delta', textDelta: 'You asked my name. I said Ouroboros.' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 20, completionTokens: 8 } }
-        ]
+          { type: 'text-delta', id: 'msg_10', delta: 'You asked my name. I said Ouroboros.' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 20, outputTokens: 8, totalTokens: 28 },
+          },
+        ],
       ])
 
       const agent = new Agent(
         makeAgentOptions(model, registry, {
-          onEvent: () => {}
-        })
+          onEvent: () => {},
+        }),
       )
 
       // First turn
@@ -547,9 +587,13 @@ describe('CLI', () => {
     test('mutable dispatch target allows handler swapping', async () => {
       const model = createMockModel([
         [
-          { type: 'text-delta', textDelta: 'Hello' },
-          { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 1 } }
-        ]
+          { type: 'text-delta', id: 'msg_11', delta: 'Hello' },
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 },
+          },
+        ],
       ])
 
       let currentHandler: (event: AgentEvent) => void = () => {}
@@ -557,8 +601,8 @@ describe('CLI', () => {
 
       const agent = new Agent(
         makeAgentOptions(model, registry, {
-          onEvent: eventProxy
-        })
+          onEvent: eventProxy,
+        }),
       )
 
       // Set up handler before run
@@ -568,7 +612,7 @@ describe('CLI', () => {
       await agent.run('Hello')
 
       // Events should have been captured through the proxy
-      const textEvents = events.filter(e => e.type === 'text')
+      const textEvents = events.filter((e) => e.type === 'text')
       expect(textEvents).toHaveLength(1)
       expect(textEvents[0]).toEqual({ type: 'text', text: 'Hello' })
     })

@@ -10,7 +10,7 @@ import {
   getSkillInfo,
   _resetSkills,
   execute,
-  schema
+  schema,
 } from '@src/tools/skill-manager'
 
 /** Base path for test fixtures. */
@@ -67,18 +67,18 @@ describe('SkillManager', () => {
       coreDir,
       {
         name: 'test-core-skill',
-        description: 'A core skill for testing'
+        description: 'A core skill for testing',
       },
-      '# Core skill instructions\n\nDo core things.'
+      '# Core skill instructions\n\nDo core things.',
     )
 
     writeSkillMd(
       generatedDir,
       {
         name: 'test-gen-skill',
-        description: 'A generated skill for testing'
+        description: 'A generated skill for testing',
       },
-      '# Generated skill instructions\n\nDo generated things.'
+      '# Generated skill instructions\n\nDo generated things.',
     )
 
     discoverSkills(['core', 'generated'], FIXTURES)
@@ -86,13 +86,13 @@ describe('SkillManager', () => {
     const catalog = getSkillCatalog()
     expect(catalog).toHaveLength(2)
 
-    const names = catalog.map(s => s.name).sort()
+    const names = catalog.map((s) => s.name).sort()
     expect(names).toEqual(['test-core-skill', 'test-gen-skill'])
 
-    const coreEntry = catalog.find(s => s.name === 'test-core-skill')
+    const coreEntry = catalog.find((s) => s.name === 'test-core-skill')
     expect(coreEntry?.status).toBe('core')
 
-    const genEntry = catalog.find(s => s.name === 'test-gen-skill')
+    const genEntry = catalog.find((s) => s.name === 'test-gen-skill')
     expect(genEntry?.status).toBe('generated')
   })
 
@@ -109,9 +109,9 @@ describe('SkillManager', () => {
         description: 'A skill with full metadata',
         license: 'MIT',
         compatibility: '>=1.0.0',
-        metadata: { author: 'test-author', version: '1.0.0' }
+        metadata: { author: 'test-author', version: '1.0.0' },
       },
-      '# Full metadata skill\n\nInstructions here.'
+      '# Full metadata skill\n\nInstructions here.',
     )
 
     discoverSkills(['core'], FIXTURES)
@@ -129,7 +129,7 @@ describe('SkillManager', () => {
       expect(info.value.frontmatter.compatibility).toBe('>=1.0.0')
       expect(info.value.frontmatter.metadata).toEqual({
         author: 'test-author',
-        version: '1.0.0'
+        version: '1.0.0',
       })
     }
   })
@@ -151,9 +151,9 @@ describe('SkillManager', () => {
       skillDir,
       {
         name: 'instruction-skill',
-        description: 'Skill with 50 lines of instructions'
+        description: 'Skill with 50 lines of instructions',
       },
-      body
+      body,
     )
 
     discoverSkills(['core'], FIXTURES)
@@ -183,9 +183,9 @@ describe('SkillManager', () => {
       skillDir,
       {
         name: 'ref-skill',
-        description: 'Skill that references REFERENCE.md'
+        description: 'Skill that references REFERENCE.md',
       },
-      '# Instructions\n\nSee REFERENCE.md for more details.'
+      '# Instructions\n\nSee REFERENCE.md for more details.',
     )
 
     mkdirSync(refDir, { recursive: true })
@@ -212,14 +212,18 @@ describe('SkillManager', () => {
       validDir,
       {
         name: 'valid-skill',
-        description: 'A valid skill'
+        description: 'A valid skill',
       },
-      '# Valid instructions'
+      '# Valid instructions',
     )
 
     // Write an invalid SKILL.md missing the name field
     mkdirSync(invalidDir, { recursive: true })
-    writeFileSync(join(invalidDir, 'SKILL.md'), '---\ndescription: missing name field\n---\n# Instructions', 'utf-8')
+    writeFileSync(
+      join(invalidDir, 'SKILL.md'),
+      '---\ndescription: missing name field\n---\n# Instructions',
+      'utf-8',
+    )
 
     discoverSkills(['core'], FIXTURES)
 
@@ -257,18 +261,18 @@ describe('SkillManager', () => {
       skillA,
       {
         name: 'skill-a',
-        description: 'Skill A'
+        description: 'Skill A',
       },
-      '# Skill A instructions'
+      '# Skill A instructions',
     )
 
     writeSkillMd(
       skillB,
       {
         name: 'skill-b',
-        description: 'Skill B'
+        description: 'Skill B',
       },
-      '# Skill B instructions'
+      '# Skill B instructions',
     )
 
     discoverSkills(['core'], FIXTURES)
@@ -279,8 +283,8 @@ describe('SkillManager', () => {
     const allSkills = listSkills()
     expect(allSkills).toHaveLength(2)
 
-    const skillAEntry = allSkills.find(s => s.name === 'skill-a')
-    const skillBEntry = allSkills.find(s => s.name === 'skill-b')
+    const skillAEntry = allSkills.find((s) => s.name === 'skill-a')
+    const skillBEntry = allSkills.find((s) => s.name === 'skill-b')
 
     expect(skillAEntry?.active).toBe(true)
     expect(skillBEntry?.active).toBe(false)
@@ -296,20 +300,20 @@ describe('SkillManager', () => {
       skillDir,
       {
         name: 'deact-skill',
-        description: 'Skill to deactivate'
+        description: 'Skill to deactivate',
       },
-      '# Instructions'
+      '# Instructions',
     )
 
     discoverSkills(['core'], FIXTURES)
 
     // Activate then deactivate
     activateSkill('deact-skill')
-    expect(listSkills().find(s => s.name === 'deact-skill')?.active).toBe(true)
+    expect(listSkills().find((s) => s.name === 'deact-skill')?.active).toBe(true)
 
     const result = deactivateSkill('deact-skill')
     expect(result.ok).toBe(true)
-    expect(listSkills().find(s => s.name === 'deact-skill')?.active).toBe(false)
+    expect(listSkills().find((s) => s.name === 'deact-skill')?.active).toBe(false)
   })
 
   test('deactivateSkill returns error for unknown skill', () => {
@@ -338,9 +342,9 @@ describe('SkillManager', () => {
       skillDir,
       {
         name: 'tool-skill',
-        description: 'A skill for tool test'
+        description: 'A skill for tool test',
       },
-      '# Instructions'
+      '# Instructions',
     )
 
     discoverSkills(['core'], FIXTURES)
@@ -379,9 +383,9 @@ describe('SkillManager', () => {
       {
         name: 'info-skill',
         description: 'A skill for info test',
-        license: 'Apache-2.0'
+        license: 'Apache-2.0',
       },
-      '# Instructions'
+      '# Instructions',
     )
 
     discoverSkills(['core'], FIXTURES)
@@ -412,9 +416,9 @@ describe('SkillManager', () => {
       stagingDir,
       {
         name: 'staged-skill',
-        description: 'A staging skill'
+        description: 'A staging skill',
       },
-      '# Staging instructions'
+      '# Staging instructions',
     )
 
     discoverSkills(['staging'], FIXTURES)
@@ -436,9 +440,9 @@ describe('SkillManager', () => {
         name: 'catalog-skill',
         description: 'For catalog format test',
         license: 'MIT',
-        metadata: { author: 'test' }
+        metadata: { author: 'test' },
       },
-      '# Instructions'
+      '# Instructions',
     )
 
     discoverSkills(['core'], FIXTURES)
