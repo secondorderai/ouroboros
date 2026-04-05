@@ -1,6 +1,6 @@
 # Ouroboros
 
-A standard agent harness for building LLM-powered tools. TypeScript on [Bun](https://bun.sh).
+A standard agent harness and CLI for building agentic AI systems. TypeScript on [Bun](https://bun.sh).
 
 Ouroboros provides a provider-agnostic ReAct loop, a plugin-based tool registry, multi-layer memory, and portable [Agent Skills](https://agentskills.io) — everything you need to build, compose, and run AI agents. The core is designed to be embedded in CLIs, web servers, or other applications with no coupling to a specific LLM provider or UI.
 
