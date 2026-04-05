@@ -77,9 +77,15 @@ export type OuroborosConfig = z.infer<typeof configSchema>
 function applyEnvOverrides(config: Record<string, unknown>): Record<string, unknown> {
   const env = process.env
 
-  const model = (config.model ?? {}) as Record<string, unknown>
-  const memory = (config.memory ?? {}) as Record<string, unknown>
-  const rsi = (config.rsi ?? {}) as Record<string, unknown>
+  const model = (typeof config.model === 'object' && config.model !== null)
+    ? { ...config.model } as Record<string, unknown>
+    : config.model !== undefined ? config.model as Record<string, unknown> : {} as Record<string, unknown>
+  const memory = (typeof config.memory === 'object' && config.memory !== null)
+    ? { ...config.memory } as Record<string, unknown>
+    : config.memory !== undefined ? config.memory as Record<string, unknown> : {} as Record<string, unknown>
+  const rsi = (typeof config.rsi === 'object' && config.rsi !== null)
+    ? { ...config.rsi } as Record<string, unknown>
+    : config.rsi !== undefined ? config.rsi as Record<string, unknown> : {} as Record<string, unknown>
 
   if (env.OUROBOROS_MODEL_PROVIDER) {
     model.provider = env.OUROBOROS_MODEL_PROVIDER
@@ -94,7 +100,10 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
     memory.consolidationSchedule = env.OUROBOROS_CONSOLIDATION
   }
   if (env.OUROBOROS_NOVELTY) {
-    rsi.noveltyThreshold = parseFloat(env.OUROBOROS_NOVELTY)
+    const parsed = parseFloat(env.OUROBOROS_NOVELTY)
+    if (!isNaN(parsed)) {
+      rsi.noveltyThreshold = parsed
+    }
   }
   if (env.OUROBOROS_AUTO_REFLECT) {
     rsi.autoReflect = env.OUROBOROS_AUTO_REFLECT === 'true'

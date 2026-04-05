@@ -11,29 +11,15 @@ import * as todoTool from './todo'
 import * as webFetchTool from './web-fetch'
 import * as webSearchTool from './web-search'
 
-function toToolDefinition(mod: {
-  name: string
-  description: string
-  schema: ToolDefinition['schema']
-  execute: ToolDefinition['execute']
-}): ToolDefinition {
-  return {
-    name: mod.name,
-    description: mod.description,
-    schema: mod.schema,
-    execute: mod.execute,
-  }
-}
-
 export const BUILTIN_TOOLS: ToolDefinition[] = [
-  toToolDefinition(askUserTool),
-  toToolDefinition(bashTool),
-  toToolDefinition(fileEditTool),
-  toToolDefinition(fileReadTool),
-  toToolDefinition(fileWriteTool),
-  toToolDefinition(memoryTool),
-  toToolDefinition(skillManagerTool),
-  toToolDefinition(todoTool),
-  toToolDefinition(webFetchTool),
-  toToolDefinition(webSearchTool),
-]
+  askUserTool,
+  bashTool,
+  fileEditTool,
+  fileReadTool,
+  fileWriteTool,
+  memoryTool,
+  skillManagerTool,
+  todoTool,
+  webFetchTool,
+  webSearchTool,
+] as ToolDefinition[]

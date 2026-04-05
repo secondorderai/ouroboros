@@ -3,13 +3,13 @@
  *
  * Exposes memory operations (MEMORY.md index, topic files, transcript search)
  * as a tool for the agent. Follows the tool registry interface:
- * name, description, schema (JSON Schema), execute (async fn returning Result).
+ * name, description, schema (Zod), execute (async fn returning Result).
  */
 import { z } from 'zod'
 import { type Result, ok, err } from '@src/types'
 import { getMemoryIndex, updateMemoryIndex } from '@src/memory/index'
 import { listTopics, readTopic, writeTopic } from '@src/memory/topics'
-import { type TranscriptStore } from '@src/memory/transcripts'
+// NOTE: TranscriptStore import can be restored when search-transcripts is re-enabled.
 
 // ── Tool interface ─────────────────────────────────────────────────
 
@@ -18,6 +18,7 @@ export const name = 'memory'
 export const description =
   'Read and write the memory index (MEMORY.md), manage topic files, and search past session transcripts.'
 
+// NOTE: 'search-transcripts' can be re-enabled when TranscriptStore is wired up at startup.
 export const schema = z.object({
   action: z
     .enum([
@@ -26,12 +27,10 @@ export const schema = z.object({
       'list-topics',
       'read-topic',
       'write-topic',
-      'search-transcripts',
     ])
     .describe('The memory operation to perform'),
   content: z.string().optional().describe('Content for update-index or write-topic actions'),
   name: z.string().optional().describe('Topic name for read-topic or write-topic actions'),
-  query: z.string().optional().describe('Search query for search-transcripts action'),
 })
 
 export interface MemoryToolInput {
@@ -41,16 +40,13 @@ export interface MemoryToolInput {
     | 'list-topics'
     | 'read-topic'
     | 'write-topic'
-    | 'search-transcripts'
   content?: string
   name?: string
-  query?: string
 }
 
 /** Dependencies injected at tool registration time */
 export interface MemoryToolDeps {
   basePath?: string
-  transcriptStore?: TranscriptStore
 }
 
 /**
@@ -104,24 +100,6 @@ export function createExecute(deps: MemoryToolDeps = {}) {
         const result = writeTopic(input.name, input.content, deps.basePath)
         if (!result.ok) return result
         return ok(`Topic "${input.name}" written successfully`)
-      }
-
-      case 'search-transcripts': {
-        if (!input.query) {
-          return err(new Error('search-transcripts requires "query" parameter'))
-        }
-        if (!deps.transcriptStore) {
-          return err(new Error('Transcript store not initialized'))
-        }
-        const result = deps.transcriptStore.searchTranscripts(input.query)
-        if (!result.ok) return result
-        if (result.value.length === 0) {
-          return ok('No matching transcripts found')
-        }
-        const formatted = result.value
-          .map((r) => `[${r.sessionId.slice(0, 8)}] ${r.role}: ${r.content.slice(0, 200)}`)
-          .join('\n---\n')
-        return ok(formatted)
       }
 
       default:

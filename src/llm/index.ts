@@ -7,7 +7,7 @@
  */
 
 export { createProvider, type ModelConfig } from './provider'
-export { streamResponse, generateResponse } from './streaming'
+export { streamResponse, generateResponse, toModelMsgs } from './streaming'
 export { buildSystemPrompt, type BuildSystemPromptOptions, type SkillEntry } from './prompt'
 export type {
   LLMMessage,
@@ -19,5 +19,5 @@ export type {
   FinishReason,
   TokenUsage,
   LLMCallOptions,
-  ToolDefinition,
+  LLMToolSpec,
 } from './types'

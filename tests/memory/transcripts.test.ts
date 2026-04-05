@@ -19,7 +19,9 @@ describe('Layer 3 — Session Transcripts', () => {
 
   beforeEach(() => {
     tempDir = makeTempDir()
-    store = new TranscriptStore(join(tempDir, 'transcripts.db'))
+    const result = TranscriptStore.create(join(tempDir, 'transcripts.db'))
+    if (!result.ok) throw new Error(`Setup failed: ${result.error.message}`)
+    store = result.value
   })
 
   afterEach(() => {
@@ -29,9 +31,11 @@ describe('Layer 3 — Session Transcripts', () => {
 
   test('database auto-creation: file is created with correct schema', () => {
     const dbPath = join(tempDir, 'auto', 'created.db')
-    const autoStore = new TranscriptStore(dbPath)
+    const result = TranscriptStore.create(dbPath)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
     expect(existsSync(dbPath)).toBe(true)
-    autoStore.close()
+    result.value.close()
   })
 
   test('createSession returns a UUID', () => {

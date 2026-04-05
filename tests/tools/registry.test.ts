@@ -137,6 +137,25 @@ describe('ToolRegistry', () => {
     expect(registry.size).toBe(0)
   })
 
+  test('unknown Zod type in schema degrades gracefully to empty object', () => {
+    registry.register({
+      name: 'record-tool',
+      description: 'A tool with an unsupported Zod type',
+      schema: z.object({ data: z.record(z.string()) }),
+      execute: async () => ok({ done: true }),
+    })
+
+    const tools = registry.getTools()
+    expect(tools).toHaveLength(1)
+    expect(tools[0].parameters).toEqual({
+      type: 'object',
+      properties: {
+        data: {},
+      },
+      required: ['data'],
+    })
+  })
+
   test('createRegistry includes built-in tools without filesystem discovery (bundled regression)', async () => {
     const { createRegistry } = await import('@src/tools/registry')
 

@@ -9,7 +9,7 @@ It uses the Agent Skills standard (agentskills.io) for portable skill format.
 
 - Runtime: Bun (TypeScript)
 - LLM: Vercel AI SDK (ai package) — provider-agnostic
-- DB: SQLite via better-sqlite3 for transcripts
+- DB: SQLite via bun:sqlite for transcripts
 - CLI: Commander.js + Ink for rich terminal UI
 - Testing: Bun test runner
 - Skills: agentskills.io format (SKILL.md with YAML frontmatter)

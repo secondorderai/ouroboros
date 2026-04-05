@@ -107,7 +107,7 @@ function isToolDefinition(obj: unknown): obj is ToolDefinition {
   return (
     typeof t.name === 'string' &&
     typeof t.description === 'string' &&
-    t.schema instanceof z.ZodObject &&
+    t.schema instanceof z.ZodType &&
     typeof t.execute === 'function'
   )
 }
@@ -115,10 +115,23 @@ function isToolDefinition(obj: unknown): obj is ToolDefinition {
 function toMetadata(tool: ToolDefinition): ToolMetadata {
   // Use zodToJsonSchema-compatible approach: Zod's .shape gives us the raw
   // shape. For a lightweight conversion we just describe the schema fields.
+  let parameters: Record<string, unknown>
+  if (tool.schema instanceof z.ZodObject) {
+    parameters = zodSchemaToJsonSchema(tool.schema)
+  } else if (tool.schema instanceof z.ZodDiscriminatedUnion) {
+    // Merge all variant schemas into a single JSON Schema with oneOf
+    const variants = (tool.schema as z.ZodDiscriminatedUnion<string, z.ZodObject<z.ZodRawShape>[]>)
+      .options as z.ZodObject<z.ZodRawShape>[]
+    parameters = {
+      oneOf: variants.map((v) => zodSchemaToJsonSchema(v)),
+    }
+  } else {
+    parameters = {}
+  }
   return {
     name: tool.name,
     description: tool.description,
-    parameters: zodSchemaToJsonSchema(tool.schema),
+    parameters,
   }
 }
 
@@ -178,13 +191,13 @@ function zodTypeToJsonSchema(schema: z.ZodTypeAny): {
 
   // Enum
   if (schema instanceof z.ZodEnum) {
-    const entries = def.entries as Record<string, string>
-    return { jsonSchema: { type: 'string', enum: Object.values(entries) }, isOptional: false }
+    const values = (schema as z.ZodEnum<[string, ...string[]]>).options
+    return { jsonSchema: { type: 'string', enum: values }, isOptional: false }
   }
 
   // Array
   if (schema instanceof z.ZodArray) {
-    const inner = zodTypeToJsonSchema((def.element ?? def.type) as z.ZodTypeAny)
+    const inner = zodTypeToJsonSchema((schema as z.ZodArray<z.ZodTypeAny>).element)
     return { jsonSchema: { type: 'array', items: inner.jsonSchema }, isOptional: false }
   }
 

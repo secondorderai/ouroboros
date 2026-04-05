@@ -11,7 +11,7 @@
  *   --model <provider/model>  Override model selection
  *   --verbose / -v            Show tool call details
  *   --no-stream               Wait for full response before printing
- *   --config <path>           Path to .ouroboros config file
+ *   --config <path>           Path to directory containing .ouroboros config file
  */
 
 import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'

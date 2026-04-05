@@ -14,7 +14,7 @@ export interface ToolDefinition {
   description: string
 
   /** Zod schema for argument validation. */
-  schema: z.ZodObject<z.ZodRawShape>
+  schema: z.ZodType<any>
 
   /**
    * Execute the tool. The registry always calls `schema.parse(args)` first,
@@ -34,7 +34,7 @@ export interface ToolDefinition {
  * export const execute: TypedToolExecute<typeof schema, MyResult> = async (args) => { ... }
  * ```
  */
-export type TypedToolExecute<TSchema extends z.ZodObject<z.ZodRawShape>, TResult> = (
+export type TypedToolExecute<TSchema extends z.ZodType<any>, TResult> = (
   args: z.infer<TSchema>,
 ) => Promise<Result<TResult>>
 

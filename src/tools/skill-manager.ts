@@ -131,12 +131,9 @@ function parseFrontmatter(
 
 /** Derive skill status from the directory path. */
 function deriveStatus(dirPath: string): SkillStatus {
-  if (dirPath.includes('/staging/') || dirPath.includes('/staging')) {
-    return 'staging'
-  }
-  if (dirPath.includes('/generated/') || dirPath.includes('/generated')) {
-    return 'generated'
-  }
+  const segments = dirPath.split('/')
+  if (segments.includes('staging')) return 'staging'
+  if (segments.includes('generated')) return 'generated'
   return 'core'
 }
 
@@ -290,7 +287,7 @@ export function deactivateSkill(name: string): Result<{ name: string; message: s
  * List all discovered skills with their metadata and active/inactive status.
  */
 export function listSkills(): SkillEntry[] {
-  return Array.from(skills.values())
+  return Array.from(skills.values()).map(s => ({ ...s }))
 }
 
 /**
@@ -301,7 +298,7 @@ export function getSkillInfo(name: string): Result<SkillEntry> {
   if (!skill) {
     return err(new Error(`Skill not found: "${name}"`))
   }
-  return ok(skill)
+  return ok({ ...skill })
 }
 
 // ── Tool interface ────────────────────────────────────────────────────
@@ -312,17 +309,17 @@ export const description =
   'Manage the skill catalog: list available skills, activate a skill to load its full instructions, ' +
   'deactivate a skill to free context, or get detailed info about a specific skill.'
 
-export const schema = z.object({
-  action: z.enum(['list', 'activate', 'deactivate', 'info']).describe('The action to perform'),
-  skill: z.string().optional().describe('Skill name (required for activate, deactivate, and info)'),
-})
+export const schema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('list') }),
+  z.object({ action: z.literal('activate'), skill: z.string() }),
+  z.object({ action: z.literal('deactivate'), skill: z.string() }),
+  z.object({ action: z.literal('info'), skill: z.string() }),
+])
 
 export const execute: TypedToolExecute<typeof schema, unknown> = async (
   args,
 ): Promise<Result<unknown>> => {
-  const { action, skill: skillName } = args
-
-  switch (action) {
+  switch (args.action) {
     case 'list': {
       const allSkills = listSkills()
       if (allSkills.length === 0) {
@@ -338,27 +335,18 @@ export const execute: TypedToolExecute<typeof schema, unknown> = async (
     }
 
     case 'activate': {
-      if (!skillName) {
-        return err(new Error('"skill" parameter is required for the "activate" action'))
-      }
-      return activateSkill(skillName)
+      return activateSkill(args.skill)
     }
 
     case 'deactivate': {
-      if (!skillName) {
-        return err(new Error('"skill" parameter is required for the "deactivate" action'))
-      }
-      return deactivateSkill(skillName)
+      return deactivateSkill(args.skill)
     }
 
     case 'info': {
-      if (!skillName) {
-        return err(new Error('"skill" parameter is required for the "info" action'))
-      }
-      return getSkillInfo(skillName)
+      return getSkillInfo(args.skill)
     }
 
     default:
-      return err(new Error(`Unknown skill-manager action: "${String(action)}"`))
+      return err(new Error(`Unknown skill-manager action: "${String((args as { action: string }).action)}"`))
   }
 }

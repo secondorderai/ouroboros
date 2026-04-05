@@ -10,8 +10,7 @@
 export type LLMMessage =
   | { role: 'system'; content: string }
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string }
-  | { role: 'assistant'; content: string; toolCalls: ToolCall[] }
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
   | { role: 'tool'; content: ToolResult[] }
 
 /**
@@ -90,12 +89,6 @@ export interface GenerateResult {
 export interface StreamResponse {
   /** Async iterable of stream chunks */
   stream: AsyncIterable<StreamChunk>
-  /** Promise that resolves to the full text when the stream is complete */
-  text: Promise<string>
-  /** Promise that resolves to all tool calls when the stream is complete */
-  toolCalls: Promise<ToolCall[]>
-  /** Promise that resolves to token usage when the stream is complete */
-  usage: Promise<TokenUsage>
 }
 
 /**
@@ -111,7 +104,7 @@ export interface LLMCallOptions {
   /** Stop sequences */
   stopSequences?: string[]
   /** Tool definitions available to the model */
-  tools?: Record<string, ToolDefinition>
+  tools?: Record<string, LLMToolSpec>
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal
 }
@@ -119,7 +112,7 @@ export interface LLMCallOptions {
 /**
  * A tool definition that the LLM can call.
  */
-export interface ToolDefinition {
+export interface LLMToolSpec {
   /** Human-readable description of what the tool does */
   description: string
   /** JSON Schema for the tool's parameters */

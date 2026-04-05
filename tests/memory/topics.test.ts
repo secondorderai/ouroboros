@@ -130,6 +130,27 @@ describe('Layer 2 — Topic Files', () => {
     expect(readResult.value).toBe('content with ext')
   })
 
+  test('rejects path traversal with ../../../etc/passwd', () => {
+    const result = readTopic('../../../etc/passwd', tempDir)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('Invalid topic name')
+  })
+
+  test('rejects hidden file names starting with dot', () => {
+    const result = writeTopic('.hidden', 'sneaky content', tempDir)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('must not start with a dot')
+  })
+
+  test('rejects path traversal via valid/../escape pattern', () => {
+    const result = readTopic('valid/../escape', tempDir)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('Invalid topic name')
+  })
+
   test('lists multiple topics', () => {
     writeTopic('topic-a', 'content a', tempDir)
     writeTopic('topic-b', 'content b', tempDir)

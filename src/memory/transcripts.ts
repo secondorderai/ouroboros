@@ -2,9 +2,7 @@
  * Layer 3 — Session Transcripts
  *
  * SQLite-backed storage for session transcripts.
- * Uses bun:sqlite at runtime (Bun's built-in SQLite, API-compatible with better-sqlite3).
- * The ticket specifies better-sqlite3 but Bun does not support native addons;
- * bun:sqlite provides the same synchronous API and is the recommended replacement.
+ * Uses bun:sqlite (Bun's built-in SQLite driver).
  *
  * Provides session lifecycle management and keyword search.
  */
@@ -132,6 +130,19 @@ interface SessionSummaryRow {
 export class TranscriptStore {
   private db: Database
 
+  /**
+   * Recommended way to create a TranscriptStore.
+   * Returns a Result instead of throwing on database errors.
+   */
+  static create(dbPath: string): Result<TranscriptStore> {
+    try {
+      return ok(new TranscriptStore(dbPath))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      return err(new Error(`Failed to initialize transcript database: ${message}`))
+    }
+  }
+
   constructor(dbPath: string) {
     const absolutePath = resolve(dbPath)
     const dir = dirname(absolutePath)
@@ -243,16 +254,18 @@ export class TranscriptStore {
    */
   searchTranscripts(query: string): Result<SearchResult[]> {
     try {
+      const escaped = query.replace(/[%_\\]/g, '\\$&')
       const rows = this.db
         .prepare(
           `SELECT m.id AS message_id, m.session_id, m.role, m.content, m.tool_name, m.created_at,
                   s.started_at AS session_started_at
            FROM messages m
            JOIN sessions s ON s.id = m.session_id
-           WHERE m.content LIKE ?
-           ORDER BY m.created_at DESC`,
+           WHERE m.content LIKE ? ESCAPE '\\'
+           ORDER BY m.created_at DESC
+           LIMIT 100`,
         )
-        .all(`%${query}%`) as SearchRow[]
+        .all(`%${escaped}%`) as SearchRow[]
 
       const results: SearchResult[] = rows.map((row) => ({
         messageId: row.message_id,

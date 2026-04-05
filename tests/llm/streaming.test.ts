@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { streamResponse, generateResponse } from '@src/llm/streaming'
+import { streamResponse, generateResponse, toModelMsgs } from '@src/llm/streaming'
 import type { LLMMessage, StreamChunk, LLMCallOptions } from '@src/llm/types'
 import type { LanguageModelV3FinishReason, LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
@@ -236,31 +236,6 @@ describe('streamResponse', () => {
     expect(finish.usage.completionTokens).toBe(50)
   })
 
-  test('resolves text promise with full accumulated text', async () => {
-    const model = createMockModel({
-      streamParts: [
-        { type: 'text-start', id: 'tx3' },
-        { type: 'text-delta', id: 'tx3', delta: 'Hello' },
-        { type: 'text-delta', id: 'tx3', delta: ' world' },
-        { type: 'text-end', id: 'tx3' },
-        v3Finish('stop', 5, 2),
-      ],
-    })
-
-    const result = streamResponse(model, testMessages)
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-
-    // Must consume the stream for promises to resolve
-    for await (const _chunk of result.value.stream) {
-      // consume
-    }
-
-    const text = await result.value.text
-    expect(text).toBe('Hello world')
-  })
-
   test('handles stream errors from doStream as error chunks', async () => {
     // When doStream throws, the AI SDK emits an 'error' event in fullStream
     const model = createMockModel({
@@ -272,10 +247,6 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // Suppress unhandled rejections from promises that reject when doStream throws
-    result.value.text.catch(() => {})
-    result.value.toolCalls.catch(() => {})
-    result.value.usage.catch(() => {})
 
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
@@ -319,10 +290,6 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // Suppress unhandled rejections from promises that reject on stream error
-    result.value.text.catch(() => {})
-    result.value.toolCalls.catch(() => {})
-    result.value.usage.catch(() => {})
 
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
@@ -347,10 +314,6 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // Suppress unhandled rejections from promises that reject when doStream throws
-    result.value.text.catch(() => {})
-    result.value.toolCalls.catch(() => {})
-    result.value.usage.catch(() => {})
 
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
@@ -374,10 +337,6 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // Suppress unhandled rejections from promises that reject when doStream throws
-    result.value.text.catch(() => {})
-    result.value.toolCalls.catch(() => {})
-    result.value.usage.catch(() => {})
 
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
@@ -473,5 +432,74 @@ describe('generateResponse', () => {
 
     expect(result.error).toBeInstanceOf(Error)
     expect(result.error.message).toContain('Rate limited')
+  })
+})
+
+describe('toModelMsgs', () => {
+  test('converts system message', () => {
+    const msgs: LLMMessage[] = [{ role: 'system', content: 'Be helpful.' }]
+    const result = toModelMsgs(msgs)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ role: 'system', content: 'Be helpful.' })
+  })
+
+  test('converts user message', () => {
+    const msgs: LLMMessage[] = [{ role: 'user', content: 'Hello' }]
+    const result = toModelMsgs(msgs)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ role: 'user', content: 'Hello' })
+  })
+
+  test('converts assistant message without toolCalls', () => {
+    const msgs: LLMMessage[] = [{ role: 'assistant', content: 'Hi there' }]
+    const result = toModelMsgs(msgs)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ role: 'assistant', content: 'Hi there' })
+  })
+
+  test('converts assistant message with toolCalls', () => {
+    const msgs: LLMMessage[] = [
+      {
+        role: 'assistant',
+        content: 'Let me check.',
+        toolCalls: [
+          { toolCallId: 'tc1', toolName: 'read_file', input: { path: '/tmp/x' } },
+        ],
+      },
+    ]
+    const result = toModelMsgs(msgs)
+    expect(result).toHaveLength(1)
+    const msg = result[0] as { role: 'assistant'; content: unknown[] }
+    expect(msg.role).toBe('assistant')
+    expect(Array.isArray(msg.content)).toBe(true)
+    expect(msg.content).toHaveLength(2)
+    expect(msg.content[0]).toEqual({ type: 'text', text: 'Let me check.' })
+    expect(msg.content[1]).toEqual({
+      type: 'tool-call',
+      toolCallId: 'tc1',
+      toolName: 'read_file',
+      input: { path: '/tmp/x' },
+    })
+  })
+
+  test('converts tool message', () => {
+    const msgs: LLMMessage[] = [
+      {
+        role: 'tool',
+        content: [
+          { toolCallId: 'tc1', toolName: 'read_file', result: 'file contents' },
+        ],
+      },
+    ]
+    const result = toModelMsgs(msgs)
+    expect(result).toHaveLength(1)
+    const msg = result[0] as { role: 'tool'; content: unknown[] }
+    expect(msg.role).toBe('tool')
+    expect(msg.content).toHaveLength(1)
+    expect(msg.content[0]).toMatchObject({
+      type: 'tool-result',
+      toolCallId: 'tc1',
+      toolName: 'read_file',
+    })
   })
 })

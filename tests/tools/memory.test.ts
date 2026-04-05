@@ -1,6 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { name, description, schema, createExecute } from '@src/tools/memory'
-import { TranscriptStore } from '@src/memory/transcripts'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -16,17 +15,13 @@ function makeTempDir(): string {
 
 describe('Memory Tool', () => {
   let tempDir: string
-  let store: TranscriptStore
-
   beforeEach(() => {
     tempDir = makeTempDir()
     mkdirSync(join(tempDir, 'memory', 'topics'), { recursive: true })
     writeFileSync(join(tempDir, 'memory', 'MEMORY.md'), '# Test Memory Index')
-    store = new TranscriptStore(join(tempDir, 'memory', 'transcripts.db'))
   })
 
   afterEach(() => {
-    store.close()
     rmSync(tempDir, { recursive: true, force: true })
   })
 
@@ -39,7 +34,6 @@ describe('Memory Tool', () => {
     expect(schema.shape.action).toBeDefined()
     expect(schema.shape.content).toBeDefined()
     expect(schema.shape.name).toBeDefined()
-    expect(schema.shape.query).toBeDefined()
   })
 
   test('read-index returns MEMORY.md content', async () => {
@@ -121,35 +115,6 @@ describe('Memory Tool', () => {
     expect(result.error.message).toContain('requires "content"')
   })
 
-  test('search-transcripts finds matching messages', async () => {
-    const execute = createExecute({ basePath: tempDir, transcriptStore: store })
-
-    // Add some transcript data
-    const session = store.createSession()
-    expect(session.ok).toBe(true)
-    if (!session.ok) return
-    store.addMessage(session.value, { role: 'user', content: 'Tell me about database migration' })
-    store.addMessage(session.value, { role: 'assistant', content: 'Migration is straightforward' })
-
-    const result = await execute({ action: 'search-transcripts', query: 'migration' })
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.value).toContain('migration')
-  })
-
-  test('search-transcripts without query returns error', async () => {
-    const execute = createExecute({ basePath: tempDir, transcriptStore: store })
-    const result = await execute({ action: 'search-transcripts' })
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.error.message).toContain('requires "query"')
-  })
-
-  test('search-transcripts without store returns error', async () => {
-    const execute = createExecute({ basePath: tempDir })
-    const result = await execute({ action: 'search-transcripts', query: 'test' })
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.error.message).toContain('not initialized')
-  })
+  // NOTE: search-transcripts tests removed — action was removed from schema
+  // (TranscriptStore not wired up at startup; can be re-enabled in Phase 2)
 })

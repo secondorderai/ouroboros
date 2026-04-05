@@ -30,7 +30,7 @@ export interface WebFetchResult {
  * `@mozilla/readability`. This covers the common cases without adding
  * a dependency.
  */
-function htmlToMarkdown(html: string): string {
+export function htmlToMarkdown(html: string): string {
   let text = html
 
   // Remove script and style blocks.
@@ -103,7 +103,32 @@ export const execute: TypedToolExecute<typeof schema, WebFetchResult> = async (
     }
 
     const contentType = response.headers.get('content-type')
-    let content = await response.text()
+
+    const MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5 MB
+
+    const contentLength = response.headers.get('content-length')
+    if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
+      return err(new Error(`Response too large: ${contentLength} bytes (max ${MAX_RESPONSE_SIZE})`))
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      return err(new Error('No response body'))
+    }
+
+    const chunks: Uint8Array[] = []
+    let totalSize = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      totalSize += value.length
+      if (totalSize > MAX_RESPONSE_SIZE) {
+        reader.cancel()
+        return err(new Error(`Response exceeded ${MAX_RESPONSE_SIZE} byte limit`))
+      }
+      chunks.push(value)
+    }
+    let content = new TextDecoder().decode(Buffer.concat(chunks))
 
     if (extractMarkdown && contentType?.includes('text/html')) {
       content = htmlToMarkdown(content)

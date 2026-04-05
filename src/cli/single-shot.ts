@@ -21,7 +21,6 @@ import { Renderer } from './renderer'
  */
 export function createSingleShotHandler(options: { verbose: boolean; noStream: boolean }): {
   handler: (event: AgentEvent) => void
-  getAccumulatedText: () => string
 } {
   const renderer = new Renderer({
     verbose: options.verbose,
@@ -60,5 +59,5 @@ export function createSingleShotHandler(options: { verbose: boolean; noStream: b
     }
   }
 
-  return { handler, getAccumulatedText: () => accumulatedText }
+  return { handler }
 }

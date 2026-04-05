@@ -54,7 +54,7 @@ export const execute: TypedToolExecute<typeof schema, FileEditResult> = async (
       )
     }
 
-    const newContent = content.replace(oldString, newString)
+    const newContent = content.replace(oldString, () => newString)
     writeFileSync(path, newContent, 'utf-8')
 
     return ok({ content: newContent, path })

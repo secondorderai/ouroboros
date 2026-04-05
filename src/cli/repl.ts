@@ -20,6 +20,7 @@ import { Renderer } from './renderer'
 
 const HISTORY_FILE = join(homedir(), '.ouroboros_history')
 const MAX_HISTORY_LINES = 1000
+let historyLineCount = 0
 
 export interface ReplOptions {
   /** The configured agent instance */
@@ -182,11 +183,12 @@ function loadHistory(): string[] {
   try {
     if (existsSync(HISTORY_FILE)) {
       const content = readFileSync(HISTORY_FILE, 'utf-8')
-      return content
+      const lines = content
         .split('\n')
         .filter((line) => line.trim().length > 0)
         .slice(-MAX_HISTORY_LINES)
-        .reverse() // readline expects most recent first
+      historyLineCount = lines.length
+      return lines.reverse() // readline expects most recent first
     }
   } catch {
     // History file not readable — start fresh
@@ -197,12 +199,15 @@ function loadHistory(): string[] {
 function appendToHistory(line: string): void {
   try {
     appendFileSync(HISTORY_FILE, line + '\n')
+    historyLineCount++
 
-    // Periodically truncate history file if it gets too large
-    const content = readFileSync(HISTORY_FILE, 'utf-8')
-    const lines = content.split('\n').filter((l) => l.trim().length > 0)
-    if (lines.length > MAX_HISTORY_LINES * 2) {
-      writeFileSync(HISTORY_FILE, lines.slice(-MAX_HISTORY_LINES).join('\n') + '\n')
+    // Only re-read and truncate when line count exceeds threshold
+    if (historyLineCount > MAX_HISTORY_LINES * 1.5) {
+      const content = readFileSync(HISTORY_FILE, 'utf-8')
+      const lines = content.split('\n').filter((l) => l.trim().length > 0)
+      const trimmed = lines.slice(-MAX_HISTORY_LINES)
+      writeFileSync(HISTORY_FILE, trimmed.join('\n') + '\n')
+      historyLineCount = trimmed.length
     }
   } catch {
     // History write failed — not critical

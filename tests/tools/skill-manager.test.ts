@@ -359,20 +359,14 @@ describe('SkillManager', () => {
     }
   })
 
-  test('tool execute: activate action requires skill parameter', async () => {
-    const result = await execute(schema.parse({ action: 'activate' }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error.message).toContain('"skill" parameter is required')
-    }
+  test('tool schema: activate action requires skill parameter', () => {
+    const result = schema.safeParse({ action: 'activate' })
+    expect(result.success).toBe(false)
   })
 
-  test('tool execute: deactivate action requires skill parameter', async () => {
-    const result = await execute(schema.parse({ action: 'deactivate' }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error.message).toContain('"skill" parameter is required')
-    }
+  test('tool schema: deactivate action requires skill parameter', () => {
+    const result = schema.safeParse({ action: 'deactivate' })
+    expect(result.success).toBe(false)
   })
 
   test('tool execute: info action returns skill metadata', async () => {
@@ -398,12 +392,9 @@ describe('SkillManager', () => {
     }
   })
 
-  test('tool execute: info action requires skill parameter', async () => {
-    const result = await execute(schema.parse({ action: 'info' }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error.message).toContain('"skill" parameter is required')
-    }
+  test('tool schema: info action requires skill parameter', () => {
+    const result = schema.safeParse({ action: 'info' })
+    expect(result.success).toBe(false)
   })
 
   // -----------------------------------------------------------------------

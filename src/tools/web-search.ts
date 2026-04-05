@@ -37,7 +37,7 @@ export interface WebSearchResult {
  * in a predictable structure that we can parse with regex. For a production
  * system you would use a proper search API.
  */
-function parseDuckDuckGoResults(html: string, limit: number): SearchResult[] {
+export function parseDuckDuckGoResults(html: string, limit: number): SearchResult[] {
   const results: SearchResult[] = []
 
   // DuckDuckGo HTML lite wraps each result in a <a class="result-link"> or

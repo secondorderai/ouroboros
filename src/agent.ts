@@ -16,7 +16,7 @@ import type {
   LLMMessage,
   ToolCall,
   StreamChunk,
-  ToolDefinition as LLMToolDefinition,
+  LLMToolSpec,
 } from '@src/llm/types'
 import type { ToolRegistry } from '@src/tools/registry'
 import { getMemoryIndex } from '@src/memory/index'
@@ -252,8 +252,9 @@ export class Agent {
   private emitEvent(event: AgentEvent): void {
     try {
       this.onEvent(event)
-    } catch {
-      // Event handler errors should never crash the agent loop
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      process.stderr.write(`[agent] Event handler error (${event.type}): ${msg}\n`)
     }
   }
 
@@ -278,9 +279,9 @@ export class Agent {
    * Convert tool registry metadata to the LLM tool definition format
    * used by streamResponse().
    */
-  private buildToolDefinitions(): Record<string, LLMToolDefinition> {
+  private buildToolDefinitions(): Record<string, LLMToolSpec> {
     const tools = this.toolRegistry.getTools()
-    const defs: Record<string, LLMToolDefinition> = {}
+    const defs: Record<string, LLMToolSpec> = {}
 
     for (const tool of tools) {
       defs[tool.name] = {
@@ -374,10 +375,3 @@ export class Agent {
   }
 }
 
-/**
- * Create an Agent with the given options.
- * Convenience factory for common usage patterns.
- */
-export function createAgent(options: AgentOptions): Agent {
-  return new Agent(options)
-}

@@ -764,6 +764,46 @@ describe('Agent', () => {
     })
   })
 
+  describe('emitEvent resilience', () => {
+    test('agent completes normally even when onEvent handler throws', async () => {
+      const model = createMockModel([
+        [
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'Hello!' },
+          { type: 'text-end', id: 'tx1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 5,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 2, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+
+      const agent = new Agent(
+        makeAgentOptions(model, registry, {
+          onEvent: () => {
+            throw new Error('Rendering exploded!')
+          },
+        }),
+      )
+
+      // Agent should not throw even though every event handler call throws
+      const result = await agent.run('Test')
+
+      expect(result.text).toBe('Hello!')
+      expect(result.iterations).toBe(1)
+      expect(result.maxIterationsReached).toBe(false)
+    })
+  })
+
   describe('system prompt building', () => {
     test('system prompt builder is called with tools, skills, and memory', async () => {
       registry.register(makeTool('test-tool'))

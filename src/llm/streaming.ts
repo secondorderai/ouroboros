@@ -20,16 +20,14 @@ import type {
   StreamResponse,
   StreamChunk,
   GenerateResult,
-  ToolCall,
-  TokenUsage,
-  ToolDefinition,
+  LLMToolSpec,
   FinishReason,
 } from './types'
 
 /**
  * Convert our LLMMessage types to Vercel AI SDK ModelMessage types.
  */
-function toModelMsgs(messages: LLMMessage[]): ModelMessage[] {
+export function toModelMsgs(messages: LLMMessage[]): ModelMessage[] {
   return messages.map((msg) => {
     if (msg.role === 'system') {
       return { role: 'system' as const, content: msg.content }
@@ -71,9 +69,9 @@ function toModelMsgs(messages: LLMMessage[]): ModelMessage[] {
 }
 
 /**
- * Convert our ToolDefinition map to Vercel AI SDK ToolSet format.
+ * Convert our LLMToolSpec map to Vercel AI SDK ToolSet format.
  */
-function toToolSet(tools?: Record<string, ToolDefinition>): ToolSet | undefined {
+function toToolSet(tools?: Record<string, LLMToolSpec>): ToolSet | undefined {
   if (!tools || Object.keys(tools).length === 0) return undefined
 
   const toolSet: ToolSet = {}
@@ -171,28 +169,7 @@ export function streamResponse(
     // in createChunkStream to avoid coupling to the AI SDK's complex generic types
     const stream = createChunkStream(result.fullStream as AsyncIterable<unknown>)
 
-    // These promises auto-consume the stream internally. If the stream errors
-    // (e.g., doStream throws), they reject. Suppress unhandled rejections since
-    // the agent consumes errors via the stream, not these promises.
-    const text = Promise.resolve(result.text).catch(() => '')
-    const toolCalls: Promise<ToolCall[]> = Promise.resolve(result.toolCalls)
-      .then((calls) =>
-        calls.map((tc) => ({
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          input: tc.input as Record<string, unknown>,
-        })),
-      )
-      .catch(() => [])
-    const usage: Promise<TokenUsage> = Promise.resolve(result.usage)
-      .then((u) => ({
-        promptTokens: u.inputTokens ?? 0,
-        completionTokens: u.outputTokens ?? 0,
-        totalTokens: u.totalTokens ?? 0,
-      }))
-      .catch(() => ({ promptTokens: 0, completionTokens: 0, totalTokens: 0 }))
-
-    return ok({ stream, text, toolCalls, usage })
+    return ok({ stream })
   } catch (error) {
     return err(classifyError(error))
   }

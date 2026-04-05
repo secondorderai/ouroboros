@@ -24,11 +24,21 @@ export interface BashResult {
   exitCode: number
 }
 
+export const SENSITIVE_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENAI_COMPATIBLE_API_KEY',
+]
+
 export const execute: TypedToolExecute<typeof schema, BashResult> = async (
   args,
 ): Promise<Result<BashResult>> => {
   const { command, timeout, cwd } = args
   const timeoutMs = timeout * 1000
+
+  const filteredEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !SENSITIVE_ENV_KEYS.includes(key))
+  )
 
   return new Promise((resolve) => {
     let stdout = ''
@@ -38,7 +48,7 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
 
     const child = spawn('sh', ['-c', command], {
       cwd: cwd ?? process.cwd(),
-      env: process.env,
+      env: filteredEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
