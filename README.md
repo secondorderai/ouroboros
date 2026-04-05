@@ -10,7 +10,7 @@ Built on this harness, Ouroboros ships with a recursive self-improvement layer: 
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) v1.1+
+- [Bun](https://bun.sh) v1.3+
 - An API key for at least one LLM provider:
   - `ANTHROPIC_API_KEY` for Claude (default)
   - `OPENAI_API_KEY` for OpenAI models
@@ -22,13 +22,13 @@ bun install
 bun run build
 
 # Interactive REPL
-./dist/cli.js
+./dist/ouroboros
 
 # Single-shot
-./dist/cli.js -m "What files are in this directory?"
+./dist/ouroboros -m "What files are in this directory?"
 
 # Pipe input
-echo "Explain this project" | ./dist/cli.js
+echo "Explain this project" | ./dist/ouroboros
 ```
 
 ### Development Mode
@@ -81,19 +81,39 @@ Config values can also be set via environment variables (e.g. `OUROBOROS_MODEL_P
 Ouroboros is structured as a set of composable layers, each independently useful:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  CLI / Web / JSON-RPC  (any I/O consumer)           │
-├─────────────────────────────────────────────────────┤
-│  Agent         Event-driven ReAct loop              │
-├─────────────────────────────────────────────────────┤
-│  Tool Registry   Plugin-based, Zod-validated        │
-├──────────────┬──────────────┬───────────────────────┤
-│  LLM         │  Memory      │  Skills               │
-│  Provider-   │  3-layer     │  agentskills.io       │
-│  agnostic    │  persistent  │  portable format      │
-├──────────────┴──────────────┴───────────────────────┤
-│  Config        Zod schema + env vars + .ouroboros   │
-└─────────────────────────────────────────────────────┘
+            ┌──────────────────────────────────────┐
+            │        Your Application               │
+            │   CLI · Web · JSON-RPC · Slack bot    │
+            └──────────────┬───────────────────────┘
+                           │ onEvent callback
+  ┌────────────────────────┼───────────────────────────────┐
+  │ HARNESS                │                               │
+  │            ┌───────────▼───────────┐                   │
+  │            │       Agent           │                   │
+  │            │   Event-driven ReAct  │◄── run(prompt)    │
+  │            └───┬──────────────┬────┘                   │
+  │       stream   │              │  execute               │
+  │    ┌───────────▼──┐    ┌──────▼──────────┐             │
+  │    │     LLM      │    │  Tool Registry  │             │
+  │    │  Provider-   │    │  Plugin-based   │             │
+  │    │  agnostic    │    │  Zod-validated  │             │
+  │    └──────────────┘    └──┬────┬────┬────┘             │
+  │                           │    │    │                  │
+  │              ┌────────────┘    │    └──────────┐       │
+  │        ┌─────▼─────┐  ┌───────▼──┐  ┌────────▼─────┐   │
+  │        │  Memory   │  │  Skills  │  │  Your Tools  │   │
+  │        │  3-layer  │  │  Agent   │  │  Drop-in     │   │
+  │        │  persist  │  │  Skills  │  │  plugin      │   │
+  │        └───────────┘  └──────────┘  └──────────────┘   │
+  │                                                        │
+  │    ┌──────────────────────────────────────────────┐    │
+  │    │  Config   Zod schema + env vars + .ouroboros │    │
+  │    └──────────────────────────────────────────────┘    │
+  └────────────────────────────────────────────────────────┘
+            ┌──────────────────────────────────────┐
+            │   RSI Layer (optional, Phase 2)       │
+            │   crystallize · self-test · dream     │
+            └──────────────────────────────────────┘
 ```
 
 **Agent loop.** The `Agent` class runs a ReAct loop that streams LLM responses, detects tool calls, executes them in parallel via the tool registry, and feeds results back until the task is complete. It emits events — it never prints directly — so any consumer (CLI, web server, test harness) can drive it.
