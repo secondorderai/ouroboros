@@ -1,7 +1,7 @@
 {
   "model": {
-    "provider": "anthropic",
-    "name": "claude-sonnet-4-20250514"
+    "provider": "openai",
+    "name": "gpt-5.4"
   },
   "permissions": {
     "tier0": true,

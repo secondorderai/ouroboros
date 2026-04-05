@@ -1,6 +1,6 @@
 ---
 name: prd-to-tickets
-description: "Use this skill whenever the user wants to generate implementation tickets from an existing PRD, break a PRD into engineering tickets, create ticket files from a product spec, or turn a requirements document into actionable work items. Triggers include: 'create tickets from PRD', 'break this into tickets', 'generate tickets', 'write tickets for this PRD', 'turn this PRD into tickets', 'make implementation tickets', 'ticket this up', or any request to take an existing PRD or product spec and produce individual implementation tickets. The PRD can be a local file (markdown or PDF). Also use when the user has just finished writing a PRD and wants to generate tickets from it. Use this skill even if the user just says 'create the tickets' or 'ticket this' when a PRD file is referenced. Do NOT use for writing PRDs from scratch."
+description: "Use this skill whenever the user wants to generate implementation tickets from an existing PRD, break a PRD into engineering tickets, create ticket files from a product spec, or turn a requirements document into actionable work items. Triggers include: 'create tickets from PRD', 'break this into tickets', 'generate tickets', 'write tickets for this PRD', 'turn this PRD into tickets', 'make implementation tickets', 'ticket this up', or any request to take an existing PRD or product spec and produce individual implementation tickets. The PRD can be a local file (markdown). Also use when the user has just finished writing a PRD and wants to generate tickets from it. Use this skill even if the user just says 'create the tickets' or 'ticket this' when a PRD file is referenced. Do NOT use for writing PRDs from scratch."
 ---
 
 # PRD to Tickets
@@ -9,7 +9,7 @@ Generate implementation-ready tickets from an existing Product Requirements Docu
 
 ## What this skill does
 
-Takes an existing PRD — a local markdown or PDF file — and produces individual implementation tickets as markdown files.
+Takes an existing PRD — a local markdown — and produces individual implementation tickets as markdown files.
 
 ---
 
@@ -22,18 +22,17 @@ The PRD can come from several sources. Try them in this order:
 If the user explicitly points to a file, use that. Supported formats:
 
 - **Markdown files** (`.md`): Read directly using the Read tool.
-- **PDF files** (`.pdf`): Read using the Read tool with the `pages` parameter. For large PDFs (more than 10 pages), read in chunks (e.g. pages "1-10", then "11-20").
 
 ### Option B: Auto-detect local file
 
 Check these locations in the current working directory:
 
-1. `PRD.md` or `PRD.pdf`
-2. Any `prd-*.md` or `prd-*.pdf` file in the current directory or nearby
+1. `PRD.md`
+2. Any `prd-*.md` file in the current directory or nearby
 
 ### Option C: Ask the user
 
-If no PRD is found locally, ask the user: "I can't find a PRD file. Do you have a file path to the PRD (markdown or PDF)?"
+If no PRD is found locally, ask the user: "I can't find a PRD file. Do you have a file path to the PRD (markdown)?"
 
 ### After loading
 

@@ -11,6 +11,11 @@
       "sourceType": "github",
       "computedHash": "8bafd6399e079f092c7094e1e535486247edc3dd62db8b09d19962d679a6e1cb"
     },
+    "ai-sdk": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "computedHash": "81af098a4ce6f0e323c1bd02b8e79df3bbaed57cbf1c4060f58ddc95de5545a1"
+    },
     "animate": {
       "source": "pbakaus/impeccable",
       "sourceType": "github",
