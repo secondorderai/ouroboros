@@ -44,3 +44,6 @@ progress.md
 # Tickets
 tickets/**/*
 .agents/**/*
+
+# PRD
+PRD.md
