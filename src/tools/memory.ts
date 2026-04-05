@@ -21,25 +21,14 @@ export const description =
 // NOTE: 'search-transcripts' can be re-enabled when TranscriptStore is wired up at startup.
 export const schema = z.object({
   action: z
-    .enum([
-      'read-index',
-      'update-index',
-      'list-topics',
-      'read-topic',
-      'write-topic',
-    ])
+    .enum(['read-index', 'update-index', 'list-topics', 'read-topic', 'write-topic'])
     .describe('The memory operation to perform'),
   content: z.string().optional().describe('Content for update-index or write-topic actions'),
   name: z.string().optional().describe('Topic name for read-topic or write-topic actions'),
 })
 
 export interface MemoryToolInput {
-  action:
-    | 'read-index'
-    | 'update-index'
-    | 'list-topics'
-    | 'read-topic'
-    | 'write-topic'
+  action: 'read-index' | 'update-index' | 'list-topics' | 'read-topic' | 'write-topic'
   content?: string
   name?: string
 }

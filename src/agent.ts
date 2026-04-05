@@ -12,12 +12,7 @@
 import type { LanguageModel } from 'ai'
 import { streamResponse } from '@src/llm/streaming'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
-import type {
-  LLMMessage,
-  ToolCall,
-  StreamChunk,
-  LLMToolSpec,
-} from '@src/llm/types'
+import type { LLMMessage, ToolCall, StreamChunk, LLMToolSpec } from '@src/llm/types'
 import type { ToolRegistry } from '@src/tools/registry'
 import { getMemoryIndex } from '@src/memory/index'
 import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
@@ -374,4 +369,3 @@ export class Agent {
     return results
   }
 }
-

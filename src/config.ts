@@ -77,15 +77,24 @@ export type OuroborosConfig = z.infer<typeof configSchema>
 function applyEnvOverrides(config: Record<string, unknown>): Record<string, unknown> {
   const env = process.env
 
-  const model = (typeof config.model === 'object' && config.model !== null)
-    ? { ...config.model } as Record<string, unknown>
-    : config.model !== undefined ? config.model as Record<string, unknown> : {} as Record<string, unknown>
-  const memory = (typeof config.memory === 'object' && config.memory !== null)
-    ? { ...config.memory } as Record<string, unknown>
-    : config.memory !== undefined ? config.memory as Record<string, unknown> : {} as Record<string, unknown>
-  const rsi = (typeof config.rsi === 'object' && config.rsi !== null)
-    ? { ...config.rsi } as Record<string, unknown>
-    : config.rsi !== undefined ? config.rsi as Record<string, unknown> : {} as Record<string, unknown>
+  const model =
+    typeof config.model === 'object' && config.model !== null
+      ? ({ ...config.model } as Record<string, unknown>)
+      : config.model !== undefined
+        ? (config.model as Record<string, unknown>)
+        : ({} as Record<string, unknown>)
+  const memory =
+    typeof config.memory === 'object' && config.memory !== null
+      ? ({ ...config.memory } as Record<string, unknown>)
+      : config.memory !== undefined
+        ? (config.memory as Record<string, unknown>)
+        : ({} as Record<string, unknown>)
+  const rsi =
+    typeof config.rsi === 'object' && config.rsi !== null
+      ? ({ ...config.rsi } as Record<string, unknown>)
+      : config.rsi !== undefined
+        ? (config.rsi as Record<string, unknown>)
+        : ({} as Record<string, unknown>)
 
   if (env.OUROBOROS_MODEL_PROVIDER) {
     model.provider = env.OUROBOROS_MODEL_PROVIDER

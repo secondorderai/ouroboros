@@ -184,7 +184,7 @@ function zodTypeToJsonSchema(schema: z.ZodTypeAny): {
 
   // Enum
   if (schema instanceof z.ZodEnum) {
-    const values = (schema as z.ZodEnum<[string, ...string[]]>).options
+    const values = (schema as unknown as { options: string[] }).options
     return { jsonSchema: { type: 'string', enum: values }, isOptional: false }
   }
 

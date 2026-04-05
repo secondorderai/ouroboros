@@ -141,7 +141,7 @@ describe('ToolRegistry', () => {
     registry.register({
       name: 'record-tool',
       description: 'A tool with an unsupported Zod type',
-      schema: z.object({ data: z.record(z.string()) }),
+      schema: z.object({ data: z.record(z.string(), z.string()) }),
       execute: async () => ok({ done: true }),
     })
 
@@ -188,9 +188,7 @@ describe('ToolRegistry', () => {
 
     for (const tool of tools) {
       expect(tool.parameters).toBeDefined()
-      expect(
-        (tool.parameters as { type?: string }).type,
-      ).toBe('object')
+      expect((tool.parameters as { type?: string }).type).toBe('object')
     }
   })
 })

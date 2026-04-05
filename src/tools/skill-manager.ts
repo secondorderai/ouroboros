@@ -287,7 +287,7 @@ export function deactivateSkill(name: string): Result<{ name: string; message: s
  * List all discovered skills with their metadata and active/inactive status.
  */
 export function listSkills(): SkillEntry[] {
-  return Array.from(skills.values()).map(s => ({ ...s }))
+  return Array.from(skills.values()).map((s) => ({ ...s }))
 }
 
 /**
@@ -309,18 +309,20 @@ export const description =
   'Manage the skill catalog: list available skills, activate a skill to load its full instructions, ' +
   'deactivate a skill to free context, or get detailed info about a specific skill.'
 
-export const schema = z.object({
-  action: z
-    .enum(['list', 'activate', 'deactivate', 'info'])
-    .describe('The skill management operation to perform'),
-  skill: z
-    .string()
-    .optional()
-    .describe('Skill name (required for activate, deactivate, and info actions)'),
-}).refine(
-  (data) => data.action === 'list' || (data.skill !== undefined && data.skill.length > 0),
-  { message: 'skill name is required for activate, deactivate, and info actions', path: ['skill'] },
-)
+export const schema = z
+  .object({
+    action: z
+      .enum(['list', 'activate', 'deactivate', 'info'])
+      .describe('The skill management operation to perform'),
+    skill: z
+      .string()
+      .optional()
+      .describe('Skill name (required for activate, deactivate, and info actions)'),
+  })
+  .refine((data) => data.action === 'list' || (data.skill !== undefined && data.skill.length > 0), {
+    message: 'skill name is required for activate, deactivate, and info actions',
+    path: ['skill'],
+  })
 
 export const execute: TypedToolExecute<typeof schema, unknown> = async (
   args,
@@ -354,6 +356,8 @@ export const execute: TypedToolExecute<typeof schema, unknown> = async (
     }
 
     default:
-      return err(new Error(`Unknown skill-manager action: "${String((args as { action: string }).action)}"`))
+      return err(
+        new Error(`Unknown skill-manager action: "${String((args as { action: string }).action)}"`),
+      )
   }
 }

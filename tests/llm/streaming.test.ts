@@ -247,7 +247,6 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
       chunks.push(chunk)
@@ -290,7 +289,6 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
       chunks.push(chunk)
@@ -314,7 +312,6 @@ describe('streamResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
       chunks.push(chunk)
@@ -336,7 +333,6 @@ describe('streamResponse', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-
 
     const chunks: StreamChunk[] = []
     for await (const chunk of result.value.stream) {
@@ -462,9 +458,7 @@ describe('toModelMsgs', () => {
       {
         role: 'assistant',
         content: 'Let me check.',
-        toolCalls: [
-          { toolCallId: 'tc1', toolName: 'read_file', input: { path: '/tmp/x' } },
-        ],
+        toolCalls: [{ toolCallId: 'tc1', toolName: 'read_file', input: { path: '/tmp/x' } }],
       },
     ]
     const result = toModelMsgs(msgs)
@@ -486,9 +480,7 @@ describe('toModelMsgs', () => {
     const msgs: LLMMessage[] = [
       {
         role: 'tool',
-        content: [
-          { toolCallId: 'tc1', toolName: 'read_file', result: 'file contents' },
-        ],
+        content: [{ toolCallId: 'tc1', toolName: 'read_file', result: 'file contents' }],
       },
     ]
     const result = toModelMsgs(msgs)

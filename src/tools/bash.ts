@@ -37,7 +37,7 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
   const timeoutMs = timeout * 1000
 
   const filteredEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !SENSITIVE_ENV_KEYS.includes(key))
+    Object.entries(process.env).filter(([key]) => !SENSITIVE_ENV_KEYS.includes(key)),
   )
 
   return new Promise((resolve) => {
