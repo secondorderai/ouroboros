@@ -160,7 +160,9 @@ describe('Agent + Memory Integration', () => {
       const sessionId = sessionResult.value
 
       // Run an agent conversation
-      const model = createMockModel([[...textBlock('Hello! How can I help you today?'), finishStop()]])
+      const model = createMockModel([
+        [...textBlock('Hello! How can I help you today?'), finishStop()],
+      ])
 
       const agent = new Agent(makeAgentOptions(model, registry))
       await agent.run('Hi there')

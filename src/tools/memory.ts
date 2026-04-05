@@ -5,6 +5,7 @@
  * as a tool for the agent. Follows the tool registry interface:
  * name, description, schema (JSON Schema), execute (async fn returning Result).
  */
+import { z } from 'zod'
 import { type Result, ok, err } from '@src/types'
 import { getMemoryIndex, updateMemoryIndex } from '@src/memory/index'
 import { listTopics, readTopic, writeTopic } from '@src/memory/topics'
@@ -17,36 +18,21 @@ export const name = 'memory'
 export const description =
   'Read and write the memory index (MEMORY.md), manage topic files, and search past session transcripts.'
 
-export const schema = {
-  type: 'object' as const,
-  required: ['action'],
-  properties: {
-    action: {
-      type: 'string',
-      enum: [
-        'read-index',
-        'update-index',
-        'list-topics',
-        'read-topic',
-        'write-topic',
-        'search-transcripts',
-      ],
-      description: 'The memory operation to perform',
-    },
-    content: {
-      type: 'string',
-      description: 'Content for update-index or write-topic actions',
-    },
-    name: {
-      type: 'string',
-      description: 'Topic name for read-topic or write-topic actions',
-    },
-    query: {
-      type: 'string',
-      description: 'Search query for search-transcripts action',
-    },
-  },
-}
+export const schema = z.object({
+  action: z
+    .enum([
+      'read-index',
+      'update-index',
+      'list-topics',
+      'read-topic',
+      'write-topic',
+      'search-transcripts',
+    ])
+    .describe('The memory operation to perform'),
+  content: z.string().optional().describe('Content for update-index or write-topic actions'),
+  name: z.string().optional().describe('Topic name for read-topic or write-topic actions'),
+  query: z.string().optional().describe('Search query for search-transcripts action'),
+})
 
 export interface MemoryToolInput {
   action:
