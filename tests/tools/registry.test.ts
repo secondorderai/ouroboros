@@ -25,7 +25,7 @@ describe('ToolRegistry', () => {
   // -----------------------------------------------------------------------
   // Feature test: Registry discovers all tools
   // -----------------------------------------------------------------------
-  test('discovers all 9 tool files from src/tools/', async () => {
+  test('discovers all tool files from src/tools/', async () => {
     const toolsDir = resolve(import.meta.dir, '../../src/tools')
     await registry.discover(toolsDir)
 
@@ -38,12 +38,13 @@ describe('ToolRegistry', () => {
       'file-edit',
       'file-read',
       'file-write',
+      'memory',
       'skill-manager',
       'todo',
       'web-fetch',
       'web-search',
     ])
-    expect(registry.size).toBe(9)
+    expect(registry.size).toBe(10)
   })
 
   test('getTools() returns metadata with name, description, and parameters', async () => {
@@ -134,5 +135,29 @@ describe('ToolRegistry', () => {
   test('handles non-existent directory gracefully', async () => {
     await registry.discover('/nonexistent/path/tools')
     expect(registry.size).toBe(0)
+  })
+
+  test('createRegistry includes built-in tools without filesystem discovery (bundled regression)', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+
+    const bundledRegistry = await createRegistry()
+    const names = bundledRegistry
+      .getTools()
+      .map((tool) => tool.name)
+      .sort()
+
+    expect(names).toEqual([
+      'ask-user',
+      'bash',
+      'file-edit',
+      'file-read',
+      'file-write',
+      'memory',
+      'skill-manager',
+      'todo',
+      'web-fetch',
+      'web-search',
+    ])
+    expect(bundledRegistry.size).toBe(10)
   })
 })

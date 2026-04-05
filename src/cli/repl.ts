@@ -46,10 +46,12 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   // Load input history from file
   const history = loadHistory()
 
+  const prompt = '> '
+
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: '',
+    prompt,
     history,
     historySize: MAX_HISTORY_LINES,
     terminal: process.stdin.isTTY === true,

@@ -40,6 +40,7 @@ program
   .option('--no-stream', 'Wait for full response before printing')
   .option('--config <path>', 'Path to .ouroboros config file directory')
   .option('-m, --message <prompt>', 'Process a single prompt and exit')
+  .option('--debug-tools', 'Print registered tool names and exit')
 
 // ── Main ─────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
     stream: boolean
     config?: string
     message?: string
+    debugTools?: boolean
   }>()
 
   // Load config
@@ -89,8 +91,20 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  // Create tool registry with auto-discovery
+  // Create tool registry with built-in tools pre-registered
   const registry = await createRegistry()
+
+  if (opts.debugTools === true) {
+    const toolNames = registry
+      .getTools()
+      .map((tool) => tool.name)
+      .sort()
+    process.stdout.write(`${toolNames.length} tools registered\n`)
+    for (const name of toolNames) {
+      process.stdout.write(`- ${name}\n`)
+    }
+    process.exit(0)
+  }
 
   // Create a mutable event dispatch target.
   // The Agent stores `onEvent` at construction time, so we use a proxy

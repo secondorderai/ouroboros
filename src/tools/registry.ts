@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { type Result, err } from '@src/types'
+import { BUILTIN_TOOLS } from './builtin'
 import type { ToolDefinition, ToolMetadata } from './types'
 
 /** Files that should never be loaded as tools. */
@@ -191,9 +192,25 @@ function zodTypeToJsonSchema(schema: z.ZodTypeAny): {
   return { jsonSchema: {}, isOptional: false }
 }
 
-/** Convenience: create a registry with auto-discovered tools. */
+/**
+ * Convenience: create a registry with built-in tools pre-registered.
+ *
+ * In dev, `discover()` can load tool modules from the filesystem. In compiled
+ * production binaries, source `.ts` files do not exist on disk, so runtime
+ * discovery would produce an empty registry. We therefore always register the
+ * statically imported built-in tools first, and only perform filesystem
+ * discovery when an explicit directory is provided (for extensibility).
+ */
 export async function createRegistry(directory?: string): Promise<ToolRegistry> {
   const registry = new ToolRegistry()
-  await registry.discover(directory)
+
+  for (const tool of BUILTIN_TOOLS) {
+    registry.register(tool)
+  }
+
+  if (directory) {
+    await registry.discover(directory)
+  }
+
   return registry
 }
