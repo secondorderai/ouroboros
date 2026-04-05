@@ -5,7 +5,14 @@
  * All errors are caught and returned as Result errors, never thrown.
  */
 
-import { streamText, generateText, type LanguageModelV1, type CoreMessage, type ToolSet } from 'ai'
+import {
+  streamText,
+  generateText,
+  jsonSchema,
+  type LanguageModel,
+  type ModelMessage,
+  type ToolSet,
+} from 'ai'
 import { type Result, ok, err } from '@src/types'
 import type {
   LLMMessage,
@@ -16,15 +23,14 @@ import type {
   ToolCall,
   TokenUsage,
   ToolDefinition,
-  FinishReason
+  FinishReason,
 } from './types'
-import { jsonSchema } from 'ai'
 
 /**
- * Convert our LLMMessage types to Vercel AI SDK CoreMessage types.
+ * Convert our LLMMessage types to Vercel AI SDK ModelMessage types.
  */
-function toCoreMsgs(messages: LLMMessage[]): CoreMessage[] {
-  return messages.map(msg => {
+function toModelMsgs(messages: LLMMessage[]): ModelMessage[] {
+  return messages.map((msg) => {
     if (msg.role === 'system') {
       return { role: 'system' as const, content: msg.content }
     }
@@ -34,12 +40,15 @@ function toCoreMsgs(messages: LLMMessage[]): CoreMessage[] {
     if (msg.role === 'tool') {
       return {
         role: 'tool' as const,
-        content: msg.content.map(r => ({
+        content: msg.content.map((r) => ({
           type: 'tool-result' as const,
           toolCallId: r.toolCallId,
           toolName: r.toolName,
-          result: r.result
-        }))
+          output:
+            typeof r.result === 'string'
+              ? { type: 'text' as const, value: r.result }
+              : { type: 'json' as const, value: r.result as import('@ai-sdk/provider').JSONValue },
+        })),
       }
     }
     // assistant message
@@ -48,13 +57,13 @@ function toCoreMsgs(messages: LLMMessage[]): CoreMessage[] {
         role: 'assistant' as const,
         content: [
           ...(msg.content ? [{ type: 'text' as const, text: msg.content }] : []),
-          ...msg.toolCalls.map(tc => ({
+          ...msg.toolCalls.map((tc) => ({
             type: 'tool-call' as const,
             toolCallId: tc.toolCallId,
             toolName: tc.toolName,
-            args: tc.args
-          }))
-        ]
+            input: tc.input,
+          })),
+        ],
       }
     }
     return { role: 'assistant' as const, content: msg.content }
@@ -71,8 +80,8 @@ function toToolSet(tools?: Record<string, ToolDefinition>): ToolSet | undefined 
   for (const [name, def] of Object.entries(tools)) {
     toolSet[name] = {
       description: def.description,
-      parameters: jsonSchema(def.parameters)
-    }
+      inputSchema: jsonSchema(def.parameters),
+    } as ToolSet[string]
   }
   return toolSet
 }
@@ -93,12 +102,16 @@ function classifyError(error: unknown): Error {
       msg.includes('authentication') ||
       name.includes('authenticationerror')
     ) {
-      return new Error(`Authentication failed: ${error.message}. Check that your API key is valid and has not expired.`)
+      return new Error(
+        `Authentication failed: ${error.message}. Check that your API key is valid and has not expired.`,
+      )
     }
 
     // Rate limiting
     if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')) {
-      return new Error(`Rate limited: ${error.message}. Wait a moment and try again, or reduce request frequency.`)
+      return new Error(
+        `Rate limited: ${error.message}. Wait a moment and try again, or reduce request frequency.`,
+      )
     }
 
     // Network errors
@@ -112,7 +125,7 @@ function classifyError(error: unknown): Error {
       name.includes('aborterror')
     ) {
       return new Error(
-        `Network error: ${error.message}. Check your internet connection and that the API endpoint is reachable.`
+        `Network error: ${error.message}. Check your internet connection and that the API endpoint is reachable.`,
       )
     }
 
@@ -135,40 +148,41 @@ function classifyError(error: unknown): Error {
  * Errors during streaming are yielded as error chunks in the stream.
  */
 export function streamResponse(
-  model: LanguageModelV1,
+  model: LanguageModel,
   messages: LLMMessage[],
-  options?: LLMCallOptions
+  options?: LLMCallOptions,
 ): Result<StreamResponse> {
   try {
-    const coreMessages = toCoreMsgs(messages)
+    const modelMessages = toModelMsgs(messages)
     const tools = toToolSet(options?.tools)
 
     const result = streamText({
       model,
-      messages: coreMessages,
+      ...(options?.system ? { system: options.system } : {}),
+      messages: modelMessages,
       temperature: options?.temperature,
-      maxTokens: options?.maxTokens,
+      maxOutputTokens: options?.maxTokens,
       stopSequences: options?.stopSequences,
       tools,
-      abortSignal: options?.abortSignal
+      abortSignal: options?.abortSignal,
     })
 
     // fullStream is typed as AsyncIterable<TextStreamPart<TOOLS>> but we use `any`
     // in createChunkStream to avoid coupling to the AI SDK's complex generic types
     const stream = createChunkStream(result.fullStream as AsyncIterable<unknown>)
 
-    const text = result.text
-    const toolCalls: Promise<ToolCall[]> = result.toolCalls.then(calls =>
-      calls.map(tc => ({
+    const text = Promise.resolve(result.text)
+    const toolCalls: Promise<ToolCall[]> = Promise.resolve(result.toolCalls).then((calls) =>
+      calls.map((tc) => ({
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        args: tc.args as Record<string, unknown>
-      }))
+        input: tc.input as Record<string, unknown>,
+      })),
     )
-    const usage: Promise<TokenUsage> = result.usage.then(u => ({
-      promptTokens: u.promptTokens,
-      completionTokens: u.completionTokens,
-      totalTokens: u.totalTokens
+    const usage: Promise<TokenUsage> = Promise.resolve(result.usage).then((u) => ({
+      promptTokens: u.inputTokens ?? 0,
+      completionTokens: u.outputTokens ?? 0,
+      totalTokens: u.totalTokens ?? 0,
     }))
 
     return ok({ stream, text, toolCalls, usage })
@@ -190,13 +204,13 @@ export function streamResponse(
  */
 async function* createChunkStream(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  fullStream: AsyncIterable<any>
+  fullStream: AsyncIterable<any>,
 ): AsyncIterable<StreamChunk> {
   try {
     for await (const part of fullStream) {
       switch (part.type) {
         case 'text-delta':
-          yield { type: 'text-delta', textDelta: part.textDelta as string }
+          yield { type: 'text-delta', textDelta: part.text as string }
           break
 
         case 'tool-call':
@@ -204,37 +218,37 @@ async function* createChunkStream(
             type: 'tool-call',
             toolCallId: part.toolCallId as string,
             toolName: part.toolName as string,
-            args: part.args as Record<string, unknown>
+            input: part.input as Record<string, unknown>,
           }
           break
 
-        case 'tool-call-streaming-start':
+        case 'tool-input-start':
           yield {
             type: 'tool-call-streaming-start',
-            toolCallId: part.toolCallId as string,
-            toolName: part.toolName as string
+            toolCallId: part.id as string,
+            toolName: part.toolName as string,
           }
           break
 
-        case 'tool-call-delta':
+        case 'tool-input-delta':
           yield {
             type: 'tool-call-delta',
-            toolCallId: part.toolCallId as string,
-            toolName: part.toolName as string,
-            argsTextDelta: part.argsTextDelta as string
+            toolCallId: part.id as string,
+            toolName: '',
+            inputTextDelta: part.delta as string,
           }
           break
 
         case 'finish': {
-          const usage = part.usage ?? {}
+          const usage = part.totalUsage ?? {}
           yield {
             type: 'finish',
             finishReason: (part.finishReason ?? 'unknown') as FinishReason,
             usage: {
-              promptTokens: usage.promptTokens ?? 0,
-              completionTokens: usage.completionTokens ?? 0,
-              totalTokens: usage.totalTokens ?? 0
-            }
+              promptTokens: usage.inputTokens ?? 0,
+              completionTokens: usage.outputTokens ?? 0,
+              totalTokens: usage.totalTokens ?? 0,
+            },
           }
           break
         }
@@ -243,7 +257,7 @@ async function* createChunkStream(
           yield { type: 'error', error: classifyError(part.error) }
           break
 
-        // Skip other event types (reasoning, source, step-start, step-finish, etc.)
+        // Skip other event types (reasoning, source, start-step, finish-step, etc.)
         default:
           break
       }
@@ -259,37 +273,38 @@ async function* createChunkStream(
  * @returns Result containing the full generation result or an error
  */
 export async function generateResponse(
-  model: LanguageModelV1,
+  model: LanguageModel,
   messages: LLMMessage[],
-  options?: LLMCallOptions
+  options?: LLMCallOptions,
 ): Promise<Result<GenerateResult>> {
   try {
-    const coreMessages = toCoreMsgs(messages)
+    const modelMessages = toModelMsgs(messages)
     const tools = toToolSet(options?.tools)
 
     const result = await generateText({
       model,
-      messages: coreMessages,
+      ...(options?.system ? { system: options.system } : {}),
+      messages: modelMessages,
       temperature: options?.temperature,
-      maxTokens: options?.maxTokens,
+      maxOutputTokens: options?.maxTokens,
       stopSequences: options?.stopSequences,
       tools,
-      abortSignal: options?.abortSignal
+      abortSignal: options?.abortSignal,
     })
 
     return ok({
       text: result.text,
-      toolCalls: result.toolCalls.map(tc => ({
+      toolCalls: result.toolCalls.map((tc) => ({
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        args: tc.args as Record<string, unknown>
+        input: tc.input as Record<string, unknown>,
       })),
       finishReason: result.finishReason,
       usage: {
-        promptTokens: result.usage.promptTokens,
-        completionTokens: result.usage.completionTokens,
-        totalTokens: result.usage.totalTokens
-      }
+        promptTokens: result.usage.inputTokens ?? 0,
+        completionTokens: result.usage.outputTokens ?? 0,
+        totalTokens: result.usage.totalTokens ?? 0,
+      },
     })
   } catch (error) {
     return err(classifyError(error))

@@ -25,7 +25,7 @@ export function createSingleShotHandler(options: { verbose: boolean; noStream: b
 } {
   const renderer = new Renderer({
     verbose: options.verbose,
-    isTTY: process.stdout.isTTY === true
+    isTTY: process.stdout.isTTY === true,
   })
 
   let accumulatedText = ''
@@ -41,7 +41,7 @@ export function createSingleShotHandler(options: { verbose: boolean; noStream: b
         break
 
       case 'tool-call-start':
-        renderer.startToolCall(event.toolCallId, event.toolName, event.args)
+        renderer.startToolCall(event.toolCallId, event.toolName, event.input)
         break
 
       case 'tool-call-end':

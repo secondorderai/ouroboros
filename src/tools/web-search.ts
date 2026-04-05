@@ -61,13 +61,9 @@ function parseDuckDuckGoResults(html: string, limit: number): SearchResult[] {
         .replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, '')
         .replace(/&rut=.*$/, '')
 
-      const title = titleMatch
-        ? titleMatch[1].replace(/<[^>]+>/g, '').trim()
-        : url
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : url
 
-      const snippet = snippetMatch
-        ? snippetMatch[1].replace(/<[^>]+>/g, '').trim()
-        : ''
+      const snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : ''
 
       // Skip DDG internal links.
       if (!url.startsWith('/') && url.startsWith('http')) {
@@ -98,8 +94,7 @@ export const execute: TypedToolExecute<typeof schema, WebSearchResult> = async (
     const response = await fetch(searchUrl, {
       signal: controller.signal,
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (compatible; Ouroboros/0.1; +https://github.com/ouroboros)',
+        'User-Agent': 'Mozilla/5.0 (compatible; Ouroboros/0.1; +https://github.com/ouroboros)',
         Accept: 'text/html',
       },
     })
@@ -107,9 +102,7 @@ export const execute: TypedToolExecute<typeof schema, WebSearchResult> = async (
     clearTimeout(timeout)
 
     if (!response.ok) {
-      return err(
-        new Error(`Search request failed: HTTP ${response.status} ${response.statusText}`),
-      )
+      return err(new Error(`Search request failed: HTTP ${response.status} ${response.statusText}`))
     }
 
     const html = await response.text()

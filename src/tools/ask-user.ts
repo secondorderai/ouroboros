@@ -29,9 +29,7 @@ export const execute: TypedToolExecute<typeof schema, AskUserResult> = async (
   try {
     let prompt = question
     if (options && options.length > 0) {
-      const choices = options
-        .map((opt, i) => `  ${i + 1}. ${opt}`)
-        .join('\n')
+      const choices = options.map((opt, i) => `  ${i + 1}. ${opt}`).join('\n')
       prompt = `${question}\n${choices}\n> `
     } else {
       prompt = `${question}\n> `
@@ -60,9 +58,7 @@ export const execute: TypedToolExecute<typeof schema, AskUserResult> = async (
         return ok({ response: options[num - 1] })
       }
       // Accept the raw text if it matches an option (case-insensitive).
-      const match = options.find(
-        (o) => o.toLowerCase() === response.toLowerCase(),
-      )
+      const match = options.find((o) => o.toLowerCase() === response.toLowerCase())
       if (match) {
         return ok({ response: match })
       }

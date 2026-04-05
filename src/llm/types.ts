@@ -22,8 +22,8 @@ export interface ToolCall {
   toolCallId: string
   /** Name of the tool to invoke */
   toolName: string
-  /** Parsed arguments for the tool */
-  args: Record<string, unknown>
+  /** Parsed input for the tool */
+  input: Record<string, unknown>
 }
 
 /**
@@ -43,16 +43,23 @@ export interface ToolResult {
  */
 export type StreamChunk =
   | { type: 'text-delta'; textDelta: string }
-  | { type: 'tool-call'; toolCallId: string; toolName: string; args: Record<string, unknown> }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; input: Record<string, unknown> }
   | { type: 'tool-call-streaming-start'; toolCallId: string; toolName: string }
-  | { type: 'tool-call-delta'; toolCallId: string; toolName: string; argsTextDelta: string }
+  | { type: 'tool-call-delta'; toolCallId: string; toolName: string; inputTextDelta: string }
   | { type: 'finish'; finishReason: FinishReason; usage: TokenUsage }
   | { type: 'error'; error: Error }
 
 /**
  * Why the LLM stopped generating.
  */
-export type FinishReason = 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other' | 'unknown'
+export type FinishReason =
+  | 'stop'
+  | 'length'
+  | 'content-filter'
+  | 'tool-calls'
+  | 'error'
+  | 'other'
+  | 'unknown'
 
 /**
  * Token usage information from a response.
@@ -95,6 +102,8 @@ export interface StreamResponse {
  * Options for LLM calls (both streaming and non-streaming).
  */
 export interface LLMCallOptions {
+  /** System prompt */
+  system?: string
   /** Temperature for sampling (0-2) */
   temperature?: number
   /** Maximum tokens to generate */

@@ -11,12 +11,7 @@ export const description =
 
 export const schema = z.object({
   command: z.string().describe('The shell command to execute'),
-  timeout: z
-    .number()
-    .positive()
-    .optional()
-    .default(30)
-    .describe('Timeout in seconds (default 30)'),
+  timeout: z.number().positive().optional().default(30).describe('Timeout in seconds (default 30)'),
   cwd: z
     .string()
     .optional()
@@ -72,13 +67,7 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
         settled = true
         clearTimeout(timer)
         if (killed) {
-          resolve(
-            err(
-              new Error(
-                `Command timed out after ${timeout}s and was killed`,
-              ),
-            ),
-          )
+          resolve(err(new Error(`Command timed out after ${timeout}s and was killed`)))
         } else {
           resolve(ok({ stdout, stderr, exitCode: code ?? 1 }))
         }

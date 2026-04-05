@@ -21,7 +21,8 @@ export interface ToolDefinition {
    * so the value passed here is guaranteed to be valid at runtime.
    * Must never throw — return a Result instead.
    */
-  execute: (args: Record<string, unknown>) => Promise<Result<unknown>>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (args: any) => Promise<Result<unknown>>
 }
 
 /**
@@ -33,10 +34,9 @@ export interface ToolDefinition {
  * export const execute: TypedToolExecute<typeof schema, MyResult> = async (args) => { ... }
  * ```
  */
-export type TypedToolExecute<
-  TSchema extends z.ZodObject<z.ZodRawShape>,
-  TResult,
-> = (args: z.infer<TSchema>) => Promise<Result<TResult>>
+export type TypedToolExecute<TSchema extends z.ZodObject<z.ZodRawShape>, TResult> = (
+  args: z.infer<TSchema>,
+) => Promise<Result<TResult>>
 
 /**
  * Metadata returned by `getTools()` — everything the system prompt builder needs

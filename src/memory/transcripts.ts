@@ -169,7 +169,7 @@ export class TranscriptStore {
       const toolArgs = input.toolArgs ? JSON.stringify(input.toolArgs) : null
       this.db
         .prepare(
-          'INSERT INTO messages (id, session_id, role, content, tool_name, tool_args, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO messages (id, session_id, role, content, tool_name, tool_args, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
         )
         .run(id, sessionId, input.role, input.content, input.toolName ?? null, toolArgs, createdAt)
       return ok(id)
@@ -203,7 +203,9 @@ export class TranscriptStore {
    */
   getSession(sessionId: string): Result<SessionWithMessages> {
     try {
-      const session = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as SessionRow | null
+      const session = this.db
+        .prepare('SELECT * FROM sessions WHERE id = ?')
+        .get(sessionId) as SessionRow | null
 
       if (!session) {
         return err(new Error(`Session "${sessionId}" not found`))
@@ -213,14 +215,14 @@ export class TranscriptStore {
         .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC')
         .all(sessionId) as MessageRow[]
 
-      const messages: TranscriptMessage[] = rows.map(row => ({
+      const messages: TranscriptMessage[] = rows.map((row) => ({
         id: row.id,
         sessionId: row.session_id,
         role: row.role as MessageRole,
         content: row.content,
         toolName: row.tool_name,
         toolArgs: row.tool_args,
-        createdAt: row.created_at
+        createdAt: row.created_at,
       }))
 
       return ok({
@@ -228,7 +230,7 @@ export class TranscriptStore {
         startedAt: session.started_at,
         endedAt: session.ended_at,
         summary: session.summary,
-        messages
+        messages,
       })
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
@@ -248,18 +250,18 @@ export class TranscriptStore {
            FROM messages m
            JOIN sessions s ON s.id = m.session_id
            WHERE m.content LIKE ?
-           ORDER BY m.created_at DESC`
+           ORDER BY m.created_at DESC`,
         )
         .all(`%${query}%`) as SearchRow[]
 
-      const results: SearchResult[] = rows.map(row => ({
+      const results: SearchResult[] = rows.map((row) => ({
         messageId: row.message_id,
         sessionId: row.session_id,
         role: row.role as MessageRole,
         content: row.content,
         toolName: row.tool_name,
         createdAt: row.created_at,
-        sessionStartedAt: row.session_started_at
+        sessionStartedAt: row.session_started_at,
       }))
 
       return ok(results)
@@ -280,16 +282,16 @@ export class TranscriptStore {
                   (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
            FROM sessions s
            ORDER BY s.started_at DESC, s.rowid DESC
-           LIMIT ?`
+           LIMIT ?`,
         )
         .all(limit) as SessionSummaryRow[]
 
-      const sessions: SessionSummary[] = rows.map(row => ({
+      const sessions: SessionSummary[] = rows.map((row) => ({
         id: row.id,
         startedAt: row.started_at,
         endedAt: row.ended_at,
         summary: row.summary,
-        messageCount: row.message_count
+        messageCount: row.message_count,
       }))
 
       return ok(sessions)

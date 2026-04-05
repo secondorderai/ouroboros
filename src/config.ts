@@ -14,9 +14,9 @@ export const configSchema = z.object({
         .default('anthropic')
         .describe('LLM provider to use'),
       name: z.string().default('claude-sonnet-4-20250514').describe('Model name/identifier'),
-      baseUrl: z.string().url().optional().describe('Base URL for OpenAI-compatible endpoints')
+      baseUrl: z.string().url().optional().describe('Base URL for OpenAI-compatible endpoints'),
     })
-    .default({}),
+    .default({ provider: 'anthropic' as const, name: 'claude-sonnet-4-20250514' }),
 
   permissions: z
     .object({
@@ -24,9 +24,9 @@ export const configSchema = z.object({
       tier1: z.boolean().default(true).describe('Scoped writes'),
       tier2: z.boolean().default(true).describe('Skill generation (auto + self-test)'),
       tier3: z.boolean().default(false).describe('Self-modification (requires human approval)'),
-      tier4: z.boolean().default(false).describe('System-level (requires human approval)')
+      tier4: z.boolean().default(false).describe('System-level (requires human approval)'),
     })
-    .default({}),
+    .default({ tier0: true, tier1: true, tier2: true, tier3: false, tier4: false }),
 
   skillDirectories: z
     .array(z.string())
@@ -42,9 +42,12 @@ export const configSchema = z.object({
       consolidationSchedule: z
         .enum(['session-end', 'daily', 'manual'])
         .default('session-end')
-        .describe('When to run memory consolidation / dream cycle')
+        .describe('When to run memory consolidation / dream cycle'),
     })
-    .default({}),
+    .default({
+      sqlitePath: 'memory/transcripts.db',
+      consolidationSchedule: 'session-end' as const,
+    }),
 
   rsi: z
     .object({
@@ -54,9 +57,12 @@ export const configSchema = z.object({
         .max(1)
         .default(0.7)
         .describe('Minimum novelty score (0-1) to trigger skill crystallization'),
-      autoReflect: z.boolean().default(true).describe('Automatically run reflection after task completion')
+      autoReflect: z
+        .boolean()
+        .default(true)
+        .describe('Automatically run reflection after task completion'),
     })
-    .default({})
+    .default({ noveltyThreshold: 0.7, autoReflect: true }),
 })
 
 export type OuroborosConfig = z.infer<typeof configSchema>
@@ -107,7 +113,7 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
     ...config,
     model,
     memory,
-    rsi
+    rsi,
   }
 }
 
@@ -145,7 +151,9 @@ export function loadConfig(cwd?: string): Result<OuroborosConfig> {
   const result = configSchema.safeParse(merged)
 
   if (!result.success) {
-    const issues = result.error.issues.map(issue => `  - ${issue.path.join('.')}: ${issue.message}`).join('\n')
+    const issues = result.error.issues
+      .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
+      .join('\n')
     return err(new Error(`Invalid .ouroboros configuration:\n${issues}`))
   }
 

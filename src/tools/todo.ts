@@ -9,13 +9,8 @@ export const description =
   'Supports add, list, complete, and remove actions.'
 
 export const schema = z.object({
-  action: z
-    .enum(['add', 'list', 'complete', 'remove'])
-    .describe('The action to perform'),
-  task: z
-    .string()
-    .optional()
-    .describe('The task description (required for "add")'),
+  action: z.enum(['add', 'list', 'complete', 'remove']).describe('The action to perform'),
+  task: z.string().optional().describe('The task description (required for "add")'),
   id: z
     .number()
     .int()

@@ -7,7 +7,7 @@
 
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
-import type { LanguageModelV1 } from 'ai'
+import type { LanguageModel } from 'ai'
 import type { OuroborosConfig } from '@src/config'
 import { type Result, ok, err } from '@src/types'
 
@@ -26,7 +26,7 @@ const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'openai-compatible'] as cons
  * @param config - The model section of the Ouroboros config
  * @returns A Result containing either a LanguageModel or a descriptive error
  */
-export function createProvider(config: ModelConfig): Result<LanguageModelV1> {
+export function createProvider(config: ModelConfig): Result<LanguageModel> {
   const { provider, name: modelId } = config
 
   switch (provider) {
@@ -36,8 +36,8 @@ export function createProvider(config: ModelConfig): Result<LanguageModelV1> {
         return err(
           new Error(
             'Missing ANTHROPIC_API_KEY environment variable. ' +
-              'Set it to your Anthropic API key to use the Anthropic provider.'
-          )
+              'Set it to your Anthropic API key to use the Anthropic provider.',
+          ),
         )
       }
       const anthropic = createAnthropic({ apiKey })
@@ -50,8 +50,8 @@ export function createProvider(config: ModelConfig): Result<LanguageModelV1> {
         return err(
           new Error(
             'Missing OPENAI_API_KEY environment variable. ' +
-              'Set it to your OpenAI API key to use the OpenAI provider.'
-          )
+              'Set it to your OpenAI API key to use the OpenAI provider.',
+          ),
         )
       }
       const openai = createOpenAI({ apiKey })
@@ -63,14 +63,14 @@ export function createProvider(config: ModelConfig): Result<LanguageModelV1> {
         return err(
           new Error(
             'OpenAI-compatible provider requires a baseUrl in the model configuration. ' +
-              'Set model.baseUrl in .ouroboros or OUROBOROS_MODEL_BASE_URL environment variable.'
-          )
+              'Set model.baseUrl in .ouroboros or OUROBOROS_MODEL_BASE_URL environment variable.',
+          ),
         )
       }
       const apiKey = process.env.OPENAI_API_KEY ?? ''
       const openai = createOpenAI({
         baseURL: config.baseUrl,
-        apiKey: apiKey || undefined
+        apiKey: apiKey || undefined,
       })
       return ok(openai(modelId))
     }
@@ -81,8 +81,9 @@ export function createProvider(config: ModelConfig): Result<LanguageModelV1> {
       const _exhaustive: never = provider
       return err(
         new Error(
-          `Unsupported LLM provider: "${_exhaustive}". ` + `Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`
-        )
+          `Unsupported LLM provider: "${_exhaustive}". ` +
+            `Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`,
+        ),
       )
     }
   }

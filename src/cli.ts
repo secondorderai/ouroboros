@@ -32,7 +32,10 @@ program
   .name('ouroboros')
   .description('Ouroboros — a recursive self-improving AI agent')
   .version('0.1.0')
-  .option('--model <model>', 'Override model selection (e.g., anthropic/claude-sonnet-4-20250514 or openai/gpt-4o)')
+  .option(
+    '--model <model>',
+    'Override model selection (e.g., anthropic/claude-sonnet-4-20250514 or openai/gpt-4o)',
+  )
   .option('-v, --verbose', 'Show tool call details (name, args, result)')
   .option('--no-stream', 'Wait for full response before printing')
   .option('--config <path>', 'Path to .ouroboros config file directory')
@@ -71,8 +74,8 @@ async function main(): Promise<void> {
       model: {
         ...config.model,
         provider: parseResult.value.provider,
-        name: parseResult.value.name
-      }
+        name: parseResult.value.name,
+      },
     }
   }
 
@@ -101,7 +104,7 @@ async function main(): Promise<void> {
   const agent = new Agent({
     model: providerResult.value,
     toolRegistry: registry,
-    onEvent: eventProxy
+    onEvent: eventProxy,
   })
 
   // Determine mode: single-shot or interactive
@@ -126,7 +129,7 @@ async function main(): Promise<void> {
     // Interactive REPL mode
     const renderer = new Renderer({
       verbose,
-      isTTY: process.stdout.isTTY === true
+      isTTY: process.stdout.isTTY === true,
     })
 
     renderer.writeBanner(config.model.provider, config.model.name)
@@ -136,7 +139,7 @@ async function main(): Promise<void> {
       verbose,
       setEventHandler: (handler: AgentEventHandler) => {
         currentHandler = handler
-      }
+      },
     })
   }
 }
@@ -152,7 +155,7 @@ async function main(): Promise<void> {
  *   "claude-sonnet-4-20250514"            → provider=anthropic (default), name=claude-sonnet-4-20250514
  */
 function parseModelFlag(
-  value: string
+  value: string,
 ): Result<{ provider: 'anthropic' | 'openai' | 'openai-compatible'; name: string }> {
   const parts = value.split('/')
 
@@ -164,15 +167,15 @@ function parseModelFlag(
   if (parts.length === 2) {
     const [providerStr, name] = parts
     const validProviders = ['anthropic', 'openai', 'openai-compatible'] as const
-    const provider = validProviders.find(p => p === providerStr)
+    const provider = validProviders.find((p) => p === providerStr)
 
     if (!provider) {
       return err(
         new Error(
           `Invalid provider "${providerStr}" in --model flag. ` +
             `Valid providers: ${validProviders.join(', ')}. ` +
-            `Usage: --model provider/model-name`
-        )
+            `Usage: --model provider/model-name`,
+        ),
       )
     }
 
@@ -227,7 +230,7 @@ async function readStdin(): Promise<string> {
 
 // ── Entry point ─────────────────────────────────────────────────────
 
-main().catch(e => {
+main().catch((e) => {
   const message = e instanceof Error ? e.message : String(e)
   process.stderr.write(`Fatal error: ${message}\n`)
   process.exit(1)

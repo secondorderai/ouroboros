@@ -40,7 +40,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
 
   const renderer = new Renderer({
     verbose,
-    isTTY: process.stdout.isTTY === true
+    isTTY: process.stdout.isTTY === true,
   })
 
   // Load input history from file
@@ -52,7 +52,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
     prompt: '',
     history,
     historySize: MAX_HISTORY_LINES,
-    terminal: process.stdin.isTTY === true
+    terminal: process.stdin.isTTY === true,
   })
 
   let isRunning = false
@@ -139,7 +139,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           break
 
         case 'tool-call-start':
-          renderer.startToolCall(event.toolCallId, event.toolName, event.args)
+          renderer.startToolCall(event.toolCallId, event.toolName, event.input)
           break
 
         case 'tool-call-end':
@@ -182,7 +182,7 @@ function loadHistory(): string[] {
       const content = readFileSync(HISTORY_FILE, 'utf-8')
       return content
         .split('\n')
-        .filter(line => line.trim().length > 0)
+        .filter((line) => line.trim().length > 0)
         .slice(-MAX_HISTORY_LINES)
         .reverse() // readline expects most recent first
     }
@@ -198,7 +198,7 @@ function appendToHistory(line: string): void {
 
     // Periodically truncate history file if it gets too large
     const content = readFileSync(HISTORY_FILE, 'utf-8')
-    const lines = content.split('\n').filter(l => l.trim().length > 0)
+    const lines = content.split('\n').filter((l) => l.trim().length > 0)
     if (lines.length > MAX_HISTORY_LINES * 2) {
       writeFileSync(HISTORY_FILE, lines.slice(-MAX_HISTORY_LINES).join('\n') + '\n')
     }

@@ -4,7 +4,14 @@
  * CRUD operations for topic files stored in memory/topics/.
  * Topic files are markdown documents referenced from MEMORY.md by the agent.
  */
-import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, mkdirSync } from 'node:fs'
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  unlinkSync,
+  existsSync,
+  mkdirSync,
+} from 'node:fs'
 import { resolve, join } from 'node:path'
 import { type Result, ok, err } from '@src/types'
 
@@ -27,10 +34,18 @@ function validateTopicName(name: string): Result<string> {
     return err(new Error('Topic name must not be empty'))
   }
   if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
-    return err(new Error(`Invalid topic name "${name}": only alphanumeric, hyphens, underscores, and dots are allowed`))
+    return err(
+      new Error(
+        `Invalid topic name "${name}": only alphanumeric, hyphens, underscores, and dots are allowed`,
+      ),
+    )
   }
   if (name.startsWith('.') || name.includes('..')) {
-    return err(new Error(`Invalid topic name "${name}": must not start with a dot or contain path traversal`))
+    return err(
+      new Error(
+        `Invalid topic name "${name}": must not start with a dot or contain path traversal`,
+      ),
+    )
   }
   return ok(name)
 }
@@ -56,8 +71,8 @@ export function listTopics(basePath?: string): Result<string[]> {
     if (!existsSync(dir)) {
       return ok([])
     }
-    const files = readdirSync(dir).filter(f => f.endsWith('.md'))
-    const names = files.map(f => f.replace(/\.md$/, ''))
+    const files = readdirSync(dir).filter((f) => f.endsWith('.md'))
+    const names = files.map((f) => f.replace(/\.md$/, ''))
     return ok(names)
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)

@@ -24,7 +24,7 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
 export interface ToolCallState {
   toolCallId: string
   toolName: string
-  args: Record<string, unknown>
+  input: Record<string, unknown>
   spinnerInterval: ReturnType<typeof setInterval> | null
   frameIndex: number
 }
@@ -59,19 +59,19 @@ export class Renderer {
   }
 
   /** Start a tool call spinner indicator. */
-  startToolCall(toolCallId: string, toolName: string, args: Record<string, unknown>): void {
+  startToolCall(toolCallId: string, toolName: string, input: Record<string, unknown>): void {
     const state: ToolCallState = {
       toolCallId,
       toolName,
-      args,
+      input,
       spinnerInterval: null,
-      frameIndex: 0
+      frameIndex: 0,
     }
 
     if (this.isTTY) {
       // Show tool name with spinner
       if (this.verbose) {
-        this.writeToolHeader(toolName, args)
+        this.writeToolHeader(toolName, input)
       }
 
       state.spinnerInterval = setInterval(() => {
@@ -86,7 +86,7 @@ export class Renderer {
       process.stdout.write(`${CYAN}${frame}${RESET} ${DIM}Running ${toolName}...${RESET}`)
     } else if (this.verbose) {
       // Non-TTY: just show a line indicating tool call started
-      this.writeLine(`[tool-call] ${toolName}(${this.formatArgs(args)})`)
+      this.writeLine(`[tool-call] ${toolName}(${this.formatArgs(input)})`)
     }
 
     this.activeSpinners.set(toolCallId, state)
@@ -199,7 +199,10 @@ export class Renderer {
     if (entries.length === 0) return ''
     return entries
       .map(([k, v]) => {
-        const val = typeof v === 'string' ? `"${v.length > 50 ? v.slice(0, 50) + '...' : v}"` : JSON.stringify(v)
+        const val =
+          typeof v === 'string'
+            ? `"${v.length > 50 ? v.slice(0, 50) + '...' : v}"`
+            : JSON.stringify(v)
         return `${k}: ${val}`
       })
       .join(', ')

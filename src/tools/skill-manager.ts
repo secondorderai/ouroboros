@@ -75,7 +75,9 @@ export function _resetSkills(): void {
  * Returns the parsed frontmatter object and the body (everything after
  * the closing `---`).
  */
-function parseFrontmatter(content: string): Result<{ frontmatter: SkillFrontmatter; body: string }> {
+function parseFrontmatter(
+  content: string,
+): Result<{ frontmatter: SkillFrontmatter; body: string }> {
   const trimmed = content.trimStart()
   if (!trimmed.startsWith('---')) {
     return err(new Error('SKILL.md does not start with --- frontmatter delimiter'))
@@ -117,7 +119,9 @@ function parseFrontmatter(content: string): Result<{ frontmatter: SkillFrontmatt
     license: typeof fm.license === 'string' ? fm.license : undefined,
     compatibility: typeof fm.compatibility === 'string' ? fm.compatibility : undefined,
     metadata:
-      typeof fm.metadata === 'object' && fm.metadata != null ? (fm.metadata as Record<string, unknown>) : undefined
+      typeof fm.metadata === 'object' && fm.metadata != null
+        ? (fm.metadata as Record<string, unknown>)
+        : undefined,
   }
 
   return ok({ frontmatter, body })
@@ -159,8 +163,8 @@ export function discoverSkills(directories: string[], basePath?: string): void {
     let entries: string[]
     try {
       entries = readdirSync(absDir, { withFileTypes: true })
-        .filter(e => e.isDirectory())
-        .map(e => e.name)
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
     } catch {
       // Directory not readable — skip silently.
       continue
@@ -197,7 +201,7 @@ export function discoverSkills(directories: string[], basePath?: string): void {
         status,
         frontmatter,
         dirPath: skillDir,
-        active: false
+        active: false,
       })
     }
   }
@@ -210,10 +214,10 @@ export function discoverSkills(directories: string[], basePath?: string): void {
  * prompt injection. Only metadata — no full instructions.
  */
 export function getSkillCatalog(): SkillCatalogEntry[] {
-  return Array.from(skills.values()).map(s => ({
+  return Array.from(skills.values()).map((s) => ({
     name: s.name,
     description: s.description,
-    status: s.status
+    status: s.status,
   }))
 }
 
@@ -263,7 +267,7 @@ export function activateSkill(name: string): Result<SkillActivationResult> {
   return ok({
     name,
     instructions: body,
-    references
+    references,
   })
 }
 
@@ -310,10 +314,12 @@ export const description =
 
 export const schema = z.object({
   action: z.enum(['list', 'activate', 'deactivate', 'info']).describe('The action to perform'),
-  skill: z.string().optional().describe('Skill name (required for activate, deactivate, and info)')
+  skill: z.string().optional().describe('Skill name (required for activate, deactivate, and info)'),
 })
 
-export const execute: TypedToolExecute<typeof schema, unknown> = async (args): Promise<Result<unknown>> => {
+export const execute: TypedToolExecute<typeof schema, unknown> = async (
+  args,
+): Promise<Result<unknown>> => {
   const { action, skill: skillName } = args
 
   switch (action) {
@@ -322,11 +328,11 @@ export const execute: TypedToolExecute<typeof schema, unknown> = async (args): P
       if (allSkills.length === 0) {
         return ok({ skills: [], message: 'No skills discovered' })
       }
-      const summary = allSkills.map(s => ({
+      const summary = allSkills.map((s) => ({
         name: s.name,
         description: s.description,
         status: s.status,
-        active: s.active
+        active: s.active,
       }))
       return ok({ skills: summary, message: `${allSkills.length} skill(s) available` })
     }

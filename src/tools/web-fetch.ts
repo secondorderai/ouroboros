@@ -99,18 +99,13 @@ export const execute: TypedToolExecute<typeof schema, WebFetchResult> = async (
     clearTimeout(timeout)
 
     if (!response.ok) {
-      return err(
-        new Error(`HTTP ${response.status} ${response.statusText} fetching "${url}"`),
-      )
+      return err(new Error(`HTTP ${response.status} ${response.statusText} fetching "${url}"`))
     }
 
     const contentType = response.headers.get('content-type')
     let content = await response.text()
 
-    if (
-      extractMarkdown &&
-      contentType?.includes('text/html')
-    ) {
+    if (extractMarkdown && contentType?.includes('text/html')) {
       content = htmlToMarkdown(content)
     }
 

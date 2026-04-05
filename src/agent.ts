@@ -9,10 +9,15 @@
  * (CLI, JSON-RPC, etc.) subscribe to for rendering.
  */
 
-import type { LanguageModelV1 } from 'ai'
+import type { LanguageModel } from 'ai'
 import { streamResponse } from '@src/llm/streaming'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
-import type { LLMMessage, ToolCall, StreamChunk, ToolDefinition as LLMToolDefinition } from '@src/llm/types'
+import type {
+  LLMMessage,
+  ToolCall,
+  StreamChunk,
+  ToolDefinition as LLMToolDefinition,
+} from '@src/llm/types'
 import type { ToolRegistry } from '@src/tools/registry'
 import { getMemoryIndex } from '@src/memory/index'
 import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
@@ -22,8 +27,19 @@ import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manage
 /** Events emitted during the agent loop. */
 export type AgentEvent =
   | { type: 'text'; text: string }
-  | { type: 'tool-call-start'; toolCallId: string; toolName: string; args: Record<string, unknown> }
-  | { type: 'tool-call-end'; toolCallId: string; toolName: string; result: unknown; isError: boolean }
+  | {
+      type: 'tool-call-start'
+      toolCallId: string
+      toolName: string
+      input: Record<string, unknown>
+    }
+  | {
+      type: 'tool-call-end'
+      toolCallId: string
+      toolName: string
+      result: unknown
+      isError: boolean
+    }
   | { type: 'turn-complete'; text: string; iterations: number }
   | { type: 'error'; error: Error; recoverable: boolean }
 
@@ -34,7 +50,7 @@ export type AgentEventHandler = (event: AgentEvent) => void
 
 export interface AgentOptions {
   /** LLM model instance (from createProvider) */
-  model: LanguageModelV1
+  model: LanguageModel
   /** Tool registry with discovered tools */
   toolRegistry: ToolRegistry
   /** Maximum iterations before stopping (default 50) */
@@ -63,7 +79,7 @@ export interface AgentRunResult {
 // ── Agent class ──────────────────────────────────────────────────────
 
 export class Agent {
-  private model: LanguageModelV1
+  private model: LanguageModel
   private toolRegistry: ToolRegistry
   private maxIterations: number
   private onEvent: AgentEventHandler
@@ -114,15 +130,13 @@ export class Agent {
       // Build system prompt with current state
       const systemPrompt = this.buildCurrentSystemPrompt()
 
-      // Assemble messages: system prompt + conversation history
-      const messages: LLMMessage[] = [{ role: 'system', content: systemPrompt }, ...this.conversationHistory]
-
       // Build tool definitions for the LLM
       const toolDefs = this.buildToolDefinitions()
 
       // Stream the LLM response
-      const streamResult = streamResponse(this.model, messages, {
-        tools: Object.keys(toolDefs).length > 0 ? toolDefs : undefined
+      const streamResult = streamResponse(this.model, this.conversationHistory, {
+        system: systemPrompt,
+        tools: Object.keys(toolDefs).length > 0 ? toolDefs : undefined,
       })
 
       if (!streamResult.ok) {
@@ -132,7 +146,7 @@ export class Agent {
 
         this.conversationHistory.push({
           role: 'user',
-          content: `[System: LLM call failed: ${error.message}. Please try again or adjust your approach.]`
+          content: `[System: LLM call failed: ${error.message}. Please try again or adjust your approach.]`,
         })
         continue
       }
@@ -146,7 +160,7 @@ export class Agent {
 
         this.conversationHistory.push({
           role: 'user',
-          content: `[System: LLM streaming error: ${turnResult.error.message}. Please try again or adjust your approach.]`
+          content: `[System: LLM streaming error: ${turnResult.error.message}. Please try again or adjust your approach.]`,
         })
         continue
       }
@@ -160,7 +174,7 @@ export class Agent {
         this.conversationHistory.push({
           role: 'assistant',
           content: assistantText,
-          toolCalls
+          toolCalls,
         })
 
         // Execute tool calls (in parallel where possible)
@@ -169,7 +183,7 @@ export class Agent {
         // Inject tool results into conversation
         this.conversationHistory.push({
           role: 'tool',
-          content: toolResults
+          content: toolResults,
         })
 
         // Loop — send updated conversation back to LLM
@@ -180,7 +194,7 @@ export class Agent {
       if (assistantText) {
         this.conversationHistory.push({
           role: 'assistant',
-          content: assistantText
+          content: assistantText,
         })
       }
 
@@ -189,13 +203,13 @@ export class Agent {
       this.emitEvent({
         type: 'turn-complete',
         text: finalText,
-        iterations
+        iterations,
       })
 
       return {
         text: finalText,
         iterations,
-        maxIterationsReached: false
+        maxIterationsReached: false,
       }
     }
 
@@ -204,18 +218,18 @@ export class Agent {
     this.emitEvent({
       type: 'error',
       error: new Error(limitMessage),
-      recoverable: false
+      recoverable: false,
     })
     this.emitEvent({
       type: 'turn-complete',
       text: limitMessage,
-      iterations
+      iterations,
     })
 
     return {
       text: limitMessage,
       iterations,
-      maxIterationsReached: true
+      maxIterationsReached: true,
     }
   }
 
@@ -252,9 +266,9 @@ export class Agent {
 
     // Map skill catalog entries to the format expected by buildSystemPrompt
     const skillCatalog = this.skillCatalogProvider()
-    const skills = skillCatalog.map(s => ({
+    const skills = skillCatalog.map((s) => ({
       name: s.name,
-      description: s.description
+      description: s.description,
     }))
 
     return this.systemPromptBuilder({ tools, skills, memory })
@@ -271,7 +285,7 @@ export class Agent {
     for (const tool of tools) {
       defs[tool.name] = {
         description: tool.description,
-        parameters: tool.parameters
+        parameters: tool.parameters,
       }
     }
 
@@ -283,7 +297,7 @@ export class Agent {
    * Emits events for text deltas and tool call starts.
    */
   private async processStream(
-    stream: AsyncIterable<StreamChunk>
+    stream: AsyncIterable<StreamChunk>,
   ): Promise<{ text: string; toolCalls: ToolCall[]; error: Error | null }> {
     let text = ''
     const toolCalls: ToolCall[] = []
@@ -300,13 +314,13 @@ export class Agent {
           toolCalls.push({
             toolCallId: chunk.toolCallId,
             toolName: chunk.toolName,
-            args: chunk.args
+            input: chunk.input,
           })
           this.emitEvent({
             type: 'tool-call-start',
             toolCallId: chunk.toolCallId,
             toolName: chunk.toolName,
-            args: chunk.args
+            input: chunk.input,
           })
           break
 
@@ -331,11 +345,11 @@ export class Agent {
    * Execute tool calls in parallel and return tool results.
    */
   private async executeToolCalls(
-    toolCalls: ToolCall[]
+    toolCalls: ToolCall[],
   ): Promise<Array<{ toolCallId: string; toolName: string; result: unknown }>> {
     const results = await Promise.all(
-      toolCalls.map(async tc => {
-        const execResult = await this.toolRegistry.executeTool(tc.toolName, tc.args)
+      toolCalls.map(async (tc) => {
+        const execResult = await this.toolRegistry.executeTool(tc.toolName, tc.input)
 
         const isError = !execResult.ok
         const resultValue = execResult.ok ? execResult.value : execResult.error.message
@@ -345,15 +359,15 @@ export class Agent {
           toolCallId: tc.toolCallId,
           toolName: tc.toolName,
           result: resultValue,
-          isError
+          isError,
         })
 
         return {
           toolCallId: tc.toolCallId,
           toolName: tc.toolName,
-          result: resultValue
+          result: resultValue,
         }
-      })
+      }),
     )
 
     return results

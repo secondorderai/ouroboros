@@ -32,9 +32,7 @@ export class ToolRegistry {
 
     let files: string[]
     try {
-      files = readdirSync(dir).filter(
-        (f) => f.endsWith('.ts') && !SKIP_FILES.has(f),
-      )
+      files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !SKIP_FILES.has(f))
     } catch {
       // Directory doesn't exist or isn't readable — nothing to discover.
       return
@@ -85,9 +83,7 @@ export class ToolRegistry {
     // Validate args against the Zod schema.
     const parsed = tool.schema.safeParse(args)
     if (!parsed.success) {
-      const issues = parsed.error.issues
-        .map((i) => `${i.path.join('.')}: ${i.message}`)
-        .join('; ')
+      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
       return err(new Error(`Invalid arguments for tool "${name}": ${issues}`))
     }
 
@@ -152,15 +148,20 @@ function zodSchemaToJsonSchema(schema: z.ZodObject<z.ZodRawShape>): Record<strin
   }
 }
 
-function zodTypeToJsonSchema(schema: z.ZodTypeAny): { jsonSchema: Record<string, unknown>; isOptional: boolean } {
+function zodTypeToJsonSchema(schema: z.ZodTypeAny): {
+  jsonSchema: Record<string, unknown>
+  isOptional: boolean
+} {
+  const def = schema._def as unknown as Record<string, unknown>
+
   // Unwrap optional / default
   if (schema instanceof z.ZodOptional) {
-    const inner = zodTypeToJsonSchema(schema._def.innerType)
+    const inner = zodTypeToJsonSchema(def.innerType as z.ZodTypeAny)
     return { jsonSchema: inner.jsonSchema, isOptional: true }
   }
   if (schema instanceof z.ZodDefault) {
-    const inner = zodTypeToJsonSchema(schema._def.innerType)
-    return { jsonSchema: { ...inner.jsonSchema, default: schema._def.defaultValue() }, isOptional: true }
+    const inner = zodTypeToJsonSchema(def.innerType as z.ZodTypeAny)
+    return { jsonSchema: { ...inner.jsonSchema, default: def.defaultValue }, isOptional: true }
   }
 
   // Primitives
@@ -176,12 +177,13 @@ function zodTypeToJsonSchema(schema: z.ZodTypeAny): { jsonSchema: Record<string,
 
   // Enum
   if (schema instanceof z.ZodEnum) {
-    return { jsonSchema: { type: 'string', enum: schema._def.values }, isOptional: false }
+    const entries = def.entries as Record<string, string>
+    return { jsonSchema: { type: 'string', enum: Object.values(entries) }, isOptional: false }
   }
 
   // Array
   if (schema instanceof z.ZodArray) {
-    const inner = zodTypeToJsonSchema(schema._def.type)
+    const inner = zodTypeToJsonSchema((def.element ?? def.type) as z.ZodTypeAny)
     return { jsonSchema: { type: 'array', items: inner.jsonSchema }, isOptional: false }
   }
 

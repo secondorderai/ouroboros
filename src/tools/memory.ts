@@ -23,26 +23,39 @@ export const schema = {
   properties: {
     action: {
       type: 'string',
-      enum: ['read-index', 'update-index', 'list-topics', 'read-topic', 'write-topic', 'search-transcripts'],
-      description: 'The memory operation to perform'
+      enum: [
+        'read-index',
+        'update-index',
+        'list-topics',
+        'read-topic',
+        'write-topic',
+        'search-transcripts',
+      ],
+      description: 'The memory operation to perform',
     },
     content: {
       type: 'string',
-      description: 'Content for update-index or write-topic actions'
+      description: 'Content for update-index or write-topic actions',
     },
     name: {
       type: 'string',
-      description: 'Topic name for read-topic or write-topic actions'
+      description: 'Topic name for read-topic or write-topic actions',
     },
     query: {
       type: 'string',
-      description: 'Search query for search-transcripts action'
-    }
-  }
+      description: 'Search query for search-transcripts action',
+    },
+  },
 }
 
 export interface MemoryToolInput {
-  action: 'read-index' | 'update-index' | 'list-topics' | 'read-topic' | 'write-topic' | 'search-transcripts'
+  action:
+    | 'read-index'
+    | 'update-index'
+    | 'list-topics'
+    | 'read-topic'
+    | 'write-topic'
+    | 'search-transcripts'
   content?: string
   name?: string
   query?: string
@@ -120,7 +133,7 @@ export function createExecute(deps: MemoryToolDeps = {}) {
           return ok('No matching transcripts found')
         }
         const formatted = result.value
-          .map(r => `[${r.sessionId.slice(0, 8)}] ${r.role}: ${r.content.slice(0, 200)}`)
+          .map((r) => `[${r.sessionId.slice(0, 8)}] ${r.role}: ${r.content.slice(0, 200)}`)
           .join('\n---\n')
         return ok(formatted)
       }

@@ -56,19 +56,13 @@ export const execute: TypedToolExecute<typeof schema, FileReadResult> = async (
     const end = endLine ? Math.min(allLines.length, endLine) : allLines.length
 
     if (start > end) {
-      return err(
-        new Error(
-          `Invalid line range: startLine (${start}) > endLine (${end})`,
-        ),
-      )
+      return err(new Error(`Invalid line range: startLine (${start}) > endLine (${end})`))
     }
 
     // Slice is 0-based; our line numbers are 1-based.
     const selectedLines = allLines.slice(start - 1, end)
 
-    const numbered = selectedLines
-      .map((line, idx) => `${start + idx}\t${line}`)
-      .join('\n')
+    const numbered = selectedLines.map((line, idx) => `${start + idx}\t${line}`).join('\n')
 
     return ok({
       content: numbered,
