@@ -41,9 +41,12 @@ output/**/*
 .vscode/
 progress.md
 
+# Agents
+.agents/**/*
+
 # Tickets
 tickets/**/*
-.agents/**/*
+completed-tickets/**/*
 
 # PRD
 PRD.md

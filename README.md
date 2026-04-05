@@ -1,12 +1,11 @@
 # Ouroboros
 
-A standard agent harness and CLI for building agentic AI systems. TypeScript on [Bun](https://bun.sh).
+An embeddable agent harness and CLI with a recursive self-improvement layer for building agentic AI systems.
+TypeScript on [Bun](https://bun.sh).
 
 Ouroboros provides a provider-agnostic ReAct loop, a plugin-based tool registry, multi-layer memory, and portable [Agent Skills](https://agentskills.io) — everything you need to build, compose, and run AI agents. The core is designed to be embedded in CLIs, web servers, or other applications with no coupling to a specific LLM provider or UI.
 
-Built on this harness, Ouroboros ships with a recursive self-improvement layer: it can reflect on completed tasks, extract reusable skills, validate them through automated testing, and consolidate memory between sessions — all autonomously.
-
-The first autonomous AI agent that recursively self-improves — generating new ideas, writing its own skills, and evolving without human involvement.
+Built on this harness, Ouroboros ships with a recursive self-improvement layer: it can reflect on completed tasks, generating new ideas, extract reusable skills, validate them through automated testing, and consolidate memory between sessions — all autonomously without human involement.
 
 ## Quick Start
 
