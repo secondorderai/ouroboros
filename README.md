@@ -1,8 +1,10 @@
 # Ouroboros
 
-A recursive self-improving AI agent. TypeScript CLI on [Bun](https://bun.sh).
+A standard agent harness for building LLM-powered tools. TypeScript on [Bun](https://bun.sh).
 
-Ouroboros is a general-purpose AI agent that can reflect on completed tasks, extract reusable patterns into [Agent Skills](https://agentskills.io), validate those skills through automated testing, and consolidate its memory between sessions — all autonomously.
+Ouroboros provides a provider-agnostic ReAct loop, a plugin-based tool registry, multi-layer memory, and portable [Agent Skills](https://agentskills.io) — everything you need to build, compose, and run AI agents. The core is designed to be embedded in CLIs, web servers, or other applications with no coupling to a specific LLM provider or UI.
+
+Built on this harness, Ouroboros ships with a recursive self-improvement layer: it can reflect on completed tasks, extract reusable skills, validate them through automated testing, and consolidate memory between sessions — all autonomously.
 
 ## Quick Start
 
@@ -74,15 +76,35 @@ Config values can also be set via environment variables (e.g. `OUROBOROS_MODEL_P
 
 ## Architecture
 
+### The Harness
+
+Ouroboros is structured as a set of composable layers, each independently useful:
+
 ```
-User Input -> System Prompt -> LLM -> Tool Calls -> Observations -> [Loop] -> Response
-                                                                        |
-                                                              RSI Meta-Loop (Phase 2)
+┌─────────────────────────────────────────────────────┐
+│  CLI / Web / JSON-RPC  (any I/O consumer)           │
+├─────────────────────────────────────────────────────┤
+│  Agent         Event-driven ReAct loop              │
+├─────────────────────────────────────────────────────┤
+│  Tool Registry   Plugin-based, Zod-validated        │
+├──────────────┬──────────────┬───────────────────────┤
+│  LLM         │  Memory      │  Skills               │
+│  Provider-   │  3-layer     │  agentskills.io       │
+│  agnostic    │  persistent  │  portable format      │
+├──────────────┴──────────────┴───────────────────────┤
+│  Config        Zod schema + env vars + .ouroboros   │
+└─────────────────────────────────────────────────────┘
 ```
 
-**Core loop:** ReAct pattern (plan, act, observe, iterate). The agent streams LLM responses, detects tool calls, executes them via the tool registry, and feeds results back until the task is complete.
+**Agent loop.** The `Agent` class runs a ReAct loop that streams LLM responses, detects tool calls, executes them in parallel via the tool registry, and feeds results back until the task is complete. It emits events — it never prints directly — so any consumer (CLI, web server, test harness) can drive it.
 
-### Tools
+**Tool registry.** Tools are auto-discovered from `src/tools/`. Each tool exports `name`, `description`, `schema` (Zod), and `execute` (async, returns `Result<T, Error>`). The registry validates arguments against the schema before execution. Drop in a file to add a tool — no wiring needed.
+
+**LLM abstraction.** All LLM interaction goes through an internal type layer (`LLMMessage`, `StreamChunk`, `ToolCall`) that never leaks provider SDK types. The provider factory wraps [Vercel AI SDK](https://sdk.vercel.ai) and supports Anthropic, OpenAI, and any OpenAI-compatible endpoint — swappable via config, not code.
+
+**No throws.** Every operation returns `Result<T, Error>`. Error handling is explicit and composable throughout the entire stack.
+
+### Built-in Tools
 
 | Tool            | Description                             |
 | --------------- | --------------------------------------- |
@@ -97,8 +119,6 @@ User Input -> System Prompt -> LLM -> Tool Calls -> Observations -> [Loop] -> Re
 | `memory`        | Read/write MEMORY.md and topic files    |
 | `skill-manager` | Discover, activate, and manage skills   |
 
-Tools are auto-discovered from `src/tools/` — drop in a new file exporting `name`, `description`, `schema`, and `execute` to add a tool.
-
 ### Memory (3 layers)
 
 1. **MEMORY.md** — Knowledge index, always loaded into the system prompt
@@ -107,11 +127,11 @@ Tools are auto-discovered from `src/tools/` — drop in a new file exporting `na
 
 ### Skills
 
-Skills follow the [Agent Skills](https://agentskills.io) open standard. They live in:
+Skills follow the [Agent Skills](https://agentskills.io) open standard — portable across any agent that supports the format. They live in:
 
 - `skills/core/` — Built-in skills shipped with Ouroboros
 - `skills/staging/` — Skills under test (not yet active)
-- `skills/generated/` — Self-generated skills (Phase 2)
+- `skills/generated/` — Self-generated skills (via the RSI layer)
 
 Each skill is a directory with a `SKILL.md` containing YAML frontmatter (name, description) and markdown instructions. Only metadata is loaded at startup; full instructions are loaded on demand when the agent activates a skill.
 
@@ -122,6 +142,29 @@ Provider-agnostic via [Vercel AI SDK](https://sdk.vercel.ai). Supports:
 - **Anthropic** (Claude) — default
 - **OpenAI** (GPT-4o, etc.)
 - **OpenAI-compatible** endpoints (Ollama, vLLM, etc.) via `baseUrl` config
+
+### Embedding the Harness
+
+The agent is decoupled from the CLI. To embed it in your own application:
+
+```typescript
+import { Agent } from './src/agent'
+import { createProvider } from './src/llm/provider'
+import { createRegistry } from './src/tools/registry'
+
+const model = createProvider({ provider: 'anthropic', name: 'claude-sonnet-4-20250514' })
+const toolRegistry = await createRegistry()
+
+const agent = new Agent({
+  model: model.value,
+  toolRegistry,
+  onEvent(event) {
+    // Handle text chunks, tool calls, errors, turn completion
+  },
+})
+
+await agent.run('What files are in this directory?')
+```
 
 ## Project Structure
 
