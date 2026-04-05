@@ -15,7 +15,6 @@
     "skills/generated"
   ],
   "memory": {
-    "sqlitePath": "memory/transcripts.db",
     "consolidationSchedule": "session-end"
   },
   "rsi": {

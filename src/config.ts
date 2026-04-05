@@ -35,17 +35,12 @@ export const configSchema = z.object({
 
   memory: z
     .object({
-      sqlitePath: z
-        .string()
-        .default('memory/transcripts.db')
-        .describe('Path to SQLite database for session transcripts'),
       consolidationSchedule: z
         .enum(['session-end', 'daily', 'manual'])
         .default('session-end')
         .describe('When to run memory consolidation / dream cycle'),
     })
     .default({
-      sqlitePath: 'memory/transcripts.db',
       consolidationSchedule: 'session-end' as const,
     }),
 
@@ -75,7 +70,6 @@ export type OuroborosConfig = z.infer<typeof configSchema>
  *   OUROBOROS_MODEL_PROVIDER  -> model.provider
  *   OUROBOROS_MODEL_NAME      -> model.name
  *   OUROBOROS_MODEL_BASE_URL  -> model.baseUrl
- *   OUROBOROS_SQLITE_PATH     -> memory.sqlitePath
  *   OUROBOROS_CONSOLIDATION   -> memory.consolidationSchedule
  *   OUROBOROS_NOVELTY         -> rsi.noveltyThreshold
  *   OUROBOROS_AUTO_REFLECT    -> rsi.autoReflect
@@ -95,9 +89,6 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
   }
   if (env.OUROBOROS_MODEL_BASE_URL) {
     model.baseUrl = env.OUROBOROS_MODEL_BASE_URL
-  }
-  if (env.OUROBOROS_SQLITE_PATH) {
-    memory.sqlitePath = env.OUROBOROS_SQLITE_PATH
   }
   if (env.OUROBOROS_CONSOLIDATION) {
     memory.consolidationSchedule = env.OUROBOROS_CONSOLIDATION

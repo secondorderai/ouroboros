@@ -66,7 +66,7 @@ Ouroboros is configured via a `.ouroboros` JSON file in the project root. All fi
   },
   "skillDirectories": ["skills/core", "skills/generated"],
   "memory": {
-    "sqlitePath": "memory/transcripts.db"
+    "consolidationSchedule": "session-end"
   }
 }
 ```

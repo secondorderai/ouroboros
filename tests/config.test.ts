@@ -23,7 +23,6 @@ describe('loadConfig', () => {
     delete process.env.OUROBOROS_MODEL_PROVIDER
     delete process.env.OUROBOROS_MODEL_NAME
     delete process.env.OUROBOROS_MODEL_BASE_URL
-    delete process.env.OUROBOROS_SQLITE_PATH
     delete process.env.OUROBOROS_CONSOLIDATION
     delete process.env.OUROBOROS_NOVELTY
     delete process.env.OUROBOROS_AUTO_REFLECT
@@ -53,7 +52,6 @@ describe('loadConfig', () => {
     expect(config.skillDirectories).toEqual(['skills/core', 'skills/generated'])
 
     // Memory defaults
-    expect(config.memory.sqlitePath).toBe('memory/transcripts.db')
     expect(config.memory.consolidationSchedule).toBe('session-end')
 
     // RSI defaults
@@ -130,7 +128,6 @@ describe('loadConfig', () => {
     expect(result.value.model.name).toBe('claude-sonnet-4-20250514')
     // Everything else from defaults
     expect(result.value.permissions.tier0).toBe(true)
-    expect(result.value.memory.sqlitePath).toBe('memory/transcripts.db')
     expect(result.value.rsi.noveltyThreshold).toBe(0.7)
   })
 
@@ -179,7 +176,6 @@ describe('loadConfig', () => {
       },
       skillDirectories: ['skills/core', 'skills/custom'],
       memory: {
-        sqlitePath: 'data/sessions.db',
         consolidationSchedule: 'daily',
       },
       rsi: {
@@ -198,7 +194,6 @@ describe('loadConfig', () => {
     expect(result.value.model.name).toBe('gpt-4o')
     expect(result.value.permissions.tier2).toBe(false)
     expect(result.value.skillDirectories).toEqual(['skills/core', 'skills/custom'])
-    expect(result.value.memory.sqlitePath).toBe('data/sessions.db')
     expect(result.value.memory.consolidationSchedule).toBe('daily')
     expect(result.value.rsi.noveltyThreshold).toBe(0.5)
     expect(result.value.rsi.autoReflect).toBe(false)
