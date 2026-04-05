@@ -171,19 +171,26 @@ export function streamResponse(
     // in createChunkStream to avoid coupling to the AI SDK's complex generic types
     const stream = createChunkStream(result.fullStream as AsyncIterable<unknown>)
 
-    const text = Promise.resolve(result.text)
-    const toolCalls: Promise<ToolCall[]> = Promise.resolve(result.toolCalls).then((calls) =>
-      calls.map((tc) => ({
-        toolCallId: tc.toolCallId,
-        toolName: tc.toolName,
-        input: tc.input as Record<string, unknown>,
-      })),
-    )
-    const usage: Promise<TokenUsage> = Promise.resolve(result.usage).then((u) => ({
-      promptTokens: u.inputTokens ?? 0,
-      completionTokens: u.outputTokens ?? 0,
-      totalTokens: u.totalTokens ?? 0,
-    }))
+    // These promises auto-consume the stream internally. If the stream errors
+    // (e.g., doStream throws), they reject. Suppress unhandled rejections since
+    // the agent consumes errors via the stream, not these promises.
+    const text = Promise.resolve(result.text).catch(() => '')
+    const toolCalls: Promise<ToolCall[]> = Promise.resolve(result.toolCalls)
+      .then((calls) =>
+        calls.map((tc) => ({
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.input as Record<string, unknown>,
+        })),
+      )
+      .catch(() => [])
+    const usage: Promise<TokenUsage> = Promise.resolve(result.usage)
+      .then((u) => ({
+        promptTokens: u.inputTokens ?? 0,
+        completionTokens: u.outputTokens ?? 0,
+        totalTokens: u.totalTokens ?? 0,
+      }))
+      .catch(() => ({ promptTokens: 0, completionTokens: 0, totalTokens: 0 }))
 
     return ok({ stream, text, toolCalls, usage })
   } catch (error) {
