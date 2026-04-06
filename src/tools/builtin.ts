@@ -2,6 +2,7 @@ import type { ToolDefinition } from './types'
 
 import * as askUserTool from './ask-user'
 import * as bashTool from './bash'
+import * as crystallizeTool from './crystallize'
 import * as dreamTool from './dream'
 import * as evolutionTool from './evolution'
 import * as fileEditTool from './file-edit'
@@ -19,6 +20,7 @@ import * as webSearchTool from './web-search'
 export const BUILTIN_TOOLS: ToolDefinition[] = [
   askUserTool,
   bashTool,
+  crystallizeTool,
   dreamTool,
   evolutionTool,
   fileEditTool,

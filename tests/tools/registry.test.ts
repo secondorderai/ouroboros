@@ -35,6 +35,7 @@ describe('ToolRegistry', () => {
     expect(names).toEqual([
       'ask-user',
       'bash',
+      'crystallize',
       'dream',
       'evolution',
       'file-edit',
@@ -49,7 +50,7 @@ describe('ToolRegistry', () => {
       'web-fetch',
       'web-search',
     ])
-    expect(registry.size).toBe(15)
+    expect(registry.size).toBe(16)
   })
 
   test('getTools() returns metadata with name, description, and parameters', async () => {
@@ -173,6 +174,7 @@ describe('ToolRegistry', () => {
     expect(names).toEqual([
       'ask-user',
       'bash',
+      'crystallize',
       'dream',
       'evolution',
       'file-edit',
@@ -187,7 +189,7 @@ describe('ToolRegistry', () => {
       'web-fetch',
       'web-search',
     ])
-    expect(bundledRegistry.size).toBe(15)
+    expect(bundledRegistry.size).toBe(16)
   })
 
   test('all built-in tools produce JSON Schema with type: "object" (AI SDK requirement)', async () => {

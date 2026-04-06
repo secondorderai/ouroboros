@@ -14,7 +14,17 @@
  *   - writeSkillToStaging()  — writes a GeneratedSkill to disk with validation
  *   - parseSkillResponse()   — extracts skill components from raw LLM output
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
@@ -22,6 +32,7 @@ import type { LanguageModel } from 'ai'
 import { type Result, ok, err } from '@src/types'
 import { generateResponse } from '@src/llm'
 import type { SkillCatalogEntry } from '@src/tools/skill-manager'
+import { runSkillTests, type SkillTestResult } from '@src/rsi/validate'
 
 // ── ReflectionRecord schema ───────────────────────────────────────────
 
@@ -607,4 +618,216 @@ export async function writeSkillToStaging(
   }
 
   return ok(stagingDir)
+}
+
+// ── Crystallization pipeline types ──────────────────────────────────
+
+export { type SkillTestResult } from '@src/rsi/validate'
+
+export interface CrystallizationResult {
+  outcome: 'no-crystallization' | 'generated' | 'test-failed' | 'promoted'
+  reflection?: ReflectionRecord
+  skillName?: string
+  skillPath?: string
+  testResult?: SkillTestResult
+  commitHash?: string
+}
+
+export interface CrystallizeOptions {
+  transcript?: string
+  llm: LanguageModel
+  skillDirs: { staging: string; generated: string; core: string }
+  autoCommit?: boolean
+  noveltyThreshold?: number
+  existingSkills?: SkillCatalogEntry[]
+}
+
+// ── Git helper ──────────────────────────────────────────────────────
+
+const execFileAsync = promisify(execFile)
+
+async function gitExec(args: string[], cwd: string): Promise<Result<string>> {
+  try {
+    const { stdout } = await execFileAsync('git', args, { cwd })
+    return ok(stdout.trim())
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return err(new Error(message))
+  }
+}
+
+// ── Crystallization pipeline ──��─────────────────────────────────────
+
+/**
+ * Orchestrate the full crystallization pipeline:
+ *   1. Reflect — Analyze the task for reusable patterns
+ *   2. Generate — Produce a skill directory in staging
+ *   3. Validate — Check SKILL.md against requirements
+ *   4. Test — Run skill tests
+ *   5. Promote — Move to generated/ and git commit
+ *
+ * If any stage fails, the pipeline stops and reports the failure.
+ */
+export async function crystallize(
+  taskSummary: string,
+  options: CrystallizeOptions,
+): Promise<Result<CrystallizationResult>> {
+  const {
+    transcript,
+    llm,
+    skillDirs,
+    autoCommit = true,
+    noveltyThreshold = 0.7,
+    existingSkills = [],
+  } = options
+
+  // ── Stage 1: Reflect ────────────────────────────────────────────────
+  process.stderr.write('[crystallize] Stage 1/5: Reflecting on task...\n')
+
+  const reflectResult = await reflect(taskSummary, existingSkills, llm)
+  if (!reflectResult.ok) {
+    return err(new Error(`[reflect] ${reflectResult.error.message}`))
+  }
+
+  const reflection = reflectResult.value
+
+  if (!shouldCrystallize(reflection, noveltyThreshold)) {
+    process.stderr.write(
+      `[crystallize] Novelty ${reflection.novelty} below threshold ${noveltyThreshold}. No crystallization.\n`,
+    )
+    return ok({
+      outcome: 'no-crystallization',
+      reflection,
+    })
+  }
+
+  process.stderr.write(
+    `[crystallize] Novelty ${reflection.novelty} >= ${noveltyThreshold}. Proceeding.\n`,
+  )
+
+  const skillName = reflection.proposedSkillName
+  if (!skillName) {
+    return err(
+      new Error('[reflect] Reflection marked shouldCrystallize but missing proposedSkillName'),
+    )
+  }
+
+  // ── Stage 2: Generate ───────────────────────────────────────────────
+  process.stderr.write('[crystallize] Stage 2/5: Generating skill...\n')
+
+  const basePath = join(skillDirs.staging, '..')
+
+  const genResult = await generateSkill(reflection, transcript, llm, basePath)
+  if (!genResult.ok) {
+    return err(new Error(`[generate] ${genResult.error.message}`))
+  }
+
+  const skill = genResult.value
+
+  const writeResult = await writeSkillToStaging(skill, basePath)
+  if (!writeResult.ok) {
+    return err(new Error(`[generate] ${writeResult.error.message}`))
+  }
+
+  const stagingPath = writeResult.value
+
+  process.stderr.write(`[crystallize] Skill written to ${stagingPath}\n`)
+
+  // ── Stage 3: Validate ───────────────────────────────────────────────
+  process.stderr.write('[crystallize] Stage 3/5: Validating skill...\n')
+
+  const fmResult = validateFrontmatter(skill.frontmatter)
+  if (!fmResult.ok) {
+    return err(new Error(`[validate] ${fmResult.error.message}`))
+  }
+
+  const skillMdPath = join(stagingPath, 'SKILL.md')
+  let skillMdContent: string
+  try {
+    skillMdContent = readFileSync(skillMdPath, 'utf-8')
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return err(new Error(`[validate] Could not read SKILL.md: ${message}`))
+  }
+
+  const rtResult = validateRoundTrip(skillMdContent)
+  if (!rtResult.ok) {
+    return err(new Error(`[validate] ${rtResult.error.message}`))
+  }
+
+  const scriptsDir = join(stagingPath, 'scripts')
+  if (!existsSync(scriptsDir) || readdirSync(scriptsDir).length === 0) {
+    return err(new Error('[validate] No test files found in scripts/ directory'))
+  }
+
+  process.stderr.write('[crystallize] Validation passed.\n')
+
+  // ── Stage 4: Test ───────────────────────────────────────────────────
+  process.stderr.write('[crystallize] Stage 4/5: Running tests...\n')
+
+  const testResult = await runSkillTests(stagingPath)
+  if (!testResult.ok) {
+    return err(new Error(`[test] ${testResult.error.message}`))
+  }
+
+  if (testResult.value.overall !== 'pass') {
+    process.stderr.write(`[crystallize] Tests failed. Skill remains in staging at ${stagingPath}\n`)
+    return ok({
+      outcome: 'test-failed',
+      reflection,
+      skillName: skill.name,
+      skillPath: stagingPath,
+      testResult: testResult.value,
+    })
+  }
+
+  process.stderr.write('[crystallize] Tests passed.\n')
+
+  // ── Stage 5: Promote ────────────────────────────────────────────────
+  process.stderr.write('[crystallize] Stage 5/5: Promoting skill...\n')
+
+  const generatedPath = join(skillDirs.generated, skill.name)
+
+  try {
+    mkdirSync(skillDirs.generated, { recursive: true })
+    cpSync(stagingPath, generatedPath, { recursive: true })
+    rmSync(stagingPath, { recursive: true, force: true })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return err(new Error(`[promote] Failed to move skill to generated: ${message}`))
+  }
+
+  process.stderr.write(`[crystallize] Skill promoted to ${generatedPath}\n`)
+
+  let commitHash: string | undefined
+  if (autoCommit) {
+    const cwd = join(skillDirs.generated, '..')
+    const addResult = await gitExec(['add', generatedPath], cwd)
+    if (addResult.ok) {
+      const commitMsg = `rsi: crystallize skill '${skill.name}' — ${skill.frontmatter.description}`
+      const commitResult = await gitExec(['commit', '-m', commitMsg], cwd)
+      if (commitResult.ok) {
+        const hashResult = await gitExec(['rev-parse', 'HEAD'], cwd)
+        if (hashResult.ok) {
+          commitHash = hashResult.value
+        }
+        process.stderr.write(`[crystallize] Git commit: ${commitHash ?? '(hash unavailable)'}\n`)
+      } else {
+        process.stderr.write(
+          `[crystallize] Warning: Git commit failed: ${commitResult.error.message}\n`,
+        )
+      }
+    } else {
+      process.stderr.write(`[crystallize] Warning: Git add failed: ${addResult.error.message}\n`)
+    }
+  }
+
+  return ok({
+    outcome: 'promoted',
+    reflection,
+    skillName: skill.name,
+    skillPath: generatedPath,
+    testResult: testResult.value,
+    commitHash,
+  })
 }
