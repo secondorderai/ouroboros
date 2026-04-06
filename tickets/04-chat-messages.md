@@ -67,18 +67,18 @@ The chat message list is the primary surface of the app. It displays the convers
 
 ## Acceptance Criteria
 
-- [ ] Messages render with correct alignment (user right, agent left)
-- [ ] User messages use the warm bubble style from DESIGN.md
-- [ ] Agent messages show avatar and name label
-- [ ] Streaming text appends smoothly at 60fps with no flicker
-- [ ] Blinking cursor appears at the end of streaming text
-- [ ] `agent/turnComplete` finalizes the message (cursor disappears)
-- [ ] Virtual scrolling handles 200+ messages without performance degradation
-- [ ] Auto-scroll to bottom on new messages (when already at bottom)
-- [ ] "Jump to bottom" button appears when scrolled up during active streaming
-- [ ] Cancel button is visible during agent execution and stops the run
-- [ ] Agent errors display as error messages in the chat
-- [ ] Conversation state is managed in a store, not component-local state
+- [x] Messages render with correct alignment (user right, agent left)
+- [x] User messages use the warm bubble style from DESIGN.md
+- [x] Agent messages show avatar and name label
+- [x] Streaming text appends smoothly at 60fps with no flicker
+- [x] Blinking cursor appears at the end of streaming text
+- [x] `agent/turnComplete` finalizes the message (cursor disappears)
+- [x] Virtual scrolling handles 200+ messages without performance degradation
+- [x] Auto-scroll to bottom on new messages (when already at bottom)
+- [x] "Jump to bottom" button appears when scrolled up during active streaming
+- [x] Cancel button is visible during agent execution and stops the run
+- [x] Agent errors display as error messages in the chat
+- [x] Conversation state is managed in a store, not component-local state
 
 ## Feature Tests
 

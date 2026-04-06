@@ -15,7 +15,9 @@
     "lint": "echo 'No linter configured yet'"
   },
   "dependencies": {
-    "electron-store": "^10.0.0"
+    "electron-store": "^10.0.0",
+    "react-virtuoso": "^4.12.3",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

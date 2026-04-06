@@ -1,0 +1,51 @@
+/* Approval toast slide-in / slide-out animations */
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(calc(100% + 16px));
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(calc(100% + 16px));
+    opacity: 0;
+  }
+}
+
+.approval-toast-enter {
+  animation: toast-slide-in 200ms ease forwards;
+}
+
+.approval-toast-exit {
+  animation: toast-slide-out 200ms ease forwards;
+}
+
+/* Approval queue overlay */
+
+@keyframes approval-queue-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes approval-queue-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.approval-queue-enter {
+  animation: approval-queue-fade-in 150ms ease forwards;
+}
+
+.approval-queue-exit {
+  animation: approval-queue-fade-out 150ms ease forwards;
+}
