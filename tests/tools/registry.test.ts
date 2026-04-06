@@ -43,12 +43,13 @@ describe('ToolRegistry', () => {
       'memory',
       'reflect',
       'self-test',
+      'skill-gen',
       'skill-manager',
       'todo',
       'web-fetch',
       'web-search',
     ])
-    expect(registry.size).toBe(14)
+    expect(registry.size).toBe(15)
   })
 
   test('getTools() returns metadata with name, description, and parameters', async () => {
@@ -180,12 +181,13 @@ describe('ToolRegistry', () => {
       'memory',
       'reflect',
       'self-test',
+      'skill-gen',
       'skill-manager',
       'todo',
       'web-fetch',
       'web-search',
     ])
-    expect(bundledRegistry.size).toBe(14)
+    expect(bundledRegistry.size).toBe(15)
   })
 
   test('all built-in tools produce JSON Schema with type: "object" (AI SDK requirement)', async () => {

@@ -10,6 +10,7 @@ import * as fileWriteTool from './file-write'
 import * as memoryTool from './memory'
 import * as reflectTool from './reflect'
 import * as selfTestTool from './self-test'
+import * as skillGenTool from './skill-gen'
 import * as skillManagerTool from './skill-manager'
 import * as todoTool from './todo'
 import * as webFetchTool from './web-fetch'
@@ -26,6 +27,7 @@ export const BUILTIN_TOOLS: ToolDefinition[] = [
   memoryTool,
   reflectTool,
   selfTestTool,
+  skillGenTool,
   skillManagerTool,
   todoTool,
   webFetchTool,
