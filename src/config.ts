@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { type Result, ok, err } from '@src/types'
 
@@ -167,4 +167,22 @@ export function loadConfig(cwd?: string): Result<OuroborosConfig> {
   }
 
   return ok(result.data)
+}
+
+/**
+ * Persist a validated OuroborosConfig to disk as `.ouroboros` JSON.
+ *
+ * @param cwd - Working directory where the `.ouroboros` file lives
+ * @param config - The validated config to persist
+ * @returns Result indicating success or failure
+ */
+export function saveConfig(cwd: string, config: OuroborosConfig): Result<void> {
+  const configPath = resolve(cwd, '.ouroboros')
+  try {
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+    return ok(undefined)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return err(new Error(`Failed to write .ouroboros config file: ${message}`))
+  }
 }
