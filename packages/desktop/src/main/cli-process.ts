@@ -1,0 +1,189 @@
+/**
+ * CLI Process Manager
+ *
+ * Manages the Ouroboros CLI child process lifecycle: spawning, health
+ * checking, restart-on-crash, and graceful shutdown. Communicates with
+ * the CLI via JSON-RPC over stdin/stdout (NDJSON).
+ */
+
+import { spawn, type ChildProcess } from 'node:child_process'
+import { join } from 'node:path'
+import { app, dialog } from 'electron'
+import { EventEmitter } from 'node:events'
+import type { CLIStatus } from '../shared/protocol'
+
+const MAX_RESTART_ATTEMPTS = 3
+const RESTART_DELAY_MS = 1000
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 3000
+
+export type LineHandler = (line: string) => void
+
+export interface CLIProcessManagerOptions {
+  onStdoutLine: LineHandler
+  onStderrLine?: LineHandler
+  onStatusChange?: (status: CLIStatus) => void
+}
+
+export class CLIProcessManager extends EventEmitter {
+  private process: ChildProcess | null = null
+  private stdoutBuffer = ''
+  private stderrBuffer = ''
+  private stderrLog: string[] = []
+  private restartCount = 0
+  private intentionalShutdown = false
+  private status: CLIStatus = 'starting'
+
+  private readonly onStdoutLine: LineHandler
+  private readonly onStderrLine: LineHandler
+  private readonly onStatusChange: (status: CLIStatus) => void
+
+  constructor(options: CLIProcessManagerOptions) {
+    super()
+    this.onStdoutLine = options.onStdoutLine
+    this.onStderrLine = options.onStderrLine ?? (() => {})
+    this.onStatusChange = options.onStatusChange ?? (() => {})
+  }
+
+  start(): void {
+    this.intentionalShutdown = false
+    this.setStatus('starting')
+    this.spawnProcess()
+  }
+
+  writeLine(json: string): void {
+    if (!this.process?.stdin?.writable) {
+      throw new Error('CLI process stdin is not writable')
+    }
+    this.process.stdin.write(json + '\n')
+  }
+
+  async shutdown(): Promise<void> {
+    this.intentionalShutdown = true
+    if (!this.process) return
+
+    const proc = this.process
+    return new Promise<void>((resolve) => {
+      const forceKillTimer = setTimeout(() => {
+        if (proc.exitCode === null) proc.kill('SIGKILL')
+        resolve()
+      }, GRACEFUL_SHUTDOWN_TIMEOUT_MS)
+
+      proc.once('exit', () => {
+        clearTimeout(forceKillTimer)
+        resolve()
+      })
+
+      if (proc.stdin) proc.stdin.end()
+      proc.kill('SIGTERM')
+    })
+  }
+
+  getStatus(): CLIStatus { return this.status }
+  getStderrLog(): string[] { return [...this.stderrLog] }
+
+  markReady(): void {
+    this.setStatus('ready')
+    this.restartCount = 0
+  }
+
+  markError(): void {
+    this.setStatus('error')
+  }
+
+  private setStatus(status: CLIStatus): void {
+    this.status = status
+    this.onStatusChange(status)
+    this.emit('status', status)
+  }
+
+  private getCliPath(): { command: string; args: string[] } {
+    const envPath = process.env.OUROBOROS_CLI_PATH
+    if (envPath) {
+      if (envPath.endsWith('.ts')) {
+        return { command: 'bun', args: ['run', envPath, '--json-rpc'] }
+      }
+      return { command: envPath, args: ['--json-rpc'] }
+    }
+
+    const resourcesPath = app.isPackaged
+      ? join(process.resourcesPath, 'ouroboros')
+      : join(app.getAppPath(), '..', 'cli', 'dist', 'ouroboros')
+
+    return { command: resourcesPath, args: ['--json-rpc'] }
+  }
+
+  private spawnProcess(): void {
+    const { command, args } = this.getCliPath()
+    try {
+      this.process = spawn(command, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`[cli-process] Failed to spawn CLI: ${message}`)
+      this.setStatus('error')
+      return
+    }
+
+    this.stdoutBuffer = ''
+    this.stderrBuffer = ''
+
+    this.process.stdout?.on('data', (chunk: Buffer) => {
+      this.stdoutBuffer += chunk.toString('utf-8')
+      this.drainBuffer('stdout')
+    })
+
+    this.process.stderr?.on('data', (chunk: Buffer) => {
+      this.stderrBuffer += chunk.toString('utf-8')
+      this.drainBuffer('stderr')
+    })
+
+    this.process.on('exit', (code, signal) => {
+      console.error(`[cli-process] CLI exited code=${code ?? 'null'} signal=${signal ?? 'null'}`)
+      this.process = null
+      if (!this.intentionalShutdown) this.handleUnexpectedExit()
+    })
+
+    this.process.on('error', (error) => {
+      console.error(`[cli-process] CLI error: ${error.message}`)
+      this.process = null
+      if (!this.intentionalShutdown) this.handleUnexpectedExit()
+    })
+  }
+
+  private drainBuffer(stream: 'stdout' | 'stderr'): void {
+    const bufferKey = stream === 'stdout' ? 'stdoutBuffer' as const : 'stderrBuffer' as const
+    const handler = stream === 'stdout' ? this.onStdoutLine : this.onStderrLine
+
+    let newlineIndex: number
+    while ((newlineIndex = this[bufferKey].indexOf('\n')) !== -1) {
+      const line = this[bufferKey].slice(0, newlineIndex).trim()
+      this[bufferKey] = this[bufferKey].slice(newlineIndex + 1)
+      if (line.length > 0) {
+        if (stream === 'stderr') {
+          this.stderrLog.push(line)
+          if (this.stderrLog.length > 1000) this.stderrLog.shift()
+        }
+        handler(line)
+      }
+    }
+  }
+
+  private handleUnexpectedExit(): void {
+    if (this.restartCount >= MAX_RESTART_ATTEMPTS) {
+      this.setStatus('error')
+      dialog.showErrorBox(
+        'Ouroboros CLI Error',
+        `The CLI process has crashed ${MAX_RESTART_ATTEMPTS} times and could not be restarted. ` +
+          'Please check your CLI installation and try restarting the application.',
+      )
+      return
+    }
+
+    this.restartCount++
+    this.setStatus('restarting')
+    console.error(`[cli-process] Restarting (attempt ${this.restartCount}/${MAX_RESTART_ATTEMPTS})`)
+    setTimeout(() => this.spawnProcess(), RESTART_DELAY_MS)
+  }
+}

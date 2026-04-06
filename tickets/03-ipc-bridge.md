@@ -76,16 +76,16 @@ Define TypeScript types for all JSON-RPC messages from the PRD (Section 5.2):
 
 ## Acceptance Criteria
 
-- [ ] CLI child process spawns on app launch and responds to a health check
-- [ ] `rpc(method, params)` sends a JSON-RPC request and returns the response
-- [ ] Notifications from the CLI are forwarded to the renderer via IPC
-- [ ] CLI process restarts automatically if it exits unexpectedly (up to 3 retries)
-- [ ] Graceful shutdown sends close signal and waits before force-killing
-- [ ] Request timeout (30s) rejects the promise with a clear error
-- [ ] Invalid JSON-RPC responses are handled gracefully (logged, not crashed)
-- [ ] CLI status changes ('starting', 'ready', 'error', 'restarting') are emitted to the renderer
-- [ ] All protocol message types are defined in `src/shared/protocol.ts`
-- [ ] Preload API is typed and uses contextBridge (no Node.js access in renderer)
+- [x] CLI child process spawns on app launch and responds to a health check
+- [x] `rpc(method, params)` sends a JSON-RPC request and returns the response
+- [x] Notifications from the CLI are forwarded to the renderer via IPC
+- [x] CLI process restarts automatically if it exits unexpectedly (up to 3 retries)
+- [x] Graceful shutdown sends close signal and waits before force-killing
+- [x] Request timeout (30s) rejects the promise with a clear error
+- [x] Invalid JSON-RPC responses are handled gracefully (logged, not crashed)
+- [x] CLI status changes ('starting', 'ready', 'error', 'restarting') are emitted to the renderer
+- [x] All protocol message types are defined in `src/shared/protocol.ts`
+- [x] Preload API is typed and uses contextBridge (no Node.js access in renderer)
 
 ## Feature Tests
 
