@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ouroboros — Desktop App Mockup</title>
+<style>
+  /* ===== RESET & BASE ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-primary: #FAFAF8;
+    --bg-secondary: #F2F1EE;
+    --bg-tertiary: #E8E7E3;
+    --bg-chat: #FFFFFF;
+    --bg-input: #FFFFFF;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-user-msg: #F4F0EB;
+    --bg-tool-chip: #F6F5F2;
+    --bg-tool-expanded: #FAFAF8;
+    --bg-rsi-card: linear-gradient(135deg, #FFF8F0 0%, #FFF5E8 100%);
+    --bg-overlay: rgba(0,0,0,0.3);
+    --bg-palette: #FFFFFF;
+    --bg-drawer: #FFFFFF;
+    --bg-sidebar: #F7F6F3;
+    --bg-sidebar-active: #EDECEA;
+
+    --text-primary: #1A1A1A;
+    --text-secondary: #6B6B6B;
+    --text-tertiary: #9B9B9B;
+    --text-inverse: #FFFFFF;
+
+    --border-light: #E8E7E3;
+    --border-medium: #D4D3CF;
+
+    --accent-amber: #D97706;
+    --accent-amber-light: #F59E0B;
+    --accent-amber-bg: rgba(217,119,6,0.08);
+    --accent-amber-glow: rgba(245,158,11,0.4);
+    --accent-orange: #EA580C;
+    --accent-green: #16A34A;
+    --accent-blue: #2563EB;
+    --accent-purple: #7C3AED;
+    --accent-red: #DC2626;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 12px 40px rgba(0,0,0,0.12);
+    --shadow-xl: 0 20px 60px rgba(0,0,0,0.16);
+
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-smooth: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  [data-theme="dark"] {
+    --bg-primary: #1A1A1E;
+    --bg-secondary: #222226;
+    --bg-tertiary: #2C2C30;
+    --bg-chat: #1E1E22;
+    --bg-input: #2A2A2E;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-user-msg: #2A2720;
+    --bg-tool-chip: #28282C;
+    --bg-tool-expanded: #222226;
+    --bg-rsi-card: linear-gradient(135deg, #2A2518 0%, #2C2418 100%);
+    --bg-overlay: rgba(0,0,0,0.6);
+    --bg-palette: #28282C;
+    --bg-drawer: #222226;
+    --bg-sidebar: #1A1A1E;
+    --bg-sidebar-active: #28282C;
+
+    --text-primary: #ECECEC;
+    --text-secondary: #9B9B9B;
+    --text-tertiary: #6B6B6B;
+    --text-inverse: #1A1A1A;
+
+    --border-light: #333337;
+    --border-medium: #444448;
+
+    --accent-amber-bg: rgba(217,119,6,0.12);
+    --accent-amber-glow: rgba(245,158,11,0.5);
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+    --shadow-lg: 0 12px 40px rgba(0,0,0,0.4);
+    --shadow-xl: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  html, body {
+    height: 100%;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ===== APP SHELL ===== */
+  .app {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    position: relative;
+  }
+
+  /* ===== TITLEBAR ===== */
+  .titlebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 44px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    z-index: 100;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  .titlebar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    -webkit-app-region: no-drag;
+  }
+
+  .traffic-lights {
+    display: flex;
+    gap: 8px;
+    padding-right: 8px;
+  }
+  .traffic-light {
+    width: 12px; height: 12px; border-radius: 50%;
+  }
+  .traffic-light.red { background: #FF5F57; }
+  .traffic-light.yellow { background: #FFBD2E; }
+  .traffic-light.green { background: #28C840; }
+
+  .sidebar-toggle {
+    width: 32px; height: 32px;
+    border: none; background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+    -webkit-app-region: no-drag;
+  }
+  .sidebar-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .titlebar-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.01em;
+  }
+
+  .titlebar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    -webkit-app-region: no-drag;
+  }
+
+  .theme-toggle, .cmd-k-btn {
+    width: 32px; height: 32px;
+    border: none; background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+    font-size: 15px;
+  }
+  .theme-toggle:hover, .cmd-k-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .cmd-k-btn {
+    width: auto;
+    padding: 0 10px;
+    font-size: 12px;
+    gap: 4px;
+    font-family: var(--font-sans);
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    height: 28px;
+  }
+  .cmd-k-btn kbd {
+    font-family: var(--font-sans);
+    font-size: 11px;
+    opacity: 0.7;
+  }
+
+  /* ===== OUROBOROS STATUS ===== */
+  .ouroboros-status {
+    position: relative;
+    width: 32px; height: 32px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+
+  .ouroboros-icon {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition-normal);
+  }
+
+  .ouroboros-icon svg {
+    width: 24px; height: 24px;
+  }
+
+  .ouroboros-status.active .ouroboros-icon {
+    animation: ouroboros-pulse 2s ease-in-out infinite;
+  }
+
+  .ouroboros-status.active .ouroboros-glow {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: var(--accent-amber-glow);
+    filter: blur(8px);
+    animation: glow-pulse 2s ease-in-out infinite;
+    z-index: -1;
+  }
+
+  @keyframes ouroboros-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+  }
+
+  @keyframes glow-pulse {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 0.7; transform: scale(1.2); }
+  }
+
+  /* ===== SIDEBAR ===== */
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-light);
+    display: flex;
+    flex-direction: column;
+    margin-top: 44px;
+    transition: all var(--transition-smooth);
+    overflow: hidden;
+  }
+
+  .sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    border-right: none;
+  }
+
+  .sidebar-header {
+    padding: 16px 16px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .sidebar-header h3 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+  }
+
+  .new-chat-btn {
+    width: 28px; height: 28px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-chat);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+    font-size: 16px;
+  }
+  .new-chat-btn:hover {
+    border-color: var(--border-medium);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .sidebar-sessions {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px 8px;
+  }
+
+  .session-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    padding: 12px 8px 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .session-item {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    margin-bottom: 1px;
+  }
+  .session-item:hover {
+    background: var(--bg-hover);
+  }
+  .session-item.active {
+    background: var(--bg-sidebar-active);
+  }
+
+  .session-item-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-item-meta {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .session-item-meta .dot {
+    width: 3px; height: 3px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+    display: inline-block;
+  }
+
+  /* ===== MAIN AREA ===== */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-top: 44px;
+    min-width: 0;
+    position: relative;
+  }
+
+  /* ===== CHAT ===== */
+  .chat-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 0;
+    scroll-behavior: smooth;
+  }
+
+  .chat-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  .message {
+    margin-bottom: 28px;
+    animation: msg-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes msg-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .message-user {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .message-user .message-bubble {
+    background: var(--bg-user-msg);
+    padding: 12px 16px;
+    border-radius: var(--radius-lg) var(--radius-lg) 4px var(--radius-lg);
+    max-width: 85%;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .message-agent {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .message-agent-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .agent-avatar {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-amber) 0%, var(--accent-orange) 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .agent-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .message-agent .message-content {
+    padding-left: 30px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-primary);
+  }
+
+  .message-content p {
+    margin-bottom: 10px;
+  }
+  .message-content p:last-child {
+    margin-bottom: 0;
+  }
+
+  .message-content code {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--bg-tool-chip);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--accent-amber);
+  }
+
+  .message-content pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 10px 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ===== TOOL CHIPS ===== */
+  .tool-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: var(--bg-tool-chip);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    margin: 6px 0;
+    user-select: none;
+  }
+
+  .tool-chip:hover {
+    border-color: var(--border-medium);
+    background: var(--bg-hover);
+  }
+
+  .tool-chip-icon {
+    font-size: 13px;
+    color: var(--accent-blue);
+    display: flex;
+    align-items: center;
+  }
+
+  .tool-chip-name {
+    font-weight: 500;
+  }
+
+  .tool-chip-path {
+    color: var(--text-tertiary);
+    font-weight: 400;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tool-chip-chevron {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    transition: transform var(--transition-fast);
+    margin-left: 2px;
+  }
+  .tool-chip.expanded .tool-chip-chevron {
+    transform: rotate(90deg);
+  }
+
+  .tool-expanded {
+    background: var(--bg-tool-expanded);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    margin: 4px 0 8px;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.2s ease;
+  }
+
+  .tool-expanded.open {
+    max-height: 300px;
+    opacity: 1;
+  }
+
+  .tool-expanded-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .tool-status {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+  }
+  .tool-status.success {
+    background: rgba(22,163,74,0.1);
+    color: var(--accent-green);
+  }
+
+  .tool-expanded-body {
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    max-height: 220px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .diff-add { color: var(--accent-green); }
+  .diff-del { color: var(--accent-red); }
+
+  /* ===== RSI INLINE CARD ===== */
+  .rsi-card {
+    background: var(--bg-rsi-card);
+    border: 1px solid rgba(217,119,6,0.15);
+    border-radius: var(--radius-md);
+    padding: 12px 16px;
+    margin: 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: rsi-card-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes rsi-card-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .rsi-card-icon {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--accent-amber-bg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .rsi-card-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rsi-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-amber);
+  }
+
+  .rsi-card-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+  }
+
+  .rsi-card-desc code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: transparent;
+    padding: 0;
+  }
+
+  /* ===== APPROVAL TOAST ===== */
+  .approval-toast {
+    position: fixed;
+    top: 56px;
+    right: 16px;
+    width: 340px;
+    background: var(--bg-palette);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 16px;
+    z-index: 200;
+    animation: toast-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    display: none;
+  }
+
+  .approval-toast.visible {
+    display: block;
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-12px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .approval-toast-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .approval-toast-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(234,88,12,0.1);
+    color: var(--accent-orange);
+  }
+
+  .approval-toast-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .approval-toast-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 12px;
+  }
+
+  .approval-toast-desc code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--bg-tool-chip);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .approval-toast-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .btn {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border: 1px solid transparent;
+    font-family: var(--font-sans);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border-color: var(--border-medium);
+    color: var(--text-primary);
+  }
+  .btn-secondary:hover {
+    background: var(--bg-hover);
+  }
+
+  .btn-primary {
+    background: var(--accent-amber);
+    color: white;
+    border-color: var(--accent-amber);
+  }
+  .btn-primary:hover {
+    background: var(--accent-amber-light);
+    border-color: var(--accent-amber-light);
+  }
+
+  .btn-danger {
+    background: transparent;
+    border-color: var(--border-medium);
+    color: var(--accent-red);
+  }
+  .btn-danger:hover {
+    background: rgba(220,38,38,0.06);
+    border-color: var(--accent-red);
+  }
+
+  /* ===== INPUT AREA ===== */
+  .input-area {
+    padding: 0 24px 20px;
+    position: relative;
+  }
+
+  .input-area-inner {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .input-box {
+    background: var(--bg-input);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .input-box:focus-within {
+    border-color: var(--accent-amber);
+    box-shadow: 0 0 0 3px var(--accent-amber-bg), var(--shadow-sm);
+  }
+
+  .input-attach {
+    width: 28px; height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+  .input-attach:hover {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+  }
+
+  .input-field {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    resize: none;
+    outline: none;
+    font-family: var(--font-sans);
+    min-height: 21px;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  .input-field::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .input-send {
+    width: 32px; height: 32px;
+    border: none;
+    background: var(--accent-amber);
+    color: white;
+    cursor: pointer;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+  .input-send:hover {
+    background: var(--accent-amber-light);
+    transform: scale(1.05);
+  }
+
+  .input-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 4px 0;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  .model-indicator {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .model-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    display: inline-block;
+  }
+
+  /* ===== COMMAND PALETTE ===== */
+  .palette-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-overlay);
+    z-index: 500;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 120px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition-normal);
+    backdrop-filter: blur(4px);
+  }
+
+  .palette-overlay.open {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .palette {
+    width: 520px;
+    background: var(--bg-palette);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    overflow: hidden;
+    transform: scale(0.96) translateY(-8px);
+    transition: transform var(--transition-smooth);
+  }
+
+  .palette-overlay.open .palette {
+    transform: scale(1) translateY(0);
+  }
+
+  .palette-input-wrap {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .palette-search-icon {
+    color: var(--text-tertiary);
+    font-size: 16px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .palette-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 15px;
+    color: var(--text-primary);
+    outline: none;
+    font-family: var(--font-sans);
+  }
+  .palette-input::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .palette-esc {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    padding: 2px 6px;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+  }
+
+  .palette-items {
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  .palette-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 12px 4px;
+  }
+
+  .palette-item {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all var(--transition-fast);
+  }
+  .palette-item:hover, .palette-item.focused {
+    background: var(--bg-hover);
+  }
+
+  .palette-item-icon {
+    width: 28px; height: 28px;
+    border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .palette-item-icon.amber { background: var(--accent-amber-bg); color: var(--accent-amber); }
+  .palette-item-icon.blue { background: rgba(37,99,235,0.08); color: var(--accent-blue); }
+  .palette-item-icon.purple { background: rgba(124,58,237,0.08); color: var(--accent-purple); }
+  .palette-item-icon.green { background: rgba(22,163,74,0.08); color: var(--accent-green); }
+
+  .palette-item-text {
+    flex: 1;
+  }
+
+  .palette-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .palette-item-desc {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-top: 1px;
+  }
+
+  .palette-item-shortcut {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+  }
+
+  /* ===== RSI DRAWER ===== */
+  .drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-overlay);
+    z-index: 300;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition-normal);
+  }
+  .drawer-overlay.open {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .rsi-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    background: var(--bg-drawer);
+    border-left: 1px solid var(--border-light);
+    z-index: 301;
+    transform: translateX(100%);
+    transition: transform var(--transition-smooth);
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-xl);
+  }
+
+  .rsi-drawer.open {
+    transform: translateX(0);
+  }
+
+  .drawer-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .drawer-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .drawer-close {
+    width: 28px; height: 28px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+    font-size: 18px;
+  }
+  .drawer-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+  }
+
+  .drawer-section {
+    margin-bottom: 24px;
+  }
+
+  .drawer-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+  }
+
+  /* Pipeline status */
+  .pipeline-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pipeline-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+  }
+
+  .pipeline-step-indicator {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  .pipeline-step-indicator.done {
+    background: rgba(22,163,74,0.1);
+    color: var(--accent-green);
+  }
+  .pipeline-step-indicator.active {
+    background: var(--accent-amber-bg);
+    color: var(--accent-amber);
+    animation: step-pulse 1.5s ease-in-out infinite;
+  }
+  .pipeline-step-indicator.pending {
+    background: var(--bg-tertiary);
+    color: var(--text-tertiary);
+  }
+
+  @keyframes step-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-amber-glow); }
+    50% { box-shadow: 0 0 0 4px transparent; }
+  }
+
+  .pipeline-step-label {
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .pipeline-step-label.dim {
+    color: var(--text-tertiary);
+  }
+
+  /* Recent skills in drawer */
+  .skill-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+    transition: all var(--transition-fast);
+  }
+  .skill-item:hover {
+    border-color: var(--border-medium);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .skill-icon {
+    font-size: 16px;
+  }
+
+  .skill-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .skill-name {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .skill-meta {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 1px;
+  }
+
+  .skill-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .skill-badge.core { background: rgba(37,99,235,0.08); color: var(--accent-blue); }
+  .skill-badge.generated { background: var(--accent-amber-bg); color: var(--accent-amber); }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 14px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* Evolution sparkline */
+  .evolution-chart {
+    height: 64px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    position: relative;
+    margin-top: 10px;
+  }
+
+  .evolution-bars {
+    display: flex;
+    align-items: flex-end;
+    height: 100%;
+    padding: 6px 8px;
+    gap: 3px;
+  }
+
+  .evo-bar {
+    flex: 1;
+    border-radius: 2px 2px 0 0;
+    background: var(--accent-amber);
+    opacity: 0.5;
+    transition: opacity var(--transition-fast);
+    min-height: 4px;
+  }
+  .evo-bar:hover {
+    opacity: 0.9;
+  }
+
+  /* ===== SCROLLBAR ===== */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--border-medium);
+  }
+
+  /* ===== TYPING INDICATOR ===== */
+  .typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 0 0 0;
+  }
+  .typing-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+    animation: typing 1.2s ease-in-out infinite;
+    display: inline-block;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+  @keyframes typing {
+    0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+    30% { opacity: 1; transform: scale(1); }
+  }
+
+  /* ===== HIDDEN THEME ICONS ===== */
+  .theme-icon-sun { display: block; }
+  .theme-icon-moon { display: none; }
+  [data-theme="dark"] .theme-icon-sun { display: none; }
+  [data-theme="dark"] .theme-icon-moon { display: block; }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 900px) {
+    .sidebar { position: absolute; z-index: 50; height: calc(100vh - 44px); }
+    .sidebar.collapsed { width: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ===== TITLEBAR ===== -->
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <div class="traffic-lights">
+        <div class="traffic-light red"></div>
+        <div class="traffic-light yellow"></div>
+        <div class="traffic-light green"></div>
+      </div>
+      <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="titlebar-center">Ouroboros</div>
+    <div class="titlebar-right">
+      <button class="cmd-k-btn" onclick="togglePalette()" title="Command palette">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <kbd>&#8984;K</kbd>
+      </button>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+        <svg class="theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="3.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <svg class="theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M13.5 8a5.5 5.5 0 01-7.7 5A5.5 5.5 0 008.5 2.5 4.5 4.5 0 0013.5 8z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+        </svg>
+      </button>
+      <div class="ouroboros-status active" id="ouroborosStatus" onclick="toggleDrawer()">
+        <div class="ouroboros-glow"></div>
+        <div class="ouroboros-icon">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M16 4 C22.627 4 28 9.373 28 16 C28 22.627 22.627 28 16 28 C9.373 28 4 22.627 4 16 C4 11.5 6.5 7.5 10.2 5.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="color: var(--accent-amber)"/>
+            <path d="M10.2 5.5 L11.8 8.5 L8 7.5" fill="currentColor" style="color: var(--accent-amber)"/>
+            <circle cx="16" cy="16" r="2" fill="currentColor" style="color: var(--accent-amber)"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SIDEBAR ===== -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h3>Sessions</h3>
+      <button class="new-chat-btn" title="New session">+</button>
+    </div>
+    <div class="sidebar-sessions">
+      <div class="session-group-label">Today</div>
+      <div class="session-item active">
+        <div class="session-item-title">Refactor CSV parser with streaming</div>
+        <div class="session-item-meta">
+          <span>3 min ago</span>
+          <span class="dot"></span>
+          <span>12 messages</span>
+        </div>
+      </div>
+      <div class="session-item">
+        <div class="session-item-title">Debug WebSocket reconnection logic</div>
+        <div class="session-item-meta">
+          <span>2 hrs ago</span>
+          <span class="dot"></span>
+          <span>24 messages</span>
+        </div>
+      </div>
+      <div class="session-item">
+        <div class="session-item-title">Add rate limiting to API routes</div>
+        <div class="session-item-meta">
+          <span>5 hrs ago</span>
+          <span class="dot"></span>
+          <span>8 messages</span>
+        </div>
+      </div>
+
+      <div class="session-group-label">Yesterday</div>
+      <div class="session-item">
+        <div class="session-item-title">Write integration tests for auth flow</div>
+        <div class="session-item-meta">
+          <span>Yesterday</span>
+          <span class="dot"></span>
+          <span>31 messages</span>
+        </div>
+      </div>
+      <div class="session-item">
+        <div class="session-item-title">Design permission tier system</div>
+        <div class="session-item-meta">
+          <span>Yesterday</span>
+          <span class="dot"></span>
+          <span>19 messages</span>
+        </div>
+      </div>
+      <div class="session-item">
+        <div class="session-item-title">Migrate SQLite schema for v2</div>
+        <div class="session-item-meta">
+          <span>Yesterday</span>
+          <span class="dot"></span>
+          <span>15 messages</span>
+        </div>
+      </div>
+
+      <div class="session-group-label">This Week</div>
+      <div class="session-item">
+        <div class="session-item-title">Implement tool registry auto-discovery</div>
+        <div class="session-item-meta">
+          <span>3 days ago</span>
+          <span class="dot"></span>
+          <span>42 messages</span>
+        </div>
+      </div>
+      <div class="session-item">
+        <div class="session-item-title">Prototype dream cycle consolidation</div>
+        <div class="session-item-meta">
+          <span>4 days ago</span>
+          <span class="dot"></span>
+          <span>28 messages</span>
+        </div>
+      </div>
+      <div class="session-item">
+        <div class="session-item-title">Set up Ink terminal UI components</div>
+        <div class="session-item-meta">
+          <span>5 days ago</span>
+          <span class="dot"></span>
+          <span>16 messages</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MAIN ===== -->
+  <div class="main">
+    <div class="chat-container" id="chatContainer">
+      <div class="chat-inner">
+
+        <!-- Agent greeting -->
+        <div class="message message-agent">
+          <div class="message-agent-header">
+            <div class="agent-avatar">O</div>
+            <span class="agent-name">Ouroboros</span>
+          </div>
+          <div class="message-content">
+            <p>Ready to work. I see you have an open project at <code>~/workspace/ouroboros</code>. What would you like to do?</p>
+          </div>
+        </div>
+
+        <!-- User message -->
+        <div class="message message-user">
+          <div class="message-bubble">
+            Refactor the CSV parser in <code>src/tools/parse-csv.ts</code> to use streaming instead of loading the entire file into memory. Keep the existing API surface.
+          </div>
+        </div>
+
+        <!-- Agent response with tool calls -->
+        <div class="message message-agent">
+          <div class="message-agent-header">
+            <div class="agent-avatar">O</div>
+            <span class="agent-name">Ouroboros</span>
+          </div>
+          <div class="message-content">
+            <p>I'll refactor the CSV parser to use streaming. Let me start by reading the current implementation.</p>
+
+            <!-- Tool chip 1: Read -->
+            <div class="tool-chip" onclick="toggleTool(this)">
+              <span class="tool-chip-icon">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 2h7l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4"/><path d="M10 2v3h3" stroke="currentColor" stroke-width="1.4"/></svg>
+              </span>
+              <span class="tool-chip-name">Read</span>
+              <span class="tool-chip-path">src/tools/parse-csv.ts</span>
+              <span class="tool-chip-chevron">&#9654;</span>
+            </div>
+            <div class="tool-expanded">
+              <div class="tool-expanded-header">
+                <span>Output</span>
+                <span class="tool-status success">Success</span>
+              </div>
+              <div class="tool-expanded-body">export const parseCsv = {
+  name: 'parse-csv',
+  description: 'Parse CSV files into structured data',
+  schema: { /* ... */ },
+  async execute(args: ParseCsvArgs): Promise&lt;Result&lt;CsvData&gt;&gt; {
+    const content = await Bun.file(args.path).text();
+    const rows = content.split('\n').map(line =&gt;
+      line.split(',').map(cell =&gt; cell.trim())
+    );
+    return Ok({ headers: rows[0], rows: rows.slice(1) });
+  }
+};</div>
+            </div>
+
+            <p>The current implementation loads everything into memory with <code>.text()</code>. I'll switch to Bun's streaming APIs and process line-by-line.</p>
+
+            <!-- Tool chip 2: Edit -->
+            <div class="tool-chip" onclick="toggleTool(this)">
+              <span class="tool-chip-icon" style="color: var(--accent-purple);">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4l5-2 5 2v7l-5 2-5-2V4z" stroke="currentColor" stroke-width="1.4"/><path d="M7 2v9" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.5"/></svg>
+              </span>
+              <span class="tool-chip-name">Edit</span>
+              <span class="tool-chip-path">src/tools/parse-csv.ts</span>
+              <span class="tool-chip-chevron">&#9654;</span>
+            </div>
+            <div class="tool-expanded">
+              <div class="tool-expanded-header">
+                <span>Diff</span>
+                <span class="tool-status success">Applied</span>
+              </div>
+              <div class="tool-expanded-body"><span class="diff-del">-  const content = await Bun.file(args.path).text();</span>
+<span class="diff-del">-  const rows = content.split('\n').map(line =&gt;</span>
+<span class="diff-del">-    line.split(',').map(cell =&gt; cell.trim())</span>
+<span class="diff-del">-  );</span>
+<span class="diff-add">+  const stream = Bun.file(args.path).stream();</span>
+<span class="diff-add">+  const reader = stream.getReader();</span>
+<span class="diff-add">+  const decoder = new TextDecoder();</span>
+<span class="diff-add">+  let buffer = '';</span>
+<span class="diff-add">+  const rows: string[][] = [];</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+  while (true) {</span>
+<span class="diff-add">+    const { done, value } = await reader.read();</span>
+<span class="diff-add">+    if (done) break;</span>
+<span class="diff-add">+    buffer += decoder.decode(value, { stream: true });</span>
+<span class="diff-add">+    const lines = buffer.split('\n');</span>
+<span class="diff-add">+    buffer = lines.pop() ?? '';</span>
+<span class="diff-add">+    for (const line of lines) {</span>
+<span class="diff-add">+      rows.push(line.split(',').map(c =&gt; c.trim()));</span>
+<span class="diff-add">+    }</span>
+<span class="diff-add">+  }</span></div>
+            </div>
+
+            <!-- Tool chip 3: Bash -->
+            <div class="tool-chip" onclick="toggleTool(this)">
+              <span class="tool-chip-icon" style="color: var(--accent-green);">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 6l3 2-3 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </span>
+              <span class="tool-chip-name">Bash</span>
+              <span class="tool-chip-path">bun test src/tools/parse-csv.test.ts</span>
+              <span class="tool-chip-chevron">&#9654;</span>
+            </div>
+            <div class="tool-expanded">
+              <div class="tool-expanded-header">
+                <span>Output</span>
+                <span class="tool-status success">Exit 0</span>
+              </div>
+              <div class="tool-expanded-body">bun test v1.1.38
+
+src/tools/parse-csv.test.ts:
+<span class="diff-add">  &#10003; parses simple CSV (2ms)</span>
+<span class="diff-add">  &#10003; handles quoted fields (1ms)</span>
+<span class="diff-add">  &#10003; streams large files without OOM (4ms)</span>
+<span class="diff-add">  &#10003; preserves original API surface (1ms)</span>
+
+ 4 pass | 0 fail (12ms)</div>
+            </div>
+
+            <p>Done. The CSV parser now streams file content through a <code>ReadableStream</code> and processes lines incrementally. All 4 tests pass, including a new one I added for large file streaming. The public API is unchanged.</p>
+
+            <!-- RSI card -->
+            <div class="rsi-card">
+              <div class="rsi-card-icon">&#10024;</div>
+              <div class="rsi-card-body">
+                <div class="rsi-card-title">Skill crystallized</div>
+                <div class="rsi-card-desc">New skill: <code>bun-stream-file-parsing</code> &mdash; extracted from this refactor</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Follow-up user message -->
+        <div class="message message-user">
+          <div class="message-bubble">
+            Nice. Can you also add support for custom delimiters? Tab-separated files are common too.
+          </div>
+        </div>
+
+        <!-- Agent working... -->
+        <div class="message message-agent">
+          <div class="message-agent-header">
+            <div class="agent-avatar">O</div>
+            <span class="agent-name">Ouroboros</span>
+          </div>
+          <div class="message-content">
+            <p>Sure, I'll add a <code>delimiter</code> option to the schema. It'll default to <code>,</code> so existing callers aren't affected.</p>
+
+            <div class="tool-chip" onclick="toggleTool(this)">
+              <span class="tool-chip-icon" style="color: var(--accent-purple);">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4l5-2 5 2v7l-5 2-5-2V4z" stroke="currentColor" stroke-width="1.4"/><path d="M7 2v9" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.5"/></svg>
+              </span>
+              <span class="tool-chip-name">Edit</span>
+              <span class="tool-chip-path">src/tools/parse-csv.ts</span>
+              <span class="tool-chip-chevron">&#9654;</span>
+            </div>
+            <div class="tool-expanded">
+              <div class="tool-expanded-header">
+                <span>Diff</span>
+                <span class="tool-status success">Applied</span>
+              </div>
+              <div class="tool-expanded-body"><span class="diff-add">+  schema: {</span>
+<span class="diff-add">+    path: { type: 'string', description: 'Path to CSV file' },</span>
+<span class="diff-add">+    delimiter: {</span>
+<span class="diff-add">+      type: 'string',</span>
+<span class="diff-add">+      default: ',',</span>
+<span class="diff-add">+      description: 'Column delimiter (default: comma)'</span>
+<span class="diff-add">+    }</span>
+<span class="diff-add">+  },</span></div>
+            </div>
+
+            <div class="typing-indicator">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ===== INPUT AREA ===== -->
+    <div class="input-area">
+      <div class="input-area-inner">
+        <div class="input-box">
+          <button class="input-attach" title="Attach files">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M14 7.5l-5.5 5.5a3.5 3.5 0 01-5-5L9 2.5a2 2 0 013 3L6.5 11a.5.5 0 01-.7-.7L11 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          </button>
+          <textarea class="input-field" placeholder="Send a message..." rows="1" oninput="autoResize(this)"></textarea>
+          <button class="input-send" title="Send">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8h12M9 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="input-meta">
+          <div class="model-indicator">
+            <span class="model-dot"></span>
+            <span>claude-opus-4-6</span>
+          </div>
+          <span>Tier 3 &middot; Auto-approve read tools</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== APPROVAL TOAST ===== -->
+<div class="approval-toast visible" id="approvalToast">
+  <div class="approval-toast-header">
+    <span class="approval-toast-badge">Approval Required</span>
+  </div>
+  <div class="approval-toast-title">Skill promotion: Tier 2 &rarr; 3</div>
+  <div class="approval-toast-desc">
+    The skill <code>bun-stream-file-parsing</code> has passed 3 consecutive validations and is eligible for promotion to Tier 3 (auto-execute).
+  </div>
+  <div class="approval-toast-actions">
+    <button class="btn btn-danger" onclick="dismissToast()">Deny</button>
+    <button class="btn btn-primary" onclick="dismissToast()">Approve</button>
+  </div>
+</div>
+
+<!-- ===== COMMAND PALETTE ===== -->
+<div class="palette-overlay" id="paletteOverlay" onclick="closePaletteOverlay(event)">
+  <div class="palette">
+    <div class="palette-input-wrap">
+      <span class="palette-search-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </span>
+      <input class="palette-input" id="paletteInput" placeholder="Search commands, skills, actions..." autocomplete="off" oninput="filterPalette(this.value)" />
+      <span class="palette-esc">esc</span>
+    </div>
+    <div class="palette-items" id="paletteItems">
+      <div class="palette-group-label">RSI Actions</div>
+      <div class="palette-item" data-keywords="dream cycle consolidation memory">
+        <div class="palette-item-icon amber">&#9790;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Trigger dream cycle</div>
+          <div class="palette-item-desc">Consolidate session memories</div>
+        </div>
+        <span class="palette-item-shortcut">&#8984;D</span>
+      </div>
+      <div class="palette-item" data-keywords="evolve evolution self improve">
+        <div class="palette-item-icon amber">&#9851;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Run evolution cycle</div>
+          <div class="palette-item-desc">Analyze and improve skill performance</div>
+        </div>
+      </div>
+      <div class="palette-item" data-keywords="crystallize extract skill">
+        <div class="palette-item-icon amber">&#10024;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Crystallize skill from session</div>
+          <div class="palette-item-desc">Extract a reusable skill from current work</div>
+        </div>
+      </div>
+
+      <div class="palette-group-label">Navigation</div>
+      <div class="palette-item" data-keywords="browse skills library catalog">
+        <div class="palette-item-icon blue">&#9881;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Browse skills</div>
+          <div class="palette-item-desc">View core and generated skills</div>
+        </div>
+        <span class="palette-item-shortcut">&#8984;B</span>
+      </div>
+      <div class="palette-item" data-keywords="evolution log history growth">
+        <div class="palette-item-icon green">&#9650;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">View evolution log</div>
+          <div class="palette-item-desc">Self-improvement timeline and metrics</div>
+        </div>
+        <span class="palette-item-shortcut">&#8984;E</span>
+      </div>
+      <div class="palette-item" data-keywords="approval queue pending permissions">
+        <div class="palette-item-icon purple">&#9888;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Approval queue</div>
+          <div class="palette-item-desc">2 pending approvals</div>
+        </div>
+      </div>
+
+      <div class="palette-group-label">Settings</div>
+      <div class="palette-item" data-keywords="change model provider llm claude gpt">
+        <div class="palette-item-icon purple">&#9670;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Change model</div>
+          <div class="palette-item-desc">Currently: claude-opus-4-6</div>
+        </div>
+      </div>
+      <div class="palette-item" data-keywords="permissions tier safety">
+        <div class="palette-item-icon green">&#9670;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Permission settings</div>
+          <div class="palette-item-desc">Configure safety tiers and auto-approve rules</div>
+        </div>
+      </div>
+      <div class="palette-item" data-keywords="theme dark light mode">
+        <div class="palette-item-icon blue">&#9788;</div>
+        <div class="palette-item-text">
+          <div class="palette-item-name">Toggle theme</div>
+          <div class="palette-item-desc">Switch between light and dark mode</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== RSI DRAWER ===== -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="rsi-drawer" id="rsiDrawer">
+  <div class="drawer-header">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
+        <path d="M16 4 C22.627 4 28 9.373 28 16 C28 22.627 22.627 28 16 28 C9.373 28 4 22.627 4 16 C4 11.5 6.5 7.5 10.2 5.5" stroke="var(--accent-amber)" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="16" cy="16" r="2" fill="var(--accent-amber)"/>
+      </svg>
+      RSI Pipeline
+    </h2>
+    <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+  </div>
+  <div class="drawer-body">
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">Current Pipeline</div>
+      <div class="pipeline-steps">
+        <div class="pipeline-step">
+          <div class="pipeline-step-indicator done">&#10003;</div>
+          <span class="pipeline-step-label">Reflect on session</span>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-step-indicator done">&#10003;</div>
+          <span class="pipeline-step-label">Crystallize skills</span>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-step-indicator active">&#9679;</div>
+          <span class="pipeline-step-label">Run self-tests</span>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-step-indicator pending">&#9679;</div>
+          <span class="pipeline-step-label dim">Promote skills</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">Recently Crystallized</div>
+      <div class="skill-item">
+        <span class="skill-icon">&#10024;</span>
+        <div class="skill-info">
+          <div class="skill-name">bun-stream-file-parsing</div>
+          <div class="skill-meta">Crystallized 2 min ago</div>
+        </div>
+        <span class="skill-badge generated">Generated</span>
+      </div>
+      <div class="skill-item">
+        <span class="skill-icon">&#10024;</span>
+        <div class="skill-info">
+          <div class="skill-name">websocket-reconnect-pattern</div>
+          <div class="skill-meta">Crystallized 2 hrs ago</div>
+        </div>
+        <span class="skill-badge generated">Generated</span>
+      </div>
+      <div class="skill-item">
+        <span class="skill-icon">&#9881;</span>
+        <div class="skill-info">
+          <div class="skill-name">rate-limit-middleware</div>
+          <div class="skill-meta">Core skill &middot; v2.1</div>
+        </div>
+        <span class="skill-badge core">Core</span>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">Evolution Summary</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">47</div>
+          <div class="stat-label">Total Skills</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">12</div>
+          <div class="stat-label">Generated</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">156</div>
+          <div class="stat-label">Sessions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">93%</div>
+          <div class="stat-label">Success Rate</div>
+        </div>
+      </div>
+      <div class="evolution-chart">
+        <div class="evolution-bars">
+          <div class="evo-bar" style="height: 20%"></div>
+          <div class="evo-bar" style="height: 25%"></div>
+          <div class="evo-bar" style="height: 30%"></div>
+          <div class="evo-bar" style="height: 28%"></div>
+          <div class="evo-bar" style="height: 35%"></div>
+          <div class="evo-bar" style="height: 40%"></div>
+          <div class="evo-bar" style="height: 38%"></div>
+          <div class="evo-bar" style="height: 45%"></div>
+          <div class="evo-bar" style="height: 50%"></div>
+          <div class="evo-bar" style="height: 48%"></div>
+          <div class="evo-bar" style="height: 55%"></div>
+          <div class="evo-bar" style="height: 60%"></div>
+          <div class="evo-bar" style="height: 58%"></div>
+          <div class="evo-bar" style="height: 65%"></div>
+          <div class="evo-bar" style="height: 70%"></div>
+          <div class="evo-bar" style="height: 68%"></div>
+          <div class="evo-bar" style="height: 75%"></div>
+          <div class="evo-bar" style="height: 72%"></div>
+          <div class="evo-bar" style="height: 80%"></div>
+          <div class="evo-bar" style="height: 85%"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ===== SIDEBAR =====
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('collapsed');
+}
+
+// ===== THEME =====
+function toggleTheme() {
+  var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', isDark ? '' : 'dark');
+}
+
+// ===== TOOL CHIPS =====
+function toggleTool(chip) {
+  var expanded = chip.nextElementSibling;
+  if (!expanded || !expanded.classList.contains('tool-expanded')) return;
+  var isOpen = expanded.classList.contains('open');
+  // Close all first
+  var allExpanded = document.querySelectorAll('.tool-expanded.open');
+  for (var i = 0; i < allExpanded.length; i++) {
+    allExpanded[i].classList.remove('open');
+    allExpanded[i].previousElementSibling.classList.remove('expanded');
+  }
+  if (!isOpen) {
+    expanded.classList.add('open');
+    chip.classList.add('expanded');
+  }
+}
+
+// ===== COMMAND PALETTE =====
+function togglePalette() {
+  var overlay = document.getElementById('paletteOverlay');
+  var isOpen = overlay.classList.contains('open');
+  if (isOpen) {
+    closePalette();
+  } else {
+    openPalette();
+  }
+}
+
+function openPalette() {
+  var overlay = document.getElementById('paletteOverlay');
+  overlay.classList.add('open');
+  setTimeout(function() {
+    document.getElementById('paletteInput').focus();
+  }, 100);
+}
+
+function closePalette() {
+  var overlay = document.getElementById('paletteOverlay');
+  overlay.classList.remove('open');
+  document.getElementById('paletteInput').value = '';
+  filterPalette('');
+}
+
+function closePaletteOverlay(e) {
+  if (e.target === e.currentTarget) closePalette();
+}
+
+function filterPalette(query) {
+  var items = document.querySelectorAll('#paletteItems .palette-item');
+  var labels = document.querySelectorAll('#paletteItems .palette-group-label');
+  var q = query.toLowerCase().trim();
+
+  if (!q) {
+    for (var i = 0; i < items.length; i++) items[i].style.display = '';
+    for (var j = 0; j < labels.length; j++) labels[j].style.display = '';
+    return;
+  }
+
+  for (var k = 0; k < labels.length; k++) labels[k].style.display = 'none';
+
+  for (var m = 0; m < items.length; m++) {
+    var item = items[m];
+    var name = item.querySelector('.palette-item-name').textContent.toLowerCase();
+    var desc = item.querySelector('.palette-item-desc').textContent.toLowerCase();
+    var keywords = (item.getAttribute('data-keywords') || '').toLowerCase();
+    var match = name.indexOf(q) !== -1 || desc.indexOf(q) !== -1 || keywords.indexOf(q) !== -1;
+    item.style.display = match ? '' : 'none';
+  }
+}
+
+// Keyboard shortcut
+document.addEventListener('keydown', function(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    togglePalette();
+  }
+  if (e.key === 'Escape') {
+    closePalette();
+    closeDrawer();
+  }
+});
+
+// ===== RSI DRAWER =====
+function toggleDrawer() {
+  var drawer = document.getElementById('rsiDrawer');
+  var overlay = document.getElementById('drawerOverlay');
+  var isOpen = drawer.classList.contains('open');
+  if (isOpen) {
+    closeDrawer();
+  } else {
+    drawer.classList.add('open');
+    overlay.classList.add('open');
+  }
+}
+
+function closeDrawer() {
+  document.getElementById('rsiDrawer').classList.remove('open');
+  document.getElementById('drawerOverlay').classList.remove('open');
+}
+
+// ===== APPROVAL TOAST =====
+function dismissToast() {
+  var toast = document.getElementById('approvalToast');
+  toast.style.transform = 'translateX(120%)';
+  toast.style.opacity = '0';
+  toast.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+  setTimeout(function() { toast.classList.remove('visible'); }, 300);
+}
+
+// ===== TEXT INPUT AUTO-RESIZE =====
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ===== SCROLL TO BOTTOM ON LOAD =====
+window.addEventListener('load', function() {
+  var container = document.getElementById('chatContainer');
+  container.scrollTop = container.scrollHeight;
+});
+
+// ===== SESSION ITEM CLICK =====
+var sessionItems = document.querySelectorAll('.session-item');
+for (var s = 0; s < sessionItems.length; s++) {
+  sessionItems[s].addEventListener('click', function() {
+    var all = document.querySelectorAll('.session-item');
+    for (var a = 0; a < all.length; a++) all[a].classList.remove('active');
+    this.classList.add('active');
+  });
+}
+</script>
+
+</body>
+</html>

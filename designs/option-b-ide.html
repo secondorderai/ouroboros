@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200, height=800">
+<title>Ouroboros — IDE Workspace</title>
+<style>
+  /* ═══════════════════════════════════════════════
+     RESET & BASE
+     ═══════════════════════════════════════════════ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* Surface palette — inspired by JetBrains Darcula + VS Code dark */
+    --bg-deepest:    #0e1015;
+    --bg-base:       #14171e;
+    --bg-surface:    #1a1e28;
+    --bg-raised:     #212736;
+    --bg-hover:      #2a3044;
+    --bg-active:     #323a50;
+
+    /* Borders */
+    --border-subtle: #262d3d;
+    --border-normal: #323a50;
+
+    /* Text */
+    --text-primary:   #e2e6f0;
+    --text-secondary: #8892a8;
+    --text-muted:     #5a6478;
+    --text-inverse:   #0e1015;
+
+    /* RSI Stage Colors */
+    --stage-reflect:   #a78bfa;
+    --stage-generate:  #60a5fa;
+    --stage-validate:  #34d399;
+    --stage-test:      #fbbf24;
+    --stage-promote:   #f472b6;
+
+    /* Accents */
+    --accent-primary:  #7c6bf0;
+    --accent-success:  #34d399;
+    --accent-warning:  #fbbf24;
+    --accent-danger:   #f87171;
+    --accent-info:     #60a5fa;
+
+    /* Sizing */
+    --activity-bar-w: 52px;
+    --titlebar-h: 38px;
+    --tabbar-h: 36px;
+    --statusbar-h: 26px;
+
+    /* Transition */
+    --t-fast: 150ms ease;
+    --t-normal: 250ms ease;
+
+    /* Radius */
+    --r-sm: 4px;
+    --r-md: 6px;
+    --r-lg: 10px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    background: var(--bg-deepest);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ═══════════════════════════════════════════════
+     APP SHELL
+     ═══════════════════════════════════════════════ */
+  .app-window {
+    width: 1200px;
+    height: 800px;
+    margin: 20px auto;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  }
+
+  /* Title Bar */
+  .titlebar {
+    height: var(--titlebar-h);
+    background: var(--bg-deepest);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 8px;
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .titlebar .traffic-lights { display: flex; gap: 7px; }
+  .titlebar .traffic-lights span { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .tl-close { background: #ff5f57; }
+  .tl-minimize { background: #febc2e; }
+  .tl-maximize { background: #28c840; }
+  .titlebar .title-text {
+    flex: 1; text-align: center; font-size: 12px; color: var(--text-muted); font-weight: 500; letter-spacing: 0.02em;
+  }
+  .titlebar .title-text strong { color: var(--text-secondary); font-weight: 600; }
+
+  /* Main Layout */
+  .main-layout { flex: 1; display: flex; overflow: hidden; }
+
+  /* ═══════════════════════════════════════════════
+     ACTIVITY BAR
+     ═══════════════════════════════════════════════ */
+  .activity-bar {
+    width: var(--activity-bar-w); background: var(--bg-deepest); border-right: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 2px; flex-shrink: 0;
+  }
+  .activity-bar .ab-icon {
+    width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+    border-radius: var(--r-md); cursor: pointer; color: var(--text-muted);
+    transition: color var(--t-fast), background var(--t-fast); position: relative;
+  }
+  .activity-bar .ab-icon:hover { color: var(--text-secondary); background: var(--bg-hover); }
+  .activity-bar .ab-icon.active { color: var(--text-primary); background: var(--bg-active); }
+  .activity-bar .ab-icon.active::before {
+    content: ''; position: absolute; left: -6px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 20px; background: var(--accent-primary); border-radius: 0 2px 2px 0;
+  }
+  .activity-bar .ab-icon svg { width: 20px; height: 20px; }
+  .ab-spacer { flex: 1; }
+  .ab-badge {
+    position: absolute; top: 4px; right: 4px; width: 16px; height: 16px;
+    background: var(--accent-danger); color: #fff; font-size: 9px; font-weight: 700;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center; line-height: 1;
+  }
+
+  /* ═══════════════════════════════════════════════
+     CONTENT AREA
+     ═══════════════════════════════════════════════ */
+  .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-base); }
+
+  /* Tab Bar */
+  .tab-bar {
+    height: var(--tabbar-h); background: var(--bg-deepest); border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: flex-end; padding: 0 8px; gap: 1px; flex-shrink: 0;
+  }
+  .tab {
+    height: 30px; padding: 0 14px; display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text-muted); background: transparent;
+    border-radius: var(--r-sm) var(--r-sm) 0 0; cursor: pointer;
+    transition: color var(--t-fast), background var(--t-fast);
+    border: 1px solid transparent; border-bottom: none; white-space: nowrap;
+  }
+  .tab:hover { color: var(--text-secondary); background: var(--bg-surface); }
+  .tab.active { color: var(--text-primary); background: var(--bg-base); border-color: var(--border-subtle); }
+  .tab .tab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* RSI Pipeline Strip */
+  .rsi-strip {
+    height: 32px; background: var(--bg-surface); border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center; padding: 0 16px; gap: 4px; flex-shrink: 0;
+  }
+  .rsi-strip .rsi-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-muted); margin-right: 10px;
+  }
+  .rsi-stage {
+    display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 500; color: var(--text-muted); background: var(--bg-raised);
+    transition: all var(--t-normal);
+  }
+  .rsi-stage .stage-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.4;
+    transition: all var(--t-normal);
+  }
+  .rsi-stage.active { color: var(--bg-deepest); font-weight: 600; }
+  .rsi-stage.active .stage-dot { opacity: 1; box-shadow: 0 0 6px currentColor; }
+  .rsi-stage.stage-reflect.active  { background: var(--stage-reflect); color: #1a0a3e; }
+  .rsi-stage.stage-generate.active { background: var(--stage-generate); color: #0a1e3e; }
+  .rsi-stage.stage-validate.active { background: var(--stage-validate); color: #0a3e2a; }
+  .rsi-stage.stage-test.active     { background: var(--stage-test); color: #3e2a0a; }
+  .rsi-stage.stage-promote.active  { background: var(--stage-promote); color: #3e0a2a; }
+  .rsi-arrow { color: var(--text-muted); font-size: 10px; opacity: 0.4; }
+
+  /* View Container */
+  .view-container { flex: 1; overflow: hidden; position: relative; }
+  .view { position: absolute; inset: 0; display: none; opacity: 0; transition: opacity var(--t-normal); }
+  .view.active { display: flex; opacity: 1; }
+
+  /* ═══════════════════════════════════════════════
+     STATUS BAR
+     ═══════════════════════════════════════════════ */
+  .status-bar {
+    height: var(--statusbar-h); background: var(--bg-deepest); border-top: 1px solid var(--border-subtle);
+    display: flex; align-items: center; padding: 0 12px; font-size: 11px; color: var(--text-muted);
+    gap: 16px; flex-shrink: 0;
+  }
+  .status-bar .sb-segment { display: flex; align-items: center; gap: 5px; }
+  .status-bar .sb-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .sb-spacer { flex: 1; }
+
+  /* ═══════════════════════════════════════════════
+     CHAT VIEW
+     ═══════════════════════════════════════════════ */
+  .chat-view { flex-direction: row; }
+  .chat-panel {
+    flex: 1; display: flex; flex-direction: column; min-width: 0;
+    border-right: 1px solid var(--border-subtle);
+  }
+  .context-panel {
+    width: 380px; display: flex; flex-direction: column; background: var(--bg-surface); flex-shrink: 0;
+  }
+
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .chat-messages::-webkit-scrollbar { width: 6px; }
+  .chat-messages::-webkit-scrollbar-track { background: transparent; }
+  .chat-messages::-webkit-scrollbar-thumb { background: var(--border-normal); border-radius: 3px; }
+
+  .msg { display: flex; gap: 10px; padding: 10px 0; }
+  .msg-avatar {
+    width: 28px; height: 28px; border-radius: var(--r-md); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff;
+  }
+  .msg-avatar.user { background: var(--accent-info); }
+  .msg-avatar.agent { background: var(--accent-primary); }
+  .msg-body { flex: 1; min-width: 0; }
+  .msg-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .msg-name { font-weight: 600; font-size: 13px; }
+  .msg-time { font-size: 11px; color: var(--text-muted); }
+  .msg-text { color: var(--text-secondary); line-height: 1.6; }
+  .msg-text code {
+    background: var(--bg-raised); padding: 1px 5px; border-radius: 3px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: var(--accent-info);
+  }
+
+  /* Tool call cards */
+  .tool-card {
+    margin: 8px 0; border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+    overflow: hidden; background: var(--bg-surface);
+  }
+  .tool-card-header {
+    display: flex; align-items: center; padding: 8px 12px; gap: 8px; cursor: pointer;
+    background: var(--bg-raised); transition: background var(--t-fast);
+  }
+  .tool-card-header:hover { background: var(--bg-hover); }
+  .tool-card-icon {
+    width: 20px; height: 20px; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0;
+  }
+  .tool-card-icon.bash { background: #2d3748; color: var(--accent-success); }
+  .tool-card-icon.file { background: #2d2748; color: var(--stage-reflect); }
+  .tool-card-name { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+  .tool-card-cmd {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted);
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tool-card-chevron { color: var(--text-muted); transition: transform var(--t-fast); font-size: 10px; }
+  .tool-card.expanded .tool-card-chevron { transform: rotate(90deg); }
+  .tool-card-body {
+    display: none; padding: 12px; border-top: 1px solid var(--border-subtle);
+  }
+  .tool-card.expanded .tool-card-body { display: block; }
+  .tool-card-body pre {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.55;
+    color: var(--text-secondary); white-space: pre-wrap; word-break: break-all;
+  }
+  .tool-card-status {
+    font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .tool-card-status.success { background: rgba(52,211,153,0.15); color: var(--accent-success); }
+  .tool-card-status.running { background: rgba(251,191,36,0.15); color: var(--accent-warning); }
+
+  .syn-keyword { color: #c792ea; }
+  .syn-string  { color: #c3e88d; }
+  .syn-comment { color: #546e7a; }
+  .syn-number  { color: #f78c6c; }
+  .syn-fn      { color: #82aaff; }
+
+  /* Chat input */
+  .chat-input-area { padding: 12px 20px 16px; border-top: 1px solid var(--border-subtle); background: var(--bg-base); }
+  .chat-input-box {
+    display: flex; align-items: flex-end; background: var(--bg-surface);
+    border: 1px solid var(--border-normal); border-radius: var(--r-lg); padding: 10px 14px; gap: 10px;
+    transition: border-color var(--t-fast);
+  }
+  .chat-input-box:focus-within { border-color: var(--accent-primary); }
+  .chat-input-box textarea {
+    flex: 1; background: none; border: none; outline: none; color: var(--text-primary);
+    font-family: inherit; font-size: 13px; line-height: 1.5; resize: none; height: 20px;
+  }
+  .chat-input-box textarea::placeholder { color: var(--text-muted); }
+  .chat-send-btn {
+    width: 30px; height: 30px; border-radius: var(--r-md); background: var(--accent-primary);
+    border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: #fff; transition: background var(--t-fast); flex-shrink: 0;
+  }
+  .chat-send-btn:hover { background: #6a5ad4; }
+
+  /* Context panel */
+  .context-header {
+    padding: 10px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .context-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+  .context-body::-webkit-scrollbar { width: 6px; }
+  .context-body::-webkit-scrollbar-track { background: transparent; }
+  .context-body::-webkit-scrollbar-thumb { background: var(--border-normal); border-radius: 3px; }
+  .ctx-file-header {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .ctx-file-icon {
+    width: 28px; height: 28px; border-radius: var(--r-sm); background: var(--bg-raised);
+    display: flex; align-items: center; justify-content: center; color: var(--accent-info); font-size: 12px;
+  }
+  .ctx-file-name { font-weight: 600; font-size: 13px; }
+  .ctx-file-path { font-size: 11px; color: var(--text-muted); }
+  .ctx-code { font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
+  .ctx-code .line-num {
+    color: var(--text-muted); display: inline-block; width: 28px; text-align: right;
+    margin-right: 12px; user-select: none; opacity: 0.5;
+  }
+  .ctx-code .highlight-line {
+    background: rgba(124, 107, 240, 0.08); display: block; margin: 0 -16px; padding: 0 16px;
+    border-left: 2px solid var(--accent-primary);
+  }
+
+  /* ═══════════════════════════════════════════════
+     SKILLS VIEW
+     ═══════════════════════════════════════════════ */
+  .skills-view { flex-direction: column; overflow: hidden; }
+  .skills-toolbar {
+    padding: 14px 20px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+  }
+  .skills-search {
+    flex: 1; max-width: 320px; padding: 7px 12px; background: var(--bg-surface);
+    border: 1px solid var(--border-normal); border-radius: var(--r-md); color: var(--text-primary);
+    font-size: 12px; outline: none; transition: border-color var(--t-fast);
+  }
+  .skills-search:focus { border-color: var(--accent-primary); }
+  .skills-search::placeholder { color: var(--text-muted); }
+  .filter-btn {
+    padding: 6px 12px; border-radius: var(--r-md); border: 1px solid var(--border-normal);
+    background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 500;
+    cursor: pointer; transition: all var(--t-fast);
+  }
+  .filter-btn:hover { background: var(--bg-hover); }
+  .filter-btn.active { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+  .skills-count { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+
+  .skills-grid {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px; align-content: start;
+  }
+  .skills-grid::-webkit-scrollbar { width: 6px; }
+  .skills-grid::-webkit-scrollbar-track { background: transparent; }
+  .skills-grid::-webkit-scrollbar-thumb { background: var(--border-normal); border-radius: 3px; }
+
+  .skill-card {
+    background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+    padding: 14px 16px; cursor: pointer; transition: all var(--t-fast);
+  }
+  .skill-card:hover {
+    border-color: var(--border-normal); background: var(--bg-raised);
+    transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .skill-card-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .skill-icon {
+    width: 32px; height: 32px; border-radius: var(--r-md);
+    display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;
+  }
+  .skill-icon.core      { background: rgba(96,165,250,0.15); color: var(--accent-info); }
+  .skill-icon.generated  { background: rgba(167,139,250,0.15); color: var(--stage-reflect); }
+  .skill-icon.staging   { background: rgba(251,191,36,0.15); color: var(--accent-warning); }
+  .skill-card-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .skill-badge {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 2px 6px; border-radius: 8px;
+  }
+  .skill-badge.core      { background: rgba(96,165,250,0.15); color: var(--accent-info); }
+  .skill-badge.generated  { background: rgba(167,139,250,0.15); color: var(--stage-reflect); }
+  .skill-badge.staging   { background: rgba(251,191,36,0.15); color: var(--accent-warning); }
+  .skill-card-desc {
+    font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .skill-card-meta { display: flex; align-items: center; gap: 14px; font-size: 11px; color: var(--text-muted); }
+  .skill-meta-item { display: flex; align-items: center; gap: 4px; }
+  .confidence-bar { width: 40px; height: 4px; background: var(--bg-hover); border-radius: 2px; overflow: hidden; }
+  .confidence-bar-fill { height: 100%; border-radius: 2px; transition: width var(--t-normal); }
+  .confidence-high { background: var(--accent-success); }
+  .confidence-med  { background: var(--accent-warning); }
+  .confidence-low  { background: var(--accent-danger); }
+
+  /* ═══════════════════════════════════════════════
+     EVOLUTION VIEW
+     ═══════════════════════════════════════════════ */
+  .evolution-view { flex-direction: column; overflow: hidden; }
+  .evo-scroll { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+  .evo-scroll::-webkit-scrollbar { width: 6px; }
+  .evo-scroll::-webkit-scrollbar-track { background: transparent; }
+  .evo-scroll::-webkit-scrollbar-thumb { background: var(--border-normal); border-radius: 3px; }
+
+  .evo-section {
+    background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--r-md); overflow: hidden;
+  }
+  .evo-section-header {
+    padding: 12px 16px; font-size: 12px; font-weight: 600; color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px;
+  }
+  .evo-section-body { padding: 16px; }
+  .evo-row { display: flex; gap: 20px; }
+
+  .bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 140px; padding-top: 8px; }
+  .bar-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+  .bar-value { font-size: 10px; color: var(--text-muted); font-weight: 600; }
+  .bar-rect { width: 100%; max-width: 36px; border-radius: 3px 3px 0 0; }
+  .bar-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+
+  .evo-stats { display: flex; gap: 12px; flex-wrap: wrap; }
+  .evo-stat-card {
+    flex: 1; min-width: 120px; background: var(--bg-raised); border-radius: var(--r-md);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .evo-stat-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
+  }
+  .evo-stat-value { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+  .evo-stat-delta { font-size: 11px; font-weight: 600; }
+  .delta-up   { color: var(--accent-success); }
+  .delta-down { color: var(--accent-danger); }
+
+  .evo-timeline { display: flex; flex-direction: column; gap: 0; position: relative; }
+  .evo-timeline::before {
+    content: ''; position: absolute; left: 15px; top: 0; bottom: 0; width: 2px; background: var(--border-subtle);
+  }
+  .evo-entry { display: flex; gap: 14px; padding: 10px 0; position: relative; }
+  .evo-entry-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; margin-left: 11px;
+    z-index: 1; border: 2px solid var(--bg-surface); box-shadow: 0 0 0 2px var(--border-subtle);
+  }
+  .evo-entry-content { flex: 1; }
+  .evo-entry-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+  .evo-entry-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+  .evo-entry-time { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+  .evo-entry-tag {
+    display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 9px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-right: 6px;
+  }
+
+  /* ═══════════════════════════════════════════════
+     APPROVALS VIEW
+     ═══════════════════════════════════════════════ */
+  .approvals-view { flex-direction: column; overflow: hidden; }
+  .approvals-scroll { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .approvals-scroll::-webkit-scrollbar { width: 6px; }
+  .approvals-scroll::-webkit-scrollbar-track { background: transparent; }
+  .approvals-scroll::-webkit-scrollbar-thumb { background: var(--border-normal); border-radius: 3px; }
+
+  .approval-card {
+    background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--r-md); overflow: hidden;
+  }
+  .approval-card-header {
+    display: flex; align-items: center; padding: 12px 16px; gap: 10px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .approval-risk { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .approval-risk.high   { background: var(--accent-danger); box-shadow: 0 0 6px var(--accent-danger); }
+  .approval-risk.medium { background: var(--accent-warning); box-shadow: 0 0 6px var(--accent-warning); }
+  .approval-title { font-weight: 600; font-size: 13px; flex: 1; }
+  .approval-time { font-size: 11px; color: var(--text-muted); }
+  .approval-card-body { padding: 12px 16px; }
+  .approval-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px; }
+  .approval-desc code {
+    background: var(--bg-raised); padding: 1px 5px; border-radius: 3px;
+    font-family: monospace; font-size: 12px; color: var(--accent-info);
+  }
+  .approval-diff {
+    background: var(--bg-raised); border-radius: var(--r-sm); padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5; margin-bottom: 14px;
+  }
+  .diff-add { color: var(--accent-success); }
+  .diff-del { color: var(--accent-danger); }
+  .diff-ctx { color: var(--text-muted); }
+  .approval-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .approval-btn {
+    padding: 6px 16px; border-radius: var(--r-md); border: 1px solid transparent;
+    font-size: 12px; font-weight: 600; cursor: pointer; transition: all var(--t-fast);
+  }
+  .approval-btn.approve { background: var(--accent-success); color: var(--text-inverse); }
+  .approval-btn.approve:hover { background: #2bc489; }
+  .approval-btn.reject { background: transparent; border-color: var(--border-normal); color: var(--text-secondary); }
+  .approval-btn.reject:hover { border-color: var(--accent-danger); color: var(--accent-danger); }
+  .approval-btn.inspect { background: transparent; border-color: var(--border-normal); color: var(--text-secondary); }
+  .approval-btn.inspect:hover { border-color: var(--accent-info); color: var(--accent-info); }
+
+  /* ═══════════════════════════════════════════════
+     SETTINGS VIEW
+     ═══════════════════════════════════════════════ */
+  .settings-view { flex-direction: row; overflow: hidden; }
+  .settings-nav {
+    width: 200px; background: var(--bg-surface); border-right: 1px solid var(--border-subtle);
+    padding: 16px 0; flex-shrink: 0;
+  }
+  .settings-nav-item {
+    padding: 8px 20px; font-size: 12px; color: var(--text-secondary); cursor: pointer;
+    transition: all var(--t-fast);
+  }
+  .settings-nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .settings-nav-item.active {
+    color: var(--text-primary); background: var(--bg-active);
+    border-right: 2px solid var(--accent-primary); font-weight: 600;
+  }
+  .settings-nav-section {
+    padding: 16px 20px 6px; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);
+  }
+  .settings-content { flex: 1; overflow-y: auto; padding: 24px 32px; }
+  .settings-content::-webkit-scrollbar { width: 6px; }
+  .settings-content::-webkit-scrollbar-track { background: transparent; }
+  .settings-content::-webkit-scrollbar-thumb { background: var(--border-normal); border-radius: 3px; }
+
+  .settings-group { margin-bottom: 28px; }
+  .settings-group-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .settings-group-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+  .setting-row {
+    display: flex; align-items: center; justify-content: space-between; padding: 10px 0;
+    border-bottom: 1px solid var(--border-subtle); gap: 20px;
+  }
+  .setting-label { font-size: 13px; font-weight: 500; }
+  .setting-hint { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .setting-control select,
+  .setting-control input[type="text"] {
+    padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-normal);
+    border-radius: var(--r-sm); color: var(--text-primary); font-size: 12px; min-width: 180px; outline: none;
+  }
+  .setting-control select:focus,
+  .setting-control input[type="text"]:focus { border-color: var(--accent-primary); }
+
+  .toggle {
+    width: 36px; height: 20px; background: var(--bg-hover); border-radius: 10px;
+    cursor: pointer; position: relative; transition: background var(--t-fast); flex-shrink: 0;
+  }
+  .toggle.on { background: var(--accent-primary); }
+  .toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    background: #fff; border-radius: 50%; transition: transform var(--t-fast);
+  }
+  .toggle.on::after { transform: translateX(16px); }
+
+  /* Breadcrumb */
+  .breadcrumb {
+    display: flex; align-items: center; gap: 6px; padding: 0 8px;
+    font-size: 11px; color: var(--text-muted);
+  }
+  .breadcrumb span { cursor: default; }
+  .breadcrumb .bc-sep { opacity: 0.4; }
+  .breadcrumb .bc-current { color: var(--text-secondary); font-weight: 500; }
+
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 4px currentColor; }
+    50% { box-shadow: 0 0 12px currentColor; }
+  }
+  .rsi-stage.active .stage-dot { animation: pulseGlow 2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<div class="app-window">
+  <!-- TITLE BAR -->
+  <div class="titlebar">
+    <div class="traffic-lights">
+      <span class="tl-close"></span>
+      <span class="tl-minimize"></span>
+      <span class="tl-maximize"></span>
+    </div>
+    <div class="title-text"><strong>Ouroboros</strong> &mdash; recursive self-improving agent</div>
+    <div style="width:60px;"></div>
+  </div>
+
+  <div class="main-layout">
+    <!-- ACTIVITY BAR -->
+    <div class="activity-bar">
+      <div class="ab-icon active" data-view="chat" title="Chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+      <div class="ab-icon" data-view="skills" title="Skills">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <div class="ab-icon" data-view="evolution" title="Evolution">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+      </div>
+      <div class="ab-icon" data-view="approvals" title="Approvals">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span class="ab-badge">3</span>
+      </div>
+      <div class="ab-spacer"></div>
+      <div class="ab-icon" data-view="settings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- CONTENT AREA -->
+    <div class="content-area">
+      <!-- Tab Bar -->
+      <div class="tab-bar">
+        <div class="tab active" data-tab="main">
+          <span class="tab-dot" style="background:var(--accent-primary);"></span>
+          Session #42
+        </div>
+        <div class="tab">
+          <span class="tab-dot" style="background:var(--accent-success);"></span>
+          Session #41
+        </div>
+        <div class="breadcrumb" style="margin-left:auto;">
+          <span>ouroboros</span>
+          <span class="bc-sep">/</span>
+          <span class="bc-current" id="breadcrumb-current">Chat</span>
+        </div>
+      </div>
+
+      <!-- RSI Pipeline Strip -->
+      <div class="rsi-strip">
+        <span class="rsi-label">RSI Pipeline</span>
+        <div class="rsi-stage stage-reflect active" id="rsi-reflect">
+          <span class="stage-dot"></span>Reflect
+        </div>
+        <span class="rsi-arrow">&#9654;</span>
+        <div class="rsi-stage stage-generate" id="rsi-generate">
+          <span class="stage-dot"></span>Generate
+        </div>
+        <span class="rsi-arrow">&#9654;</span>
+        <div class="rsi-stage stage-validate" id="rsi-validate">
+          <span class="stage-dot"></span>Validate
+        </div>
+        <span class="rsi-arrow">&#9654;</span>
+        <div class="rsi-stage stage-test" id="rsi-test">
+          <span class="stage-dot"></span>Test
+        </div>
+        <span class="rsi-arrow">&#9654;</span>
+        <div class="rsi-stage stage-promote" id="rsi-promote">
+          <span class="stage-dot"></span>Promote
+        </div>
+        <div style="flex:1;"></div>
+        <span style="font-size:10px;color:var(--text-muted);">Cycle #17 &bull; 4m 23s</span>
+      </div>
+
+      <!-- VIEW CONTAINER -->
+      <div class="view-container">
+
+        <!-- CHAT VIEW -->
+        <div class="view active" id="view-chat">
+          <div class="chat-view">
+            <div class="chat-panel">
+              <div class="chat-messages" id="chat-messages">
+                <div class="msg">
+                  <div class="msg-avatar user">H</div>
+                  <div class="msg-body">
+                    <div class="msg-header">
+                      <span class="msg-name">Henry</span>
+                      <span class="msg-time">2:14 PM</span>
+                    </div>
+                    <div class="msg-text">Can you add a new tool for fetching RSS feeds? It should parse the XML and return structured entries with title, link, and published date.</div>
+                  </div>
+                </div>
+
+                <div class="msg">
+                  <div class="msg-avatar agent">O</div>
+                  <div class="msg-body">
+                    <div class="msg-header">
+                      <span class="msg-name">Ouroboros</span>
+                      <span class="msg-time">2:14 PM</span>
+                    </div>
+                    <div class="msg-text">I'll create an RSS feed tool. Let me first check the existing tool structure to match the pattern.</div>
+
+                    <div class="tool-card expanded" onclick="this.classList.toggle('expanded')">
+                      <div class="tool-card-header">
+                        <div class="tool-card-icon file">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </div>
+                        <span class="tool-card-name">Read File</span>
+                        <span class="tool-card-cmd">src/tools/web-fetch.ts</span>
+                        <span class="tool-card-status success">done</span>
+                        <span class="tool-card-chevron">&#9654;</span>
+                      </div>
+                      <div class="tool-card-body">
+                        <pre><span class="syn-keyword">import</span> { z } <span class="syn-keyword">from</span> <span class="syn-string">"zod"</span>;
+<span class="syn-keyword">import</span> <span class="syn-keyword">type</span> { Tool } <span class="syn-keyword">from</span> <span class="syn-string">"../types"</span>;
+
+<span class="syn-keyword">export const</span> <span class="syn-fn">webFetch</span>: Tool = {
+  name: <span class="syn-string">"web_fetch"</span>,
+  description: <span class="syn-string">"Fetch a URL and return contents"</span>,
+  schema: z.object({
+    url: z.string().url(),
+    format: z.enum([<span class="syn-string">"text"</span>, <span class="syn-string">"json"</span>, <span class="syn-string">"html"</span>]),
+  }),
+  <span class="syn-keyword">async</span> <span class="syn-fn">execute</span>(args) {
+    <span class="syn-comment">// ... implementation</span>
+  }
+};</pre>
+                      </div>
+                    </div>
+
+                    <div class="tool-card" onclick="this.classList.toggle('expanded')">
+                      <div class="tool-card-header">
+                        <div class="tool-card-icon bash">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                        </div>
+                        <span class="tool-card-name">Bash</span>
+                        <span class="tool-card-cmd">ls src/tools/*.ts | head -10</span>
+                        <span class="tool-card-status success">done</span>
+                        <span class="tool-card-chevron">&#9654;</span>
+                      </div>
+                      <div class="tool-card-body">
+                        <pre>src/tools/bash.ts
+src/tools/file-read.ts
+src/tools/file-write.ts
+src/tools/file-edit.ts
+src/tools/web-fetch.ts
+src/tools/memory-read.ts
+src/tools/memory-write.ts</pre>
+                      </div>
+                    </div>
+
+                    <div class="tool-card" onclick="this.classList.toggle('expanded')">
+                      <div class="tool-card-header">
+                        <div class="tool-card-icon file">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </div>
+                        <span class="tool-card-name">Write File</span>
+                        <span class="tool-card-cmd">src/tools/rss-fetch.ts</span>
+                        <span class="tool-card-status success">done</span>
+                        <span class="tool-card-chevron">&#9654;</span>
+                      </div>
+                      <div class="tool-card-body">
+                        <pre><span class="syn-keyword">import</span> { z } <span class="syn-keyword">from</span> <span class="syn-string">"zod"</span>;
+<span class="syn-keyword">import</span> <span class="syn-keyword">type</span> { Tool, Result } <span class="syn-keyword">from</span> <span class="syn-string">"../types"</span>;
+
+<span class="syn-keyword">interface</span> RSSEntry {
+  title: <span class="syn-fn">string</span>;
+  link: <span class="syn-fn">string</span>;
+  published: <span class="syn-fn">string</span>;
+  summary?: <span class="syn-fn">string</span>;
+}
+
+<span class="syn-keyword">export const</span> <span class="syn-fn">rssFetch</span>: Tool = {
+  name: <span class="syn-string">"rss_fetch"</span>,
+  description: <span class="syn-string">"Fetch and parse an RSS feed"</span>,
+  schema: z.object({
+    url: z.string().url(),
+    limit: z.number().optional().default(<span class="syn-number">20</span>),
+  }),
+  <span class="syn-comment">// ...</span>
+};</pre>
+                      </div>
+                    </div>
+
+                    <div class="tool-card" onclick="this.classList.toggle('expanded')">
+                      <div class="tool-card-header">
+                        <div class="tool-card-icon bash">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                        </div>
+                        <span class="tool-card-name">Bash</span>
+                        <span class="tool-card-cmd">bun test src/tools/rss-fetch.test.ts</span>
+                        <span class="tool-card-status success">done</span>
+                        <span class="tool-card-chevron">&#9654;</span>
+                      </div>
+                      <div class="tool-card-body">
+                        <pre><span class="syn-fn">bun test v1.1.34</span>
+
+<span class="syn-string">&#10004;</span> rss_fetch &gt; parses valid RSS 2.0 feed <span class="syn-comment">(3ms)</span>
+<span class="syn-string">&#10004;</span> rss_fetch &gt; parses Atom feed <span class="syn-comment">(2ms)</span>
+<span class="syn-string">&#10004;</span> rss_fetch &gt; respects limit parameter <span class="syn-comment">(1ms)</span>
+<span class="syn-string">&#10004;</span> rss_fetch &gt; returns error for invalid URL <span class="syn-comment">(1ms)</span>
+
+<span class="syn-number">4</span> pass | <span class="syn-number">0</span> fail  <span class="syn-comment">(12ms)</span></pre>
+                      </div>
+                    </div>
+
+                    <div class="msg-text" style="margin-top:8px;">
+                      Done! I created <code>src/tools/rss-fetch.ts</code> following the existing tool pattern. It supports both RSS 2.0 and Atom feeds, returns structured entries with <code>title</code>, <code>link</code>, and <code>published</code> fields, and includes a configurable <code>limit</code> parameter. All 4 tests pass.
+                    </div>
+                  </div>
+                </div>
+
+                <div class="msg">
+                  <div class="msg-avatar user">H</div>
+                  <div class="msg-body">
+                    <div class="msg-header">
+                      <span class="msg-name">Henry</span>
+                      <span class="msg-time">2:16 PM</span>
+                    </div>
+                    <div class="msg-text">Perfect. Now crystallize this as a reusable skill so it can be used across sessions.</div>
+                  </div>
+                </div>
+
+                <div class="msg">
+                  <div class="msg-avatar agent">O</div>
+                  <div class="msg-body">
+                    <div class="msg-header">
+                      <span class="msg-name">Ouroboros</span>
+                      <span class="msg-time">2:16 PM</span>
+                    </div>
+                    <div class="msg-text">Triggering the RSI pipeline to crystallize the RSS fetch tool into a portable skill...</div>
+
+                    <div class="tool-card" onclick="this.classList.toggle('expanded')">
+                      <div class="tool-card-header">
+                        <div class="tool-card-icon" style="background:rgba(167,139,250,0.15); color:var(--stage-reflect);">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                        </div>
+                        <span class="tool-card-name">Crystallize</span>
+                        <span class="tool-card-cmd">rss-fetch-tool &rarr; skills/generated/rss-fetch/</span>
+                        <span class="tool-card-status running">running</span>
+                        <span class="tool-card-chevron">&#9654;</span>
+                      </div>
+                      <div class="tool-card-body">
+                        <pre><span class="syn-comment"># Writing SKILL.md with YAML frontmatter...</span>
+<span class="syn-comment"># Extracting schema, tests, and implementation...</span>
+<span class="syn-keyword">Stage:</span> Reflect <span class="syn-string">&#10004;</span> &rarr; Generate <span class="syn-string">&#10004;</span> &rarr; Validate <span class="syn-fn">(running)</span></pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="chat-input-area">
+                <div class="chat-input-box">
+                  <textarea placeholder="Ask Ouroboros anything... (Ctrl+Enter to send)" rows="1"></textarea>
+                  <button class="chat-send-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Context Panel -->
+            <div class="context-panel">
+              <div class="context-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Tool Output Detail
+              </div>
+              <div class="context-body">
+                <div class="ctx-file-header">
+                  <div class="ctx-file-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  </div>
+                  <div>
+                    <div class="ctx-file-name">rss-fetch.ts</div>
+                    <div class="ctx-file-path">src/tools/rss-fetch.ts</div>
+                  </div>
+                </div>
+                <div class="ctx-code">
+                  <span class="line-num">1</span><span class="syn-keyword">import</span> { z } <span class="syn-keyword">from</span> <span class="syn-string">"zod"</span>;<br>
+                  <span class="line-num">2</span><span class="syn-keyword">import</span> <span class="syn-keyword">type</span> { Tool, Result } <span class="syn-keyword">from</span> <span class="syn-string">"../types"</span>;<br>
+                  <span class="line-num">3</span><br>
+                  <span class="line-num">4</span><span class="syn-keyword">interface</span> <span class="syn-fn">RSSEntry</span> {<br>
+                  <span class="highlight-line"><span class="line-num">5</span>  title: <span class="syn-fn">string</span>;</span>
+                  <span class="highlight-line"><span class="line-num">6</span>  link: <span class="syn-fn">string</span>;</span>
+                  <span class="highlight-line"><span class="line-num">7</span>  published: <span class="syn-fn">string</span>;</span>
+                  <span class="line-num">8</span>  summary?: <span class="syn-fn">string</span>;<br>
+                  <span class="line-num">9</span>}<br>
+                  <span class="line-num">10</span><br>
+                  <span class="line-num">11</span><span class="syn-keyword">const</span> <span class="syn-fn">parseRSS</span> = (<br>
+                  <span class="line-num">12</span>  xml: <span class="syn-fn">string</span><br>
+                  <span class="line-num">13</span>): Result&lt;RSSEntry[]&gt; =&gt; {<br>
+                  <span class="line-num">14</span>  <span class="syn-keyword">const</span> parser = <span class="syn-keyword">new</span> <span class="syn-fn">DOMParser</span>();<br>
+                  <span class="line-num">15</span>  <span class="syn-keyword">const</span> doc = parser.<span class="syn-fn">parseFromString</span>(<br>
+                  <span class="line-num">16</span>    xml, <span class="syn-string">"text/xml"</span><br>
+                  <span class="line-num">17</span>  );<br>
+                  <span class="line-num">18</span><br>
+                  <span class="line-num">19</span>  <span class="syn-comment">// Detect feed type</span><br>
+                  <span class="line-num">20</span>  <span class="syn-keyword">const</span> isAtom = !!doc.<span class="syn-fn">querySelector</span>(<br>
+                  <span class="line-num">21</span>    <span class="syn-string">"feed"</span><br>
+                  <span class="line-num">22</span>  );<br>
+                  <span class="line-num">23</span><br>
+                  <span class="line-num">24</span>  <span class="syn-keyword">const</span> items = isAtom<br>
+                  <span class="line-num">25</span>    ? <span class="syn-fn">parseAtom</span>(doc)<br>
+                  <span class="line-num">26</span>    : <span class="syn-fn">parseRSS2</span>(doc);<br>
+                  <span class="line-num">27</span><br>
+                  <span class="line-num">28</span>  <span class="syn-keyword">return</span> { ok: <span class="syn-keyword">true</span>, value: items };<br>
+                  <span class="line-num">29</span>};<br>
+                  <span class="line-num">30</span><br>
+                  <span class="line-num">31</span><span class="syn-keyword">export const</span> <span class="syn-fn">rssFetch</span>: Tool = {<br>
+                  <span class="line-num">32</span>  name: <span class="syn-string">"rss_fetch"</span>,<br>
+                  <span class="line-num">33</span>  description: <span class="syn-string">"Fetch and parse RSS"</span>,<br>
+                  <span class="line-num">34</span>  schema: z.<span class="syn-fn">object</span>({<br>
+                  <span class="line-num">35</span>    url: z.<span class="syn-fn">string</span>().<span class="syn-fn">url</span>(),<br>
+                  <span class="line-num">36</span>    limit: z.<span class="syn-fn">number</span>().<span class="syn-fn">default</span>(<span class="syn-number">20</span>),<br>
+                  <span class="line-num">37</span>  }),<br>
+                  <span class="line-num">38</span>  <span class="syn-keyword">async</span> <span class="syn-fn">execute</span>(args) {<br>
+                  <span class="line-num">39</span>    <span class="syn-keyword">const</span> res = <span class="syn-keyword">await</span> <span class="syn-fn">fetch</span>(args.url);<br>
+                  <span class="line-num">40</span>    <span class="syn-keyword">const</span> xml = <span class="syn-keyword">await</span> res.<span class="syn-fn">text</span>();<br>
+                  <span class="line-num">41</span>    <span class="syn-keyword">return</span> <span class="syn-fn">parseRSS</span>(xml);<br>
+                  <span class="line-num">42</span>  }<br>
+                  <span class="line-num">43</span>};<br>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SKILLS VIEW -->
+        <div class="view" id="view-skills">
+          <div class="skills-view">
+            <div class="skills-toolbar">
+              <input class="skills-search" type="text" placeholder="Search skills..." id="skills-search">
+              <button class="filter-btn active" data-filter="all">All</button>
+              <button class="filter-btn" data-filter="core">Core</button>
+              <button class="filter-btn" data-filter="generated">Generated</button>
+              <button class="filter-btn" data-filter="staging">Staging</button>
+              <span class="skills-count" id="skills-count">12 skills</span>
+            </div>
+            <div class="skills-grid" id="skills-grid"></div>
+          </div>
+        </div>
+
+        <!-- EVOLUTION VIEW -->
+        <div class="view" id="view-evolution">
+          <div class="evolution-view">
+            <div class="evo-scroll">
+              <div class="evo-stats">
+                <div class="evo-stat-card">
+                  <span class="evo-stat-label">Total Skills</span>
+                  <span class="evo-stat-value">12</span>
+                  <span class="evo-stat-delta delta-up">+3 this week</span>
+                </div>
+                <div class="evo-stat-card">
+                  <span class="evo-stat-label">RSI Cycles</span>
+                  <span class="evo-stat-value">17</span>
+                  <span class="evo-stat-delta delta-up">+5 this week</span>
+                </div>
+                <div class="evo-stat-card">
+                  <span class="evo-stat-label">Avg Confidence</span>
+                  <span class="evo-stat-value">87%</span>
+                  <span class="evo-stat-delta delta-up">+4% from last</span>
+                </div>
+                <div class="evo-stat-card">
+                  <span class="evo-stat-label">Tests Passing</span>
+                  <span class="evo-stat-value">94%</span>
+                  <span class="evo-stat-delta delta-down">-1% from last</span>
+                </div>
+              </div>
+
+              <div class="evo-row">
+                <div class="evo-section" style="flex:1;">
+                  <div class="evo-section-header">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                    Skills Created Over Time
+                  </div>
+                  <div class="evo-section-body">
+                    <div class="bar-chart" id="bar-chart"></div>
+                  </div>
+                </div>
+                <div class="evo-section" style="flex:1;">
+                  <div class="evo-section-header">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    RSI Stage Distribution
+                  </div>
+                  <div class="evo-section-body">
+                    <div id="donut-chart" style="display:flex;align-items:center;justify-content:center;gap:28px;height:140px;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="evo-section">
+                <div class="evo-section-header">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                  Evolution Log
+                </div>
+                <div class="evo-section-body">
+                  <div class="evo-timeline" id="evo-timeline"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- APPROVALS VIEW -->
+        <div class="view" id="view-approvals">
+          <div class="approvals-view">
+            <div class="approvals-scroll" id="approvals-list">
+              <div class="approval-card">
+                <div class="approval-card-header">
+                  <span class="approval-risk high"></span>
+                  <span class="approval-title">Modify core ReAct loop error handling</span>
+                  <span class="approval-time">2 min ago</span>
+                </div>
+                <div class="approval-card-body">
+                  <div class="approval-desc">The agent wants to modify <code>src/core/react-loop.ts</code> to add retry logic with exponential backoff when tool execution fails. This changes the core execution path.</div>
+                  <div class="approval-diff">
+                    <span class="diff-ctx">  } catch (error) {</span><br>
+                    <span class="diff-del">-   return { ok: false, error };</span><br>
+                    <span class="diff-add">+   if (retries &lt; MAX_RETRIES) {</span><br>
+                    <span class="diff-add">+     await sleep(backoff(retries));</span><br>
+                    <span class="diff-add">+     return execute(args, retries + 1);</span><br>
+                    <span class="diff-add">+   }</span><br>
+                    <span class="diff-add">+   return { ok: false, error };</span><br>
+                    <span class="diff-ctx">  }</span>
+                  </div>
+                  <div class="approval-actions">
+                    <button class="approval-btn inspect">Inspect</button>
+                    <button class="approval-btn reject">Reject</button>
+                    <button class="approval-btn approve">Approve</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="approval-card">
+                <div class="approval-card-header">
+                  <span class="approval-risk high"></span>
+                  <span class="approval-title">Add new permission tier: network_unrestricted</span>
+                  <span class="approval-time">8 min ago</span>
+                </div>
+                <div class="approval-card-body">
+                  <div class="approval-desc">The agent proposes adding a 6th permission tier that allows unrestricted network access for tools that need to make arbitrary HTTP requests. This would bypass the URL allowlist.</div>
+                  <div class="approval-diff">
+                    <span class="diff-ctx">  export const PERMISSION_TIERS = [</span><br>
+                    <span class="diff-ctx">    "read_only",</span><br>
+                    <span class="diff-ctx">    "write_local",</span><br>
+                    <span class="diff-ctx">    "write_repo",</span><br>
+                    <span class="diff-ctx">    "execute",</span><br>
+                    <span class="diff-ctx">    "admin",</span><br>
+                    <span class="diff-add">+   "network_unrestricted",</span><br>
+                    <span class="diff-ctx">  ] as const;</span>
+                  </div>
+                  <div class="approval-actions">
+                    <button class="approval-btn inspect">Inspect</button>
+                    <button class="approval-btn reject">Reject</button>
+                    <button class="approval-btn approve">Approve</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="approval-card">
+                <div class="approval-card-header">
+                  <span class="approval-risk medium"></span>
+                  <span class="approval-title">Promote rss-fetch skill from staging to generated</span>
+                  <span class="approval-time">12 min ago</span>
+                </div>
+                <div class="approval-card-body">
+                  <div class="approval-desc">RSI cycle #17 completed validation and testing for the rss-fetch skill. All 4 tests pass, confidence score is 0.92. Ready for promotion from staging to generated.</div>
+                  <div class="approval-diff">
+                    <span class="diff-ctx">  # SKILL.md frontmatter</span><br>
+                    <span class="diff-del">- status: staging</span><br>
+                    <span class="diff-add">+ status: generated</span><br>
+                    <span class="diff-del">- confidence: 0.85</span><br>
+                    <span class="diff-add">+ confidence: 0.92</span>
+                  </div>
+                  <div class="approval-actions">
+                    <button class="approval-btn inspect">Inspect</button>
+                    <button class="approval-btn reject">Reject</button>
+                    <button class="approval-btn approve">Approve</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SETTINGS VIEW -->
+        <div class="view" id="view-settings">
+          <div class="settings-view">
+            <div class="settings-nav">
+              <div class="settings-nav-section">General</div>
+              <div class="settings-nav-item active" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Model</div>
+              <div class="settings-nav-item" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Permissions</div>
+              <div class="settings-nav-item" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Appearance</div>
+              <div class="settings-nav-section">RSI</div>
+              <div class="settings-nav-item" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Self-Improvement</div>
+              <div class="settings-nav-item" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Dream Cycle</div>
+              <div class="settings-nav-section">Storage</div>
+              <div class="settings-nav-item" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Skill Directories</div>
+              <div class="settings-nav-item" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Memory</div>
+              <div class="settings-nav-item" onclick="document.querySelectorAll('.settings-nav-item').forEach(function(i){i.classList.remove('active')});this.classList.add('active')">Transcripts</div>
+            </div>
+            <div class="settings-content">
+              <div class="settings-group">
+                <div class="settings-group-title">Model Configuration</div>
+                <div class="settings-group-desc">Select which LLM provider and model to use for the agent.</div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Provider</div>
+                    <div class="setting-hint">LLM provider via Vercel AI SDK</div>
+                  </div>
+                  <div class="setting-control">
+                    <select>
+                      <option selected>Anthropic</option>
+                      <option>OpenAI</option>
+                      <option>Google</option>
+                      <option>Ollama (Local)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Model</div>
+                    <div class="setting-hint">Primary model for agent reasoning</div>
+                  </div>
+                  <div class="setting-control">
+                    <select>
+                      <option>claude-sonnet-4-20250514</option>
+                      <option selected>claude-opus-4-20250514</option>
+                      <option>claude-haiku-3-20250414</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Temperature</div>
+                    <div class="setting-hint">0 = deterministic, 1 = creative</div>
+                  </div>
+                  <div class="setting-control">
+                    <input type="text" value="0.3" style="width:80px;min-width:80px;text-align:center;">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Max Tokens</div>
+                    <div class="setting-hint">Maximum output tokens per response</div>
+                  </div>
+                  <div class="setting-control">
+                    <input type="text" value="16384" style="width:100px;min-width:100px;text-align:center;">
+                  </div>
+                </div>
+              </div>
+              <div class="settings-group">
+                <div class="settings-group-title">Safety</div>
+                <div class="settings-group-desc">Control the permission model and approval requirements.</div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Auto-approve read-only operations</div>
+                    <div class="setting-hint">Skip approval for Tier 1 tools</div>
+                  </div>
+                  <div class="setting-control">
+                    <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Auto-approve local writes</div>
+                    <div class="setting-hint">Skip approval for Tier 2 tools</div>
+                  </div>
+                  <div class="setting-control">
+                    <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Require approval for self-modification</div>
+                    <div class="setting-hint">Always prompt before RSI changes</div>
+                  </div>
+                  <div class="setting-control">
+                    <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Enable Dream Cycle</div>
+                    <div class="setting-hint">Run memory consolidation between sessions</div>
+                  </div>
+                  <div class="setting-control">
+                    <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <div class="sb-segment">
+      <span class="sb-dot" style="background:var(--accent-success);"></span>
+      Connected
+    </div>
+    <div class="sb-segment">claude-opus-4</div>
+    <div class="sb-segment">Session #42</div>
+    <div class="sb-segment">RSI Cycle #17</div>
+    <div class="sb-spacer"></div>
+    <div class="sb-segment">12 skills</div>
+    <div class="sb-segment">3 pending approvals</div>
+    <div class="sb-segment">Bun 1.1.34</div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // VIEW SWITCHING
+  var viewNames = { chat: 'Chat', skills: 'Skills Browser', evolution: 'Evolution Dashboard', approvals: 'Approval Queue', settings: 'Settings' };
+  var abIcons = document.querySelectorAll('.ab-icon[data-view]');
+  for (var i = 0; i < abIcons.length; i++) {
+    abIcons[i].addEventListener('click', (function(icon) {
+      return function() {
+        var viewId = icon.getAttribute('data-view');
+        var allIcons = document.querySelectorAll('.ab-icon');
+        for (var j = 0; j < allIcons.length; j++) allIcons[j].classList.remove('active');
+        icon.classList.add('active');
+        var allViews = document.querySelectorAll('.view');
+        for (var j = 0; j < allViews.length; j++) allViews[j].classList.remove('active');
+        var target = document.getElementById('view-' + viewId);
+        if (target) target.classList.add('active');
+        document.getElementById('breadcrumb-current').textContent = viewNames[viewId] || viewId;
+      };
+    })(abIcons[i]));
+  }
+
+  // RSI PIPELINE CYCLING
+  var stages = ['reflect', 'generate', 'validate', 'test', 'promote'];
+  var currentStage = 0;
+  setInterval(function() {
+    for (var i = 0; i < stages.length; i++) {
+      document.getElementById('rsi-' + stages[i]).classList.remove('active');
+    }
+    currentStage = (currentStage + 1) % stages.length;
+    document.getElementById('rsi-' + stages[currentStage]).classList.add('active');
+  }, 3000);
+
+  // SKILLS DATA + RENDERING
+  var skills = [
+    { name: 'Bash Execute', desc: 'Run shell commands with timeout and sandboxing. Captures stdout, stderr, and exit code.', status: 'core', icon: '>', confidence: 0.98, uses: 1247 },
+    { name: 'File Read', desc: 'Read file contents with line range support. Handles text, images, and PDFs.', status: 'core', icon: '\u2B9A', confidence: 0.99, uses: 2034 },
+    { name: 'File Write', desc: 'Write or overwrite file contents with conflict detection and backup.', status: 'core', icon: '\u270E', confidence: 0.97, uses: 856 },
+    { name: 'File Edit', desc: 'Exact string replacement in files with uniqueness validation.', status: 'core', icon: '\u0394', confidence: 0.96, uses: 1523 },
+    { name: 'Web Fetch', desc: 'Fetch URLs and return content as text, JSON, or parsed HTML.', status: 'core', icon: '\u21E9', confidence: 0.95, uses: 432 },
+    { name: 'Memory Read', desc: 'Read from the 3-layer memory system: index, topics, or transcripts.', status: 'core', icon: '\u29BE', confidence: 0.94, uses: 678 },
+    { name: 'Memory Write', desc: 'Write to memory layers with automatic indexing and cross-referencing.', status: 'core', icon: '\u29BF', confidence: 0.93, uses: 445 },
+    { name: 'RSS Fetch', desc: 'Fetch and parse RSS 2.0 and Atom feeds into structured entries.', status: 'generated', icon: '\u25CE', confidence: 0.92, uses: 12 },
+    { name: 'Git Diff Analyzer', desc: 'Analyze git diffs to summarize changes, detect patterns, and suggest commit messages.', status: 'generated', icon: '\u2442', confidence: 0.89, uses: 67 },
+    { name: 'Test Generator', desc: 'Generate Bun test suites from TypeScript source files with edge case coverage.', status: 'generated', icon: '\u2713', confidence: 0.85, uses: 34 },
+    { name: 'Dependency Mapper', desc: 'Map import/export relationships across the codebase to build a dependency graph.', status: 'staging', icon: '\u29BF', confidence: 0.72, uses: 5 },
+    { name: 'Error Classifier', desc: 'Classify runtime errors by category and suggest targeted fixes based on patterns.', status: 'staging', icon: '!', confidence: 0.68, uses: 3 }
+  ];
+
+  function renderSkills(filter, search) {
+    filter = filter || 'all';
+    search = (search || '').toLowerCase();
+    var grid = document.getElementById('skills-grid');
+    var filtered = [];
+    for (var i = 0; i < skills.length; i++) {
+      var s = skills[i];
+      if (filter !== 'all' && s.status !== filter) continue;
+      if (search && s.name.toLowerCase().indexOf(search) === -1 && s.desc.toLowerCase().indexOf(search) === -1) continue;
+      filtered.push(s);
+    }
+    document.getElementById('skills-count').textContent = filtered.length + ' skill' + (filtered.length !== 1 ? 's' : '');
+
+    // Build skill cards using DOM methods
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+    for (var i = 0; i < filtered.length; i++) {
+      var s = filtered[i];
+      var confClass = s.confidence >= 0.9 ? 'high' : s.confidence >= 0.75 ? 'med' : 'low';
+      var confPct = Math.round(s.confidence * 100);
+
+      var card = document.createElement('div');
+      card.className = 'skill-card';
+
+      var top = document.createElement('div');
+      top.className = 'skill-card-top';
+
+      var iconEl = document.createElement('div');
+      iconEl.className = 'skill-icon ' + s.status;
+      iconEl.textContent = s.icon;
+
+      var info = document.createElement('div');
+      info.style.cssText = 'flex:1;min-width:0;';
+
+      var title = document.createElement('div');
+      title.className = 'skill-card-title';
+      title.textContent = s.name;
+
+      var badge = document.createElement('span');
+      badge.className = 'skill-badge ' + s.status;
+      badge.textContent = s.status;
+
+      info.appendChild(title);
+      info.appendChild(badge);
+      top.appendChild(iconEl);
+      top.appendChild(info);
+
+      var desc = document.createElement('div');
+      desc.className = 'skill-card-desc';
+      desc.textContent = s.desc;
+
+      var meta = document.createElement('div');
+      meta.className = 'skill-card-meta';
+
+      var confItem = document.createElement('div');
+      confItem.className = 'skill-meta-item';
+      var confBar = document.createElement('div');
+      confBar.className = 'confidence-bar';
+      var confFill = document.createElement('div');
+      confFill.className = 'confidence-bar-fill confidence-' + confClass;
+      confFill.style.width = confPct + '%';
+      confBar.appendChild(confFill);
+      var confText = document.createElement('span');
+      confText.textContent = confPct + '%';
+      confItem.appendChild(confBar);
+      confItem.appendChild(confText);
+
+      var usesItem = document.createElement('div');
+      usesItem.className = 'skill-meta-item';
+      var usesSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      usesSvg.setAttribute('width', '10');
+      usesSvg.setAttribute('height', '10');
+      usesSvg.setAttribute('viewBox', '0 0 24 24');
+      usesSvg.setAttribute('fill', 'none');
+      usesSvg.setAttribute('stroke', 'currentColor');
+      usesSvg.setAttribute('stroke-width', '2');
+      var usesPath = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      usesPath.setAttribute('points', '22 12 18 12 15 21 9 3 6 12 2 12');
+      usesSvg.appendChild(usesPath);
+      var usesText = document.createElement('span');
+      usesText.textContent = s.uses.toLocaleString() + ' uses';
+      usesItem.appendChild(usesSvg);
+      usesItem.appendChild(usesText);
+
+      meta.appendChild(confItem);
+      meta.appendChild(usesItem);
+
+      card.appendChild(top);
+      card.appendChild(desc);
+      card.appendChild(meta);
+      grid.appendChild(card);
+    }
+  }
+
+  var filterBtns = document.querySelectorAll('.filter-btn');
+  for (var i = 0; i < filterBtns.length; i++) {
+    filterBtns[i].addEventListener('click', (function(btn) {
+      return function() {
+        for (var j = 0; j < filterBtns.length; j++) filterBtns[j].classList.remove('active');
+        btn.classList.add('active');
+        renderSkills(btn.getAttribute('data-filter'), document.getElementById('skills-search').value);
+      };
+    })(filterBtns[i]));
+  }
+
+  document.getElementById('skills-search').addEventListener('input', function(e) {
+    var activeBtn = document.querySelector('.filter-btn.active');
+    var filter = activeBtn ? activeBtn.getAttribute('data-filter') : 'all';
+    renderSkills(filter, e.target.value);
+  });
+
+  renderSkills();
+
+  // BAR CHART
+  var barData = [
+    { label: 'Mon', core: 7, gen: 0 },
+    { label: 'Tue', core: 7, gen: 1 },
+    { label: 'Wed', core: 7, gen: 1 },
+    { label: 'Thu', core: 7, gen: 2 },
+    { label: 'Fri', core: 7, gen: 2 },
+    { label: 'Sat', core: 7, gen: 3 },
+    { label: 'Sun', core: 7, gen: 3 },
+    { label: 'Today', core: 7, gen: 3 }
+  ];
+  var maxBar = 0;
+  for (var i = 0; i < barData.length; i++) {
+    var t = barData[i].core + barData[i].gen;
+    if (t > maxBar) maxBar = t;
+  }
+
+  var chartEl = document.getElementById('bar-chart');
+  for (var i = 0; i < barData.length; i++) {
+    var d = barData[i];
+    var totalH = ((d.core + d.gen) / maxBar) * 110;
+    var genH = (d.gen / maxBar) * 110;
+    var coreH = totalH - genH;
+
+    var col = document.createElement('div');
+    col.className = 'bar-col';
+
+    var val = document.createElement('div');
+    val.className = 'bar-value';
+    val.textContent = d.core + d.gen;
+
+    var stack = document.createElement('div');
+    stack.style.cssText = 'display:flex;flex-direction:column;width:100%;max-width:36px;';
+
+    if (genH > 0) {
+      var genRect = document.createElement('div');
+      genRect.className = 'bar-rect';
+      genRect.style.cssText = 'height:' + genH + 'px;background:var(--stage-reflect);border-radius:3px 3px 0 0;';
+      stack.appendChild(genRect);
+    }
+
+    var coreRect = document.createElement('div');
+    coreRect.className = 'bar-rect';
+    coreRect.style.cssText = 'height:' + coreH + 'px;background:var(--accent-info);border-radius:' + (genH === 0 ? '3px 3px' : '0 0') + ' 0 0;';
+    stack.appendChild(coreRect);
+
+    var lbl = document.createElement('span');
+    lbl.className = 'bar-label';
+    lbl.textContent = d.label;
+
+    col.appendChild(val);
+    col.appendChild(stack);
+    col.appendChild(lbl);
+    chartEl.appendChild(col);
+  }
+
+  // DONUT CHART (SVG)
+  var donutData = [
+    { label: 'Reflect', value: 17, color: 'var(--stage-reflect)' },
+    { label: 'Generate', value: 15, color: 'var(--stage-generate)' },
+    { label: 'Validate', value: 14, color: 'var(--stage-validate)' },
+    { label: 'Test', value: 13, color: 'var(--stage-test)' },
+    { label: 'Promote', value: 11, color: 'var(--stage-promote)' }
+  ];
+  var total = 0;
+  for (var i = 0; i < donutData.length; i++) total += donutData[i].value;
+  var R = 52, r = 34, cx = 60, cy = 60;
+  var angle = -90;
+
+  var svgNS = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '120');
+  svg.setAttribute('height', '120');
+  svg.setAttribute('viewBox', '0 0 120 120');
+
+  for (var i = 0; i < donutData.length; i++) {
+    var d = donutData[i];
+    var pct = d.value / total;
+    var a1 = (angle * Math.PI) / 180;
+    var a2 = ((angle + pct * 360 - 1) * Math.PI) / 180;
+    var x1o = cx + R * Math.cos(a1), y1o = cy + R * Math.sin(a1);
+    var x2o = cx + R * Math.cos(a2), y2o = cy + R * Math.sin(a2);
+    var x1i = cx + r * Math.cos(a2), y1i = cy + r * Math.sin(a2);
+    var x2i = cx + r * Math.cos(a1), y2i = cy + r * Math.sin(a1);
+    var large = pct > 0.5 ? 1 : 0;
+    var path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', 'M' + x1o + ',' + y1o + ' A' + R + ',' + R + ' 0 ' + large + ',1 ' + x2o + ',' + y2o + ' L' + x1i + ',' + y1i + ' A' + r + ',' + r + ' 0 ' + large + ',0 ' + x2i + ',' + y2i + ' Z');
+    path.setAttribute('fill', d.color);
+    path.setAttribute('opacity', '0.85');
+    svg.appendChild(path);
+    angle += pct * 360;
+  }
+
+  var centerVal = document.createElementNS(svgNS, 'text');
+  centerVal.setAttribute('x', String(cx));
+  centerVal.setAttribute('y', String(cy - 4));
+  centerVal.setAttribute('text-anchor', 'middle');
+  centerVal.setAttribute('fill', 'var(--text-primary)');
+  centerVal.setAttribute('font-size', '16');
+  centerVal.setAttribute('font-weight', '700');
+  centerVal.textContent = String(total);
+  svg.appendChild(centerVal);
+
+  var centerLabel = document.createElementNS(svgNS, 'text');
+  centerLabel.setAttribute('x', String(cx));
+  centerLabel.setAttribute('y', String(cy + 10));
+  centerLabel.setAttribute('text-anchor', 'middle');
+  centerLabel.setAttribute('fill', 'var(--text-muted)');
+  centerLabel.setAttribute('font-size', '9');
+  centerLabel.textContent = 'cycles';
+  svg.appendChild(centerLabel);
+
+  var donutContainer = document.getElementById('donut-chart');
+  donutContainer.appendChild(svg);
+
+  var legendDiv = document.createElement('div');
+  legendDiv.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+  for (var i = 0; i < donutData.length; i++) {
+    var d = donutData[i];
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);';
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width:8px;height:8px;border-radius:2px;background:' + d.color + ';flex-shrink:0;';
+    var txt = document.createTextNode(d.label + ' ');
+    var num = document.createElement('span');
+    num.style.color = 'var(--text-muted)';
+    num.textContent = '(' + d.value + ')';
+    row.appendChild(dot);
+    row.appendChild(txt);
+    row.appendChild(num);
+    legendDiv.appendChild(row);
+  }
+  donutContainer.appendChild(legendDiv);
+
+  // EVOLUTION TIMELINE
+  var timelineData = [
+    { title: 'Promoted rss-fetch skill', desc: 'RSI cycle #17 completed. Confidence 0.85 \u2192 0.92 after passing all validation tests.', time: '2 min ago', color: 'var(--stage-promote)', tag: 'Promote', tagBg: 'rgba(244,114,182,0.15)', tagColor: 'var(--stage-promote)' },
+    { title: 'Generated test-generator skill', desc: 'Crystallized from session #40 patterns. Auto-generates Bun test suites from TS source.', time: '1 hour ago', color: 'var(--stage-generate)', tag: 'Generate', tagBg: 'rgba(96,165,250,0.15)', tagColor: 'var(--stage-generate)' },
+    { title: 'Validated git-diff-analyzer', desc: 'Schema validation passed. 12/12 test cases green. Edge cases for binary diffs handled.', time: '3 hours ago', color: 'var(--stage-validate)', tag: 'Validate', tagBg: 'rgba(52,211,153,0.15)', tagColor: 'var(--stage-validate)' },
+    { title: 'Dream cycle completed', desc: 'Consolidated 3 sessions of memory. Identified 2 recurring patterns for potential skills.', time: '6 hours ago', color: 'var(--stage-reflect)', tag: 'Dream', tagBg: 'rgba(167,139,250,0.15)', tagColor: 'var(--stage-reflect)' },
+    { title: 'Reflected on error handling patterns', desc: 'Noticed repeated try/catch patterns across 5 tools. Flagged for potential abstraction.', time: '1 day ago', color: 'var(--stage-reflect)', tag: 'Reflect', tagBg: 'rgba(167,139,250,0.15)', tagColor: 'var(--stage-reflect)' },
+    { title: 'Test failure: dependency-mapper', desc: 'Circular import detection failed for 3-node cycles. Rolled back to previous version.', time: '1 day ago', color: 'var(--accent-danger)', tag: 'Test', tagBg: 'rgba(248,113,113,0.15)', tagColor: 'var(--accent-danger)' }
+  ];
+
+  var timeline = document.getElementById('evo-timeline');
+  for (var i = 0; i < timelineData.length; i++) {
+    var e = timelineData[i];
+
+    var entry = document.createElement('div');
+    entry.className = 'evo-entry';
+
+    var dot = document.createElement('div');
+    dot.className = 'evo-entry-dot';
+    dot.style.background = e.color;
+
+    var content = document.createElement('div');
+    content.className = 'evo-entry-content';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'evo-entry-title';
+
+    var tagSpan = document.createElement('span');
+    tagSpan.className = 'evo-entry-tag';
+    tagSpan.style.background = e.tagBg;
+    tagSpan.style.color = e.tagColor;
+    tagSpan.textContent = e.tag;
+
+    titleEl.appendChild(tagSpan);
+    titleEl.appendChild(document.createTextNode(e.title));
+
+    var descEl = document.createElement('div');
+    descEl.className = 'evo-entry-desc';
+    descEl.textContent = e.desc;
+
+    var timeEl = document.createElement('div');
+    timeEl.className = 'evo-entry-time';
+    timeEl.textContent = e.time;
+
+    content.appendChild(titleEl);
+    content.appendChild(descEl);
+    content.appendChild(timeEl);
+
+    entry.appendChild(dot);
+    entry.appendChild(content);
+    timeline.appendChild(entry);
+  }
+
+  // SCROLL CHAT TO BOTTOM
+  var chatMessages = document.getElementById('chat-messages');
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+})();
+</script>
+
+</body>
+</html>

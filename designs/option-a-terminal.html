@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ouroboros — Terminal Native</title>
+<style>
+  /* ===== Reset & Base ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-base: #0d1117;
+    --bg-surface: #161b22;
+    --bg-elevated: #1c2129;
+    --bg-hover: #21262d;
+    --bg-input: #0d1117;
+    --border: #30363d;
+    --border-bright: #484f58;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --accent-blue: #58a6ff;
+    --accent-green: #3fb950;
+    --accent-orange: #d29922;
+    --accent-red: #f85149;
+    --accent-purple: #bc8cff;
+    --accent-cyan: #39d353;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    --font-size-xs: 11px;
+    --font-size-sm: 12px;
+    --font-size-base: 13px;
+    --font-size-lg: 14px;
+    --radius: 6px;
+    --radius-lg: 8px;
+    --shadow: 0 2px 8px rgba(0,0,0,0.3);
+    --transition: 150ms ease;
+  }
+
+  body {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-base);
+    background: #000;
+    color: var(--text-primary);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ===== App Window ===== */
+  .app-window {
+    width: 1200px;
+    height: 800px;
+    background: var(--bg-base);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03);
+    position: relative;
+  }
+
+  /* ===== Title Bar ===== */
+  .title-bar {
+    height: 38px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .traffic-lights {
+    display: flex;
+    gap: 8px;
+    margin-right: 16px;
+  }
+
+  .traffic-light {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: opacity var(--transition);
+  }
+  .traffic-light:hover { opacity: 0.8; }
+  .tl-close { background: #ff5f57; }
+  .tl-minimize { background: #febc2e; }
+  .tl-maximize { background: #28c840; }
+
+  .title-bar-text {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+  }
+
+  .title-bar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .title-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: var(--font-size-sm);
+    font-family: var(--font-mono);
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .title-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .kbd {
+    font-size: 10px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: var(--bg-base);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  /* ===== Main Layout ===== */
+  .main-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ===== Chat Panel ===== */
+  .chat-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .chat-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    scroll-behavior: smooth;
+  }
+
+  .chat-scroll::-webkit-scrollbar { width: 6px; }
+  .chat-scroll::-webkit-scrollbar-track { background: transparent; }
+  .chat-scroll::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+  .chat-scroll::-webkit-scrollbar-thumb:hover { background: var(--border-bright); }
+
+  /* ===== Messages ===== */
+  .message {
+    margin-bottom: 20px;
+    animation: msgIn 0.3s ease;
+  }
+
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .message-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .message-role {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .role-user { color: var(--accent-blue); }
+  .role-agent { color: var(--accent-green); }
+  .role-system { color: var(--accent-orange); }
+
+  .message-time {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .message-body {
+    padding-left: 2px;
+    color: var(--text-primary);
+    line-height: 1.65;
+  }
+
+  .message-body p { margin-bottom: 8px; }
+  .message-body p:last-child { margin-bottom: 0; }
+
+  .message-body code {
+    background: var(--bg-elevated);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: var(--font-size-sm);
+    color: var(--accent-cyan);
+    border: 1px solid var(--border);
+  }
+
+  /* ===== Tool Call Block ===== */
+  .tool-call {
+    margin: 12px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg-surface);
+  }
+
+  .tool-call-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--transition);
+    font-size: var(--font-size-sm);
+  }
+  .tool-call-header:hover { background: var(--bg-hover); }
+
+  .tool-chevron {
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+    font-size: 10px;
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .tool-call.expanded .tool-chevron { transform: rotate(90deg); }
+
+  .tool-icon {
+    color: var(--accent-orange);
+    font-size: var(--font-size-sm);
+    flex-shrink: 0;
+  }
+
+  .tool-name {
+    color: var(--accent-purple);
+    font-weight: 600;
+  }
+
+  .tool-summary {
+    color: var(--text-secondary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tool-duration {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    flex-shrink: 0;
+  }
+
+  .tool-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .tool-status.success { background: var(--accent-green); }
+  .tool-status.error { background: var(--accent-red); }
+  .tool-status.running {
+    background: var(--accent-orange);
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .tool-call-body {
+    display: none;
+    border-top: 1px solid var(--border);
+  }
+  .tool-call.expanded .tool-call-body { display: block; }
+
+  .tool-input, .tool-output {
+    padding: 10px 14px;
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+  }
+
+  .tool-input {
+    background: rgba(0,0,0,0.2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tool-input-label, .tool-output-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+  }
+
+  .tool-input pre, .tool-output pre {
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    margin: 0;
+  }
+
+  .tool-output pre {
+    color: var(--text-secondary);
+  }
+
+  /* ===== RSI Notification ===== */
+  .rsi-notification {
+    margin: 12px 0;
+    padding: 8px 12px;
+    border-left: 3px solid var(--accent-purple);
+    background: rgba(188, 140, 255, 0.06);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: var(--font-size-sm);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: rsiSlide 0.4s ease;
+  }
+
+  @keyframes rsiSlide {
+    from { opacity: 0; transform: translateX(-12px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .rsi-badge {
+    background: var(--accent-purple);
+    color: #0d1117;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+
+  .rsi-text {
+    color: var(--accent-purple);
+  }
+
+  .rsi-metric {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    flex-shrink: 0;
+  }
+
+  /* ===== Streaming Cursor ===== */
+  .streaming-cursor {
+    display: inline-block;
+    width: 7px;
+    height: 15px;
+    background: var(--accent-green);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 0.8s step-end infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .streaming-text {
+    animation: streamFade 0.4s ease;
+  }
+
+  @keyframes streamFade {
+    from { opacity: 0.3; }
+    to { opacity: 1; }
+  }
+
+  /* ===== Input Area ===== */
+  .input-area {
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    background: var(--bg-surface);
+    flex-shrink: 0;
+  }
+
+  .input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 10px 14px;
+    transition: border-color var(--transition);
+  }
+  .input-wrapper:focus-within { border-color: var(--accent-blue); }
+
+  .input-prompt {
+    color: var(--accent-blue);
+    font-weight: 700;
+    flex-shrink: 0;
+    line-height: 1.5;
+  }
+
+  .input-field {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-base);
+    resize: none;
+    outline: none;
+    line-height: 1.5;
+    min-height: 20px;
+    max-height: 120px;
+  }
+
+  .input-field::placeholder { color: var(--text-muted); }
+
+  .input-hint {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+    padding: 0 4px;
+  }
+
+  .input-hint span {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .input-hint .kbd { margin: 0 2px; }
+
+  /* ===== Sidebar ===== */
+  .sidebar {
+    width: 0;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    overflow: hidden;
+    transition: width 0.25s ease;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar.open { width: 300px; }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .sidebar-title {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+  }
+
+  .sidebar-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px;
+    font-size: 16px;
+    line-height: 1;
+    font-family: var(--font-mono);
+    transition: color var(--transition);
+  }
+  .sidebar-close:hover { color: var(--text-primary); }
+
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .sidebar-tab {
+    flex: 1;
+    padding: 8px 0;
+    text-align: center;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+  }
+  .sidebar-tab:hover { color: var(--text-secondary); }
+  .sidebar-tab.active {
+    color: var(--accent-blue);
+    border-bottom-color: var(--accent-blue);
+  }
+
+  .sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+
+  .sidebar-content::-webkit-scrollbar { width: 4px; }
+  .sidebar-content::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ===== Skills List ===== */
+  .skill-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background var(--transition);
+    font-size: var(--font-size-sm);
+  }
+  .skill-item:hover { background: var(--bg-hover); }
+
+  .skill-status {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .skill-status.core { background: var(--accent-green); }
+  .skill-status.generated { background: var(--accent-blue); }
+  .skill-status.pending { background: var(--accent-orange); }
+  .skill-status.disabled { background: var(--text-muted); }
+
+  .skill-info { flex: 1; min-width: 0; }
+
+  .skill-name {
+    color: var(--text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .skill-desc {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+  }
+
+  .skill-tag {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .skill-tag.core-tag { border-color: rgba(63,185,80,0.3); color: var(--accent-green); }
+  .skill-tag.gen-tag { border-color: rgba(88,166,255,0.3); color: var(--accent-blue); }
+
+  /* ===== Evolution Timeline ===== */
+  .evo-item {
+    display: flex;
+    gap: 12px;
+    padding: 8px 16px;
+    font-size: var(--font-size-sm);
+    position: relative;
+  }
+
+  .evo-line {
+    position: absolute;
+    left: 22px;
+    top: 22px;
+    bottom: -8px;
+    width: 1px;
+    background: var(--border);
+  }
+  .evo-item:last-child .evo-line { display: none; }
+
+  .evo-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--accent-green);
+    background: var(--bg-surface);
+    margin-top: 4px;
+    flex-shrink: 0;
+    z-index: 1;
+  }
+  .evo-dot.evolve { border-color: var(--accent-purple); }
+  .evo-dot.crystallize { border-color: var(--accent-blue); }
+  .evo-dot.test { border-color: var(--accent-orange); }
+  .evo-dot.dream { border-color: var(--accent-cyan); }
+
+  .evo-content { flex: 1; min-width: 0; }
+
+  .evo-title {
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .evo-meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .evo-hash {
+    color: var(--accent-orange);
+    font-size: var(--font-size-xs);
+  }
+
+  /* ===== Status Bar ===== */
+  .status-bar {
+    height: 26px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    flex-shrink: 0;
+    gap: 4px;
+  }
+
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 8px;
+    height: 100%;
+    cursor: default;
+    transition: background var(--transition);
+  }
+  .status-item:hover { background: var(--bg-hover); }
+
+  .status-separator {
+    width: 1px;
+    height: 14px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .status-spacer { flex: 1; }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .status-dot.green { background: var(--accent-green); }
+  .status-dot.orange { background: var(--accent-orange); animation: pulse 1.5s infinite; }
+  .status-dot.blue { background: var(--accent-blue); }
+  .status-dot.purple { background: var(--accent-purple); }
+
+  .settings-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 6px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    transition: color var(--transition);
+  }
+  .settings-btn:hover { color: var(--text-primary); }
+
+  /* ===== Approval Badge ===== */
+  .approval-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    color: var(--accent-red);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .approval-badge:hover {
+    background: rgba(248, 81, 73, 0.2);
+  }
+
+  /* ===== Inline code block ===== */
+  .code-block {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin: 8px 0;
+    overflow-x: auto;
+    font-size: var(--font-size-sm);
+  }
+
+  .code-block pre {
+    margin: 0;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    line-height: 1.6;
+  }
+
+  /* ===== Separator ===== */
+  .msg-separator {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  .msg-separator::before,
+  .msg-separator::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ===== Tooltip-style popover for settings ===== */
+  .settings-popover {
+    display: none;
+    position: absolute;
+    bottom: 32px;
+    right: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 12px 16px;
+    min-width: 220px;
+    box-shadow: var(--shadow);
+    z-index: 100;
+    font-size: var(--font-size-sm);
+  }
+  .settings-popover.visible { display: block; }
+
+  .settings-popover h4 {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  .settings-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    color: var(--text-secondary);
+  }
+
+  .settings-value {
+    color: var(--text-primary);
+  }
+
+  /* ===== Search highlight ===== */
+  .highlight { color: var(--accent-orange); font-weight: 600; }
+
+  /* ===== Notification badge ===== */
+  .notif-count {
+    background: var(--accent-red);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 0 4px;
+    border-radius: 8px;
+    min-width: 14px;
+    text-align: center;
+    line-height: 14px;
+  }
+
+  /* ===== Subtle glow for active items ===== */
+  .glow-green { text-shadow: 0 0 8px rgba(63,185,80,0.3); }
+  .glow-purple { text-shadow: 0 0 8px rgba(188,140,255,0.3); }
+</style>
+</head>
+<body>
+
+<div class="app-window">
+  <!-- Title Bar -->
+  <div class="title-bar">
+    <div class="traffic-lights">
+      <div class="traffic-light tl-close"></div>
+      <div class="traffic-light tl-minimize"></div>
+      <div class="traffic-light tl-maximize"></div>
+    </div>
+    <span class="title-bar-text">ouroboros</span>
+    <div class="title-bar-actions">
+      <button class="title-btn" id="btn-toggle-sidebar">
+        <span>Skills</span>
+        <span class="kbd">&#8984;B</span>
+      </button>
+      <button class="title-btn" id="btn-toggle-evo" title="Evolution Timeline">
+        <span>Evo</span>
+        <span class="kbd">&#8984;E</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-layout">
+    <!-- Chat Panel -->
+    <div class="chat-panel">
+      <div class="chat-scroll" id="chat-scroll">
+
+        <!-- User Message -->
+        <div class="message">
+          <div class="message-header">
+            <span class="message-role role-user">you</span>
+            <span class="message-time">14:32</span>
+          </div>
+          <div class="message-body">
+            <p>Refactor the memory system to use a write-ahead log instead of direct SQLite writes. This should improve crash resilience and allow batching.</p>
+          </div>
+        </div>
+
+        <!-- Agent Response with Tool Calls -->
+        <div class="message">
+          <div class="message-header">
+            <span class="message-role role-agent">ouroboros</span>
+            <span class="message-time">14:32</span>
+          </div>
+          <div class="message-body">
+            <p>I'll analyze the current memory system and implement a WAL-based approach. Let me first examine the existing implementation.</p>
+
+            <!-- Tool Call 1: File Read (collapsed) -->
+            <div class="tool-call" id="tool1">
+              <div class="tool-call-header" onclick="toggleTool('tool1')">
+                <span class="tool-chevron">&#9654;</span>
+                <span class="tool-icon">$</span>
+                <span class="tool-name">read</span>
+                <span class="tool-summary">src/memory/sqlite-store.ts</span>
+                <span class="tool-duration">45ms</span>
+                <span class="tool-status success"></span>
+              </div>
+              <div class="tool-call-body">
+                <div class="tool-input">
+                  <div class="tool-input-label">input</div>
+                  <pre>{ "path": "src/memory/sqlite-store.ts" }</pre>
+                </div>
+                <div class="tool-output">
+                  <div class="tool-output-label">output</div>
+                  <pre>import { Database } from "bun:sqlite";
+
+export class SQLiteStore {
+  private db: Database;
+
+  constructor(path: string) {
+    this.db = new Database(path);
+    this.db.run("PRAGMA journal_mode=WAL");
+    this.db.run("PRAGMA synchronous=NORMAL");
+    ...
+  }
+  // 127 lines total</pre>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tool Call 2: Bash (expanded by default) -->
+            <div class="tool-call expanded" id="tool2">
+              <div class="tool-call-header" onclick="toggleTool('tool2')">
+                <span class="tool-chevron">&#9654;</span>
+                <span class="tool-icon">$</span>
+                <span class="tool-name">bash</span>
+                <span class="tool-summary">grep -r "SQLiteStore" src/ --include="*.ts" -l</span>
+                <span class="tool-duration">120ms</span>
+                <span class="tool-status success"></span>
+              </div>
+              <div class="tool-call-body">
+                <div class="tool-input">
+                  <div class="tool-input-label">command</div>
+                  <pre>grep -r "SQLiteStore" src/ --include="*.ts" -l</pre>
+                </div>
+                <div class="tool-output">
+                  <div class="tool-output-label">output</div>
+                  <pre>src/memory/sqlite-store.ts
+src/memory/index.ts
+src/memory/transcript.ts
+src/rsi/crystallize.ts
+src/core/agent-loop.ts</pre>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tool Call 3: Running/in-progress -->
+            <div class="tool-call" id="tool3">
+              <div class="tool-call-header" onclick="toggleTool('tool3')">
+                <span class="tool-chevron">&#9654;</span>
+                <span class="tool-icon">$</span>
+                <span class="tool-name">edit</span>
+                <span class="tool-summary">src/memory/sqlite-store.ts &mdash; implementing WAL adapter</span>
+                <span class="tool-duration">...</span>
+                <span class="tool-status running"></span>
+              </div>
+              <div class="tool-call-body">
+                <div class="tool-input">
+                  <div class="tool-input-label">input</div>
+                  <pre>{ "path": "src/memory/sqlite-store.ts",
+  "old": "export class SQLiteStore {",
+  "new": "export class SQLiteStore {\n  private wal: WriteAheadLog;\n  ..." }</pre>
+                </div>
+              </div>
+            </div>
+
+            <p>The current implementation directly writes to SQLite. I've found 5 files that depend on <code>SQLiteStore</code>. Here's my plan:</p>
+
+            <div class="code-block">
+<pre>1. Create WriteAheadLog class in src/memory/wal.ts
+2. Modify SQLiteStore to buffer writes through WAL
+3. Add flush() method with configurable batch size
+4. Update transcript.ts to use async write path
+5. Add crash-recovery replay on startup</pre>
+            </div>
+
+            <!-- RSI Notification -->
+            <div class="rsi-notification">
+              <span class="rsi-badge">RSI</span>
+              <span class="rsi-text">Reflecting on task... pattern detected: architectural refactor</span>
+              <span class="rsi-metric">novelty: 0.85</span>
+            </div>
+
+            <p class="streaming-text">I'm now implementing the <code>WriteAheadLog</code> class. This will use an append-only file for durability, with automatic compaction when the log exceeds 1000 entries<span class="streaming-cursor"></span></p>
+          </div>
+        </div>
+
+        <!-- RSI System Message -->
+        <div class="message">
+          <div class="message-header">
+            <span class="message-role role-system">system</span>
+            <span class="message-time">14:33</span>
+          </div>
+          <div class="message-body">
+            <div class="rsi-notification">
+              <span class="rsi-badge">RSI</span>
+              <span class="rsi-text">Crystallizing skill: <strong>wal-refactor-pattern</strong></span>
+              <span class="rsi-metric">confidence: 0.72</span>
+            </div>
+            <div class="rsi-notification" style="border-left-color: var(--accent-red);">
+              <span class="rsi-badge" style="background: var(--accent-red);">APPROVAL</span>
+              <span class="rsi-text" style="color: var(--accent-red);">Self-modification requires approval</span>
+              <span class="approval-badge">Review &rarr;</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg-separator">session &mdash; 14:30 &mdash; 3m 22s elapsed</div>
+
+      </div>
+
+      <!-- Input Area -->
+      <div class="input-area">
+        <div class="input-wrapper">
+          <span class="input-prompt">&gt;</span>
+          <textarea class="input-field" rows="1" placeholder="Send a message..." id="input-field"></textarea>
+        </div>
+        <div class="input-hint">
+          <span><span class="kbd">Enter</span> send</span>
+          <span><span class="kbd">Shift+Enter</span> newline</span>
+          <span><span class="kbd">/</span> commands</span>
+          <span><span class="kbd">Esc</span> cancel</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Panel</span>
+        <button class="sidebar-close" onclick="toggleSidebar()">&times;</button>
+      </div>
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-tab="skills" onclick="switchTab('skills')">Skills</button>
+        <button class="sidebar-tab" data-tab="evolution" onclick="switchTab('evolution')">Evolution</button>
+        <button class="sidebar-tab" data-tab="queue" onclick="switchTab('queue')">Queue <span class="notif-count">1</span></button>
+      </div>
+
+      <!-- Skills Tab -->
+      <div class="sidebar-content" id="tab-skills">
+        <div class="skill-item">
+          <span class="skill-status core"></span>
+          <div class="skill-info">
+            <div class="skill-name">bash-executor</div>
+            <div class="skill-desc">Execute shell commands safely</div>
+          </div>
+          <span class="skill-tag core-tag">core</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status core"></span>
+          <div class="skill-info">
+            <div class="skill-name">file-operations</div>
+            <div class="skill-desc">Read, write, edit files</div>
+          </div>
+          <span class="skill-tag core-tag">core</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status core"></span>
+          <div class="skill-info">
+            <div class="skill-name">web-fetch</div>
+            <div class="skill-desc">HTTP requests and scraping</div>
+          </div>
+          <span class="skill-tag core-tag">core</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status core"></span>
+          <div class="skill-info">
+            <div class="skill-name">memory-manager</div>
+            <div class="skill-desc">3+1 layer memory system</div>
+          </div>
+          <span class="skill-tag core-tag">core</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status core"></span>
+          <div class="skill-info">
+            <div class="skill-name">git-operations</div>
+            <div class="skill-desc">Git commit, diff, log</div>
+          </div>
+          <span class="skill-tag core-tag">core</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status generated"></span>
+          <div class="skill-info">
+            <div class="skill-name">test-gen-bun</div>
+            <div class="skill-desc">Generate Bun test suites</div>
+          </div>
+          <span class="skill-tag gen-tag">gen</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status generated"></span>
+          <div class="skill-info">
+            <div class="skill-name">refactor-extract</div>
+            <div class="skill-desc">Extract function refactoring</div>
+          </div>
+          <span class="skill-tag gen-tag">gen</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status pending"></span>
+          <div class="skill-info">
+            <div class="skill-name">wal-refactor-pattern</div>
+            <div class="skill-desc">WAL migration for data stores</div>
+          </div>
+          <span class="skill-tag" style="border-color: rgba(210,153,34,0.3); color: var(--accent-orange);">new</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status generated"></span>
+          <div class="skill-info">
+            <div class="skill-name">error-boundary</div>
+            <div class="skill-desc">Result&lt;T,E&gt; error patterns</div>
+          </div>
+          <span class="skill-tag gen-tag">gen</span>
+        </div>
+        <div class="skill-item">
+          <span class="skill-status disabled"></span>
+          <div class="skill-info">
+            <div class="skill-name">legacy-api-shim</div>
+            <div class="skill-desc">Deprecated API compatibility</div>
+          </div>
+          <span class="skill-tag">off</span>
+        </div>
+      </div>
+
+      <!-- Evolution Tab -->
+      <div class="sidebar-content" id="tab-evolution" style="display:none;">
+        <div class="evo-item">
+          <div class="evo-dot crystallize"></div>
+          <div class="evo-line"></div>
+          <div class="evo-content">
+            <div class="evo-title">Crystallized: wal-refactor-pattern</div>
+            <div class="evo-meta">
+              <span class="evo-hash">a3f7c1d</span>
+              <span>2m ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="evo-item">
+          <div class="evo-dot test"></div>
+          <div class="evo-line"></div>
+          <div class="evo-content">
+            <div class="evo-title">Self-test: refactor-extract (18/18 pass)</div>
+            <div class="evo-meta">
+              <span class="evo-hash">e92b4f8</span>
+              <span>12m ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="evo-item">
+          <div class="evo-dot evolve"></div>
+          <div class="evo-line"></div>
+          <div class="evo-content">
+            <div class="evo-title">Evolved: error-boundary v2 promoted</div>
+            <div class="evo-meta">
+              <span class="evo-hash">1d8a3e5</span>
+              <span>34m ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="evo-item">
+          <div class="evo-dot dream"></div>
+          <div class="evo-line"></div>
+          <div class="evo-content">
+            <div class="evo-title">Dream cycle: consolidated 3 memories</div>
+            <div class="evo-meta">
+              <span class="evo-hash">7c4f0ab</span>
+              <span>1h ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="evo-item">
+          <div class="evo-dot crystallize"></div>
+          <div class="evo-line"></div>
+          <div class="evo-content">
+            <div class="evo-title">Crystallized: test-gen-bun</div>
+            <div class="evo-meta">
+              <span class="evo-hash">f0a29c3</span>
+              <span>1h ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="evo-item">
+          <div class="evo-dot test"></div>
+          <div class="evo-line"></div>
+          <div class="evo-content">
+            <div class="evo-title">Self-test: test-gen-bun (24/24 pass)</div>
+            <div class="evo-meta">
+              <span class="evo-hash">3b1e7d9</span>
+              <span>2h ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="evo-item">
+          <div class="evo-dot evolve"></div>
+          <div class="evo-content">
+            <div class="evo-title">Evolved: git-operations v3 promoted</div>
+            <div class="evo-meta">
+              <span class="evo-hash">8e5c2a1</span>
+              <span>3h ago</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Approval Queue Tab -->
+      <div class="sidebar-content" id="tab-queue" style="display:none;">
+        <div style="padding: 12px 16px;">
+          <div style="border: 1px solid rgba(248,81,73,0.3); border-radius: var(--radius); padding: 12px; background: rgba(248,81,73,0.05); margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="color: var(--accent-red); font-weight: 600; font-size: var(--font-size-sm);">Self-Modification</span>
+              <span style="font-size: var(--font-size-xs); color: var(--text-muted);">2m ago</span>
+            </div>
+            <div style="font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 8px;">
+              Agent wants to modify <code style="background:var(--bg-base);padding:1px 4px;border-radius:3px;font-size:11px;color:var(--accent-cyan);border:1px solid var(--border);">src/memory/sqlite-store.ts</code> to add WAL adapter layer.
+            </div>
+            <div style="font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 10px;">
+              Risk level: <span style="color: var(--accent-orange);">medium</span> &mdash; modifies core memory system
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button style="flex:1;padding:5px 0;border-radius:4px;border:1px solid var(--accent-green);background:rgba(63,185,80,0.1);color:var(--accent-green);cursor:pointer;font-family:var(--font-mono);font-size:var(--font-size-xs);transition:all 150ms ease;" onmouseover="this.style.background='rgba(63,185,80,0.2)'" onmouseout="this.style.background='rgba(63,185,80,0.1)'">Approve</button>
+              <button style="flex:1;padding:5px 0;border-radius:4px;border:1px solid var(--accent-red);background:rgba(248,81,73,0.1);color:var(--accent-red);cursor:pointer;font-family:var(--font-mono);font-size:var(--font-size-xs);transition:all 150ms ease;" onmouseover="this.style.background='rgba(248,81,73,0.2)'" onmouseout="this.style.background='rgba(248,81,73,0.1)'">Deny</button>
+              <button style="flex:1;padding:5px 0;border-radius:4px;border:1px solid var(--border);background:var(--bg-base);color:var(--text-secondary);cursor:pointer;font-family:var(--font-mono);font-size:var(--font-size-xs);transition:all 150ms ease;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-base)'">Diff</button>
+            </div>
+          </div>
+          <div style="font-size: var(--font-size-xs); color: var(--text-muted); text-align: center; padding: 8px 0;">
+            No other items in queue
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <div class="status-item">
+      <span class="status-dot green"></span>
+      <span>claude-opus-4-6</span>
+    </div>
+    <div class="status-separator"></div>
+    <div class="status-item">
+      <span style="color: var(--accent-blue);">9</span>
+      <span>skills</span>
+    </div>
+    <div class="status-separator"></div>
+    <div class="status-item">
+      <span class="status-dot orange"></span>
+      <span>RSI: reflecting</span>
+    </div>
+    <div class="status-separator"></div>
+    <div class="status-item">
+      <span>mem: 2.4MB</span>
+      <span style="color: var(--text-muted);">/</span>
+      <span>47 entries</span>
+    </div>
+    <div class="status-separator"></div>
+    <div class="status-item">
+      <span class="status-dot purple"></span>
+      <span>1 pending</span>
+    </div>
+    <div class="status-spacer"></div>
+    <div class="status-item" style="color: var(--text-muted);">
+      <span>tokens: 12.4k in / 3.2k out</span>
+    </div>
+    <div class="status-separator"></div>
+    <button class="settings-btn" id="settings-btn" onclick="toggleSettings()">
+      &#9881; settings
+    </button>
+  </div>
+
+  <!-- Settings Popover -->
+  <div class="settings-popover" id="settings-popover">
+    <h4>Configuration</h4>
+    <div class="settings-row">
+      <span>Model</span>
+      <span class="settings-value">claude-opus-4-6</span>
+    </div>
+    <div class="settings-row">
+      <span>Permission Tier</span>
+      <span class="settings-value" style="color: var(--accent-orange);">3 / 5</span>
+    </div>
+    <div class="settings-row">
+      <span>RSI Mode</span>
+      <span class="settings-value" style="color: var(--accent-green);">active</span>
+    </div>
+    <div class="settings-row">
+      <span>Skill Dir</span>
+      <span class="settings-value">~/.ouroboros/skills</span>
+    </div>
+    <div class="settings-row">
+      <span>Dream Cycle</span>
+      <span class="settings-value">every 6h</span>
+    </div>
+    <div class="settings-row">
+      <span>Max Tokens</span>
+      <span class="settings-value">128k context</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Toggle tool call blocks
+  function toggleTool(id) {
+    const el = document.getElementById(id);
+    el.classList.toggle('expanded');
+  }
+
+  // Toggle sidebar
+  function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('open');
+  }
+
+  // Sidebar tabs
+  function switchTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.sidebar-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.tab === tabName);
+    });
+    // Update tab content
+    document.getElementById('tab-skills').style.display = tabName === 'skills' ? '' : 'none';
+    document.getElementById('tab-evolution').style.display = tabName === 'evolution' ? '' : 'none';
+    document.getElementById('tab-queue').style.display = tabName === 'queue' ? '' : 'none';
+  }
+
+  // Toggle settings popover
+  function toggleSettings() {
+    const popover = document.getElementById('settings-popover');
+    popover.classList.toggle('visible');
+  }
+
+  // Close settings when clicking elsewhere
+  document.addEventListener('click', (e) => {
+    const popover = document.getElementById('settings-popover');
+    const btn = document.getElementById('settings-btn');
+    if (!popover.contains(e.target) && e.target !== btn) {
+      popover.classList.remove('visible');
+    }
+  });
+
+  // Title bar buttons
+  document.getElementById('btn-toggle-sidebar').addEventListener('click', () => {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('open');
+    // Default to skills tab if opening
+    if (sidebar.classList.contains('open')) {
+      switchTab('skills');
+    }
+  });
+
+  document.getElementById('btn-toggle-evo').addEventListener('click', () => {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar.classList.contains('open')) {
+      sidebar.classList.add('open');
+    }
+    switchTab('evolution');
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    // Cmd+B: toggle sidebar (skills)
+    if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+      e.preventDefault();
+      toggleSidebar();
+    }
+    // Cmd+E: toggle evolution
+    if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+      e.preventDefault();
+      const sidebar = document.getElementById('sidebar');
+      if (!sidebar.classList.contains('open')) {
+        sidebar.classList.add('open');
+      }
+      switchTab('evolution');
+    }
+    // Escape: close sidebar + settings
+    if (e.key === 'Escape') {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('settings-popover').classList.remove('visible');
+    }
+  });
+
+  // Auto-resize textarea
+  const inputField = document.getElementById('input-field');
+  inputField.addEventListener('input', () => {
+    inputField.style.height = 'auto';
+    inputField.style.height = Math.min(inputField.scrollHeight, 120) + 'px';
+  });
+
+  // Focus input on load
+  inputField.focus();
+
+  // Scroll chat to bottom
+  const chatScroll = document.getElementById('chat-scroll');
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+</script>
+
+</body>
+</html>
