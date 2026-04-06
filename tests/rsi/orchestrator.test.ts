@@ -1,12 +1,6 @@
 /**
  * RSI Orchestrator Tests
  *
- * TODO: These integration tests need updating to match the actual
- * dependency injection patterns of the RSI modules. The core RSI
- * modules (crystallize, validate, dream, evolution-log) are fully
- * tested in their own test files. These orchestrator tests cover
- * the lifecycle wiring.
- *
  * Feature tests for the autonomous improvement cycle:
  * - Auto-reflection after task completion
  * - Crystallization triggers on high novelty
@@ -42,24 +36,41 @@ function makeConfig(overrides?: Partial<OuroborosConfig>): OuroborosConfig {
 function reflectionJson(novelty: number, generalizability: number, crystallize: boolean): string {
   return JSON.stringify({
     taskSummary: 'Test task completed',
-    noveltyScore: novelty,
-    generalizabilityScore: generalizability,
-    patternDescription: 'A test pattern',
+    novelty,
+    generalizability,
+    proposedSkillName: crystallize ? 'test-skill' : undefined,
+    proposedSkillDescription: crystallize ? 'A test skill' : undefined,
+    keySteps: crystallize ? ['Step 1', 'Step 2'] : undefined,
     shouldCrystallize: crystallize,
     reasoning: 'Test reasoning',
   })
 }
 
-function skillGenJson(): string {
-  return JSON.stringify({
-    frontmatter: {
-      name: 'test-skill',
-      description: 'A test skill',
-      version: '1.0.0',
-    },
-    body: '# Test Skill\n\nThis skill demonstrates a test pattern.',
-    testCases: ['Test case 1', 'Test case 2'],
+function skillGenOutput(): string {
+  return `Here is the generated skill:
+
+\`\`\`description
+A test skill for testing the RSI pipeline. Activate when testing crystallization.
+\`\`\`
+
+\`\`\`markdown
+# Test Skill
+
+## Steps
+1. Step 1
+2. Step 2
+\`\`\`
+
+\`\`\`typescript
+import { describe, it, expect } from 'bun:test'
+
+describe('test-skill', () => {
+  it('should pass', () => {
+    expect(1 + 1).toBe(2)
   })
+})
+\`\`\`
+`
 }
 
 /**
@@ -182,6 +193,7 @@ describe('RSI Orchestrator', () => {
   beforeEach(() => {
     tempDir = makeTempDir('rsi-orchestrator')
     mkdirSync(join(tempDir, 'memory', 'topics'), { recursive: true })
+    mkdirSync(join(tempDir, 'skills', 'core'), { recursive: true })
     mkdirSync(join(tempDir, 'skills', 'generated'), { recursive: true })
     mkdirSync(join(tempDir, 'skills', 'staging'), { recursive: true })
   })
@@ -190,7 +202,7 @@ describe('RSI Orchestrator', () => {
     cleanupTempDir(tempDir)
   })
 
-  test.skip('auto-reflection after task completion', async () => {
+  test('auto-reflection after task completion', async () => {
     const rsiEvents: RSIEvent[] = []
 
     const config = makeConfig({
@@ -240,7 +252,7 @@ describe('RSI Orchestrator', () => {
     }
   })
 
-  test.skip('crystallization triggers on high novelty', async () => {
+  test('crystallization triggers on high novelty', async () => {
     const rsiEvents: RSIEvent[] = []
 
     const config = makeConfig({
@@ -250,7 +262,7 @@ describe('RSI Orchestrator', () => {
     // Generate responses: 1) reflection (high novelty), 2) crystallize reflect, 3) skill generation
     const model = createDualMockModel(
       [[...textBlock('Task done.'), finishStop()]],
-      [reflectionJson(0.8, 0.9, true), reflectionJson(0.8, 0.9, true), skillGenJson()],
+      [reflectionJson(0.8, 0.9, true), reflectionJson(0.8, 0.9, true), skillGenOutput()],
     )
 
     const orchestrator = new RSIOrchestrator({
@@ -288,7 +300,7 @@ describe('RSI Orchestrator', () => {
     }
   })
 
-  test.skip('no crystallization on low novelty', async () => {
+  test('no crystallization on low novelty', async () => {
     const rsiEvents: RSIEvent[] = []
 
     const config = makeConfig({
@@ -475,7 +487,7 @@ describe('RSI Orchestrator', () => {
     }
   })
 
-  test.skip('evolution log entries from RSI reflection', async () => {
+  test('evolution log entries from RSI reflection', async () => {
     const rsiEvents: RSIEvent[] = []
 
     const config = makeConfig({

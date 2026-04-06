@@ -715,7 +715,8 @@ export async function crystallize(
   // ── Stage 2: Generate ───────────────────────────────────────────────
   process.stderr.write('[crystallize] Stage 2/5: Generating skill...\n')
 
-  const basePath = join(skillDirs.staging, '..')
+  // basePath = project root; skillDirs.staging is <root>/skills/staging
+  const basePath = join(skillDirs.staging, '..', '..')
 
   const genResult = await generateSkill(reflection, transcript, llm, basePath)
   if (!genResult.ok) {
