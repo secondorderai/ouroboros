@@ -1,0 +1,240 @@
+/**
+ * ToolCallChip — Collapsed chip and expanded detail view styles.
+ */
+
+/* ── Collapsed Chip ──────────────────────────────────────── */
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tool-chip);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  user-select: none;
+  margin: 4px 0;
+}
+
+.tool-chip:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-medium);
+}
+
+/* ── Icon ────────────────────────────────────────────────── */
+
+.tool-chip__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.tool-chip__icon svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Status Indicator ────────────────────────────────────── */
+
+.tool-chip__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.tool-chip__status svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tool-chip__status--success svg {
+  stroke: var(--tool-chip-success-color);
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.tool-chip__status--failed svg {
+  stroke: var(--tool-chip-error-color);
+  fill: none;
+  stroke-width: 2.5;
+}
+
+/* ── Spinner ─────────────────────────────────────────────── */
+
+.tool-chip__spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--tool-chip-spinner-color);
+  border-radius: 50%;
+  animation: tool-chip-spin 0.6s linear infinite;
+}
+
+@keyframes tool-chip-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Expanded Container ──────────────────────────────────── */
+
+.tool-chip-expanded {
+  background: var(--bg-tool-expanded);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  margin: 4px 0;
+  overflow: hidden;
+  transition: max-height var(--transition-normal);
+}
+
+.tool-chip-expanded__inner {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* ── Expanded Header ─────────────────────────────────────── */
+
+.tool-chip-expanded__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.tool-chip-expanded__header:hover {
+  background: var(--bg-hover);
+}
+
+.tool-chip-expanded__duration {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+/* ── Expanded Body ───────────────────────────────────────── */
+
+.tool-chip-expanded__body {
+  padding: 0 12px 12px;
+  overflow: hidden;
+  animation: tool-chip-slide-in 200ms ease;
+}
+
+@keyframes tool-chip-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Section Labels ──────────────────────────────────────── */
+
+.tool-chip-expanded__section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  margin: 8px 0 4px;
+}
+
+.tool-chip-expanded__section-label:first-child {
+  margin-top: 0;
+}
+
+/* ── Code Block ──────────────────────────────────────────── */
+
+.tool-chip-expanded__code {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Input Display (file paths, URLs) ────────────────────── */
+
+.tool-chip-expanded__input-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  padding: 4px 0;
+  word-break: break-all;
+}
+
+/* ── Error Output ────────────────────────────────────────── */
+
+.tool-chip-expanded__error {
+  background: var(--bg-error);
+  border: 1px solid var(--border-error);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-error);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Show All Button ─────────────────────────────────────── */
+
+.tool-chip-expanded__show-all {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-link);
+  cursor: pointer;
+  background: none;
+  border: none;
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.tool-chip-expanded__show-all:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* ── Syntax Highlighting (highlight.js overrides) ────────── */
+
+.tool-chip-expanded__code .hljs {
+  background: transparent;
+  padding: 0;
+  overflow: visible;
+}

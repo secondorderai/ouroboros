@@ -63,19 +63,19 @@ Fixed at the bottom of the chat area. Contains:
 
 ## Acceptance Criteria
 
-- [ ] Textarea auto-resizes from 1-5 lines, then scrolls
-- [ ] Enter sends, Shift+Enter adds newline
-- [ ] Send button is disabled when empty, replaced by stop button when agent is running
-- [ ] Attachment button opens file picker; selected files appear as chips
-- [ ] Drag-and-drop files onto the chat area attaches them
-- [ ] Workspace indicator shows current path; click changes workspace
-- [ ] Model badge shows current model name
-- [ ] Session sidebar lists conversations grouped by date
-- [ ] Clicking a session loads its history into the chat
-- [ ] New conversation button creates a fresh session
-- [ ] Delete session removes it from the list after confirmation
-- [ ] Sidebar collapses/expands with Cmd+B or hamburger toggle
-- [ ] Sidebar state (open/closed) persists across restarts
+- [x] Textarea auto-resizes from 1-5 lines, then scrolls
+- [x] Enter sends, Shift+Enter adds newline
+- [x] Send button is disabled when empty, replaced by stop button when agent is running
+- [x] Attachment button opens file picker; selected files appear as chips
+- [x] Drag-and-drop files onto the chat area attaches them
+- [x] Workspace indicator shows current path; click changes workspace
+- [x] Model badge shows current model name
+- [x] Session sidebar lists conversations grouped by date
+- [x] Clicking a session loads its history into the chat
+- [x] New conversation button creates a fresh session
+- [x] Delete session removes it from the list after confirmation
+- [x] Sidebar collapses/expands with Cmd+B or hamburger toggle
+- [x] Sidebar state (open/closed) persists across restarts
 
 ## Feature Tests
 

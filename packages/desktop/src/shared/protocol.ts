@@ -51,6 +51,72 @@ declare global {
   }
 }
 
+// ── Message Types for Conversation Store ──────────────────────────
+
+export type MessageRole = 'user' | 'agent' | 'system' | 'error'
+
+export interface Message {
+  id: string
+  role: MessageRole
+  text: string
+  /** ISO-8601 timestamp. */
+  timestamp: string
+  /** Attached file paths (user messages only). */
+  files?: string[]
+  /** Completed tool calls that appeared during this agent turn. */
+  toolCalls?: CompletedToolCall[]
+}
+
+export interface CompletedToolCall {
+  id: string
+  toolName: string
+  input?: unknown
+  output?: unknown
+  error?: string
+  durationMs?: number
+}
+
+export interface ToolCallState {
+  id: string
+  toolName: string
+  input?: unknown
+  status: 'running' | 'done' | 'error'
+  output?: unknown
+  error?: string
+  durationMs?: number
+}
+
+// ── Notification Payload Types (CLI -> Renderer) ──────────────────
+
+export interface AgentTextParams {
+  /** Incremental text chunk from the agent. */
+  text: string
+}
+
+export interface AgentToolCallStartParams {
+  id: string
+  toolName: string
+  input?: unknown
+}
+
+export interface AgentToolCallEndParams {
+  id: string
+  toolName?: string
+  output?: unknown
+  error?: string
+  durationMs?: number
+}
+
+export interface AgentTurnCompleteParams {
+  /** The full text of the agent's response once streaming is done. */
+  fullText: string
+}
+
+export interface AgentErrorParams {
+  message: string
+  code?: string
+}
+
 // ── JSON-RPC 2.0 Base Types ────────────────────────────────────────
 
 export interface JsonRpcRequest {

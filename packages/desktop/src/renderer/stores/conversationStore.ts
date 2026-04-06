@@ -8,6 +8,8 @@ import type {
   AgentToolCallEndParams,
   AgentTurnCompleteParams,
   AgentErrorParams,
+  SessionInfo,
+  SessionMessage,
 } from '../../shared/protocol';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +34,18 @@ export interface ConversationState {
 
   /** ID counter for generating unique message IDs. */
   nextId: number;
+
+  /** Current session ID (null when no session is active). */
+  currentSessionId: string | null;
+
+  /** List of all sessions for the sidebar. */
+  sessions: SessionInfo[];
+
+  /** Current workspace path. */
+  workspace: string | null;
+
+  /** Current model name. */
+  modelName: string | null;
 
   // -- Actions ---------------------------------------------------------------
 
@@ -58,6 +72,27 @@ export interface ConversationState {
 
   /** Reset the conversation (e.g., when switching sessions). */
   resetConversation: () => void;
+
+  /** Set the list of sessions from the sidebar. */
+  setSessions: (sessions: SessionInfo[]) => void;
+
+  /** Set the current session ID. */
+  setCurrentSessionId: (id: string | null) => void;
+
+  /** Load a session's messages into the chat. */
+  loadSession: (id: string, messages: SessionMessage[]) => void;
+
+  /** Create a new session and make it active. */
+  createNewSession: (sessionId: string) => void;
+
+  /** Delete a session from the list. */
+  deleteSession: (id: string) => void;
+
+  /** Set the workspace path. */
+  setWorkspace: (path: string | null) => void;
+
+  /** Set the model name. */
+  setModelName: (name: string | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +114,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   pendingToolCalls: [],
   isAgentRunning: false,
   nextId: 1,
+  currentSessionId: null,
+  sessions: [],
+  workspace: null,
+  modelName: null,
 
   // ---- Actions -------------------------------------------------------------
 
@@ -195,13 +234,38 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
     };
 
+    const newMessages = [...state.messages, agentMessage];
+
+    // Update the session in the sidebar if there's an active session
+    let updatedSessions = state.sessions;
+    if (state.currentSessionId) {
+      updatedSessions = state.sessions.map((s) => {
+        if (s.id !== state.currentSessionId) return s;
+        // Set title from first user message if not already set or still default
+        let title = s.title;
+        if (!title || title === 'New conversation') {
+          const firstUserMsg = newMessages.find((m) => m.role === 'user');
+          if (firstUserMsg) {
+            title = firstUserMsg.text.slice(0, 50);
+          }
+        }
+        return {
+          ...s,
+          title,
+          messageCount: newMessages.length,
+          lastActive: new Date().toISOString(),
+        };
+      });
+    }
+
     set({
-      messages: [...state.messages, agentMessage],
+      messages: newMessages,
       streamingText: null,
       isAgentRunning: false,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 1,
+      sessions: updatedSessions,
     });
   },
 
@@ -246,6 +310,83 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       pendingToolCalls: [],
       isAgentRunning: false,
       nextId: 1,
+      currentSessionId: null,
     });
+  },
+
+  setSessions(sessions: SessionInfo[]) {
+    set({ sessions });
+  },
+
+  setCurrentSessionId(id: string | null) {
+    set({ currentSessionId: id });
+  },
+
+  loadSession(id: string, sessionMessages: SessionMessage[]) {
+    const messages: Message[] = sessionMessages.map((m, i) => ({
+      id: makeId(m.role === 'user' ? 'user' : 'agent', i + 1),
+      role: m.role === 'user' ? ('user' as const) : ('agent' as const),
+      text: m.content,
+      timestamp: m.timestamp,
+    }));
+
+    set({
+      messages,
+      streamingText: null,
+      activeToolCalls: new Map(),
+      pendingToolCalls: [],
+      isAgentRunning: false,
+      nextId: messages.length + 1,
+      currentSessionId: id,
+    });
+  },
+
+  createNewSession(sessionId: string) {
+    const state = get();
+    const newSession: SessionInfo = {
+      id: sessionId,
+      createdAt: new Date().toISOString(),
+      lastActive: new Date().toISOString(),
+      messageCount: 0,
+      title: 'New conversation',
+    };
+
+    set({
+      messages: [],
+      streamingText: null,
+      activeToolCalls: new Map(),
+      pendingToolCalls: [],
+      isAgentRunning: false,
+      nextId: 1,
+      currentSessionId: sessionId,
+      sessions: [newSession, ...state.sessions],
+    });
+  },
+
+  deleteSession(id: string) {
+    const state = get();
+    const newSessions = state.sessions.filter((s) => s.id !== id);
+    const updates: Partial<ConversationState> = { sessions: newSessions };
+
+    // If we're deleting the active session, clear the chat
+    if (state.currentSessionId === id) {
+      updates.messages = [];
+      updates.streamingText = null;
+      updates.activeToolCalls = new Map();
+      updates.pendingToolCalls = [];
+      updates.isAgentRunning = false;
+      updates.nextId = 1;
+      updates.currentSessionId = null;
+    }
+
+    set(updates as ConversationState);
+  },
+
+  setWorkspace(path: string | null) {
+    set({ workspace: path });
+  },
+
+  setModelName(name: string | null) {
+    set({ modelName: name });
   },
 }));

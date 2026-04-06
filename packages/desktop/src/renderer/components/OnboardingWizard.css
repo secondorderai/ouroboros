@@ -1,0 +1,110 @@
+/**
+ * OnboardingWizard — Full-screen wizard container with step transitions.
+ */
+
+.onboarding-wizard {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  z-index: 100;
+}
+
+.onboarding-wizard__card {
+  width: 100%;
+  max-width: 520px;
+  padding: 40px 32px;
+  position: relative;
+}
+
+/* ── Step indicator dots ─────────────────────────────────── */
+
+.onboarding-wizard__dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.onboarding-wizard__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-light);
+  transition: background 200ms ease;
+}
+
+.onboarding-wizard__dot--active {
+  background: var(--accent-primary);
+}
+
+.onboarding-wizard__dot--completed {
+  background: var(--accent-primary);
+}
+
+/* ── Back button ─────────────────────────────────────────── */
+
+.onboarding-wizard__back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  margin-bottom: 20px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 200ms ease, background 200ms ease;
+}
+
+.onboarding-wizard__back:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.onboarding-wizard__back svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Step transition ─────────────────────────────────────── */
+
+.onboarding-wizard__step {
+  animation: onboarding-slide-in 200ms ease;
+}
+
+@keyframes onboarding-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.onboarding-wizard__step--back {
+  animation: onboarding-slide-in-reverse 200ms ease;
+}
+
+@keyframes onboarding-slide-in-reverse {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

@@ -1,12 +1,41 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { InputBar } from './components/InputBar'
 import { useTheme } from './hooks/useTheme'
+import { useConversationStore } from './stores/conversationStore'
+
+// Key for persisting sidebar state
+const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
 
 export function App(): React.ReactElement {
   const { resolvedTheme, toggleTheme } = useTheme()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  // Sidebar open/closed state — initialize from localStorage
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem(SIDEBAR_STATE_KEY)
+      return stored !== null ? stored === 'true' : true
+    } catch {
+      return true
+    }
+  })
+
+  // Drag-and-drop state
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounterRef = useRef(0)
+
+  const setModelName = useConversationStore((s) => s.setModelName)
+  const setWorkspace = useConversationStore((s) => s.setWorkspace)
+
+  // Persist sidebar state
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STATE_KEY, String(sidebarOpen))
+    } catch {
+      // ignore
+    }
+  }, [sidebarOpen])
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => !prev)
@@ -20,6 +49,84 @@ export function App(): React.ReactElement {
     return unsubscribe
   }, [])
 
+  // Fetch config on mount to populate model name
+  useEffect(() => {
+    const api = window.ouroboros
+    if (!api) return
+    api
+      .rpc('config/get', {})
+      .then((result) => {
+        const config = result as { model?: { name?: string } }
+        if (config?.model?.name) {
+          setModelName(config.model.name)
+        }
+      })
+      .catch((err) => {
+        console.error('config/get failed:', err)
+      })
+  }, [setModelName])
+
+  // ---- Drag-and-drop handlers -----------------------------------------------
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current++
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true)
+    }
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0
+      setIsDragOver(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+
+    const files = e.dataTransfer.files
+    if (files.length === 0) return
+
+    const paths: string[] = []
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      // Electron provides the path property on dropped files
+      const filePath = (file as unknown as { path?: string }).path
+      if (filePath) {
+        paths.push(filePath)
+      }
+    }
+
+    if (paths.length > 0) {
+      // Forward to InputBar via the global callback
+      const addFiles = (window as unknown as Record<string, unknown>)
+        .__inputBarAddFiles as ((files: string[]) => void) | undefined
+      if (addFiles) {
+        addFiles(paths)
+      }
+    }
+  }, [])
+
+  // Check if workspace is already set (e.g. from the CLI working directory)
+  useEffect(() => {
+    // Workspace will be set via the workspace indicator interaction
+    // or from config. No automatic detection needed.
+  }, [setWorkspace])
+
   return (
     <div style={styles.app}>
       <TitleBar
@@ -29,7 +136,13 @@ export function App(): React.ReactElement {
       />
       <div style={styles.body}>
         <Sidebar isOpen={sidebarOpen} />
-        <div style={styles.main}>
+        <div
+          style={styles.main}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <div style={styles.content}>
             <div style={styles.placeholder}>
               <div style={styles.logoContainer}>
@@ -39,7 +152,7 @@ export function App(): React.ReactElement {
               <p style={styles.subtitle}>Self-improving AI agent</p>
             </div>
           </div>
-          <InputBar />
+          <InputBar isDragOver={isDragOver} />
         </div>
       </div>
     </div>
@@ -72,18 +185,18 @@ const styles: Record<string, React.CSSProperties> = {
     height: '100vh',
     width: '100vw',
     overflow: 'hidden',
-    backgroundColor: 'var(--bg-primary)'
+    backgroundColor: 'var(--bg-primary)',
   },
   body: {
     display: 'flex',
     flex: 1,
-    overflow: 'hidden'
+    overflow: 'hidden',
   },
   main: {
     display: 'flex',
     flexDirection: 'column',
     flex: 1,
-    overflow: 'hidden'
+    overflow: 'hidden',
   },
   content: {
     flex: 1,
@@ -91,29 +204,29 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'var(--bg-chat)',
-    overflow: 'auto'
+    overflow: 'auto',
   },
   placeholder: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     gap: 12,
-    opacity: 0.8
+    opacity: 0.8,
   },
   logoContainer: {
-    marginBottom: 4
+    marginBottom: 4,
   },
   title: {
     fontSize: 24,
     fontWeight: 700,
     color: 'var(--text-primary)',
     margin: 0,
-    lineHeight: 1.0
+    lineHeight: 1.0,
   },
   subtitle: {
     fontSize: 14,
     fontWeight: 400,
     color: 'var(--text-tertiary)',
-    margin: 0
-  }
+    margin: 0,
+  },
 }
