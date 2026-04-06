@@ -4,12 +4,21 @@
   "description": "Ouroboros Desktop — Electron app for the self-improving AI agent",
   "type": "module",
   "private": true,
+  "main": "dist/main/index.js",
   "scripts": {
-    "dev": "echo 'Desktop app not yet scaffolded — see tickets/02-electron-scaffolding.md'",
-    "ts-check": "echo 'No source yet'",
-    "lint": "echo 'No source yet'"
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "ts-check": "tsc --noEmit",
+    "lint": "prettier --check 'src/**/*.ts' 'src/**/*.tsx'"
   },
   "dependencies": {
     "@ouroboros/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "^33.0.0",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.0",
+    "prettier": "^3.8.0"
   }
 }
