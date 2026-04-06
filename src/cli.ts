@@ -77,7 +77,9 @@ program
     const result = await orchestrator.triggerDream({ mode: mode as 'consolidate-only' | 'full' })
 
     if (result.ok) {
-      process.stdout.write(`[RSI] Dream complete: ${result.value.summary}\n`)
+      process.stdout.write(
+        `[RSI] Dream complete: ${result.value.topicsMerged} merged, ${result.value.topicsCreated} created\n`,
+      )
       process.exit(0)
     } else {
       process.stderr.write(`[RSI] Dream failed: ${result.error.message}\n`)
@@ -91,25 +93,25 @@ function writeRSIEvent(event: RSIEvent): void {
   switch (event.type) {
     case 'rsi-reflection':
       process.stdout.write(
-        `[RSI] Reflecting on task... novelty: ${event.reflection.noveltyScore.toFixed(2)}, generalizability: ${event.reflection.generalizabilityScore.toFixed(2)}\n`,
+        `[RSI] Reflecting on task... novelty: ${event.reflection.novelty.toFixed(2)}, generalizability: ${event.reflection.generalizability.toFixed(2)}\n`,
       )
       break
 
     case 'rsi-crystallization':
       if (event.result.outcome === 'promoted') {
-        const skillName = event.result.skill?.frontmatter.name ?? 'unknown'
+        const skillName = event.result.skillName ?? 'unknown'
         process.stdout.write(`[RSI] Skill crystallized and promoted: ${skillName}\n`)
       } else if (event.result.outcome === 'no-crystallization') {
         process.stdout.write('[RSI] Reflection complete — no crystallization needed.\n')
       } else {
-        process.stdout.write(
-          `[RSI] Crystallization ${event.result.outcome}: ${event.result.error ?? 'unknown error'}\n`,
-        )
+        process.stdout.write(`[RSI] Crystallization ${event.result.outcome}\n`)
       }
       break
 
     case 'rsi-dream':
-      process.stdout.write(`[RSI] ${event.result.summary}\n`)
+      process.stdout.write(
+        `[RSI] Dream: ${event.result.topicsMerged} merged, ${event.result.topicsCreated} created, ${event.result.topicsPruned} pruned\n`,
+      )
       break
 
     case 'rsi-error':

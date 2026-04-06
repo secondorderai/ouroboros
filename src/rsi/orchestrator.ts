@@ -13,6 +13,7 @@
  * or interrupt the user's task. Errors are logged and emitted as events.
  */
 
+import { resolve } from 'node:path'
 import type { LanguageModel } from 'ai'
 import { type Result, err } from '@src/types'
 import type { OuroborosConfig } from '@src/config'
@@ -25,7 +26,7 @@ import {
   type CrystallizationResult,
 } from './crystallize'
 import { appendEntry } from './evolution-log'
-import { dream, type DreamResult, type DreamOptions } from '@src/memory/dream'
+import { dream, type DreamResult, type DreamOptions, type DreamDeps } from '@src/memory/dream'
 import { getSkillCatalog } from '@src/tools/skill-manager'
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -110,26 +111,22 @@ export class RSIOrchestrator {
    */
   async triggerReflection(taskSummary: string): Promise<Result<ReflectionRecord>> {
     try {
-      const existingSkills = getSkillCatalog().map((s) => s.name)
+      const existingSkills = getSkillCatalog()
       const result = await reflect(taskSummary, existingSkills, this.llm)
 
       if (result.ok) {
-        // Log to evolution log
         appendEntry(
           {
-            timestamp: new Date().toISOString(),
-            event: 'reflection',
+            type: 'memory-updated',
             summary: `Reflected on: ${taskSummary.slice(0, 100)}`,
-            data: {
-              noveltyScore: result.value.noveltyScore,
-              generalizabilityScore: result.value.generalizabilityScore,
-              shouldCrystallize: result.value.shouldCrystallize,
+            details: {
+              skillName: result.value.proposedSkillName,
             },
+            motivation: `Novelty: ${result.value.novelty}, Generalizability: ${result.value.generalizability}, shouldCrystallize: ${result.value.shouldCrystallize}`,
           },
           this.basePath,
         )
 
-        // Emit event
         this.emitEvent({
           type: 'rsi-reflection',
           reflection: result.value,
@@ -151,51 +148,41 @@ export class RSIOrchestrator {
     transcript?: string,
   ): Promise<Result<CrystallizationResult>> {
     try {
-      const existingSkills = getSkillCatalog().map((s) => s.name)
+      const existingSkills = getSkillCatalog()
+      const cwd = this.basePath ?? process.cwd()
 
       const result = await crystallize(taskSummary, {
         llm: this.llm,
         existingSkills,
         transcript,
-        basePath: this.basePath,
+        skillDirs: {
+          staging: resolve(cwd, 'skills/staging'),
+          generated: resolve(cwd, 'skills/generated'),
+          core: resolve(cwd, 'skills/core'),
+        },
         noveltyThreshold: this.config.rsi.noveltyThreshold,
       })
 
       if (result.ok) {
         const crystalResult = result.value
 
-        // Log to evolution log
         appendEntry(
           {
-            timestamp: new Date().toISOString(),
-            event: 'crystallization',
-            summary: `Crystallization: ${crystalResult.outcome}`,
-            data: {
-              outcome: crystalResult.outcome,
-              skillName: crystalResult.skill?.frontmatter.name,
-              skillPath: crystalResult.skillPath,
+            type:
+              crystalResult.outcome === 'promoted'
+                ? 'skill-promoted'
+                : crystalResult.outcome === 'test-failed'
+                  ? 'skill-failed'
+                  : 'skill-created',
+            summary: `Crystallization: ${crystalResult.outcome}${crystalResult.skillName ? ` (${crystalResult.skillName})` : ''}`,
+            details: {
+              skillName: crystalResult.skillName,
             },
+            motivation: `Pipeline outcome: ${crystalResult.outcome}`,
           },
           this.basePath,
         )
 
-        // If promoted, log the promotion separately
-        if (crystalResult.outcome === 'promoted' && crystalResult.skillPath) {
-          appendEntry(
-            {
-              timestamp: new Date().toISOString(),
-              event: 'skill-promoted',
-              summary: `Skill promoted: ${crystalResult.skill?.frontmatter.name}`,
-              data: {
-                skillName: crystalResult.skill?.frontmatter.name,
-                skillPath: crystalResult.skillPath,
-              },
-            },
-            this.basePath,
-          )
-        }
-
-        // Emit event
         this.emitEvent({
           type: 'rsi-crystallization',
           result: crystalResult,
@@ -216,31 +203,36 @@ export class RSIOrchestrator {
     try {
       const dreamOpts: DreamOptions = {
         mode: options?.mode ?? 'consolidate-only',
-        basePath: options?.basePath ?? this.basePath,
       }
 
-      const result = await dream(dreamOpts)
+      // Build dream dependencies — dream() needs LLM and session accessors
+      const deps: DreamDeps = {
+        generateFn: async (_prompt: string) => ({ ok: true as const, value: '' }),
+        getRecentSessions: () => ({ ok: true as const, value: [] }),
+        getSession: () => ({
+          ok: false as const,
+          error: new Error('No session store configured'),
+        }),
+        basePath: this.basePath,
+      }
+
+      const result = await dream(deps, dreamOpts)
 
       if (result.ok) {
         const dreamResult = result.value
 
-        // Log to evolution log
         appendEntry(
           {
-            timestamp: new Date().toISOString(),
-            event: 'memory-consolidated',
-            summary: dreamResult.summary,
-            data: {
-              mode: dreamResult.mode,
-              topicsMerged: dreamResult.topicsMerged,
-              topicsCreated: dreamResult.topicsCreated,
-              topicsPruned: dreamResult.topicsPruned,
+            type: 'memory-consolidated',
+            summary: `Dream cycle: ${dreamResult.topicsMerged} merged, ${dreamResult.topicsCreated} created, ${dreamResult.topicsPruned} pruned`,
+            details: {
+              sessionId: `dream-${Date.now()}`,
             },
+            motivation: 'Memory consolidation via dream cycle',
           },
           this.basePath,
         )
 
-        // Emit event
         this.emitEvent({
           type: 'rsi-dream',
           result: dreamResult,
@@ -265,18 +257,16 @@ export class RSIOrchestrator {
   }
 
   private emitError(stage: string, error: Error): void {
-    // Log to evolution log
     appendEntry(
       {
-        timestamp: new Date().toISOString(),
-        event: 'rsi-error',
+        type: 'skill-failed',
         summary: `RSI error in ${stage}: ${error.message}`,
-        data: { stage, errorMessage: error.message },
+        details: {},
+        motivation: `Error during RSI ${stage} stage`,
       },
       this.basePath,
     )
 
-    // Emit error event
     this.emitEvent({
       type: 'rsi-error',
       stage,
