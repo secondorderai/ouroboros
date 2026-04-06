@@ -16,6 +16,8 @@ import type { LLMMessage, ToolCall, StreamChunk, LLMToolSpec } from '@src/llm/ty
 import type { ToolRegistry } from '@src/tools/registry'
 import { getMemoryIndex } from '@src/memory/index'
 import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
+import type { RSIEvent } from '@src/rsi/types'
+import type { RSIOrchestrator } from '@src/rsi/orchestrator'
 
 // ── Event types ──────────────────────────────────────────────────────
 
@@ -37,6 +39,7 @@ export type AgentEvent =
     }
   | { type: 'turn-complete'; text: string; iterations: number }
   | { type: 'error'; error: Error; recoverable: boolean }
+  | RSIEvent
 
 /** Callback function for agent events. */
 export type AgentEventHandler = (event: AgentEvent) => void
@@ -58,6 +61,8 @@ export interface AgentOptions {
   memoryProvider?: () => string
   /** Optional override for skill catalog fetching (for testing) */
   skillCatalogProvider?: () => SkillCatalogEntry[]
+  /** RSI orchestrator instance (initialized lazily, only if RSI is enabled) */
+  rsiOrchestrator?: RSIOrchestrator
 }
 
 // ── Agent result ─────────────────────────────────────────────────────
@@ -81,6 +86,7 @@ export class Agent {
   private systemPromptBuilder: (options: BuildSystemPromptOptions) => string
   private memoryProvider: () => string
   private skillCatalogProvider: () => SkillCatalogEntry[]
+  private rsiOrchestrator: RSIOrchestrator | null
 
   /** Conversation history persisted across run() calls within a session. */
   private conversationHistory: LLMMessage[] = []
@@ -98,6 +104,7 @@ export class Agent {
         return result.ok ? result.value : ''
       })
     this.skillCatalogProvider = options.skillCatalogProvider ?? getSkillCatalog
+    this.rsiOrchestrator = options.rsiOrchestrator ?? null
   }
 
   /**
@@ -201,6 +208,13 @@ export class Agent {
         iterations,
       })
 
+      // Post-task RSI reflection (non-blocking, error-isolated)
+      if (this.rsiOrchestrator) {
+        this.runRSIPostTask(finalText).catch(() => {
+          // Swallowed — RSI errors must never propagate to the caller.
+        })
+      }
+
       return {
         text: finalText,
         iterations,
@@ -242,7 +256,35 @@ export class Agent {
     this.conversationHistory = []
   }
 
+  /**
+   * Shut down the agent gracefully.
+   * Triggers session-end RSI hooks (dream cycle) if configured.
+   */
+  async shutdown(): Promise<void> {
+    if (this.rsiOrchestrator) {
+      try {
+        await this.rsiOrchestrator.onSessionEnd()
+      } catch {
+        // RSI shutdown errors are swallowed — never crash on exit.
+      }
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────
+
+  /**
+   * Run RSI post-task reflection asynchronously.
+   * Error-isolated: any failure is emitted as an rsi-error event.
+   */
+  private async runRSIPostTask(taskSummary: string): Promise<void> {
+    if (!this.rsiOrchestrator) return
+    try {
+      await this.rsiOrchestrator.onTaskComplete(taskSummary)
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e))
+      this.emitEvent({ type: 'rsi-error', stage: 'post-task', error })
+    }
+  }
 
   private emitEvent(event: AgentEvent): void {
     try {
