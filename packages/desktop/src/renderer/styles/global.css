@@ -1,0 +1,98 @@
+@import './theme.css';
+
+/* ------------------------------------------------------------------ */
+/* Reset & base                                                       */
+/* ------------------------------------------------------------------ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ------------------------------------------------------------------ */
+/* Scrollbar styling                                                  */
+/* ------------------------------------------------------------------ */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-medium);
+}
+
+/* ------------------------------------------------------------------ */
+/* Selection                                                          */
+/* ------------------------------------------------------------------ */
+::selection {
+  background: var(--accent-amber-bg);
+}
+
+/* ------------------------------------------------------------------ */
+/* Streaming cursor animation                                         */
+/* ------------------------------------------------------------------ */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: var(--accent-amber);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink-cursor 1s step-end infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/* Jump-to-bottom button                                              */
+/* ------------------------------------------------------------------ */
+.jump-to-bottom {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.jump-to-bottom:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
