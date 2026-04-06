@@ -106,11 +106,11 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
       })
   }, [setSessions])
 
-  // ---- Close context menu on click outside ----------------------------------
+  // ---- Close context menu on click outside or Escape -------------------------
 
   useEffect(() => {
     if (!contextMenu) return
-    const handler = (e: MouseEvent) => {
+    const handleMouseDown = (e: MouseEvent) => {
       if (
         contextMenuRef.current &&
         !contextMenuRef.current.contains(e.target as Node)
@@ -118,8 +118,17 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
         setContextMenu(null)
       }
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [contextMenu])
 
   // ---- Handlers -------------------------------------------------------------
@@ -189,6 +198,18 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
   const handleCancelDelete = useCallback(() => {
     setConfirmDelete(null)
   }, [])
+
+  // Close confirmation dialog on Escape
+  useEffect(() => {
+    if (!confirmDelete) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setConfirmDelete(null)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [confirmDelete])
 
   // ---- Render ---------------------------------------------------------------
 
@@ -455,6 +476,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     cursor: 'pointer',
     gap: 3,
+    fontFamily: 'var(--font-sans)',
     transition: 'background-color 0.1s ease',
   },
   sessionTitle: {
@@ -521,6 +543,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-micro)',
     color: 'var(--accent-red)',
     fontSize: 13,
+    fontFamily: 'var(--font-sans)',
     cursor: 'pointer',
     textAlign: 'left',
   },
@@ -547,6 +570,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dialogText: {
     fontSize: 14,
+    fontFamily: 'var(--font-sans)',
     color: 'var(--text-primary)',
     lineHeight: 1.5,
     margin: '0 0 16px',
@@ -563,6 +587,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-standard)',
     color: 'var(--text-secondary)',
     fontSize: 13,
+    fontFamily: 'var(--font-sans)',
     cursor: 'pointer',
   },
   dialogButtonDelete: {
@@ -572,6 +597,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-standard)',
     color: 'var(--text-inverse)',
     fontSize: 13,
+    fontFamily: 'var(--font-sans)',
     fontWeight: 500,
     cursor: 'pointer',
   },

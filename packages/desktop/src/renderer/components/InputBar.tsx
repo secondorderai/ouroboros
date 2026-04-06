@@ -49,6 +49,11 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     adjustHeight()
   }, [text, adjustHeight])
 
+  // Auto-focus textarea on mount
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [])
+
   // ---- Handlers ------------------------------------------------------------
 
   const handleSend = useCallback(() => {
@@ -58,9 +63,10 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     sendMessage(trimmed, attachedFiles.length > 0 ? attachedFiles : undefined)
     setText('')
     setAttachedFiles([])
-    // Reset textarea height
+    // Reset textarea height and re-focus
     if (textareaRef.current) {
       textareaRef.current.style.height = `${MIN_HEIGHT}px`
+      textareaRef.current.focus()
     }
   }, [text, attachedFiles, isEmpty, isAgentRunning, sendMessage])
 

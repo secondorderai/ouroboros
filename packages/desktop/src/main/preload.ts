@@ -49,7 +49,7 @@ const ouroborosAPI: OuroborosAPI = {
   },
 
   showOpenDialog: async (options: OpenDialogOptions) => {
-    return ipcRenderer.invoke(IPC_CHANNELS.SHOW_OPEN_DIALOG, options) as Promise<string | null>
+    return ipcRenderer.invoke(IPC_CHANNELS.SHOW_OPEN_DIALOG, options) as Promise<string | string[] | null>
   },
 
   onCLIStatus: (callback: (status: CLIStatus) => void) => {

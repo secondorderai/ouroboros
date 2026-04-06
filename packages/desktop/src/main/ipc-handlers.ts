@@ -46,6 +46,10 @@ function registerDialogHandlers(): void {
     async (_event, options: OpenDialogOptions) => {
       const result = await dialog.showOpenDialog(options)
       if (result.canceled || result.filePaths.length === 0) return null
+      // Return all paths when multiSelections is requested, single path otherwise
+      if (options.properties?.includes('multiSelections')) {
+        return result.filePaths
+      }
       return result.filePaths[0]
     },
   )

@@ -29,8 +29,8 @@ export interface OuroborosAPI {
   rpc(method: string, params?: unknown): Promise<unknown>
   /** Subscribe to CLI notifications. Returns an unsubscribe function. */
   onNotification(channel: string, callback: (params: unknown) => void): () => void
-  /** Show a native open-file dialog */
-  showOpenDialog(options: OpenDialogOptions): Promise<string | null>
+  /** Show a native open-file dialog. Returns string[] when multiSelections, string otherwise, or null if cancelled. */
+  showOpenDialog(options: OpenDialogOptions): Promise<string | string[] | null>
   /** Subscribe to CLI status changes. Returns an unsubscribe function. */
   onCLIStatus(callback: (status: CLIStatus) => void): () => void
 }
