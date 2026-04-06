@@ -315,6 +315,24 @@ export class TranscriptStore {
   }
 
   /**
+   * Delete a session and all its messages.
+   */
+  deleteSession(sessionId: string): Result<void> {
+    try {
+      // Delete messages first (foreign key constraint)
+      this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
+      const result = this.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId)
+      if (result.changes === 0) {
+        return err(new Error(`Session "${sessionId}" not found`))
+      }
+      return ok(undefined)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      return err(new Error(`Failed to delete session: ${message}`))
+    }
+  }
+
+  /**
    * Close the database connection.
    */
   close(): void {

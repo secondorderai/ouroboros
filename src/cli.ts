@@ -19,6 +19,7 @@ import { Renderer } from '@src/cli/renderer'
 import { startRepl } from '@src/cli/repl'
 import { createSingleShotHandler } from '@src/cli/single-shot'
 import { loadConfig } from '@src/config'
+import { startJsonRpcServer } from '@src/json-rpc/server'
 import { createProvider } from '@src/llm/provider'
 import { createRegistry } from '@src/tools/registry'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
@@ -41,6 +42,7 @@ program
   .option('-m, --message <prompt>', 'Process a single prompt and exit')
   .option('--debug-tools', 'Print registered tool names and exit')
   .option('--no-rsi', 'Disable all RSI (self-improvement) hooks')
+  .option('--json-rpc', 'Start in JSON-RPC 2.0 server mode (stdin/stdout)')
 
 // ── Dream subcommand ────────────────────────────────────────────────
 
@@ -132,6 +134,7 @@ async function main(): Promise<void> {
     message?: string
     debugTools?: boolean
     rsi: boolean
+    jsonRpc?: boolean
   }>()
 
   // Load config
@@ -158,6 +161,16 @@ async function main(): Promise<void> {
         name: parseResult.value.name,
       },
     }
+  }
+
+  // ── JSON-RPC server mode ───────────────────────────────────────────
+  // Must branch early — the server creates its own provider, registry,
+  // and manages its own Agent lifecycle.
+  if (opts.jsonRpc === true) {
+    const configDir = opts.config ?? process.cwd()
+    await startJsonRpcServer({ config, configDir })
+    // startJsonRpcServer runs indefinitely — this line is never reached.
+    return
   }
 
   const verbose = opts.verbose === true
