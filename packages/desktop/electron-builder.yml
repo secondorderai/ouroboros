@@ -1,0 +1,29 @@
+appId: com.ouroboros.desktop
+productName: Ouroboros
+directories:
+  output: release
+afterSign: scripts/notarize.cjs
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [universal]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+win:
+  target:
+    - target: nsis
+    - target: zip
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+extraResources:
+  - from: resources/cli/
+    to: .
+    filter: ["ouroboros*"]
+publish:
+  provider: github
+  owner: anthropics
+  repo: ouroboros

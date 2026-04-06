@@ -4,12 +4,35 @@
   "description": "Ouroboros Desktop — Electron app for the self-improving AI agent",
   "type": "module",
   "private": true,
+  "main": "dist/main/index.js",
   "scripts": {
-    "dev": "echo 'Desktop app not yet scaffolded — see tickets/02-electron-scaffolding.md'",
-    "ts-check": "echo 'No source yet'",
-    "lint": "echo 'No source yet'"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:cli": "bash scripts/build-cli.sh",
+    "build:mac": "electron-builder --mac --config electron-builder.yml --publish always",
+    "build:win": "electron-builder --win --config electron-builder.yml --publish always",
+    "build:dist": "electron-builder --config electron-builder.yml",
+    "ts-check": "tsc --noEmit",
+    "lint": "prettier --check 'src/**/*.{ts,tsx}'",
+    "lint:fix": "prettier --write 'src/**/*.{ts,tsx}'",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@ouroboros/shared": "workspace:*"
+    "@ouroboros/shared": "workspace:*",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^2.5.0",
+    "@playwright/test": "^1.49.1",
+    "@types/react": "^19.2.14",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "playwright": "^1.49.1",
+    "prettier": "^3.8.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
   }
 }
