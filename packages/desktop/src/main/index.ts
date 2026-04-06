@@ -5,6 +5,8 @@ import { createWindowOptions, saveBounds, restoreMaximized } from './window'
 import { CLIProcessManager } from './cli-process'
 import { RpcClient } from './rpc-client'
 import { registerIpcHandlers } from './ipc-handlers'
+import { initAutoUpdater } from './auto-updater'
+import { initCrashRollback } from './crash-rollback'
 import type { Theme } from '../shared/protocol'
 
 const store = new Store<{ theme: Theme }>()
@@ -27,6 +29,9 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(async () => {
+    // Crash rollback runs first, before heavy init
+    initCrashRollback()
+
     registerThemeIpcHandlers()
 
     // Initialize CLI process and RPC client
@@ -48,6 +53,9 @@ if (!gotTheLock) {
 
     // Run health check
     await performHealthCheck(cliProcess, rpcClient)
+
+    // Auto-updater after window is created so IPC events reach renderer
+    initAutoUpdater()
 
     // macOS: re-create window when dock icon is clicked
     app.on('activate', () => {
