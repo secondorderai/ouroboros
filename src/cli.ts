@@ -21,6 +21,8 @@ import { createSingleShotHandler } from '@src/cli/single-shot'
 import { loadConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { createRegistry } from '@src/tools/registry'
+import { RSIOrchestrator } from '@src/rsi/orchestrator'
+import type { RSIEvent } from '@src/rsi/types'
 import { type Result, err, ok } from '@src/types'
 import { Command } from 'commander'
 
@@ -38,6 +40,83 @@ program
   .option('--config <path>', 'Path to .ouroboros config file directory')
   .option('-m, --message <prompt>', 'Process a single prompt and exit')
   .option('--debug-tools', 'Print registered tool names and exit')
+  .option('--no-rsi', 'Disable all RSI (self-improvement) hooks')
+
+// ── Dream subcommand ────────────────────────────────────────────────
+
+program
+  .command('dream')
+  .description('Manually trigger the dream cycle (memory consolidation)')
+  .option('--mode <mode>', 'Dream mode: consolidate-only or full', 'consolidate-only')
+  .option('--config <path>', 'Path to .ouroboros config file directory')
+  .action(async (dreamOpts: { mode?: string; config?: string }) => {
+    const configResult = loadConfig(dreamOpts.config)
+    if (!configResult.ok) {
+      process.stderr.write(`${configResult.error.message}\n`)
+      process.exit(1)
+    }
+
+    const config = configResult.value
+    const providerResult = createProvider(config.model)
+    if (!providerResult.ok) {
+      process.stderr.write(`${providerResult.error.message}\n`)
+      process.exit(1)
+    }
+
+    process.stdout.write('[RSI] Starting dream cycle...\n')
+
+    const orchestrator = new RSIOrchestrator({
+      config,
+      llm: providerResult.value,
+      onEvent: (event: RSIEvent) => {
+        writeRSIEvent(event)
+      },
+    })
+
+    const mode = dreamOpts.mode === 'full' ? 'full' : 'consolidate-only'
+    const result = await orchestrator.triggerDream({ mode: mode as 'consolidate-only' | 'full' })
+
+    if (result.ok) {
+      process.stdout.write(`[RSI] Dream complete: ${result.value.summary}\n`)
+      process.exit(0)
+    } else {
+      process.stderr.write(`[RSI] Dream failed: ${result.error.message}\n`)
+      process.exit(1)
+    }
+  })
+
+// ── RSI event display ───────────────────────────────────────────────
+
+function writeRSIEvent(event: RSIEvent): void {
+  switch (event.type) {
+    case 'rsi-reflection':
+      process.stdout.write(
+        `[RSI] Reflecting on task... novelty: ${event.reflection.noveltyScore.toFixed(2)}, generalizability: ${event.reflection.generalizabilityScore.toFixed(2)}\n`,
+      )
+      break
+
+    case 'rsi-crystallization':
+      if (event.result.outcome === 'promoted') {
+        const skillName = event.result.skill?.frontmatter.name ?? 'unknown'
+        process.stdout.write(`[RSI] Skill crystallized and promoted: ${skillName}\n`)
+      } else if (event.result.outcome === 'no-crystallization') {
+        process.stdout.write('[RSI] Reflection complete — no crystallization needed.\n')
+      } else {
+        process.stdout.write(
+          `[RSI] Crystallization ${event.result.outcome}: ${event.result.error ?? 'unknown error'}\n`,
+        )
+      }
+      break
+
+    case 'rsi-dream':
+      process.stdout.write(`[RSI] ${event.result.summary}\n`)
+      break
+
+    case 'rsi-error':
+      process.stderr.write(`[RSI] Error in ${event.stage}: ${event.error.message}\n`)
+      break
+  }
+}
 
 // ── Main ─────────────────────────────────────────────────────────────
 
@@ -50,6 +129,7 @@ async function main(): Promise<void> {
     config?: string
     message?: string
     debugTools?: boolean
+    rsi: boolean
   }>()
 
   // Load config
@@ -103,6 +183,19 @@ async function main(): Promise<void> {
     process.exit(0)
   }
 
+  // Create RSI orchestrator (lazily — only if RSI is enabled)
+  const rsiEnabled = opts.rsi !== false
+  let rsiOrchestrator: RSIOrchestrator | undefined
+  if (rsiEnabled) {
+    rsiOrchestrator = new RSIOrchestrator({
+      config,
+      llm: providerResult.value,
+      onEvent: (event: RSIEvent) => {
+        writeRSIEvent(event)
+      },
+    })
+  }
+
   // Create a mutable event dispatch target.
   // The Agent stores `onEvent` at construction time, so we use a proxy
   // that forwards to whatever handler is currently set.
@@ -116,6 +209,7 @@ async function main(): Promise<void> {
     model: providerResult.value,
     toolRegistry: registry,
     onEvent: eventProxy,
+    rsiOrchestrator,
   })
 
   // Determine mode: single-shot or interactive

@@ -36,6 +36,8 @@ export interface BuildSystemPromptOptions {
   skills?: SkillEntry[]
   /** Raw MEMORY.md content to inject as memory context */
   memory?: string
+  /** Whether RSI (self-improvement) is enabled */
+  rsiEnabled?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +105,17 @@ function formatMemorySection(memory: string): string {
   return `## Memory Context\n\n${memory}`
 }
 
+function formatRSISection(): string {
+  return `## Self-Improvement
+
+You have autonomous self-improvement capabilities (RSI). After completing tasks, you automatically:
+- **Reflect** on the approach used, assessing novelty and generalizability
+- **Crystallize** novel patterns into reusable skills when they meet the quality threshold
+- **Consolidate** memory at session end, merging and pruning topic files
+
+All self-improvement activity is logged to the evolution log for auditability. These processes run automatically in the background and do not require user intervention.`
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -118,7 +131,7 @@ function formatMemorySection(memory: string): string {
  * @returns A plain string system prompt ready for any LLM provider
  */
 export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): string {
-  const { tools, skills, memory } = options
+  const { tools, skills, memory, rsiEnabled } = options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
 
@@ -132,6 +145,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 
   if (memory && memory.trim().length > 0) {
     sections.push(formatMemorySection(memory))
+  }
+
+  if (rsiEnabled) {
+    sections.push(formatRSISection())
   }
 
   return sections.join('\n\n')
