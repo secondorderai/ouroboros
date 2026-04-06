@@ -53,3 +53,7 @@ PRD.md
 
 # RSI logs
 evolution.log.json
+
+# Electron desktop builds
+**/out
+**/release

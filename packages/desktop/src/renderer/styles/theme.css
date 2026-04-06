@@ -1,0 +1,117 @@
+/* Design tokens from DESIGN.md — Light theme (default) */
+:root,
+[data-theme='light'] {
+  /* Background surfaces */
+  --bg-primary: #FAFAF8;
+  --bg-secondary: #F2F1EE;
+  --bg-tertiary: #E8E7E3;
+  --bg-chat: #FFFFFF;
+  --bg-input: #FFFFFF;
+  --bg-user-msg: #F4F0EB;
+  --bg-tool-chip: #F6F5F2;
+  --bg-tool-expanded: #FAFAF8;
+  --bg-rsi-card: linear-gradient(135deg, #FFF8F0 0%, #FFF5E8 100%);
+  --bg-sidebar: #F7F6F3;
+  --bg-sidebar-active: #EDECEA;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-overlay: rgba(0, 0, 0, 0.3);
+
+  /* Text */
+  --text-primary: #1A1A1A;
+  --text-secondary: #6B6B6B;
+  --text-tertiary: #9B9B9B;
+  --text-inverse: #FFFFFF;
+
+  /* Borders */
+  --border-light: #E8E7E3;
+  --border-medium: #D4D3CF;
+
+  /* Accent & Status */
+  --accent-amber: #D97706;
+  --accent-amber-hover: #F59E0B;
+  --accent-amber-bg: rgba(217, 119, 6, 0.08);
+  --accent-green: #16A34A;
+  --accent-blue: #2563EB;
+  --accent-purple: #7C3AED;
+  --accent-red: #DC2626;
+  --accent-orange: #EA580C;
+
+  /* Shadows */
+  --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.16);
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* Spacing (base 4px) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Border radii */
+  --radius-micro: 4px;
+  --radius-standard: 6px;
+  --radius-comfortable: 10px;
+  --radius-large: 12px;
+  --radius-message: 16px;
+  --radius-xl: 20px;
+  --radius-full: 50%;
+
+  /* Layout */
+  --sidebar-width: 250px;
+  --title-bar-height: 40px;
+  --input-bar-height: 64px;
+}
+
+/* Dark theme */
+[data-theme='dark'] {
+  /* Background surfaces */
+  --bg-primary: #1A1A1E;
+  --bg-secondary: #222226;
+  --bg-tertiary: #2C2C30;
+  --bg-chat: #1E1E22;
+  --bg-input: #2A2A2E;
+  --bg-user-msg: #2A2720;
+  --bg-tool-chip: #28282C;
+  --bg-tool-expanded: #222226;
+  --bg-rsi-card: linear-gradient(135deg, #2A2518 0%, #2C2418 100%);
+  --bg-sidebar: #1A1A1E;
+  --bg-sidebar-active: #28282C;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+
+  /* Text */
+  --text-primary: #ECECEC;
+  --text-secondary: #9B9B9B;
+  --text-tertiary: #6B6B6B;
+  --text-inverse: #1A1A1A;
+
+  /* Borders */
+  --border-light: #333337;
+  --border-medium: #444448;
+
+  /* Accent & Status — same hues */
+  --accent-amber: #D97706;
+  --accent-amber-hover: #F59E0B;
+  --accent-amber-bg: rgba(217, 119, 6, 0.12);
+  --accent-green: #16A34A;
+  --accent-blue: #2563EB;
+  --accent-purple: #7C3AED;
+  --accent-red: #DC2626;
+  --accent-orange: #EA580C;
+
+  /* Shadows — higher opacity for dark theme */
+  --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.5);
+}

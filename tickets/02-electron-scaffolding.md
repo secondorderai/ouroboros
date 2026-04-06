@@ -94,17 +94,17 @@ Implement the dual-theme system from `DESIGN.md`:
 
 ## Acceptance Criteria
 
-- [ ] `packages/desktop/` is scaffolded with the project structure above
-- [ ] `npm run dev` launches an Electron window with the Vite dev server
-- [ ] App window renders with custom title bar (platform-appropriate buttons)
-- [ ] Sidebar panel is visible and collapsible (toggle via a temporary button)
-- [ ] Light and dark themes switch correctly via the title bar toggle
-- [ ] Theme follows system preference on first launch
-- [ ] Theme choice persists across app restarts
-- [ ] Single instance lock prevents opening two windows
-- [ ] Window position and size are restored on restart
-- [ ] `npm run build` produces a runnable local build (unsigned)
-- [ ] TypeScript compiles with zero errors in strict mode
+- [x] `packages/desktop/` is scaffolded with the project structure above
+- [x] `npm run dev` launches an Electron window with the Vite dev server
+- [x] App window renders with custom title bar (platform-appropriate buttons)
+- [x] Sidebar panel is visible and collapsible (toggle via a temporary button)
+- [x] Light and dark themes switch correctly via the title bar toggle
+- [x] Theme follows system preference on first launch
+- [x] Theme choice persists across app restarts
+- [x] Single instance lock prevents opening two windows
+- [x] Window position and size are restored on restart
+- [x] `npm run build` produces a runnable local build (unsigned)
+- [x] TypeScript compiles with zero errors in strict mode
 
 ## Feature Tests
 

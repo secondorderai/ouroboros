@@ -4,12 +4,29 @@
   "description": "Ouroboros Desktop — Electron app for the self-improving AI agent",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "main": "out/main/index.js",
   "scripts": {
-    "dev": "echo 'Desktop app not yet scaffolded — see tickets/02-electron-scaffolding.md'",
-    "ts-check": "echo 'No source yet'",
-    "lint": "echo 'No source yet'"
+    "dev": "electron-vite dev",
+    "build": "electron-vite build && electron-builder --config electron-builder.yml --dir",
+    "build:vite": "electron-vite build",
+    "preview": "electron-vite preview",
+    "ts-check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "lint": "echo 'No linter configured yet'"
   },
   "dependencies": {
-    "@ouroboros/shared": "workspace:*"
+    "electron-store": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^5.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
   }
 }
