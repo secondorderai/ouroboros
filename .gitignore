@@ -50,3 +50,6 @@ completed-tickets/**/*
 
 # PRD
 PRD.md
+
+# RSI logs
+evolution.log.json
