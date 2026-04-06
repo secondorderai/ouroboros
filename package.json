@@ -1,40 +1,17 @@
 {
-  "name": "ouroboros",
+  "name": "ouroboros-monorepo",
   "version": "0.1.0",
-  "description": "A recursive self-improving AI agent",
-  "type": "module",
-  "main": "dist/ouroboros",
-  "bin": {
-    "ouroboros": "dist/ouroboros"
-  },
+  "private": true,
+  "description": "Ouroboros — recursive self-improving AI agent (monorepo)",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "bun run --watch src/cli.ts",
-    "dev-run": "bun run src/cli.ts",
-    "build": "bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/ouroboros",
-    "start": "./dist/ouroboros",
-    "test": "bun test --path-ignore-patterns '**/e2e-live-llm*'",
-    "test:live": "bun test tests/integration/e2e-live-llm.test.ts --timeout 120000",
-    "test:all": "bun test --timeout 120000",
-    "test:dist": "bun test tests/dist-cli.test.ts --timeout 60000",
-    "lint": "prettier --check 'src/**/*.ts' 'tests/**/*.ts'",
-    "ts-check": "bun run --bun tsc --noEmit"
-  },
-  "dependencies": {
-    "@ai-sdk/anthropic": "3.0.66",
-    "@ai-sdk/openai": "3.0.50",
-    "ai": "6.0.146",
-    "better-sqlite3": "12.8.0",
-    "commander": "14.0.3",
-    "ink": "6.8.0",
-    "react": "19.2.4",
-    "yaml": "2.8.3",
-    "zod": "4.3.6"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "7.6.13",
-    "@types/bun": "1.3.11",
-    "@types/react": "19.2.14",
-    "prettier": "3.8.1",
-    "typescript": "6.0.2"
+    "dev": "bun run --filter @ouroboros/cli dev",
+    "build": "bun run --filter @ouroboros/cli build",
+    "test": "bun run --filter @ouroboros/cli test",
+    "test:all": "bun run --filter @ouroboros/cli test:all",
+    "lint": "bun run --filter '*' lint",
+    "ts-check": "bun run --filter '*' ts-check"
   }
 }

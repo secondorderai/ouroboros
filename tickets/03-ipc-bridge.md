@@ -4,7 +4,7 @@
 **Type:** Full-stack
 **Priority:** P0
 **Depends on:** 01-cli-json-rpc, 02-electron-scaffolding
-**Repo:** `ouroboros-desktop`
+**Repo:** `packages/desktop/`
 
 ## Context
 
@@ -121,7 +121,7 @@ Define TypeScript types for all JSON-RPC messages from the PRD (Section 5.2):
 
 ## Notes
 
-- For development, add an env var or config option `OUROBOROS_CLI_PATH` that points to the CLI binary (e.g., `../ouroboros/dist/ouroboros` or wherever `bun build --compile` outputs it). In production, this defaults to `resources/ouroboros` inside the app bundle.
+- For development, add an env var or config option `OUROBOROS_CLI_PATH` that points to the CLI entry point (e.g., `packages/cli/src/cli.ts` run via `bun`, or wherever `bun build --compile` outputs the binary). In production, this defaults to `resources/ouroboros` inside the app bundle.
 - The stdout reader must handle the case where a single `data` event contains multiple NDJSON lines, or a line is split across multiple `data` events. Buffer by `\n`.
 - Use Electron's `utilityProcess` or Node.js `child_process.spawn` — the latter is simpler and more predictable for stdio communication.
 - The preload `onNotification` should return an unsubscribe function so React components can clean up in `useEffect` teardown.

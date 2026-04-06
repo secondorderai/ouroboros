@@ -4,7 +4,7 @@
 **Type:** Frontend
 **Priority:** P0
 **Depends on:** 11-settings-overlay
-**Repo:** `ouroboros-desktop`
+**Repo:** `packages/desktop/`
 
 ## Context
 

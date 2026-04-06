@@ -4,25 +4,25 @@
 **Type:** Frontend / Infrastructure
 **Priority:** P0
 **Depends on:** None
-**Repo:** `ouroboros-desktop` (new repo)
+**Repo:** `packages/desktop/`
 
 ## Context
 
-Initialize the new `ouroboros-desktop` repository with an Electron + React + Vite project structure. This is the foundation for all subsequent desktop app tickets. The app shell should render correctly on macOS and Windows with the design system from `DESIGN.md`.
+Scaffold the `packages/desktop/` package within the monorepo with an Electron + React + Vite project structure. This is the foundation for all subsequent desktop app tickets. The app shell should render correctly on macOS and Windows with the design system from `DESIGN.md`.
 
 ## Requirements
 
-### Repository Setup
+### Package Setup
 
-- Initialize a new git repo `ouroboros-desktop`
+- Scaffold `packages/desktop/` within the existing monorepo
 - TypeScript throughout (strict mode)
-- Package manager: npm or pnpm (not Bun — Electron ecosystem is npm-native)
-- License: match the CLI repo
+- Package manager: npm or pnpm (not Bun — Electron ecosystem is npm-native) for the desktop package's own dependencies
+- License: match the CLI package
 
 ### Project Structure
 
 ```
-ouroboros-desktop/
+packages/desktop/
 ├── src/
 │   ├── main/                  # Electron main process
 │   │   ├── index.ts           # App entry point, window creation
@@ -45,7 +45,7 @@ ouroboros-desktop/
 ├── vite.config.ts             # Vite config for renderer
 ├── tsconfig.json
 ├── package.json
-├── DESIGN.md                  # Copied from CLI repo
+├── DESIGN.md                  # Copied from CLI package
 └── README.md
 ```
 
@@ -94,7 +94,7 @@ Implement the dual-theme system from `DESIGN.md`:
 
 ## Acceptance Criteria
 
-- [ ] `ouroboros-desktop` repo is initialized with the project structure above
+- [ ] `packages/desktop/` is scaffolded with the project structure above
 - [ ] `npm run dev` launches an Electron window with the Vite dev server
 - [ ] App window renders with custom title bar (platform-appropriate buttons)
 - [ ] Sidebar panel is visible and collapsible (toggle via a temporary button)
@@ -133,7 +133,7 @@ Implement the dual-theme system from `DESIGN.md`:
 
 ## Notes
 
-- Copy `DESIGN.md` from the CLI repo into the desktop repo root so the design tokens are available locally.
+- Copy `DESIGN.md` from the CLI package into the desktop package root so the design tokens are available locally.
 - For the custom title bar, use Electron's `titleBarStyle: 'hiddenInset'` on macOS and `titleBarStyle: 'hidden'` with `titleBarOverlay` on Windows.
 - Use `electron-store` for simple key-value persistence (theme, window bounds, onboarding flag).
 - The Vite config needs `electron-vite` or a similar plugin to handle the main/renderer/preload build pipeline.

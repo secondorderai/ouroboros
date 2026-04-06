@@ -4,13 +4,13 @@
 **Type:** Backend
 **Priority:** P0
 **Depends on:** None
-**Repo:** `ouroboros` (this repo)
+**Repo:** `packages/cli/`
 
 ## Context
 
 The Electron desktop app communicates with the CLI via JSON-RPC 2.0 over stdin/stdout. The CLI currently only supports an interactive REPL mode with human-readable terminal output. It needs a new `--json-rpc` flag that switches to machine-readable JSON-RPC messaging, keeping the process alive across multiple conversations.
 
-This is the only CLI-side change needed for the entire desktop app. All other tickets target the new `ouroboros-desktop` repo.
+This is the only CLI-side change needed for the entire desktop app. All other tickets target `packages/desktop/`.
 
 ## Requirements
 

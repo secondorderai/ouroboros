@@ -1,0 +1,20 @@
+{
+  "name": "@ouroboros/shared",
+  "version": "0.1.0",
+  "description": "Shared types for Ouroboros CLI and Desktop",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "ts-check": "bun run --bun tsc --noEmit",
+    "lint": "prettier --check 'src/**/*.ts'"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.11",
+    "prettier": "3.8.1",
+    "typescript": "6.0.2"
+  }
+}

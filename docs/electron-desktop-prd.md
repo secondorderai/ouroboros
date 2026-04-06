@@ -147,7 +147,7 @@ Developers who already use the Ouroboros CLI daily. They can use the CLI directl
 
 ### 4.2 CLI Modifications Required
 
-The CLI needs one new mode to support the desktop app:
+The CLI (at `packages/cli/`) needs one new mode to support the desktop app:
 
 **`--json-rpc` flag:**
 - Disables the interactive REPL and terminal rendering
@@ -156,7 +156,7 @@ The CLI needs one new mode to support the desktop app:
 - Stderr remains available for debug logging
 - The CLI process stays alive across multiple conversations (long-running)
 
-This is the only change required to the existing CLI codebase for Phase 3.
+This is the only change required to the existing CLI codebase (`packages/cli/src/`) for Phase 3.
 
 ### 4.3 State Management
 
@@ -164,6 +164,10 @@ This is the only change required to the existing CLI codebase for Phase 3.
 - Current conversation messages (in memory)
 - UI state: sidebar open/closed, drawer open/closed, theme, active view
 - Onboarding completion flag
+
+**Shared types** (`@ouroboros/shared`):
+- TypeScript types and interfaces shared between `@ouroboros/cli` and `@ouroboros/desktop` live in `packages/shared/src/`
+- Both the CLI and desktop packages import shared types as `@ouroboros/shared`
 
 **Persistent state** (main process, on disk):
 - Conversation history (delegated to CLI's SQLite transcript store)
@@ -534,7 +538,8 @@ Visual checks: theme rendering, window chrome, system font rendering, file dialo
 - **App signing:**
   - macOS: Apple Developer ID certificate + notarization via `notarytool`
   - Windows: EV code signing certificate
-- **CLI bundling:** The Ouroboros CLI is compiled with `bun build --compile` to a standalone binary and included in the app's `resources/` directory
+- **CLI bundling:** The Ouroboros CLI (`packages/cli/`) is compiled with `bun build --compile` to a standalone binary and included in the app's `resources/` directory
+- **Desktop source:** All Electron app source lives in `packages/desktop/`
 
 ### 12.2 Artifacts
 
@@ -569,12 +574,13 @@ Phase 3 is broken into 6 sub-phases, each producing a testable increment.
 
 ### 3.1 — Project Scaffolding (Week 1-2)
 
-- Initialize Electron + React + Vite project
+- Scaffold Electron + React + Vite app in `packages/desktop/`
 - Set up electron-builder configuration for macOS and Windows
 - Implement IPC bridge (main <-> renderer preload script)
 - Create the app shell: window, title bar, basic layout
 - Implement theme system (light/dark/system) per DESIGN.md
-- Add `--json-rpc` mode to the CLI
+- Add `--json-rpc` mode to the CLI (`packages/cli/`)
+- Set up shared types in `packages/shared/` for cross-package interfaces
 
 **Deliverable:** Empty app window with correct styling, theme toggle works, CLI spawns and responds to a ping.
 
@@ -662,10 +668,12 @@ These are explicitly deferred beyond Phase 3:
 | Design Spec | `docs/superpowers/specs/2026-04-06-electron-desktop-app-design.md` | Approved UI design spec from brainstorming session. |
 | Design System | `DESIGN.md` | Complete visual design system in Google Stitch DESIGN.md format. Machine-readable design tokens. |
 | Interactive Mockup | `designs/option-c-chat.html` | HTML mockup of the chat-first UI direction. |
-| Agent Events | `src/agent.ts` (`AgentEvent` type) | Existing event types that the JSON-RPC protocol wraps. |
-| RSI Events | `src/rsi/types.ts` (`RSIEvent` type) | RSI event types emitted by the orchestrator. |
-| Config Schema | `src/config.ts` (`configSchema`) | Zod schema for `.ouroboros` configuration. |
-| CLI Entry Point | `src/cli.ts` | CLI that will receive the `--json-rpc` flag. |
+| Agent Events | `packages/cli/src/agent.ts` (`AgentEvent` type) | Existing event types that the JSON-RPC protocol wraps. |
+| RSI Events | `packages/cli/src/rsi/types.ts` (`RSIEvent` type) | RSI event types emitted by the orchestrator. |
+| Config Schema | `packages/cli/src/config.ts` (`configSchema`) | Zod schema for `.ouroboros` configuration. |
+| CLI Entry Point | `packages/cli/src/cli.ts` | CLI that will receive the `--json-rpc` flag. |
+| Shared Types | `packages/shared/src/` | Shared TypeScript types used by both CLI and desktop. |
+| Desktop App | `packages/desktop/src/` | Electron desktop application source. |
 
 ---
 

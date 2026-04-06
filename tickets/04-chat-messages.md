@@ -4,7 +4,7 @@
 **Type:** Frontend
 **Priority:** P0
 **Depends on:** 03-ipc-bridge
-**Repo:** `ouroboros-desktop`
+**Repo:** `packages/desktop/`
 
 ## Context
 

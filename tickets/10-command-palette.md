@@ -4,7 +4,7 @@
 **Type:** Frontend
 **Priority:** P0
 **Depends on:** 04-chat-messages
-**Repo:** `ouroboros-desktop`
+**Repo:** `packages/desktop/`
 
 ## Context
 

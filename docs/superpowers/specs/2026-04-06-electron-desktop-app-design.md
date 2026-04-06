@@ -27,15 +27,18 @@ Inspired by Claude.ai (clean, warm, generous whitespace), Linear (minimal, fast)
 
 ## 3. Architecture
 
+The desktop app lives at `packages/desktop/` within the Ouroboros monorepo. It is a sibling package to the CLI (`packages/cli/`) and shared types (`packages/shared/`). All three packages are managed via Bun workspaces.
+
 ### 3.1 Electron Process Model
 
-- **Main process:** Spawns the Ouroboros CLI as a child process, communicates via JSON-RPC over stdin/stdout (PRD Task 3.1). Handles file dialogs, system integration, auto-update, and window management.
-- **Renderer process:** React app bundled with Vite. All UI rendering happens here.
+- **Main process:** Spawns the Ouroboros CLI (`packages/cli/`) as a child process, communicates via JSON-RPC over stdin/stdout (PRD Task 3.1). Handles file dialogs, system integration, auto-update, and window management.
+- **Renderer process:** React app bundled with Vite. All UI rendering happens here. Located in `packages/desktop/src/`.
 - **IPC bridge:** Main <-> renderer communication for CLI events, native file pickers, and system theme detection.
+- **Shared types:** TypeScript interfaces shared between CLI and desktop are imported from `@ouroboros/shared` (`packages/shared/src/`).
 
 ### 3.2 CLI Bundling
 
-The CLI binary is bundled inside the app package. Users do not need Bun, Node, or any system dependencies installed. The app spawns the bundled CLI as a child process with no PATH dependency.
+The CLI binary (built from `packages/cli/`) is bundled inside the app package. Users do not need Bun, Node, or any system dependencies installed. The app spawns the bundled CLI as a child process with no PATH dependency.
 
 ### 3.3 Single Instance
 

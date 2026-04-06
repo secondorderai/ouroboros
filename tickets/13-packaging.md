@@ -4,7 +4,7 @@
 **Type:** Infrastructure
 **Priority:** P0
 **Depends on:** All previous tickets (02-12)
-**Repo:** `ouroboros-desktop`
+**Repo:** `packages/desktop/`
 
 ## Context
 
@@ -14,7 +14,7 @@ The final ticket transforms the development app into distributable, signed insta
 
 ### CLI Binary Bundling
 
-- Compile the Ouroboros CLI into a standalone binary using `bun build --compile` (in the CLI repo)
+- Compile the Ouroboros CLI into a standalone binary using `bun build --compile` (from `packages/cli/`)
 - Include the binary in the desktop app's `resources/` directory
 - At runtime, the CLI process manager (ticket 03) resolves the binary path:
   - **Development:** Use `OUROBOROS_CLI_PATH` env var or a configured path
@@ -61,7 +61,7 @@ extraResources:
 publish:
   provider: github
   owner: <github-owner>
-  repo: ouroboros-desktop
+  repo: ouroboros
 ```
 
 ### macOS Signing & Notarization

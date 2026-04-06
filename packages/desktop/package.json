@@ -1,0 +1,15 @@
+{
+  "name": "@ouroboros/desktop",
+  "version": "0.1.0",
+  "description": "Ouroboros Desktop — Electron app for the self-improving AI agent",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'Desktop app not yet scaffolded — see tickets/02-electron-scaffolding.md'",
+    "ts-check": "echo 'No source yet'",
+    "lint": "echo 'No source yet'"
+  },
+  "dependencies": {
+    "@ouroboros/shared": "workspace:*"
+  }
+}
