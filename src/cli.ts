@@ -43,6 +43,7 @@ program
   .option('--debug-tools', 'Print registered tool names and exit')
   .option('--no-rsi', 'Disable all RSI (self-improvement) hooks')
   .option('--json-rpc', 'Start in JSON-RPC 2.0 server mode (stdin/stdout)')
+  .action(runMain)
 
 // ── Dream subcommand ────────────────────────────────────────────────
 
@@ -124,8 +125,7 @@ function writeRSIEvent(event: RSIEvent): void {
 
 // ── Main ─────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
-  program.parse(process.argv)
+async function runMain(): Promise<void> {
   const opts = program.opts<{
     model?: string
     verbose?: boolean
@@ -350,7 +350,10 @@ async function readStdin(): Promise<string> {
 
 // ── Entry point ─────────────────────────────────────────────────────
 
-main().catch((e) => {
+// Bun compiled binaries use the same 2-prefix argv format as Node
+// (process.argv = ["bun", "/$bunfs/root/<name>", ...userArgs]), so
+// the default Commander.js `from: 'node'` works for both dev and prod.
+program.parseAsync(process.argv).catch((e: unknown) => {
   const message = e instanceof Error ? e.message : String(e)
   process.stderr.write(`Fatal error: ${message}\n`)
   process.exit(1)
