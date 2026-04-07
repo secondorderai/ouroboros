@@ -7,6 +7,7 @@ import { AgentMessage, StreamingAgentMessage } from '../components/AgentMessage'
 import { SystemMessage } from '../components/SystemMessage';
 import { JumpToBottom } from '../components/JumpToBottom';
 import type { Message } from '../../shared/protocol';
+import type { RSICrystallizationEvent } from '../hooks/useRSI';
 
 // Work around @types/react version mismatch between root (v19, from ink) and
 // desktop package (v18). The cast is safe — the runtime component is identical.
@@ -53,11 +54,74 @@ const MessageItem: React.FC<{ message: Message }> = ({ message }) => {
 // ChatView
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Inline RSI Crystallization Card
+// ---------------------------------------------------------------------------
+
+const rsiCardStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: '12px 16px',
+  margin: '0 16px',
+  background: 'linear-gradient(135deg, rgba(217, 119, 6, 0.08), rgba(217, 119, 6, 0.04))',
+  borderLeft: '3px solid var(--accent-amber)',
+  borderRadius: 10,
+  fontSize: 14,
+  color: 'var(--text-primary)',
+};
+
+const rsiDismissStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 20,
+  height: 20,
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--text-tertiary)',
+  cursor: 'pointer',
+  flexShrink: 0,
+  borderRadius: 4,
+};
+
+const RSICrystallizationCard: React.FC<{
+  event: RSICrystallizationEvent;
+  onDismiss: (id: string) => void;
+}> = ({ event, onDismiss }) => {
+  if (event.dismissed) return null;
+  return (
+    <div style={rsiCardStyle}>
+      <span>
+        Learned a new skill: <code style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{event.skillName}</code>
+      </span>
+      <button
+        style={rsiDismissStyle}
+        onClick={() => onDismiss(event.id)}
+        aria-label="Dismiss"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// ChatView
+// ---------------------------------------------------------------------------
+
+interface ChatViewProps {
+  crystallizations?: RSICrystallizationEvent[];
+  onDismissCrystallization?: (id: string) => void;
+}
+
 /**
  * The primary chat view. Renders the message list with virtual scrolling,
  * the streaming agent message, and the "jump to bottom" button.
  */
-export const ChatView: React.FC = () => {
+export const ChatView: React.FC<ChatViewProps> = ({ crystallizations, onDismissCrystallization }) => {
   const messages = useConversationStore((s) => s.messages);
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning);
   const activeToolCalls = useConversationStore((s) => s.activeToolCalls);
@@ -135,6 +199,17 @@ export const ChatView: React.FC = () => {
           }}
         />
       </div>
+
+      {/* Inline RSI crystallization cards */}
+      {crystallizations && onDismissCrystallization && crystallizations
+        .filter((c) => !c.dismissed)
+        .map((c) => (
+          <RSICrystallizationCard
+            key={c.id}
+            event={c}
+            onDismiss={onDismissCrystallization}
+          />
+        ))}
 
       {showJump && <JumpToBottom onClick={jumpToBottom} />}
     </div>

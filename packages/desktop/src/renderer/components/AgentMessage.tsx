@@ -1,7 +1,8 @@
 import React from 'react';
-import type { Message, ToolCallState } from '../../shared/protocol';
+import type { Message, ToolCallState, CompletedToolCall } from '../../shared/protocol';
 import { StreamingCursor } from './StreamingCursor';
-import { ActiveToolCallChip, CompletedToolCallChip } from './ToolCallChip';
+import { ToolCallChip } from './ToolCallChip';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -59,6 +60,22 @@ const toolCallsWrapperStyle: React.CSSProperties = {
 };
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function completedToState(tc: CompletedToolCall): ToolCallState {
+  return {
+    id: tc.id,
+    toolName: tc.toolName,
+    input: tc.input,
+    status: tc.error ? 'error' : 'done',
+    output: tc.output,
+    error: tc.error,
+    durationMs: tc.durationMs,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Completed agent message
 // ---------------------------------------------------------------------------
 
@@ -71,12 +88,11 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({ message }) => (
     <div style={avatarStyle} aria-label="Ouroboros avatar">O</div>
     <div style={bodyStyle}>
       <div style={nameStyle}>Ouroboros</div>
-      {/* Stub: raw text with line breaks. Ticket 05 adds markdown rendering. */}
-      <div style={textStyle}>{message.text}</div>
+      <MarkdownRenderer content={message.text} />
       {message.toolCalls && message.toolCalls.length > 0 && (
         <div style={toolCallsWrapperStyle}>
           {message.toolCalls.map((tc) => (
-            <CompletedToolCallChip key={tc.id} toolCall={tc} />
+            <ToolCallChip key={tc.id} toolCall={completedToState(tc)} />
           ))}
         </div>
       )}
@@ -111,7 +127,7 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
         {activeEntries.length > 0 && (
           <div style={toolCallsWrapperStyle}>
             {activeEntries.map((tc) => (
-              <ActiveToolCallChip key={tc.id} toolCall={tc} />
+              <ToolCallChip key={tc.id} toolCall={tc} />
             ))}
           </div>
         )}

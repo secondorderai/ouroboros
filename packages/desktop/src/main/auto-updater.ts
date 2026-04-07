@@ -7,7 +7,9 @@
  * - "Restart to apply" triggers autoUpdater.quitAndInstall().
  */
 
-import { autoUpdater, type UpdateInfo } from "electron-updater";
+import pkg from "electron-updater";
+const { autoUpdater } = pkg;
+type UpdateInfo = pkg.UpdateInfo;
 import { BrowserWindow, ipcMain } from "electron";
 import Store from "electron-store";
 

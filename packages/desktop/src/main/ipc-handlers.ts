@@ -7,14 +7,16 @@
  */
 
 import { ipcMain, dialog, type BrowserWindow, type OpenDialogOptions } from 'electron'
+import type Store from 'electron-store'
 import type { RpcClient } from './rpc-client'
 import type { CLIProcessManager } from './cli-process'
-import { IPC_CHANNELS, type CLIStatus, type NotificationMethod } from '../shared/protocol'
+import { IPC_CHANNELS, type CLIStatus, type NotificationMethod, type Theme } from '../shared/protocol'
 
 export interface IpcHandlerContext {
   rpcClient: RpcClient
   cliProcess: CLIProcessManager
   getMainWindow: () => BrowserWindow | null
+  store: Store<{ theme: Theme; apiKeys?: Record<string, string> }>
 }
 
 export function registerIpcHandlers(ctx: IpcHandlerContext): void {
@@ -30,6 +32,20 @@ function registerRpcHandler(ctx: IpcHandlerContext): void {
     async (_event, method: string, params?: Record<string, unknown>) => {
       try {
         const result = await ctx.rpcClient.send(method, params)
+
+        // Persist API keys to electron-store so they survive restarts
+        if (method === 'config/setApiKey' && params) {
+          const provider = params.provider as string
+          const apiKey = params.apiKey as string
+          if (provider && apiKey) {
+            const apiKeys = ctx.store.get('apiKeys', {})
+            apiKeys[provider] = apiKey
+            ctx.store.set('apiKeys', apiKeys)
+            // Update env vars for future CLI respawns
+            ctx.cliProcess.setExtraEnv({ ...getApiKeyEnv(apiKeys) })
+          }
+        }
+
         return { ok: true, result }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -38,6 +54,14 @@ function registerRpcHandler(ctx: IpcHandlerContext): void {
       }
     },
   )
+}
+
+function getApiKeyEnv(apiKeys: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {}
+  if (apiKeys.anthropic) env.ANTHROPIC_API_KEY = apiKeys.anthropic
+  if (apiKeys.openai) env.OPENAI_API_KEY = apiKeys.openai
+  if (apiKeys['openai-compatible']) env.OPENAI_API_KEY = apiKeys['openai-compatible']
+  return env
 }
 
 function registerDialogHandlers(): void {

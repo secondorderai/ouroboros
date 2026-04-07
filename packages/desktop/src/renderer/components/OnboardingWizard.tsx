@@ -57,7 +57,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   // Step 1 state
   const [provider, setProvider] = useState<AIProvider>('anthropic')
   const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState('')
+  const [model, setModel] = useState('claude-opus-4-20250514')
 
   // Step 2 state
   const [workspace, setWorkspace] = useState('')
@@ -82,30 +82,28 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const handleFinish = useCallback(async () => {
     if (template === null) return
 
+    // Set API key first — this must succeed for agent/run to work.
+    // Each call is independent so a disk-write failure in config/set
+    // doesn't prevent the API key from being set.
     try {
-      // Persist provider, API key (securely via main process), and model
-      await window.ouroboros.rpc('config/set', {
-        provider,
-        apiKey,
-        model,
-        workspace,
-      })
-
-      // If template 4, set aggressive RSI config
-      if (template === 4) {
-        await window.ouroboros.rpc('config/set', {
-          'rsi.autoReflect': true,
-          'rsi.noveltyThreshold': 0.5,
-        })
-      }
-
-      // Mark onboarding as completed (via electron-store through main process)
-      await window.ouroboros.rpc('config/set', {
-        onboardingCompleted: true,
-        template,
-      })
+      await window.ouroboros.rpc('config/setApiKey', { provider, apiKey })
     } catch {
-      // Best-effort persist; proceed to chat even if config call fails
+      // env var set failed — agent/run will report the error later
+    }
+
+    try {
+      await window.ouroboros.rpc('config/set', { path: 'model.provider', value: provider })
+      await window.ouroboros.rpc('config/set', { path: 'model.name', value: model })
+    } catch {
+      // Config persistence failed — defaults will be used
+    }
+
+    if (workspace) {
+      try {
+        await window.ouroboros.rpc('workspace/set', { directory: workspace })
+      } catch {
+        // Non-critical
+      }
     }
 
     // Generate welcome message and transition to chat

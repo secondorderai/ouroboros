@@ -27,6 +27,9 @@
   --border-medium: #D4D3CF;
 
   /* Accent & Status */
+  --accent-primary: #D97706;
+  --accent-primary-hover: #B45309;
+  --accent-muted: rgba(217, 119, 6, 0.08);
   --accent-amber: #D97706;
   --accent-amber-hover: #F59E0B;
   --accent-amber-bg: rgba(217, 119, 6, 0.08);
@@ -35,6 +38,14 @@
   --accent-purple: #7C3AED;
   --accent-red: #DC2626;
   --accent-orange: #EA580C;
+
+  /* Semantic text colors */
+  --text-success: #16A34A;
+  --text-error: #DC2626;
+  --text-link: #2563EB;
+
+  /* Focus */
+  --border-focus: #D97706;
 
   /* Shadows */
   --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -100,6 +111,9 @@
   --border-medium: #444448;
 
   /* Accent & Status — same hues */
+  --accent-primary: #D97706;
+  --accent-primary-hover: #F59E0B;
+  --accent-muted: rgba(217, 119, 6, 0.12);
   --accent-amber: #D97706;
   --accent-amber-hover: #F59E0B;
   --accent-amber-bg: rgba(217, 119, 6, 0.12);
@@ -108,6 +122,14 @@
   --accent-purple: #7C3AED;
   --accent-red: #DC2626;
   --accent-orange: #EA580C;
+
+  /* Semantic text colors */
+  --text-success: #22C55E;
+  --text-error: #EF4444;
+  --text-link: #60A5FA;
+
+  /* Focus */
+  --border-focus: #D97706;
 
   /* Shadows — higher opacity for dark theme */
   --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.2);

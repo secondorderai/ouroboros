@@ -158,12 +158,13 @@ export const StepWorkspace: React.FC<StepWorkspaceProps> = ({
 
   const handleChooseFolder = useCallback(async () => {
     try {
-      const result = await window.electronAPI.showOpenDialog({
+      const result = await window.ouroboros.showOpenDialog({
         properties: ['openDirectory', 'createDirectory'],
         title: 'Choose your workspace folder',
       })
-      if (!result.canceled && result.filePaths.length > 0) {
-        onWorkspaceChange(result.filePaths[0])
+      if (result) {
+        const dir = Array.isArray(result) ? result[0] : result
+        if (dir) onWorkspaceChange(dir)
       }
     } catch {
       // Dialog canceled or errored — no action

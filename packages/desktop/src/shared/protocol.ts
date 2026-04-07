@@ -19,8 +19,12 @@ export interface ElectronAPI {
   setTheme: (theme: Theme) => Promise<void>
   getNativeTheme: () => Promise<'light' | 'dark'>
   onNativeThemeChanged: (callback: (theme: 'light' | 'dark') => void) => () => void
-  getPlatform: () => Promise<NodeJS.Platform>
+  getPlatform: () => Promise<string>
   toggleSidebar: (callback: () => void) => () => void
+  openExternal: (url: string) => void
+  getHomeDirectory: () => Promise<string>
+  onUpdateDownloaded: (callback: (version: string) => void) => () => void
+  installUpdate: () => void
 }
 
 /** IPC bridge API for JSON-RPC communication with CLI */
@@ -94,22 +98,22 @@ export interface AgentTextParams {
 }
 
 export interface AgentToolCallStartParams {
-  id: string
+  toolCallId: string
   toolName: string
   input?: unknown
 }
 
 export interface AgentToolCallEndParams {
-  id: string
-  toolName?: string
-  output?: unknown
-  error?: string
-  durationMs?: number
+  toolCallId: string
+  toolName: string
+  result?: unknown
+  isError?: boolean
 }
 
 export interface AgentTurnCompleteParams {
   /** The full text of the agent's response once streaming is done. */
-  fullText: string
+  text: string
+  iterations?: number
 }
 
 export interface AgentErrorParams {
@@ -218,6 +222,16 @@ export interface OuroborosConfig {
   rsi: { noveltyThreshold: number; autoReflect: boolean }
 }
 export interface ConfigTestConnectionResult { connected: boolean; error?: string }
+
+/** AI provider type used in onboarding and settings */
+export type AIProvider = 'anthropic' | 'openai' | 'openai-compatible'
+
+/** Result from a connection test — used in onboarding wizard */
+export interface ConnectionTestResult {
+  success: boolean
+  error?: string
+  models?: string[]
+}
 
 export interface SkillInfo { name: string; description: string; version: string; enabled: boolean }
 export interface SkillsListResult { skills: SkillInfo[] }

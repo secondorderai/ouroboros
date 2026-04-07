@@ -13,15 +13,6 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      onUpdateDownloaded: (callback: (version: string) => void) => () => void;
-      installUpdate: () => void;
-    };
-  }
-}
-
 const bannerStyle: React.CSSProperties = {
   position: "fixed",
   top: 0,
@@ -66,10 +57,7 @@ export function UpdateBanner(): React.ReactElement | null {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    const api = window.electronAPI;
-    if (!api) return;
-
-    const cleanup = api.onUpdateDownloaded((v: string) => {
+    const cleanup = window.electronAPI.onUpdateDownloaded((v: string) => {
       setVersion(v);
       setDismissed(false);
     });
@@ -78,7 +66,7 @@ export function UpdateBanner(): React.ReactElement | null {
   }, []);
 
   const handleRestart = useCallback(() => {
-    window.electronAPI?.installUpdate();
+    window.electronAPI.installUpdate();
   }, []);
 
   const handleDismiss = useCallback(() => {

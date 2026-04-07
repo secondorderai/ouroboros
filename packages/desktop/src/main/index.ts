@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, Menu, shell } from 'electron'
+import { homedir } from 'os'
 import { join } from 'path'
 import Store from 'electron-store'
 import { createWindowOptions, saveBounds, restoreMaximized } from './window'
@@ -9,7 +10,7 @@ import { initAutoUpdater } from './auto-updater'
 import { initCrashRollback } from './crash-rollback'
 import type { Theme } from '../shared/protocol'
 
-const store = new Store<{ theme: Theme }>()
+const store = new Store<{ theme: Theme; apiKeys?: Record<string, string> }>()
 
 let mainWindow: BrowserWindow | null = null
 let cliProcess: CLIProcessManager | null = null
@@ -46,6 +47,7 @@ if (!gotTheLock) {
       rpcClient,
       cliProcess,
       getMainWindow: () => mainWindow,
+      store,
     })
 
     // Start the CLI child process
@@ -85,6 +87,15 @@ app.on('before-quit', async (event) => {
 
 // ── CLI Process & RPC Initialization ───────────────────────────────
 
+function getStoredApiKeyEnv(): Record<string, string> {
+  const apiKeys = store.get('apiKeys', {})
+  const env: Record<string, string> = {}
+  if (apiKeys.anthropic) env.ANTHROPIC_API_KEY = apiKeys.anthropic
+  if (apiKeys.openai) env.OPENAI_API_KEY = apiKeys.openai
+  if (apiKeys['openai-compatible']) env.OPENAI_API_KEY = apiKeys['openai-compatible']
+  return env
+}
+
 function initializeCLI(): { cliProcess: CLIProcessManager; rpcClient: RpcClient } {
   const client = new RpcClient()
 
@@ -92,6 +103,7 @@ function initializeCLI(): { cliProcess: CLIProcessManager; rpcClient: RpcClient 
     onStdoutLine: (line) => client.handleLine(line),
     onStderrLine: (line) => console.error(`[cli-stderr] ${line}`),
     onStatusChange: (status) => console.log(`[cli-status] ${status}`),
+    extraEnv: getStoredApiKeyEnv(),
   })
 
   client.attach(cli)
@@ -158,6 +170,18 @@ function createWindow(): void {
         }]
       : []),
     {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' as const },
+        { role: 'redo' as const },
+        { type: 'separator' as const },
+        { role: 'cut' as const },
+        { role: 'copy' as const },
+        { role: 'paste' as const },
+        { role: 'selectAll' as const },
+      ]
+    },
+    {
       label: 'View',
       submenu: [
         {
@@ -208,5 +232,19 @@ function registerThemeIpcHandlers(): void {
 
   ipcMain.handle('platform:get', () => {
     return process.platform
+  })
+
+  ipcMain.on('shell:openExternal', (_event, url: string) => {
+    shell.openExternal(url)
+  })
+
+  ipcMain.handle('app:getHomeDirectory', () => {
+    return homedir()
+  })
+
+  ipcMain.on('update:install', () => {
+    // Auto-updater handles quitAndInstall — import is lazy to avoid circular
+    const { autoUpdater } = require('electron-updater')
+    autoUpdater.quitAndInstall()
   })
 }

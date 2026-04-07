@@ -2,14 +2,44 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { InputBar } from './components/InputBar'
+import { ChatView } from './views/ChatView'
+import { OnboardingWizard } from './components/OnboardingWizard'
+import { CommandPalette } from './components/CommandPalette'
+import { SettingsOverlay } from './views/SettingsOverlay'
+import { RSIDrawer } from './components/RSIDrawer'
+import { ApprovalToastContainer } from './components/ApprovalToastContainer'
+import { ApprovalQueue } from './components/ApprovalQueue'
+import { UpdateBanner } from './components/UpdateBanner'
 import { useTheme } from './hooks/useTheme'
+import { useNotifications } from './hooks/useNotifications'
+import { useRSI } from './hooks/useRSI'
 import { useConversationStore } from './stores/conversationStore'
+import { useApprovals } from './stores/approvalStore'
 
-// Key for persisting sidebar state
+// Keys for persisting state
 const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
+const ONBOARDING_DONE_KEY = 'ouroboros:onboarding-done'
 
 export function App(): React.ReactElement {
-  const { resolvedTheme, toggleTheme } = useTheme()
+  const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme()
+
+  // Subscribe to CLI notifications so agent events reach the store
+  useNotifications()
+
+  // RSI state (serpent icon, drawer, crystallizations)
+  const rsi = useRSI()
+
+  // Approval state for badge count
+  const pendingApprovals = useApprovals()
+
+  // Onboarding state — show wizard on first launch
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    try {
+      return localStorage.getItem(ONBOARDING_DONE_KEY) !== 'true'
+    } catch {
+      return true
+    }
+  })
 
   // Sidebar open/closed state — initialize from localStorage
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -21,12 +51,36 @@ export function App(): React.ReactElement {
     }
   })
 
+  // Overlay states
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<string | undefined>(undefined)
+  const [approvalQueueOpen, setApprovalQueueOpen] = useState(false)
+
   // Drag-and-drop state
   const [isDragOver, setIsDragOver] = useState(false)
   const dragCounterRef = useRef(0)
 
+  const messages = useConversationStore((s) => s.messages)
+  const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const setModelName = useConversationStore((s) => s.setModelName)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
+
+  const handleOnboardingComplete = useCallback((welcomeMessage: string, _template: number) => {
+    localStorage.setItem(ONBOARDING_DONE_KEY, 'true')
+    setShowOnboarding(false)
+
+    // Re-fetch config to pick up the model name set during onboarding
+    window.ouroboros?.rpc('config/get', {}).then((result) => {
+      const config = result as { model?: { name?: string } }
+      if (config?.model?.name) setModelName(config.model.name)
+    }).catch(() => {})
+
+    // Add welcome message as a system message
+    if (welcomeMessage) {
+      useConversationStore.getState().handleTurnComplete({ text: welcomeMessage })
+    }
+  }, [setModelName])
 
   // Persist sidebar state
   useEffect(() => {
@@ -49,6 +103,22 @@ export function App(): React.ReactElement {
     return unsubscribe
   }, [])
 
+  // Global keyboard shortcuts: Cmd+K (palette), Cmd+, (settings)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key === 'k') {
+        e.preventDefault()
+        setCommandPaletteOpen((prev) => !prev)
+      } else if (mod && e.key === ',') {
+        e.preventDefault()
+        setSettingsOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   // Fetch config on mount to populate model name
   useEffect(() => {
     const api = window.ouroboros
@@ -65,6 +135,24 @@ export function App(): React.ReactElement {
         console.error('config/get failed:', err)
       })
   }, [setModelName])
+
+  // ---- Command palette overlay callbacks ------------------------------------
+
+  const openSettings = useCallback((section?: string) => {
+    setCommandPaletteOpen(false)
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }, [])
+
+  const openApprovalQueue = useCallback(() => {
+    setCommandPaletteOpen(false)
+    setApprovalQueueOpen(true)
+  }, [])
+
+  const openRSIDrawer = useCallback(() => {
+    setCommandPaletteOpen(false)
+    rsi.openDrawer()
+  }, [rsi])
 
   // ---- Drag-and-drop handlers -----------------------------------------------
 
@@ -127,12 +215,35 @@ export function App(): React.ReactElement {
     // or from config. No automatic detection needed.
   }, [setWorkspace])
 
+  // Show onboarding wizard on first launch
+  if (showOnboarding) {
+    return (
+      <div style={styles.app}>
+        <TitleBar
+          resolvedTheme={resolvedTheme}
+          onToggleTheme={toggleTheme}
+          onToggleSidebar={toggleSidebar}
+          serpentState={rsi.serpentState}
+          onSerpentClick={rsi.openDrawer}
+          pendingApprovals={pendingApprovals.length}
+        />
+        <OnboardingWizard onComplete={handleOnboardingComplete} />
+      </div>
+    )
+  }
+
+  const hasContent = messages.length > 0 || isAgentRunning
+
   return (
     <div style={styles.app}>
+      <UpdateBanner />
       <TitleBar
         resolvedTheme={resolvedTheme}
         onToggleTheme={toggleTheme}
         onToggleSidebar={toggleSidebar}
+        serpentState={rsi.serpentState}
+        onSerpentClick={rsi.openDrawer}
+        pendingApprovals={pendingApprovals.length}
       />
       <div style={styles.body}>
         <Sidebar isOpen={sidebarOpen} />
@@ -143,18 +254,56 @@ export function App(): React.ReactElement {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <div style={styles.content}>
-            <div style={styles.placeholder}>
-              <div style={styles.logoContainer}>
-                <OuroborosLogo />
+          {hasContent ? (
+            <ChatView
+              crystallizations={rsi.crystallizations}
+              onDismissCrystallization={rsi.dismissCrystallization}
+            />
+          ) : (
+            <div style={styles.content}>
+              <div style={styles.placeholder}>
+                <div style={styles.logoContainer}>
+                  <OuroborosLogo />
+                </div>
+                <h1 style={styles.title}>Ouroboros</h1>
+                <p style={styles.subtitle}>Self-improving AI agent</p>
               </div>
-              <h1 style={styles.title}>Ouroboros</h1>
-              <p style={styles.subtitle}>Self-improving AI agent</p>
             </div>
-          </div>
+          )}
           <InputBar isDragOver={isDragOver} />
         </div>
       </div>
+
+      {/* Overlays & modals */}
+      <ApprovalToastContainer />
+      <CommandPalette
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onOpenSettings={openSettings}
+        onOpenApprovals={openApprovalQueue}
+        onOpenRSIDrawer={openRSIDrawer}
+      />
+      <SettingsOverlay
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        theme={theme}
+        onSetTheme={setTheme}
+        initialSection={settingsSection}
+      />
+      <ApprovalQueue
+        isOpen={approvalQueueOpen}
+        onClose={() => setApprovalQueueOpen(false)}
+      />
+      <RSIDrawer
+        isOpen={rsi.drawerOpen}
+        onClose={rsi.closeDrawer}
+        stats={rsi.stats}
+        activities={rsi.activities}
+        skills={rsi.skills}
+        loading={rsi.loading}
+        dreamRunning={rsi.dreamRunning}
+        onRunDream={rsi.runDream}
+      />
     </div>
   )
 }

@@ -7,8 +7,28 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react'
-import type { ToolCallState } from '../stores/conversationStore'
+import hljs from 'highlight.js/lib/core'
+import javascript from 'highlight.js/lib/languages/javascript'
+import typescript from 'highlight.js/lib/languages/typescript'
+import python from 'highlight.js/lib/languages/python'
+import bash from 'highlight.js/lib/languages/bash'
+import json from 'highlight.js/lib/languages/json'
+import yaml from 'highlight.js/lib/languages/yaml'
+import xml from 'highlight.js/lib/languages/xml'
+import css from 'highlight.js/lib/languages/css'
+import type { ToolCallState } from '../../shared/protocol'
 import './ToolCallChip.css'
+
+// Register highlight.js languages for tool output syntax highlighting
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('yaml', yaml)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('css', css)
 
 // ── Tool label & icon mapping ───────────────────────────────
 
@@ -199,6 +219,39 @@ function getOutputText(result: unknown): string {
   }
 }
 
+/** Attempt to syntax-highlight code output using highlight.js */
+function highlightCode(text: string, toolName: string): { html: string; highlighted: boolean } {
+  try {
+    // For JSON-like output, try json first
+    if (text.trimStart().startsWith('{') || text.trimStart().startsWith('[')) {
+      const result = hljs.highlight(text, { language: 'json', ignoreIllegals: true })
+      return { html: result.value, highlighted: true }
+    }
+    // For bash tool, use bash highlighting
+    if (toolName === 'bash') {
+      const result = hljs.highlightAuto(text, ['bash', 'json', 'javascript', 'typescript'])
+      if (result.relevance > 3) {
+        return { html: result.value, highlighted: true }
+      }
+    }
+    // For file-read/file-write/file-edit, auto-detect
+    if (toolName.startsWith('file-')) {
+      const result = hljs.highlightAuto(text)
+      if (result.relevance > 3) {
+        return { html: result.value, highlighted: true }
+      }
+    }
+    // Fallback: auto-detect but only use if confidence is high enough
+    const result = hljs.highlightAuto(text)
+    if (result.relevance > 5) {
+      return { html: result.value, highlighted: true }
+    }
+    return { html: text, highlighted: false }
+  } catch {
+    return { html: text, highlighted: false }
+  }
+}
+
 function getInputDisplay(
   toolName: string,
   input: Record<string, unknown>,
@@ -237,13 +290,13 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
   const meta = useMemo(() => getToolMeta(toolCall.toolName), [toolCall.toolName])
 
   const inputDisplay = useMemo(
-    () => getInputDisplay(toolCall.toolName, toolCall.input),
+    () => getInputDisplay(toolCall.toolName, (toolCall.input ?? {}) as Record<string, unknown>),
     [toolCall.toolName, toolCall.input],
   )
 
   const outputText = useMemo(
-    () => getOutputText(toolCall.result),
-    [toolCall.result],
+    () => getOutputText(toolCall.error ?? toolCall.output),
+    [toolCall.error, toolCall.output],
   )
 
   const outputLines = useMemo(() => outputText.split('\n'), [outputText])
@@ -256,6 +309,11 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
     }
     return outputText
   }, [isTruncated, outputLines, outputText])
+
+  const highlightedOutput = useMemo(() => {
+    if (!displayedOutput || toolCall.status === 'error') return null
+    return highlightCode(displayedOutput, toolCall.toolName)
+  }, [displayedOutput, toolCall.toolName, toolCall.status])
 
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => !prev)
@@ -272,13 +330,13 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
     switch (toolCall.status) {
       case 'running':
         return <div className="tool-chip__spinner" />
-      case 'completed':
+      case 'done':
         return (
           <span className="tool-chip__status tool-chip__status--success">
             <CheckIcon />
           </span>
         )
-      case 'failed':
+      case 'error':
         return (
           <span className="tool-chip__status tool-chip__status--failed">
             <XIcon />
@@ -323,9 +381,9 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
           <span className="tool-chip__icon">{meta.icon}</span>
           <span>{meta.label}</span>
           {statusIndicator}
-          {toolCall.duration != null && (
+          {toolCall.durationMs != null && (
             <span className="tool-chip-expanded__duration">
-              {formatDuration(toolCall.duration)}
+              {formatDuration(toolCall.durationMs)}
             </span>
           )}
         </div>
@@ -343,18 +401,27 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
           )}
 
           {/* Output section */}
-          {(toolCall.status === 'completed' || toolCall.status === 'failed') && (
+          {(toolCall.status === 'done' || toolCall.status === 'error') && (
             <>
               <div className="tool-chip-expanded__section-label">Output</div>
-              {toolCall.isError ? (
+              {toolCall.status === 'error' ? (
                 <pre className="tool-chip-expanded__error">
                   {outputText || 'Unknown error'}
                 </pre>
               ) : (
                 <>
-                  <pre className="tool-chip-expanded__code">
-                    {displayedOutput}
-                  </pre>
+                  {highlightedOutput?.highlighted ? (
+                    <pre className="tool-chip-expanded__code hljs">
+                      {/* highlight.js output is safe — it only produces span tags with class names
+                          from its own grammar definitions, not from user input. The input is tool
+                          output from the CLI child process, not user-supplied HTML. */}
+                      <code dangerouslySetInnerHTML={{ __html: highlightedOutput.html }} />
+                    </pre>
+                  ) : (
+                    <pre className="tool-chip-expanded__code">
+                      {displayedOutput}
+                    </pre>
+                  )}
                   {isTruncated && (
                     <button
                       className="tool-chip-expanded__show-all"

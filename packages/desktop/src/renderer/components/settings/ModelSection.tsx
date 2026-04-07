@@ -60,9 +60,9 @@ export function ModelSection({
 
   const handleApiKeyBlur = useCallback(() => {
     if (apiKey) {
-      onConfigChange('model.apiKey', apiKey)
+      window.ouroboros.rpc('config/setApiKey', { provider, apiKey }).catch(() => {})
     }
-  }, [apiKey, onConfigChange])
+  }, [apiKey, provider])
 
   const handleTestConnection = useCallback(async () => {
     setTesting(true)

@@ -37,16 +37,6 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
 
   let config = initialConfig
 
-  // Create LLM provider
-  const providerResult = createProvider(config.model)
-  if (!providerResult.ok) {
-    // Fatal: can't create provider. Write an error notification and exit.
-    writeMessage(
-      makeErrorResponse(null, JSON_RPC_ERRORS.INTERNAL_ERROR.code, providerResult.error.message),
-    )
-    process.exit(1)
-  }
-
   // Create tool registry
   const registry = await createRegistry()
 
@@ -67,19 +57,32 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     currentHandler(event)
   }
 
-  // Create agent
-  const agent = new Agent({
-    model: providerResult.value,
-    toolRegistry: registry,
-    onEvent: eventProxy,
-  })
+  // Agent is created lazily on first use — allows the server to start
+  // even when the API key is not yet configured.
+  let agent: Agent | null = null
+
+  function getOrCreateAgent(): Agent {
+    if (agent) return agent
+
+    const providerResult = createProvider(config.model)
+    if (!providerResult.ok) {
+      throw new Error(providerResult.error.message)
+    }
+
+    agent = new Agent({
+      model: providerResult.value,
+      toolRegistry: registry,
+      onEvent: eventProxy,
+    })
+    return agent
+  }
 
   // Mutable abort controller for cancelling agent runs
   let currentRunAbort: AbortController | null = null
 
   // Build handler context
   const ctx: HandlerContext = {
-    agent,
+    getAgent: getOrCreateAgent,
     config,
     configDir,
     transcriptStore,
@@ -91,6 +94,8 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     setConfig: (newConfig) => {
       config = newConfig
       ctx.config = newConfig
+      // Reset agent so it picks up the new config on next use
+      agent = null
     },
   }
 

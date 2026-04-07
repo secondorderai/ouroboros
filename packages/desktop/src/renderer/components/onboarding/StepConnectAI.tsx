@@ -184,6 +184,12 @@ const PROVIDER_HELP_URLS: Record<AIProvider, string> = {
   'openai-compatible': 'https://platform.openai.com/api-keys',
 }
 
+const DEFAULT_MODELS: Record<AIProvider, string> = {
+  anthropic: 'claude-opus-4-20250514',
+  openai: 'gpt-5.4',
+  'openai-compatible': 'gpt-5.4',
+}
+
 // ── Component ───────────────────────────────────────────────
 
 interface StepConnectAIProps {
@@ -207,11 +213,11 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
 }) => {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
-  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [, setAvailableModels] = useState<string[]>([])
   const [inputFocused, setInputFocused] = useState(false)
 
   const canTest = apiKey.trim().length > 0
-  const canProceed = testResult?.success === true && model.length > 0
+  const canProceed = apiKey.trim().length > 0 && testResult?.success === true
 
   const handleTestConnection = useCallback(async () => {
     if (!canTest || testing) return
@@ -269,6 +275,7 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
             }}
             onClick={() => {
               onProviderChange(p.id)
+              onModelChange(DEFAULT_MODELS[p.id])
               setTestResult(null)
               setAvailableModels([])
             }}
@@ -277,6 +284,7 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 onProviderChange(p.id)
+                onModelChange(DEFAULT_MODELS[p.id])
                 setTestResult(null)
                 setAvailableModels([])
               }
@@ -335,23 +343,18 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
         )}
       </div>
 
-      {/* Model selector (only after successful test) */}
-      {testResult?.success && availableModels.length > 0 && (
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>Model</label>
-          <select
-            value={model}
-            onChange={(e) => onModelChange(e.target.value)}
-            style={styles.select}
-          >
-            {availableModels.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* Model input */}
+      <div style={styles.inputGroup}>
+        <label style={styles.label}>Model</label>
+        <input
+          type="text"
+          value={model}
+          onChange={(e) => onModelChange(e.target.value)}
+          placeholder={DEFAULT_MODELS[provider]}
+          style={styles.input}
+          autoComplete="off"
+        />
+      </div>
 
       {/* Help link */}
       <span

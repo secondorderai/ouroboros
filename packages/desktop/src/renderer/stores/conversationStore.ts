@@ -190,8 +190,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   handleToolCallStart(params: AgentToolCallStartParams) {
     set((state) => {
       const next = new Map(state.activeToolCalls);
-      next.set(params.id, {
-        id: params.id,
+      next.set(params.toolCallId, {
+        id: params.toolCallId,
         toolName: params.toolName,
         input: params.input,
         status: 'running',
@@ -203,18 +203,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   handleToolCallEnd(params: AgentToolCallEndParams) {
     set((state) => {
       const next = new Map(state.activeToolCalls);
-      const existing = next.get(params.id);
+      const existing = next.get(params.toolCallId);
       if (existing) {
-        next.delete(params.id);
+        next.delete(params.toolCallId);
       }
 
       const completed: CompletedToolCall = {
-        id: params.id,
+        id: params.toolCallId,
         toolName: params.toolName ?? existing?.toolName ?? 'unknown',
         input: existing?.input,
-        output: params.output,
-        error: params.error,
-        durationMs: params.durationMs,
+        output: params.result,
+        error: params.isError ? String(params.result) : undefined,
       };
 
       return {
@@ -229,7 +228,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const agentMessage: Message = {
       id: makeId('agent', state.nextId),
       role: 'agent',
-      text: params.fullText,
+      text: params.text,
       timestamp: new Date().toISOString(),
       toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
     };

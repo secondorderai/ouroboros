@@ -1,17 +1,24 @@
 import React, { useEffect, useState } from 'react'
+import { SerpentIcon, type SerpentState } from './SerpentIcon'
 
 interface TitleBarProps {
   resolvedTheme: 'light' | 'dark'
   onToggleTheme: () => void
   onToggleSidebar: () => void
+  serpentState: SerpentState
+  onSerpentClick: () => void
+  pendingApprovals: number
 }
 
 export function TitleBar({
   resolvedTheme,
   onToggleTheme,
-  onToggleSidebar
+  onToggleSidebar,
+  serpentState,
+  onSerpentClick,
+  pendingApprovals,
 }: TitleBarProps): React.ReactElement {
-  const [platform, setPlatform] = useState<NodeJS.Platform>('darwin')
+  const [platform, setPlatform] = useState<string>('darwin')
 
   useEffect(() => {
     window.electronAPI.getPlatform().then(setPlatform)
@@ -39,8 +46,14 @@ export function TitleBar({
         <span style={styles.title}>Ouroboros</span>
       </div>
 
-      {/* Right section: theme toggle + window controls (Windows) */}
+      {/* Right section: serpent icon + theme toggle */}
       <div style={styles.right}>
+        <div style={styles.serpentWrapper}>
+          <SerpentIcon state={serpentState} onClick={onSerpentClick} />
+          {pendingApprovals > 0 && (
+            <span style={styles.approvalBadge}>{pendingApprovals}</span>
+          )}
+        </div>
         <button
           style={styles.iconButton}
           className="no-drag"
@@ -150,6 +163,30 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 4,
     paddingRight: 12
+  },
+  serpentWrapper: {
+    position: 'relative' as const,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approvalBadge: {
+    position: 'absolute' as const,
+    top: 0,
+    right: 0,
+    minWidth: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: 'var(--accent-red, #dc2626)',
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: 700,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 3px',
+    lineHeight: 1,
+    pointerEvents: 'none' as const,
   },
   iconButton: {
     display: 'flex',

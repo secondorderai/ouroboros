@@ -20,7 +20,8 @@ import { writeMessage } from './transport'
 export type MethodHandler = (params: Record<string, unknown>) => Promise<unknown>
 
 export interface HandlerContext {
-  agent: Agent
+  /** Lazily creates the agent on first call. Throws if the provider can't be created (e.g. missing API key). */
+  getAgent: () => Agent
   config: OuroborosConfig
   configDir: string
   transcriptStore: TranscriptStore
@@ -122,7 +123,8 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     // Run the agent asynchronously. Events are bridged to stdout
     // via the onEvent handler already wired in the server.
     try {
-      const result = await ctx.agent.run(message)
+      const agent = ctx.getAgent()
+      const result = await agent.run(message)
       return {
         text: result.text,
         iterations: result.iterations,
@@ -165,7 +167,11 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
   handlers.set('session/new', async () => {
     // Clear agent conversation history for a fresh session
-    ctx.agent.clearHistory()
+    try {
+      ctx.getAgent().clearHistory()
+    } catch {
+      /* agent not yet created — nothing to clear */
+    }
     const result = ctx.transcriptStore.createSession()
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
@@ -218,13 +224,49 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     return parsed.data
   })
 
-  handlers.set('config/testConnection', async () => {
-    // Basic structure — create provider and verify it doesn't error
-    const providerResult = createProvider(ctx.config.model)
-    if (!providerResult.ok) {
-      return { connected: false, error: providerResult.error.message }
+  handlers.set('config/testConnection', async (params) => {
+    const provider =
+      typeof params.provider === 'string' ? params.provider : ctx.config.model.provider
+    const apiKey = typeof params.apiKey === 'string' ? params.apiKey : undefined
+
+    // Temporarily set the env var so createProvider picks it up
+    const envKey = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+    const previousValue = process.env[envKey]
+    if (apiKey) process.env[envKey] = apiKey
+
+    try {
+      const providerResult = createProvider({
+        ...ctx.config.model,
+        provider: provider as 'anthropic' | 'openai' | 'openai-compatible',
+      })
+      if (!providerResult.ok) {
+        return { success: false, error: providerResult.error.message }
+      }
+      return { success: true }
+    } finally {
+      // Restore previous env var
+      if (apiKey) {
+        if (previousValue !== undefined) {
+          process.env[envKey] = previousValue
+        } else {
+          delete process.env[envKey]
+        }
+      }
     }
-    return { connected: true }
+  })
+
+  handlers.set('config/setApiKey', async (params) => {
+    const provider = params.provider
+    const apiKey = params.apiKey
+    if (typeof provider !== 'string' || typeof apiKey !== 'string') {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.provider and params.apiKey are required',
+      )
+    }
+    const envKey = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+    process.env[envKey] = apiKey
+    return { ok: true }
   })
 
   // ── skills/* ─────────────────────────────────────────────────────

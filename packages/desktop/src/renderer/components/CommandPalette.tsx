@@ -257,9 +257,12 @@ const fuseOptions = {
 interface CommandPaletteProps {
   isOpen: boolean
   onClose: () => void
+  onOpenSettings?: (section?: string) => void
+  onOpenApprovals?: () => void
+  onOpenRSIDrawer?: () => void
 }
 
-export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
+export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, onOpenSettings, onOpenApprovals, onOpenRSIDrawer }) => {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [closing, setClosing] = useState(false)
@@ -294,32 +297,25 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
         })
       },
       onBrowseSkills: () => {
-        // Placeholder: future ticket will implement skills modal
-        console.log('[CommandPalette] Browse skills — not yet implemented')
+        if (onOpenRSIDrawer) onOpenRSIDrawer()
       },
       onViewEvolution: () => {
-        // Placeholder: future ticket will implement evolution log modal
-        console.log('[CommandPalette] View evolution log — not yet implemented')
+        if (onOpenRSIDrawer) onOpenRSIDrawer()
       },
       onApprovalsQueue: () => {
-        // Placeholder: future ticket will implement approvals modal
-        console.log('[CommandPalette] Approvals queue — not yet implemented')
+        if (onOpenApprovals) onOpenApprovals()
       },
       onChangeModel: () => {
-        // Placeholder: future ticket will open settings to model section
-        console.log('[CommandPalette] Change model — not yet implemented')
+        if (onOpenSettings) onOpenSettings('model')
       },
       onConfigurePermissions: () => {
-        // Placeholder: future ticket will open settings to permissions section
-        console.log('[CommandPalette] Configure permissions — not yet implemented')
+        if (onOpenSettings) onOpenSettings('permissions')
       },
       onManageApiKeys: () => {
-        // Placeholder: future ticket will open settings to API keys section
-        console.log('[CommandPalette] Manage API keys — not yet implemented')
+        if (onOpenSettings) onOpenSettings('model')
       },
       onAppearance: () => {
-        // Placeholder: future ticket will open settings to appearance section
-        console.log('[CommandPalette] Appearance — not yet implemented')
+        if (onOpenSettings) onOpenSettings('appearance')
       },
     })
   }, [resetConversation])

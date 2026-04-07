@@ -12,6 +12,7 @@ interface SettingsOverlayProps {
   onClose: () => void
   theme: Theme
   onSetTheme: (theme: Theme) => void
+  initialSection?: string
 }
 
 type SectionId = 'model' | 'appearance' | 'permissions' | 'rsi' | 'memory'
@@ -34,8 +35,19 @@ export function SettingsOverlay({
   onClose,
   theme,
   onSetTheme,
+  initialSection,
 }: SettingsOverlayProps): React.ReactElement | null {
   const [activeSection, setActiveSection] = useState<SectionId>('model')
+
+  // Navigate to initial section when opening
+  useEffect(() => {
+    if (isOpen && initialSection) {
+      const valid: SectionId[] = ['model', 'appearance', 'permissions', 'rsi', 'memory']
+      if (valid.includes(initialSection as SectionId)) {
+        setActiveSection(initialSection as SectionId)
+      }
+    }
+  }, [isOpen, initialSection])
   const [config, setConfig] = useState<OuroborosConfig | null>(null)
   const [exiting, setExiting] = useState(false)
 

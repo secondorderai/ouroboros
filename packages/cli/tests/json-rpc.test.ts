@@ -136,7 +136,7 @@ function createTestContext(overrides?: {
   )
 
   const ctx: HandlerContext = {
-    agent,
+    getAgent: () => agent,
     config,
     configDir,
     transcriptStore,

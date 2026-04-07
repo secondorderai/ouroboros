@@ -19,7 +19,21 @@ const electronAPI: ElectronAPI = {
     const handler = () => callback()
     ipcRenderer.on('sidebar:toggle', handler)
     return () => { ipcRenderer.removeListener('sidebar:toggle', handler) }
-  }
+  },
+  openExternal: (url: string) => {
+    ipcRenderer.send('shell:openExternal', url)
+  },
+  getHomeDirectory: () => ipcRenderer.invoke('app:getHomeDirectory'),
+  onUpdateDownloaded: (callback: (version: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, version: string) => {
+      callback(version)
+    }
+    ipcRenderer.on('update:downloaded', handler)
+    return () => { ipcRenderer.removeListener('update:downloaded', handler) }
+  },
+  installUpdate: () => {
+    ipcRenderer.send('update:install')
+  },
 }
 
 // ── Ouroboros API (CLI JSON-RPC bridge) ────────────────────────────

@@ -16,26 +16,46 @@ Built on this harness, Ouroboros ships with a recursive self-improvement layer: 
   - `ANTHROPIC_API_KEY` for Claude (default)
   - `OPENAI_API_KEY` for OpenAI models
 
-### Install and Run
-
 ```bash
-bun install
-bun run build
-
-# Interactive REPL
-./dist/ouroboros
-
-# Single-shot
-./dist/ouroboros -m "What files are in this directory?"
-
-# Pipe input
-echo "Explain this project" | ./dist/ouroboros
+bun install   # install dependencies for all packages
 ```
 
-### Development Mode
+### CLI
 
 ```bash
-bun run dev   # watch mode with auto-reload
+# Development mode (watch + auto-reload)
+cd packages/cli
+bun run dev
+
+# — or from the repo root —
+bun run dev
+```
+
+Build and run the compiled binary:
+
+```bash
+cd packages/cli
+bun run build
+
+./dist/ouroboros              # Interactive REPL
+./dist/ouroboros -m "Hello"   # Single-shot
+echo "Explain this" | ./dist/ouroboros   # Pipe input
+```
+
+### Desktop App (Electron)
+
+```bash
+cd packages/desktop
+bun run dev          # launch in dev mode with hot-reload
+```
+
+Build distributable packages:
+
+```bash
+cd packages/desktop
+bun run build        # compile + package (unpacked, current platform)
+bun run build:mac    # macOS .dmg / .zip
+bun run build:win    # Windows installer
 ```
 
 ## CLI Flags
@@ -116,7 +136,7 @@ Ouroboros is structured as a set of composable layers, each independently useful
             └──────────────────────────────────────┘
 ```
 
-![Full diagram](./doc/architecture.svg).
+![Full diagram](./docs/architecture.svg).
 
 **Agent loop.** The `Agent` class runs a ReAct loop that streams LLM responses, detects tool calls, executes them in parallel via the tool registry, and feeds results back until the task is complete. It emits events — it never prints directly — so any consumer (CLI, web server, test harness) can drive it.
 
@@ -191,35 +211,56 @@ await agent.run('What files are in this directory?')
 ## Project Structure
 
 ```
-src/
-  cli.ts              # Entry point, argument parsing
-  cli/                # REPL, renderer, single-shot mode
-  agent.ts            # ReAct loop
-  config.ts           # .ouroboros config loading (Zod)
-  types.ts            # Shared types (Result<T, E>)
-  llm/                # Provider factory, streaming, prompt builder
-  tools/              # Tool registry + all tool implementations
-  memory/             # MEMORY.md, topics, SQLite transcripts
-  rsi/                # RSI engine (Phase 2)
-  safety/             # Permission model (Phase 2)
-skills/               # Agent Skills (core, staging, generated)
-memory/               # Persistent memory files
-tests/                # Unit + integration tests
+ouroboros/
+├── packages/
+│   ├── cli/            # @ouroboros/cli — CLI agent (main package)
+│   ├── desktop/        # @ouroboros/desktop — Electron desktop app
+│   └── shared/         # @ouroboros/shared — Shared types & utilities
+├── skills/             # Agent Skills (core, staging, generated)
+├── memory/             # Persistent memory files
+├── docs/
+└── tickets/
 ```
 
 ## Scripts
 
+All commands can be run from the repo root or from the relevant package directory.
+
+**From the repo root:**
+
 ```bash
-bun test              # Run all tests
-bun run build         # Build to dist/
-bun run dev           # Watch mode
+bun run dev           # Start CLI in watch mode
+bun run build         # Build CLI binary
+bun run test          # Run CLI unit tests
+bun run test:all      # Run all CLI tests (including live LLM)
+bun run lint          # Lint all packages
+bun run ts-check      # Type-check all packages
+```
+
+**From `packages/cli/`:**
+
+```bash
+bun run dev           # Watch mode with auto-reload
+bun run build         # Build to dist/ouroboros
+bun test              # Unit tests
+bun run test:all      # All tests including live LLM
 bun run lint          # Prettier check
-bun run ts-check     # TypeScript type checking
+bun run ts-check      # TypeScript type check
+```
+
+**From `packages/desktop/`:**
+
+```bash
+bun run dev           # Launch Electron dev mode
+bun run build         # Build + package (current platform)
+bun run build:mac     # Build macOS distributable
+bun run build:win     # Build Windows distributable
+bun run ts-check      # TypeScript type check
 ```
 
 ## Development Diary
 
-[doc/DIARY.md](doc/DIARY.md) is a narrative log of how Ouroboros came to life, written from the agent's own perspective.
+[docs/DIARY.md](docs/DIARY.md) is a narrative log of how Ouroboros came to life, written from the agent's own perspective.
 
 ## License
 

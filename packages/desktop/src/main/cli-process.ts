@@ -22,6 +22,8 @@ export interface CLIProcessManagerOptions {
   onStdoutLine: LineHandler
   onStderrLine?: LineHandler
   onStatusChange?: (status: CLIStatus) => void
+  /** Extra environment variables to inject when spawning the CLI process (e.g. persisted API keys). */
+  extraEnv?: Record<string, string>
 }
 
 export class CLIProcessManager extends EventEmitter {
@@ -36,12 +38,19 @@ export class CLIProcessManager extends EventEmitter {
   private readonly onStdoutLine: LineHandler
   private readonly onStderrLine: LineHandler
   private readonly onStatusChange: (status: CLIStatus) => void
+  private extraEnv: Record<string, string>
 
   constructor(options: CLIProcessManagerOptions) {
     super()
     this.onStdoutLine = options.onStdoutLine
     this.onStderrLine = options.onStderrLine ?? (() => {})
     this.onStatusChange = options.onStatusChange ?? (() => {})
+    this.extraEnv = options.extraEnv ?? {}
+  }
+
+  /** Update extra env vars (e.g. when API keys are saved). Applied on next spawn. */
+  setExtraEnv(env: Record<string, string>): void {
+    this.extraEnv = env
   }
 
   start(): void {
@@ -117,7 +126,7 @@ export class CLIProcessManager extends EventEmitter {
     try {
       this.process = spawn(command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+        env: { ...process.env, ...this.extraEnv },
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
