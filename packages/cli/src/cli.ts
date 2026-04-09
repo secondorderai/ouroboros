@@ -17,8 +17,9 @@
 import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'
 import { Renderer } from '@src/cli/renderer'
 import { startRepl } from '@src/cli/repl'
+import { createRSIEventHandler, writeRSIEvent } from '@src/cli/rsi-output'
 import { createSingleShotHandler } from '@src/cli/single-shot'
-import { loadConfig } from '@src/config'
+import { loadConfig, resolveConfigDir } from '@src/config'
 import { startJsonRpcServer } from '@src/json-rpc/server'
 import { createProvider } from '@src/llm/provider'
 import { createRegistry } from '@src/tools/registry'
@@ -90,39 +91,6 @@ program
     }
   })
 
-// ── RSI event display ───────────────────────────────────────────────
-
-function writeRSIEvent(event: RSIEvent): void {
-  switch (event.type) {
-    case 'rsi-reflection':
-      process.stdout.write(
-        `[RSI] Reflecting on task... novelty: ${event.reflection.novelty.toFixed(2)}, generalizability: ${event.reflection.generalizability.toFixed(2)}\n`,
-      )
-      break
-
-    case 'rsi-crystallization':
-      if (event.result.outcome === 'promoted') {
-        const skillName = event.result.skillName ?? 'unknown'
-        process.stdout.write(`[RSI] Skill crystallized and promoted: ${skillName}\n`)
-      } else if (event.result.outcome === 'no-crystallization') {
-        process.stdout.write('[RSI] Reflection complete — no crystallization needed.\n')
-      } else {
-        process.stdout.write(`[RSI] Crystallization ${event.result.outcome}\n`)
-      }
-      break
-
-    case 'rsi-dream':
-      process.stdout.write(
-        `[RSI] Dream: ${event.result.topicsMerged} merged, ${event.result.topicsCreated} created, ${event.result.topicsPruned} pruned\n`,
-      )
-      break
-
-    case 'rsi-error':
-      process.stderr.write(`[RSI] Error in ${event.stage}: ${event.error.message}\n`)
-      break
-  }
-}
-
 // ── Main ─────────────────────────────────────────────────────────────
 
 async function runMain(): Promise<void> {
@@ -167,7 +135,7 @@ async function runMain(): Promise<void> {
   // Must branch early — the server creates its own provider, registry,
   // and manages its own Agent lifecycle.
   if (opts.jsonRpc === true) {
-    const configDir = opts.config ?? process.cwd()
+    const configDir = resolveConfigDir(opts.config)
     await startJsonRpcServer({ config, configDir })
     // startJsonRpcServer runs indefinitely — this line is never reached.
     return
@@ -175,6 +143,7 @@ async function runMain(): Promise<void> {
 
   const verbose = opts.verbose === true
   const noStream = !opts.stream
+  const prompt = await detectPrompt(opts.message)
 
   // Create LLM provider
   const providerResult = createProvider(config.model)
@@ -201,12 +170,13 @@ async function runMain(): Promise<void> {
   // Create RSI orchestrator (lazily — only if RSI is enabled)
   const rsiEnabled = opts.rsi !== false
   let rsiOrchestrator: RSIOrchestrator | undefined
+  let handleRSIEvent = createRSIEventHandler(prompt !== null)
   if (rsiEnabled) {
     rsiOrchestrator = new RSIOrchestrator({
       config,
       llm: providerResult.value,
       onEvent: (event: RSIEvent) => {
-        writeRSIEvent(event)
+        handleRSIEvent(event)
       },
     })
   }
@@ -227,11 +197,9 @@ async function runMain(): Promise<void> {
     rsiOrchestrator,
   })
 
-  // Determine mode: single-shot or interactive
-  const prompt = await detectPrompt(opts.message)
-
   if (prompt !== null) {
     // Single-shot mode
+    handleRSIEvent = createRSIEventHandler(true)
     const { handler } = createSingleShotHandler({ verbose, noStream })
     currentHandler = handler
 
@@ -247,6 +215,7 @@ async function runMain(): Promise<void> {
     }
   } else {
     // Interactive REPL mode
+    handleRSIEvent = createRSIEventHandler(false)
     const renderer = new Renderer({
       verbose,
       isTTY: process.stdout.isTTY === true,

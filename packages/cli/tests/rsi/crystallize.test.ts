@@ -2,7 +2,7 @@ import { describe, test, it, expect, beforeEach, afterEach } from 'bun:test'
 import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import type { LanguageModelV3 } from '@ai-sdk/provider'
+import type { LanguageModelV3, LanguageModelV3CallOptions } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 import {
   ReflectionRecordSchema,
@@ -97,6 +97,49 @@ function mockModelReturning(text: string): LanguageModel {
   }
 
   return model as LanguageModel
+}
+
+function createCapturingLLM(options?: {
+  provider?: string
+  modelId?: string
+  responseText?: string
+}): {
+  llm: LanguageModel
+  doGenerateCalls: LanguageModelV3CallOptions[]
+} {
+  const doGenerateCalls: LanguageModelV3CallOptions[] = []
+  const responseText = options?.responseText ?? VALID_LLM_OUTPUT
+
+  const llm: LanguageModel = {
+    specificationVersion: 'v3',
+    provider: options?.provider ?? 'mock',
+    modelId: options?.modelId ?? 'mock-model',
+    supportedUrls: {},
+
+    doGenerate: async (callOptions: LanguageModelV3CallOptions) => {
+      doGenerateCalls.push(callOptions)
+      return {
+        content: [{ type: 'text' as const, text: responseText }],
+        finishReason: { unified: 'stop' as const, raw: 'stop' },
+        usage: {
+          inputTokens: {
+            total: 10,
+            noCache: undefined,
+            cacheRead: undefined,
+            cacheWrite: undefined,
+          },
+          outputTokens: { total: 50, text: undefined, reasoning: undefined },
+        },
+        warnings: [],
+      }
+    },
+
+    doStream: async () => {
+      throw new Error('doStream not used by generateText')
+    },
+  } as unknown as LanguageModel
+
+  return { llm, doGenerateCalls }
 }
 
 // ── Skill generation fixtures ────────────────────────────────────────
@@ -388,6 +431,50 @@ describe('reflect()', () => {
     expect(result.value.novelty).toBe(0.9)
     expect(result.value.shouldCrystallize).toBe(true)
   })
+
+  test('omits temperature for OpenAI reasoning models', async () => {
+    const mockResponse = JSON.stringify({
+      taskSummary: 'Created a new feature',
+      novelty: 0.9,
+      generalizability: 0.85,
+      reasoning: 'Completely new approach with no existing skills to compare.',
+      shouldCrystallize: false,
+    })
+
+    const { llm, doGenerateCalls } = createCapturingLLM({
+      provider: 'openai.responses',
+      modelId: 'gpt-5.4',
+      responseText: mockResponse,
+    })
+
+    const result = await reflect('Created a new feature', [], llm)
+
+    expect(result.ok).toBe(true)
+    expect(doGenerateCalls).toHaveLength(1)
+    expect(doGenerateCalls[0]?.temperature).toBeUndefined()
+  })
+
+  test('keeps temperature for non-reasoning models', async () => {
+    const mockResponse = JSON.stringify({
+      taskSummary: 'Created a new feature',
+      novelty: 0.9,
+      generalizability: 0.85,
+      reasoning: 'Completely new approach with no existing skills to compare.',
+      shouldCrystallize: false,
+    })
+
+    const { llm, doGenerateCalls } = createCapturingLLM({
+      provider: 'openai.responses',
+      modelId: 'gpt-4.1',
+      responseText: mockResponse,
+    })
+
+    const result = await reflect('Created a new feature', [], llm)
+
+    expect(result.ok).toBe(true)
+    expect(doGenerateCalls).toHaveLength(1)
+    expect(doGenerateCalls[0]?.temperature).toBe(0.2)
+  })
 })
 
 describe('shouldCrystallize()', () => {
@@ -513,6 +600,20 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       const yamlBlock = content.trimStart().slice(3, endIndex).trim()
       const parsed = parseYaml(yamlBlock)
       expect(parsed.name).toBe('test-skill')
+    })
+
+    it('omits temperature when generating skills with OpenAI reasoning models', async () => {
+      const record = makeReflection()
+      const { llm, doGenerateCalls } = createCapturingLLM({
+        provider: 'openai.responses',
+        modelId: 'gpt-5.4',
+      })
+
+      const genResult = await generateSkill(record, undefined, llm, tmpDir)
+
+      expect(genResult.ok).toBe(true)
+      expect(doGenerateCalls).toHaveLength(1)
+      expect(doGenerateCalls[0]?.temperature).toBeUndefined()
     })
   })
 

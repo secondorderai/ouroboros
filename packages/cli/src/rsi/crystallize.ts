@@ -31,6 +31,7 @@ import { z } from 'zod'
 import type { LanguageModel } from 'ai'
 import { type Result, ok, err } from '@src/types'
 import { generateResponse } from '@src/llm'
+import type { LLMCallOptions } from '@src/llm/types'
 import type { SkillCatalogEntry } from '@src/tools/skill-manager'
 import { runSkillTests, type SkillTestResult } from '@src/rsi/validate'
 
@@ -66,6 +67,34 @@ export const ReflectionRecordSchema = z.object({
 })
 
 export type ReflectionRecord = z.infer<typeof ReflectionRecordSchema>
+
+function isOpenAIReasoningModel(llm: LanguageModel): boolean {
+  const modelInfo = llm as { provider?: string; modelId?: string }
+  const provider = modelInfo.provider?.toLowerCase()
+  const modelId = modelInfo.modelId?.toLowerCase()
+
+  if (!provider?.startsWith('openai') || !modelId) {
+    return false
+  }
+
+  return (
+    modelId.startsWith('o1') ||
+    modelId.startsWith('o3') ||
+    modelId.startsWith('o4-mini') ||
+    (modelId.startsWith('gpt-5') && !modelId.startsWith('gpt-5-chat'))
+  )
+}
+
+function buildRSILLMCallOptions(
+  llm: LanguageModel,
+  temperature: number,
+  maxTokens: number,
+): LLMCallOptions {
+  return {
+    ...(isOpenAIReasoningModel(llm) ? {} : { temperature }),
+    maxTokens,
+  }
+}
 
 // ── Skill generation types ───────────────────────────────────────────
 
@@ -194,10 +223,11 @@ export async function reflect(
 ): Promise<Result<ReflectionRecord>> {
   const prompt = buildReflectionPrompt(taskSummary, existingSkills)
 
-  const llmResult = await generateResponse(llm, [{ role: 'user', content: prompt }], {
-    temperature: 0.2,
-    maxTokens: 1024,
-  })
+  const llmResult = await generateResponse(
+    llm,
+    [{ role: 'user', content: prompt }],
+    buildRSILLMCallOptions(llm, 0.2, 1024),
+  )
 
   if (!llmResult.ok) {
     return err(new Error(`Reflection LLM call failed: ${llmResult.error.message}`))
@@ -552,10 +582,11 @@ export async function generateSkill(
   const prompt = buildGenerationPrompt(record, transcript, resolvedBase)
 
   // 4. Call the LLM
-  const llmResult = await generateResponse(llm, [{ role: 'user', content: prompt }], {
-    temperature: 0.7,
-    maxTokens: 4096,
-  })
+  const llmResult = await generateResponse(
+    llm,
+    [{ role: 'user', content: prompt }],
+    buildRSILLMCallOptions(llm, 0.7, 4096),
+  )
 
   if (!llmResult.ok) {
     return err(new Error(`LLM generation failed: ${llmResult.error.message}`))

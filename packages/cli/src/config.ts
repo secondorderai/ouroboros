@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { type Result, ok, err } from '@src/types'
+
+const CONFIG_FILE_NAME = '.ouroboros'
 
 /**
  * Zod schema for the .ouroboros configuration file.
@@ -127,19 +129,44 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
 }
 
 /**
- * Load configuration from .ouroboros file, environment variables, and defaults.
+ * Resolve the directory whose `.ouroboros` file should be used for config.
+ *
+ * Starting from `cwd`, walks up parent directories until it finds a
+ * `.ouroboros` file. If none is found, returns the original `cwd`.
+ */
+export function resolveConfigDir(cwd?: string): string {
+  const startDir = resolve(cwd ?? process.cwd())
+  let currentDir = startDir
+
+  while (true) {
+    if (existsSync(resolve(currentDir, CONFIG_FILE_NAME))) {
+      return currentDir
+    }
+
+    const parentDir = dirname(currentDir)
+    if (parentDir === currentDir) {
+      return startDir
+    }
+
+    currentDir = parentDir
+  }
+}
+
+/**
+ * Load configuration from the nearest `.ouroboros` file, environment variables,
+ * and defaults.
  *
  * Priority (highest to lowest):
  *   1. Environment variables (OUROBOROS_*)
- *   2. .ouroboros JSON file
+ *   2. The nearest `.ouroboros` JSON file in the current directory or an ancestor
  *   3. Zod schema defaults
  *
- * @param cwd - Working directory to search for .ouroboros file (defaults to process.cwd())
+ * @param cwd - Working directory to search from (defaults to process.cwd())
  * @returns Result containing the validated config or a descriptive error
  */
 export function loadConfig(cwd?: string): Result<OuroborosConfig> {
-  const workingDir = cwd ?? process.cwd()
-  const configPath = resolve(workingDir, '.ouroboros')
+  const configDir = resolveConfigDir(cwd)
+  const configPath = resolve(configDir, CONFIG_FILE_NAME)
 
   let fileConfig: Record<string, unknown> = {}
 
@@ -177,7 +204,7 @@ export function loadConfig(cwd?: string): Result<OuroborosConfig> {
  * @returns Result indicating success or failure
  */
 export function saveConfig(cwd: string, config: OuroborosConfig): Result<void> {
-  const configPath = resolve(cwd, '.ouroboros')
+  const configPath = resolve(cwd, CONFIG_FILE_NAME)
   try {
     writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
     return ok(undefined)

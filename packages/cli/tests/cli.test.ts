@@ -7,6 +7,7 @@ import type { ToolDefinition } from '@src/tools/types'
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 import { Renderer } from '@src/cli/renderer'
+import { createRSIEventHandler } from '@src/cli/rsi-output'
 import { createSingleShotHandler } from '@src/cli/single-shot'
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -721,6 +722,36 @@ describe('CLI', () => {
       const textEvents = events.filter((e) => e.type === 'text')
       expect(textEvents).toHaveLength(1)
       expect(textEvents[0]).toEqual({ type: 'text', text: 'Hello' })
+    })
+  })
+
+  describe('RSI output', () => {
+    test('disabled handler suppresses interactive RSI logs', async () => {
+      const handler = createRSIEventHandler(false)
+
+      const stdout = await captureStdout(async () => {
+        handler({
+          type: 'rsi-reflection',
+          reflection: {
+            taskSummary: 'Did a task',
+            novelty: 0.2,
+            generalizability: 0.4,
+            reasoning: 'Test',
+            shouldCrystallize: false,
+          },
+        })
+      })
+
+      const stderr = await captureStderr(async () => {
+        handler({
+          type: 'rsi-error',
+          stage: 'reflection',
+          error: new Error('boom'),
+        })
+      })
+
+      expect(stdout).toBe('')
+      expect(stderr).toBe('')
     })
   })
 })

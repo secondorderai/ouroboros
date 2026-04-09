@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { loadConfig, type OuroborosConfig } from '@src/config'
+import { loadConfig, resolveConfigDir, type OuroborosConfig } from '@src/config'
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -57,6 +57,29 @@ describe('loadConfig', () => {
     // RSI defaults
     expect(config.rsi.noveltyThreshold).toBe(0.7)
     expect(config.rsi.autoReflect).toBe(true)
+  })
+
+  test('finds the nearest .ouroboros in an ancestor directory', () => {
+    const workspaceDir = join(tempDir, 'workspace')
+    const packageDir = join(workspaceDir, 'packages', 'cli')
+    mkdirSync(packageDir, { recursive: true })
+
+    writeFileSync(
+      join(workspaceDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'openai', name: 'gpt-5.4' },
+      }),
+    )
+
+    expect(resolveConfigDir(packageDir)).toBe(workspaceDir)
+
+    const result = loadConfig(packageDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.provider).toBe('openai')
+    expect(result.value.model.name).toBe('gpt-5.4')
   })
 
   test('validates and rejects invalid schema', () => {

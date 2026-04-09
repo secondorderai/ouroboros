@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --filter @ouroboros/cli dev",
+    "dev": "cd packages/cli && bun run dev",
     "build": "bun run --filter @ouroboros/cli build",
     "test": "bun run --filter @ouroboros/cli test",
     "test:all": "bun run --filter @ouroboros/cli test:all",
