@@ -6,11 +6,14 @@ export default defineConfig({
   retries: 1,
   use: {
     trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   projects: [
     {
       name: "electron",
       testMatch: "**/*.spec.ts",
+      workers: 1,
     },
   ],
 });

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import type { OuroborosConfig } from '../../../shared/protocol'
+import type { ConnectionTestResult, OuroborosConfig } from '../../../shared/protocol'
 
 interface ModelSectionProps {
   config: OuroborosConfig | null
@@ -20,6 +20,8 @@ export function ModelSection({
 }: ModelSectionProps): React.ReactElement {
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null)
+  const [savingApiKey, setSavingApiKey] = useState(false)
   const [testResult, setTestResult] = useState<{
     success: boolean
     message: string
@@ -46,6 +48,7 @@ export function ModelSection({
 
   const handleBaseUrlChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      setTestResult(null)
       onConfigChange('model.baseUrl', e.target.value)
     },
     [onConfigChange]
@@ -54,13 +57,24 @@ export function ModelSection({
   const handleApiKeyChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setApiKey(e.target.value)
+      setApiKeyError(null)
+      setTestResult(null)
     },
     []
   )
 
-  const handleApiKeyBlur = useCallback(() => {
-    if (apiKey) {
-      window.ouroboros.rpc('config/setApiKey', { provider, apiKey }).catch(() => {})
+  const handleApiKeyBlur = useCallback(async () => {
+    if (!apiKey) return
+
+    setSavingApiKey(true)
+    setApiKeyError(null)
+    try {
+      await window.ouroboros.rpc('config/setApiKey', { provider, apiKey })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save API key'
+      setApiKeyError(message)
+    } finally {
+      setSavingApiKey(false)
     }
   }, [apiKey, provider])
 
@@ -68,11 +82,12 @@ export function ModelSection({
     setTesting(true)
     setTestResult(null)
     try {
-      const result = (await window.ouroboros.rpc('config/testConnection')) as {
-        connected: boolean
-        error?: string
-      }
-      if (result.connected) {
+      const result: ConnectionTestResult = await window.ouroboros.rpc('config/testConnection', {
+        provider,
+        apiKey,
+        ...(baseUrl ? { baseUrl } : {}),
+      })
+      if (result.success) {
         setTestResult({ success: true, message: 'Connection successful' })
       } else {
         setTestResult({
@@ -86,7 +101,7 @@ export function ModelSection({
     } finally {
       setTesting(false)
     }
-  }, [])
+  }, [apiKey, baseUrl, provider])
 
   // Reset test result when provider changes
   useEffect(() => {
@@ -136,6 +151,8 @@ export function ModelSection({
             {showKey ? 'Hide' : 'Show'}
           </button>
         </div>
+        {apiKeyError && <div style={styles.errorText}>{apiKeyError}</div>}
+        {savingApiKey && <div style={styles.helperText}>Saving API key...</div>}
       </div>
 
       {/* Base URL (only for openai-compatible) */}
@@ -255,6 +272,16 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-secondary)',
     cursor: 'pointer',
     flexShrink: 0,
+  },
+  errorText: {
+    fontSize: 12,
+    color: 'var(--accent-red)',
+    lineHeight: 1.4,
+  },
+  helperText: {
+    fontSize: 12,
+    color: 'var(--text-tertiary)',
+    lineHeight: 1.4,
   },
   testButton: {
     alignSelf: 'flex-start',

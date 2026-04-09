@@ -1,0 +1,130 @@
+import { expect, test } from '@playwright/test'
+import type { LaunchedApp } from './helpers'
+import { completeOnboarding, launchTestApp } from './helpers'
+
+let launched: LaunchedApp | null = null
+
+test.afterEach(async () => {
+  await launched?.app.close()
+  launched = null
+})
+
+test('renderer can observe CLI ready status and round-trip a JSON-RPC request through the main process', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+
+  await launched.page.evaluate(() => {
+    const target = window as typeof window & { __cliStatuses?: string[] }
+    target.__cliStatuses = []
+    window.ouroboros.onCLIStatus((status) => {
+      target.__cliStatuses?.push(status)
+    })
+  })
+
+  await expect.poll(async () => {
+    return launched!.page.evaluate(() => {
+      const target = window as typeof window & { __cliStatuses?: string[] }
+      return target.__cliStatuses?.includes('ready') ?? false
+    })
+  }).toBe(true)
+
+  const config = await launched.page.evaluate(() => window.ouroboros.rpc('config/get', {}))
+  expect(config).toMatchObject({
+    model: {
+      provider: 'anthropic',
+    },
+  })
+})
+
+test('the main process reports restarting when the CLI crashes and recovers on the next spawn', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      launchBehavior: {
+        '1': { exitAfterMs: 900 },
+      },
+    },
+  })
+
+  await launched.page.evaluate(() => {
+    const target = window as typeof window & { __cliStatuses?: string[] }
+    target.__cliStatuses = []
+    window.ouroboros.onCLIStatus((status) => {
+      target.__cliStatuses?.push(status)
+    })
+  })
+
+  await expect.poll(async () => {
+    return launched!.page.evaluate(() => {
+      const target = window as typeof window & { __cliStatuses?: string[] }
+      return {
+        hasRestarting: target.__cliStatuses?.includes('restarting') ?? false,
+        readyCount: target.__cliStatuses?.filter((status) => status === 'ready').length ?? 0,
+      }
+    })
+  }).toEqual({ hasRestarting: true, readyCount: 2 })
+
+  const config = await launched.page.evaluate(() => window.ouroboros.rpc('config/get', {}))
+  expect(config).toMatchObject({
+    permissions: {
+      tier0: true,
+    },
+  })
+})
+
+test('the main process surfaces an error status after repeated CLI crashes', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      launchBehavior: {
+        '1': { exitAfterMs: 50 },
+        '2': { exitAfterMs: 50 },
+        '3': { exitAfterMs: 50 },
+        '4': { exitAfterMs: 50 },
+      },
+    },
+  })
+
+  await launched.page.evaluate(() => {
+    const target = window as typeof window & { __cliStatuses?: string[] }
+    target.__cliStatuses = []
+    window.ouroboros.onCLIStatus((status) => {
+      target.__cliStatuses?.push(status)
+    })
+  })
+
+  await expect.poll(async () => {
+    return launched!.page.evaluate(() => {
+      const target = window as typeof window & { __cliStatuses?: string[] }
+      return target.__cliStatuses?.includes('error') ?? false
+    })
+  }, { timeout: 10_000 }).toBe(true)
+})
+
+test('menu accelerator toggles the sidebar through the main-process menu wiring', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await completeOnboarding(launched.page)
+
+  await expect.poll(async () => {
+    return launched!.page.evaluate(() => localStorage.getItem('ouroboros:sidebar-open'))
+  }).toBe('true')
+
+  await launched.app.evaluate(({ BrowserWindow, Menu }) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const toggleSidebarItem = Menu.getApplicationMenu()
+      ?.items.find((item) => item.label === 'View')
+      ?.submenu?.items.find((item) => item.label === 'Toggle Sidebar')
+    toggleSidebarItem?.click(undefined, win, undefined)
+  })
+  await expect.poll(async () => {
+    return launched!.page.evaluate(() => localStorage.getItem('ouroboros:sidebar-open'))
+  }).toBe('false')
+
+  await launched.app.evaluate(({ BrowserWindow, Menu }) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const toggleSidebarItem = Menu.getApplicationMenu()
+      ?.items.find((item) => item.label === 'View')
+      ?.submenu?.items.find((item) => item.label === 'Toggle Sidebar')
+    toggleSidebarItem?.click(undefined, win, undefined)
+  })
+  await expect.poll(async () => {
+    return launched!.page.evaluate(() => localStorage.getItem('ouroboros:sidebar-open'))
+  }).toBe('true')
+})

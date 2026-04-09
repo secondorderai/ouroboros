@@ -1,5 +1,27 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, type CLIStatus, type Theme, type ElectronAPI, type OuroborosAPI, type OpenDialogOptions } from '../shared/protocol'
+import {
+  IPC_CHANNELS,
+  type CLIStatus,
+  type ElectronAPI,
+  type NotificationMap,
+  type NotificationMethod,
+  type OpenDialogOptions,
+  type OuroborosAPI,
+  type RpcArgs,
+  type RpcMethod,
+  type RpcMethodMap,
+  type Theme,
+} from '../shared/protocol'
+
+const TEST_IPC_CHANNELS = {
+  SET_RPC_OVERRIDE: 'ouroboros:test:set-rpc-override',
+  CLEAR_RPC_OVERRIDES: 'ouroboros:test:clear-rpc-overrides',
+  EMIT_NOTIFICATION: 'ouroboros:test:emit-notification',
+  EMIT_CLI_STATUS: 'ouroboros:test:emit-cli-status',
+  EMIT_UPDATE_DOWNLOADED: 'ouroboros:test:emit-update-downloaded',
+  GET_INSTALL_UPDATE_COUNT: 'ouroboros:test:get-install-update-count',
+  RESET_INSTALL_UPDATE_COUNT: 'ouroboros:test:reset-install-update-count',
+} as const
 
 // ── Electron API (theme, platform, sidebar) ───────────────────────
 
@@ -39,14 +61,15 @@ const electronAPI: ElectronAPI = {
 // ── Ouroboros API (CLI JSON-RPC bridge) ────────────────────────────
 
 const ouroborosAPI: OuroborosAPI = {
-  rpc: async (method: string, params?: unknown) => {
+  rpc: async <M extends RpcMethod>(method: M, ...args: RpcArgs<M>) => {
+    const params = args[0] as RpcMethodMap[M]['params'] | undefined
     const response = await ipcRenderer.invoke(
       IPC_CHANNELS.RPC_REQUEST,
       method,
       params as Record<string, unknown> | undefined,
     )
     if (response.ok) {
-      return response.result
+      return response.result as RpcMethodMap[M]['result']
     } else {
       const error = new Error(response.error.message)
       error.name = response.error.name
@@ -54,9 +77,12 @@ const ouroborosAPI: OuroborosAPI = {
     }
   },
 
-  onNotification: (channel: string, callback: (params: unknown) => void) => {
+  onNotification: <M extends NotificationMethod>(
+    channel: M,
+    callback: (params: NotificationMap[M]) => void,
+  ) => {
     const handler = (_event: Electron.IpcRendererEvent, method: string, params: unknown) => {
-      if (method === channel) callback(params)
+      if (method === channel) callback(params as NotificationMap[M])
     }
     ipcRenderer.on(IPC_CHANNELS.CLI_NOTIFICATION, handler)
     return () => { ipcRenderer.removeListener(IPC_CHANNELS.CLI_NOTIFICATION, handler) }
@@ -79,3 +105,21 @@ const ouroborosAPI: OuroborosAPI = {
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 contextBridge.exposeInMainWorld('ouroboros', ouroborosAPI)
+
+if (process.env.NODE_ENV === 'test') {
+  contextBridge.exposeInMainWorld('__ouroborosTest', {
+    setRpcOverride: (method: string, override: unknown | null) =>
+      ipcRenderer.invoke(TEST_IPC_CHANNELS.SET_RPC_OVERRIDE, method, override),
+    clearRpcOverrides: () => ipcRenderer.invoke(TEST_IPC_CHANNELS.CLEAR_RPC_OVERRIDES),
+    emitNotification: (method: string, params?: unknown) =>
+      ipcRenderer.invoke(TEST_IPC_CHANNELS.EMIT_NOTIFICATION, method, params),
+    emitCLIStatus: (status: CLIStatus) =>
+      ipcRenderer.invoke(TEST_IPC_CHANNELS.EMIT_CLI_STATUS, status),
+    emitUpdateDownloaded: (version: string) =>
+      ipcRenderer.invoke(TEST_IPC_CHANNELS.EMIT_UPDATE_DOWNLOADED, version),
+    getInstallUpdateCount: () =>
+      ipcRenderer.invoke(TEST_IPC_CHANNELS.GET_INSTALL_UPDATE_COUNT) as Promise<number>,
+    resetInstallUpdateCount: () =>
+      ipcRenderer.invoke(TEST_IPC_CHANNELS.RESET_INSTALL_UPDATE_COUNT),
+  })
+}

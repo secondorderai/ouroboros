@@ -136,10 +136,8 @@ function LinkComponent({
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
-      if (href) {
-        // In Electron, window.open with a URL will be intercepted by the main
-        // process and opened in the system default browser (via shell.openExternal).
-        window.open(href, '_blank')
+      if (href && isSafeExternalHref(href)) {
+        window.electronAPI.openExternal(href)
       }
     },
     [href]
@@ -150,6 +148,15 @@ function LinkComponent({
       {children}
     </a>
   )
+}
+
+function isSafeExternalHref(href: string): boolean {
+  try {
+    const url = new URL(href)
+    return ['http:', 'https:', 'mailto:'].includes(url.protocol)
+  } catch {
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,20 +1,28 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, Menu, shell } from 'electron'
 import { homedir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
+import { appendFileSync, mkdirSync } from 'fs'
 import Store from 'electron-store'
 import { createWindowOptions, saveBounds, restoreMaximized } from './window'
 import { CLIProcessManager } from './cli-process'
 import { RpcClient } from './rpc-client'
 import { registerIpcHandlers } from './ipc-handlers'
-import { initAutoUpdater } from './auto-updater'
+import { handleInstallUpdate, initAutoUpdater } from './auto-updater'
 import { initCrashRollback } from './crash-rollback'
+import { writeTestLog } from './test-logging'
+import { TEST_EXTERNAL_URL_LOG_PATH, TEST_USER_DATA_DIR } from './test-paths'
 import type { Theme } from '../shared/protocol'
+
+if (process.env.NODE_ENV === 'test') {
+  app.setPath('userData', TEST_USER_DATA_DIR)
+}
 
 const store = new Store<{ theme: Theme; apiKeys?: Record<string, string> }>()
 
 let mainWindow: BrowserWindow | null = null
 let cliProcess: CLIProcessManager | null = null
 let rpcClient: RpcClient | null = null
+const SAFE_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock()
@@ -30,17 +38,22 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(async () => {
+    writeTestLog('app.whenReady start')
     // Crash rollback runs first, before heavy init
     initCrashRollback()
+    writeTestLog('crash rollback initialized')
 
     registerThemeIpcHandlers()
+    writeTestLog('theme ipc registered')
 
     // Initialize CLI process and RPC client
     const initialized = initializeCLI()
     cliProcess = initialized.cliProcess
     rpcClient = initialized.rpcClient
+    writeTestLog('cli initialized')
 
     createWindow()
+    writeTestLog('window created')
 
     // Register IPC handlers for CLI bridge
     registerIpcHandlers({
@@ -49,15 +62,19 @@ if (!gotTheLock) {
       getMainWindow: () => mainWindow,
       store,
     })
+    writeTestLog('ipc handlers registered')
 
     // Start the CLI child process
     cliProcess.start()
+    writeTestLog('cli start requested')
 
     // Run health check
     await performHealthCheck(cliProcess, rpcClient)
+    writeTestLog('health check completed')
 
     // Auto-updater after window is created so IPC events reach renderer
     initAutoUpdater()
+    writeTestLog('auto updater initialized')
 
     // macOS: re-create window when dock icon is clicked
     app.on('activate', () => {
@@ -101,12 +118,18 @@ function initializeCLI(): { cliProcess: CLIProcessManager; rpcClient: RpcClient 
 
   const cli = new CLIProcessManager({
     onStdoutLine: (line) => client.handleLine(line),
-    onStderrLine: (line) => console.error(`[cli-stderr] ${line}`),
-    onStatusChange: (status) => console.log(`[cli-status] ${status}`),
+    onStderrLine: (line) => writeTestLog(`[cli-stderr] ${line}`),
+    onStatusChange: (status) => writeTestLog(`[cli-status] ${status}`),
     extraEnv: getStoredApiKeyEnv(),
   })
 
   client.attach(cli)
+  cli.on('spawned', ({ restartCount }: { restartCount: number }) => {
+    if (restartCount > 0) {
+      void performHealthCheck(cli, client)
+    }
+  })
+  writeTestLog('rpc client attached')
   return { cliProcess: cli, rpcClient: client }
 }
 
@@ -118,10 +141,10 @@ async function performHealthCheck(
   const healthy = await client.healthCheck()
   if (healthy) {
     cli.markReady()
-    console.log('[main] CLI health check passed')
+    writeTestLog('[main] CLI health check passed')
   } else {
     cli.markError()
-    console.error('[main] CLI health check failed')
+    writeTestLog('[main] CLI health check failed')
   }
 }
 
@@ -134,11 +157,16 @@ function createWindow(): void {
     ...options,
     webPreferences: {
       ...options.webPreferences,
-      preload: join(__dirname, '../preload/preload.mjs')
+      preload: join(__dirname, '../preload/preload.cjs')
     }
   })
 
   restoreMaximized(mainWindow)
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url)
+    return { action: 'deny' }
+  })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
@@ -235,16 +263,44 @@ function registerThemeIpcHandlers(): void {
   })
 
   ipcMain.on('shell:openExternal', (_event, url: string) => {
-    shell.openExternal(url)
+    openExternalUrl(url)
+  })
+
+  ipcMain.on('update:install', () => {
+    handleInstallUpdate()
   })
 
   ipcMain.handle('app:getHomeDirectory', () => {
     return homedir()
   })
 
-  ipcMain.on('update:install', () => {
-    // Auto-updater handles quitAndInstall — import is lazy to avoid circular
-    const { autoUpdater } = require('electron-updater')
-    autoUpdater.quitAndInstall()
-  })
+}
+
+function openExternalUrl(rawUrl: string): void {
+  try {
+    const url = new URL(rawUrl)
+    if (!SAFE_EXTERNAL_PROTOCOLS.has(url.protocol)) {
+      recordExternalUrl(rawUrl, false)
+      console.error(`[main] Blocked external URL with unsupported protocol: ${rawUrl}`)
+      return
+    }
+    recordExternalUrl(url.toString(), true)
+    if (process.env.NODE_ENV === 'test') {
+      return
+    }
+    shell.openExternal(url.toString())
+  } catch {
+    recordExternalUrl(rawUrl, false)
+    console.error(`[main] Blocked invalid external URL: ${rawUrl}`)
+  }
+}
+
+function recordExternalUrl(url: string, allowed: boolean): void {
+  const logPath = process.env.OUROBOROS_TEST_EXTERNAL_URL_LOG_PATH ?? (
+    process.env.NODE_ENV === 'test' ? TEST_EXTERNAL_URL_LOG_PATH : undefined
+  )
+  if (!logPath) return
+
+  mkdirSync(dirname(logPath), { recursive: true })
+  appendFileSync(logPath, JSON.stringify({ url, allowed }) + '\n')
 }

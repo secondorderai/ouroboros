@@ -125,16 +125,20 @@ export const ChatView: React.FC<ChatViewProps> = ({ crystallizations, onDismissC
   const messages = useConversationStore((s) => s.messages);
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning);
   const activeToolCalls = useConversationStore((s) => s.activeToolCalls);
+  const pendingToolCalls = useConversationStore((s) => s.pendingToolCalls);
   const bufferedText = useStreamingBuffer();
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [showJump, setShowJump] = useState(false);
 
-  // Determine whether the streaming row is visible. We append it as an
-  // extra item at the end of the list whenever the agent is running and
-  // there is buffered text to show.
-  const isStreaming = isAgentRunning && bufferedText !== null;
+  // Keep the in-progress row mounted for the full turn so progress feedback
+  // can appear immediately, even before the first text chunk arrives.
+  const isStreaming =
+    isAgentRunning
+    || activeToolCalls.size > 0
+    || pendingToolCalls.length > 0
+    || bufferedText !== null;
 
   // Total item count = completed messages + optional streaming row.
   const totalCount = messages.length + (isStreaming ? 1 : 0);
@@ -173,10 +177,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ crystallizations, onDismissC
         <StreamingAgentMessage
           text={bufferedText ?? ''}
           activeToolCalls={activeToolCalls}
+          completedToolCalls={pendingToolCalls}
+          isRunning={isAgentRunning}
         />
       );
     },
-    [messages, bufferedText, activeToolCalls],
+    [messages, bufferedText, activeToolCalls, pendingToolCalls, isAgentRunning],
   );
 
   return (
@@ -191,6 +197,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ crystallizations, onDismissC
           atBottomThreshold={60}
           style={{ height: '100%' }}
           components={{
+            Header: () => <div style={{ height: 24 }} />,
+            Footer: () => <div style={{ height: 28 }} />,
             Item: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
               <div {...props} style={{ paddingBottom: 16 }}>
                 {children}

@@ -18,15 +18,23 @@ interface CrashStoreSchema {
   lastLaunchTimestamp: number;
 }
 
-const store = new Store<CrashStoreSchema>({
-  name: "crash-rollback",
-  defaults: {
-    rapidLaunchCount: 0,
-    lastLaunchTimestamp: 0,
-  },
-});
+let store: Store<CrashStoreSchema> | null = null;
+
+function getStore(): Store<CrashStoreSchema> {
+  if (store === null) {
+    store = new Store<CrashStoreSchema>({
+      name: "crash-rollback",
+      defaults: {
+        rapidLaunchCount: 0,
+        lastLaunchTimestamp: 0,
+      },
+    });
+  }
+  return store;
+}
 
 export function initCrashRollback(): void {
+  const store = getStore();
   const now = Date.now();
   const lastLaunch = store.get("lastLaunchTimestamp");
   const elapsed = now - lastLaunch;

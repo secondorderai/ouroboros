@@ -50,20 +50,27 @@ export function SettingsOverlay({
   }, [isOpen, initialSection])
   const [config, setConfig] = useState<OuroborosConfig | null>(null)
   const [exiting, setExiting] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Load config when overlay opens
   useEffect(() => {
     if (!isOpen) return
     let cancelled = false
+    setLoadError(null)
+    setSaveError(null)
     window.ouroboros
       .rpc('config/get')
       .then((result) => {
         if (!cancelled) {
-          setConfig(result as OuroborosConfig)
+          setConfig(result)
         }
       })
-      .catch(() => {
-        // Config not available yet, use defaults
+      .catch((error) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : 'Failed to load settings'
+        setLoadError(message)
+        setConfig(null)
       })
     return () => {
       cancelled = true
@@ -92,21 +99,23 @@ export function SettingsOverlay({
   }, [isOpen, handleClose])
 
   const handleConfigChange = useCallback(
-    (path: string, value: unknown) => {
-      // Optimistically update local config
-      setConfig((prev) => {
-        if (!prev) return prev
-        const updated = JSON.parse(JSON.stringify(prev)) as Record<string, unknown>
-        setNestedValue(updated, path, value)
-        return updated as unknown as OuroborosConfig
-      })
+    async (path: string, value: unknown) => {
+      if (!config) return
 
-      // Persist via RPC
-      window.ouroboros.rpc('config/set', { path, value }).catch(() => {
-        // Revert on failure would go here
-      })
+      const previousConfig = config
+      setSaveError(null)
+      setConfig(applyConfigChange(config, path, value))
+
+      try {
+        const savedConfig = await window.ouroboros.rpc('config/set', { path, value })
+        setConfig(savedConfig)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to save settings'
+        setConfig(previousConfig)
+        setSaveError(message)
+      }
     },
-    []
+    [config]
   )
 
   if (!isOpen && !exiting) return null
@@ -147,6 +156,11 @@ export function SettingsOverlay({
 
         {/* Active section content */}
         <div style={styles.content}>
+          {(loadError || saveError) && (
+            <div style={styles.errorBanner}>
+              {loadError ?? saveError}
+            </div>
+          )}
           {activeSection === 'model' && (
             <ModelSection
               config={config}
@@ -184,25 +198,46 @@ export function SettingsOverlay({
   )
 }
 
-/** Set a nested value on an object using a dot-separated path */
-function setNestedValue(
-  obj: Record<string, unknown>,
+function applyConfigChange(
+  config: OuroborosConfig,
   path: string,
-  value: unknown
-): void {
-  const keys = path.split('.')
-  let current: Record<string, unknown> = obj
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i]
-    if (
-      current[key] == null ||
-      typeof current[key] !== 'object'
-    ) {
-      current[key] = {}
-    }
-    current = current[key] as Record<string, unknown>
+  value: unknown,
+): OuroborosConfig {
+  const next = structuredClone(config)
+
+  if (path.startsWith('permissions.')) {
+    const permissionKey = path.slice('permissions.'.length) as keyof OuroborosConfig['permissions']
+    next.permissions[permissionKey] = Boolean(value)
+    return next
   }
-  current[keys[keys.length - 1]] = value
+
+  switch (path) {
+    case 'model.provider':
+      next.model.provider = value as OuroborosConfig['model']['provider']
+      return next
+    case 'model.name':
+      next.model.name = String(value)
+      return next
+    case 'model.baseUrl':
+      if (typeof value === 'string' && value.length > 0) {
+        next.model.baseUrl = value
+      } else {
+        delete next.model.baseUrl
+      }
+      return next
+    case 'rsi.autoReflect':
+      next.rsi.autoReflect = Boolean(value)
+      return next
+    case 'rsi.noveltyThreshold':
+      next.rsi.noveltyThreshold = Number(value)
+      return next
+    case 'memory.consolidationSchedule':
+      next.memory.consolidationSchedule =
+        value as OuroborosConfig['memory']['consolidationSchedule']
+      return next
+    default:
+      return config
+  }
 }
 
 function CloseIcon(): React.ReactElement {
@@ -299,5 +334,15 @@ const styles: Record<string, React.CSSProperties> = {
   content: {
     flex: 1,
     minWidth: 0,
+  },
+  errorBanner: {
+    marginBottom: 16,
+    padding: '10px 12px',
+    borderRadius: 'var(--radius-standard)',
+    border: '1px solid rgba(220, 38, 38, 0.24)',
+    backgroundColor: 'rgba(220, 38, 38, 0.08)',
+    color: 'var(--accent-red)',
+    fontSize: 13,
+    lineHeight: 1.5,
   },
 }

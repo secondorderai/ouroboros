@@ -20,6 +20,8 @@ export function ApprovalQueue({
   const approvals = useApprovals()
   const { respond } = useApprovalActions()
   const [exiting, setExiting] = useState(false)
+  const [submittingId, setSubmittingId] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const handleClose = useCallback(() => {
     setExiting(true)
@@ -64,6 +66,7 @@ export function ApprovalQueue({
 
         {/* Content */}
         <div style={styles.content}>
+          {errorMessage && <p style={styles.errorText}>{errorMessage}</p>}
           {approvals.length === 0 ? (
             <div style={styles.emptyState}>
               <CheckCircleIcon />
@@ -102,13 +105,39 @@ export function ApprovalQueue({
                     <div style={styles.itemActions}>
                       <button
                         style={styles.approveButton}
-                        onClick={() => respond(approval.id, 'approve')}
+                        onClick={async () => {
+                          setSubmittingId(approval.id)
+                          setErrorMessage(null)
+                          try {
+                            await respond(approval.id, 'approve')
+                          } catch (error) {
+                            const message =
+                              error instanceof Error ? error.message : 'Failed to submit approval response'
+                            setErrorMessage(message)
+                          } finally {
+                            setSubmittingId(null)
+                          }
+                        }}
+                        disabled={submittingId === approval.id}
                       >
-                        Approve
+                        {submittingId === approval.id ? 'Working...' : 'Approve'}
                       </button>
                       <button
                         style={styles.denyButton}
-                        onClick={() => respond(approval.id, 'deny')}
+                        onClick={async () => {
+                          setSubmittingId(approval.id)
+                          setErrorMessage(null)
+                          try {
+                            await respond(approval.id, 'deny')
+                          } catch (error) {
+                            const message =
+                              error instanceof Error ? error.message : 'Failed to submit approval response'
+                            setErrorMessage(message)
+                          } finally {
+                            setSubmittingId(null)
+                          }
+                        }}
+                        disabled={submittingId === approval.id}
                       >
                         Deny
                       </button>
@@ -194,6 +223,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+  },
+  errorText: {
+    margin: '0 0 12px 0',
+    padding: '0 20px',
+    fontSize: 12,
+    color: 'var(--accent-red)',
+    lineHeight: 1.4,
   },
   header: {
     display: 'flex',

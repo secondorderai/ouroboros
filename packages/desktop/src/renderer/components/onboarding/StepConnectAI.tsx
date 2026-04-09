@@ -225,10 +225,10 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
     setTestResult(null)
 
     try {
-      const result = (await window.ouroboros.rpc('config/testConnection', {
+      const result: ConnectionTestResult = await window.ouroboros.rpc('config/testConnection', {
         provider,
         apiKey,
-      })) as ConnectionTestResult
+      })
 
       setTestResult(result)
       if (result.success && result.models && result.models.length > 0) {

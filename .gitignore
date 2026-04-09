@@ -57,3 +57,6 @@ evolution.log.json
 # Electron desktop builds
 **/out
 **/release
+packages/desktop/test-results/**/*
+packages/desktop/.ouroboros
+packages/desktop/.ouroboros-transcripts.db-shm

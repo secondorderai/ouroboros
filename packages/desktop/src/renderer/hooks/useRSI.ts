@@ -244,10 +244,10 @@ export function useRSI(): UseRSIReturn {
   useEffect(() => {
     const unsubscribers: Array<() => void> = []
 
-    const rsiChannels = ['rsi/reflection', 'rsi/crystallization', 'rsi/dream', 'rsi/error']
+    const rsiChannels = ['rsi/reflection', 'rsi/crystallization', 'rsi/dream', 'rsi/error'] as const
 
     for (const channel of rsiChannels) {
-      const unsub = window.ouroboros.onNotification(channel, (params: unknown) => {
+      const unsub = window.ouroboros.onNotification(channel, (params) => {
         const p = (params ?? {}) as Record<string, unknown>
 
         // Update serpent state

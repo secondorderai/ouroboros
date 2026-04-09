@@ -6,6 +6,11 @@
  */
 
 import { useSyncExternalStore, useCallback } from 'react'
+import type {
+  ApprovalItem,
+  ApprovalListResult,
+  ApprovalRequestNotification,
+} from '../../shared/protocol'
 
 export interface PendingApproval {
   id: string
@@ -39,7 +44,14 @@ function getSnapshot(): PendingApproval[] {
 }
 
 export function addApproval(approval: PendingApproval): void {
-  approvals = [...approvals, approval]
+  approvals = approvals.some((existing) => existing.id === approval.id)
+    ? approvals.map((existing) => (existing.id === approval.id ? approval : existing))
+    : [...approvals, approval]
+  emitChange()
+}
+
+export function setApprovals(nextApprovals: PendingApproval[]): void {
+  approvals = nextApprovals
   emitChange()
 }
 
@@ -48,11 +60,31 @@ export function removeApproval(id: string): void {
   emitChange()
 }
 
-export function respondToApproval(
+export async function loadApprovals(): Promise<void> {
+  const result = await window.ouroboros.rpc('approval/list')
+  const approvalList = result as ApprovalListResult
+  setApprovals((approvalList.approvals ?? []).map(toPendingApproval))
+}
+
+export function toPendingApproval(
+  approval: ApprovalItem | ApprovalRequestNotification,
+): PendingApproval {
+  return {
+    id: approval.id,
+    type: approval.type,
+    description: approval.description,
+    risk: approval.risk ?? 'low',
+    diff: approval.diff,
+    timestamp:
+      ('createdAt' in approval && approval.createdAt) ? approval.createdAt : new Date().toISOString(),
+  }
+}
+
+export async function respondToApproval(
   id: string,
   decision: 'approve' | 'deny'
-): void {
-  window.ouroboros.rpc('approval/respond', {
+): Promise<void> {
+  await window.ouroboros.rpc('approval/respond', {
     id,
     approved: decision === 'approve',
   })
@@ -64,11 +96,14 @@ export function useApprovals(): PendingApproval[] {
 }
 
 export function useApprovalActions(): {
-  respond: (id: string, decision: 'approve' | 'deny') => void
+  respond: (id: string, decision: 'approve' | 'deny') => Promise<void>
 } {
   const respond = useCallback(
     (id: string, decision: 'approve' | 'deny') => {
-      respondToApproval(id, decision)
+      return respondToApproval(id, decision).catch(async (error) => {
+        console.error('approval/respond failed:', error)
+        throw error
+      })
     },
     []
   )

@@ -9,7 +9,7 @@ interface WindowBounds {
   isMaximized: boolean
 }
 
-const store = new Store<{ windowBounds: WindowBounds }>()
+let store: Store<{ windowBounds: WindowBounds }> | null = null
 
 const DEFAULT_WIDTH = 1200
 const DEFAULT_HEIGHT = 800
@@ -28,8 +28,15 @@ function getDefaultBounds(): WindowBounds {
   }
 }
 
+function getStore(): Store<{ windowBounds: WindowBounds }> {
+  if (store === null) {
+    store = new Store<{ windowBounds: WindowBounds }>()
+  }
+  return store
+}
+
 function getSavedBounds(): WindowBounds {
-  const saved = store.get('windowBounds')
+  const saved = getStore().get('windowBounds')
   if (!saved) return getDefaultBounds()
 
   // Validate that the saved bounds are still on a visible display
@@ -54,7 +61,7 @@ export function saveBounds(win: BrowserWindow): void {
   const isMaximized = win.isMaximized()
   const bounds = win.getBounds()
 
-  store.set('windowBounds', {
+  getStore().set('windowBounds', {
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
@@ -79,24 +86,24 @@ export function createWindowOptions(): Electron.BrowserWindowConstructorOptions 
     ...(process.platform === 'win32'
       ? {
           titleBarOverlay: {
-            color: '#FAFAF8',
-            symbolColor: '#1A1A1A',
+            color: '#F5F6F7',
+            symbolColor: '#0E1116',
             height: 40
           }
         }
       : {}),
     trafficLightPosition: isMac ? { x: 16, y: 12 } : undefined,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: '#F5F6F7',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   }
 }
 
 export function restoreMaximized(win: BrowserWindow): void {
-  const saved = store.get('windowBounds')
+  const saved = getStore().get('windowBounds')
   if (saved?.isMaximized) {
     win.maximize()
   }

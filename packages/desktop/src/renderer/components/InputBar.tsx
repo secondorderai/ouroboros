@@ -95,9 +95,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       setAttachedFiles((prev) => {
         // result can be a single path; normalize
         const paths = Array.isArray(result) ? result : [result]
-        const existing = new Set(prev)
-        const newPaths = paths.filter((p) => !existing.has(p))
-        return [...prev, ...newPaths]
+        return mergeUniquePaths(prev, paths)
       })
     }
   }, [])
@@ -127,11 +125,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   // ---- Handle file drops from parent (via props) ---------------------------
 
   const addDroppedFiles = useCallback((files: string[]) => {
-    setAttachedFiles((prev) => {
-      const existing = new Set(prev)
-      const newPaths = files.filter((p) => !existing.has(p))
-      return [...prev, ...newPaths]
-    })
+    setAttachedFiles((prev) => mergeUniquePaths(prev, files))
   }, [])
 
   // Expose addDroppedFiles via a ref on the component
@@ -249,6 +243,19 @@ function truncatePath(fullPath: string): string {
     return '.../' + segments.slice(-2).join('/')
   }
   return home
+}
+
+function mergeUniquePaths(existingPaths: string[], nextPaths: string[]): string[] {
+  const seen = new Set(existingPaths)
+  const merged = [...existingPaths]
+
+  for (const path of nextPaths) {
+    if (seen.has(path)) continue
+    seen.add(path)
+    merged.push(path)
+  }
+
+  return merged
 }
 
 // ---------------------------------------------------------------------------

@@ -289,8 +289,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
           title: 'Open Workspace Folder',
           properties: ['openDirectory'],
         }).then((dir) => {
-          if (dir) {
-            window.ouroboros?.rpc('workspace/set', { directory: dir }).catch((err: unknown) => {
+          const directory = Array.isArray(dir) ? dir[0] : dir
+          if (directory) {
+            window.ouroboros?.rpc('workspace/set', { directory }).catch((err: unknown) => {
               console.error('workspace/set failed:', err)
             })
           }

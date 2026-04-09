@@ -2,7 +2,7 @@
  * Step 3 — "What would you like to do?"
  *
  * 2x2 grid of template cards. Each card has an icon, title, and description.
- * Selected card has amber border + subtle amber background tint.
+ * Selected card uses the primary accent border + a subtle accent background tint.
  */
 
 import React from 'react'
@@ -177,6 +177,12 @@ const styles = {
     opacity: 0.4,
     cursor: 'not-allowed',
   } as React.CSSProperties,
+  errorText: {
+    fontSize: '13px',
+    color: 'var(--text-error)',
+    lineHeight: 1.5,
+    margin: '0 0 16px 0',
+  } as React.CSSProperties,
 }
 
 // ── Component ───────────────────────────────────────────────
@@ -185,14 +191,18 @@ interface StepTemplateProps {
   selectedTemplate: number | null
   onTemplateChange: (id: number) => void
   onFinish: () => void
+  isFinishing?: boolean
+  errorMessage?: string | null
 }
 
 export const StepTemplate: React.FC<StepTemplateProps> = ({
   selectedTemplate,
   onTemplateChange,
   onFinish,
+  isFinishing = false,
+  errorMessage = null,
 }) => {
-  const canFinish = selectedTemplate !== null
+  const canFinish = selectedTemplate !== null && !isFinishing
 
   return (
     <div>
@@ -225,6 +235,8 @@ export const StepTemplate: React.FC<StepTemplateProps> = ({
         ))}
       </div>
 
+      {errorMessage && <p style={styles.errorText}>{errorMessage}</p>}
+
       {/* Get Started button */}
       <button
         style={{
@@ -234,7 +246,7 @@ export const StepTemplate: React.FC<StepTemplateProps> = ({
         onClick={canFinish ? onFinish : undefined}
         disabled={!canFinish}
       >
-        Get Started
+        {isFinishing ? 'Setting things up...' : 'Get Started'}
       </button>
     </div>
   )

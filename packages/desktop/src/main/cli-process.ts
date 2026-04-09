@@ -11,6 +11,8 @@ import { join } from 'node:path'
 import { app, dialog } from 'electron'
 import { EventEmitter } from 'node:events'
 import type { CLIStatus } from '../shared/protocol'
+import { writeTestLog } from './test-logging'
+import { TEST_SCENARIO_PATH } from './test-paths'
 
 const MAX_RESTART_ATTEMPTS = 3
 const RESTART_DELAY_MS = 1000
@@ -56,6 +58,7 @@ export class CLIProcessManager extends EventEmitter {
   start(): void {
     this.intentionalShutdown = false
     this.setStatus('starting')
+    writeTestLog('cli process start()')
     this.spawnProcess()
   }
 
@@ -106,6 +109,14 @@ export class CLIProcessManager extends EventEmitter {
   }
 
   private getCliPath(): { command: string; args: string[] } {
+    if (process.env.NODE_ENV === 'test') {
+      const fixturePath = join(app.getAppPath(), '..', '..', 'tests', 'fixtures', 'mock-cli.mjs')
+      return {
+        command: process.env.OUROBOROS_TEST_NODE_BINARY ?? 'node',
+        args: [fixturePath, '--json-rpc', TEST_SCENARIO_PATH],
+      }
+    }
+
     const envPath = process.env.OUROBOROS_CLI_PATH
     if (envPath) {
       if (envPath.endsWith('.ts')) {
@@ -123,6 +134,7 @@ export class CLIProcessManager extends EventEmitter {
 
   private spawnProcess(): void {
     const { command, args } = this.getCliPath()
+    writeTestLog(`spawning cli: ${command} ${args.join(' ')}`)
     try {
       this.process = spawn(command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -130,7 +142,7 @@ export class CLIProcessManager extends EventEmitter {
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[cli-process] Failed to spawn CLI: ${message}`)
+      writeTestLog(`spawn threw: ${message}`)
       this.setStatus('error')
       return
     }
@@ -149,16 +161,18 @@ export class CLIProcessManager extends EventEmitter {
     })
 
     this.process.on('exit', (code, signal) => {
-      console.error(`[cli-process] CLI exited code=${code ?? 'null'} signal=${signal ?? 'null'}`)
+      writeTestLog(`cli exit code=${code ?? 'null'} signal=${signal ?? 'null'}`)
       this.process = null
       if (!this.intentionalShutdown) this.handleUnexpectedExit()
     })
 
     this.process.on('error', (error) => {
-      console.error(`[cli-process] CLI error: ${error.message}`)
+      writeTestLog(`cli error ${error.message}`)
       this.process = null
       if (!this.intentionalShutdown) this.handleUnexpectedExit()
     })
+
+    this.emit('spawned', { restartCount: this.restartCount })
   }
 
   private drainBuffer(stream: 'stdout' | 'stderr'): void {
@@ -182,17 +196,19 @@ export class CLIProcessManager extends EventEmitter {
   private handleUnexpectedExit(): void {
     if (this.restartCount >= MAX_RESTART_ATTEMPTS) {
       this.setStatus('error')
-      dialog.showErrorBox(
-        'Ouroboros CLI Error',
-        `The CLI process has crashed ${MAX_RESTART_ATTEMPTS} times and could not be restarted. ` +
-          'Please check your CLI installation and try restarting the application.',
-      )
+      if (process.env.NODE_ENV !== 'test') {
+        dialog.showErrorBox(
+          'Ouroboros CLI Error',
+          `The CLI process has crashed ${MAX_RESTART_ATTEMPTS} times and could not be restarted. ` +
+            'Please check your CLI installation and try restarting the application.',
+        )
+      }
       return
     }
 
     this.restartCount++
     this.setStatus('restarting')
-    console.error(`[cli-process] Restarting (attempt ${this.restartCount}/${MAX_RESTART_ATTEMPTS})`)
+    writeTestLog(`cli restarting attempt=${this.restartCount}`)
     setTimeout(() => this.spawnProcess(), RESTART_DELAY_MS)
   }
 }

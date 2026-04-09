@@ -1,11 +1,8 @@
 import { useEffect } from 'react';
 import { useConversationStore } from '../stores/conversationStore';
+import { addApproval, loadApprovals, toPendingApproval } from '../stores/approvalStore'
 import type {
-  AgentTextParams,
-  AgentToolCallStartParams,
-  AgentToolCallEndParams,
-  AgentTurnCompleteParams,
-  AgentErrorParams,
+  ApprovalRequestNotification,
 } from '../../shared/protocol';
 
 /**
@@ -28,21 +25,28 @@ export function useNotifications(): void {
       handleAgentError,
     } = useConversationStore.getState();
 
+    loadApprovals().catch((error) => {
+      console.error('approval/list failed:', error)
+    })
+
     const unsubs = [
       api.onNotification('agent/text', (params) => {
-        handleAgentText(params as AgentTextParams);
+        handleAgentText(params);
       }),
       api.onNotification('agent/toolCallStart', (params) => {
-        handleToolCallStart(params as AgentToolCallStartParams);
+        handleToolCallStart(params);
       }),
       api.onNotification('agent/toolCallEnd', (params) => {
-        handleToolCallEnd(params as AgentToolCallEndParams);
+        handleToolCallEnd(params);
       }),
       api.onNotification('agent/turnComplete', (params) => {
-        handleTurnComplete(params as AgentTurnCompleteParams);
+        handleTurnComplete(params);
       }),
       api.onNotification('agent/error', (params) => {
-        handleAgentError(params as AgentErrorParams);
+        handleAgentError(params);
+      }),
+      api.onNotification('approval/request', (params: ApprovalRequestNotification) => {
+        addApproval(toPendingApproval(params))
       }),
     ];
 

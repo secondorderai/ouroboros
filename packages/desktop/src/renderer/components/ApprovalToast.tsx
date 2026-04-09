@@ -3,7 +3,7 @@ import type { PendingApproval } from '../stores/approvalStore'
 
 interface ApprovalToastProps {
   approval: PendingApproval
-  onRespond: (id: string, decision: 'approve' | 'deny') => void
+  onRespond: (id: string, decision: 'approve' | 'deny') => Promise<void>
 }
 
 const RISK_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -16,17 +16,25 @@ export function ApprovalToast({
   approval,
   onRespond,
 }: ApprovalToastProps): React.ReactElement {
-  const [exiting, setExiting] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleRespond = useCallback(
-    (decision: 'approve' | 'deny') => {
-      setExiting(true)
-      // Wait for slide-out animation before removing
-      setTimeout(() => {
-        onRespond(approval.id, decision)
-      }, 200)
+    async (decision: 'approve' | 'deny') => {
+      if (submitting) return
+      setSubmitting(true)
+      setError(null)
+      try {
+        await onRespond(approval.id, decision)
+      } catch (responseError) {
+        const message =
+          responseError instanceof Error ? responseError.message : 'Failed to submit approval response'
+        setError(message)
+      } finally {
+        setSubmitting(false)
+      }
     },
-    [approval.id, onRespond]
+    [approval.id, onRespond, submitting]
   )
 
   const riskInfo = RISK_COLORS[approval.risk] ?? RISK_COLORS.low
@@ -37,7 +45,7 @@ export function ApprovalToast({
 
   return (
     <div
-      className={exiting ? 'approval-toast-exit' : 'approval-toast-enter'}
+      className="approval-toast-enter"
       style={styles.toast}
     >
       {/* Header */}
@@ -62,17 +70,21 @@ export function ApprovalToast({
         <pre style={styles.diffPreview}>{diffLines}</pre>
       )}
 
+      {error && <p style={styles.errorText}>{error}</p>}
+
       {/* Actions */}
       <div style={styles.actions}>
         <button
           style={styles.approveButton}
           onClick={() => handleRespond('approve')}
+          disabled={submitting}
         >
-          Approve
+          {submitting ? 'Working...' : 'Approve'}
         </button>
         <button
           style={styles.denyButton}
           onClick={() => handleRespond('deny')}
+          disabled={submitting}
         >
           Deny
         </button>
@@ -133,6 +145,12 @@ const styles: Record<string, React.CSSProperties> = {
   actions: {
     display: 'flex',
     gap: 8,
+  },
+  errorText: {
+    fontSize: 12,
+    color: 'var(--accent-red)',
+    margin: '0 0 12px 0',
+    lineHeight: 1.4,
   },
   approveButton: {
     flex: 1,

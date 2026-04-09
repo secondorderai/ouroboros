@@ -13,6 +13,7 @@ import type { AIProvider } from '../../shared/protocol'
 import { StepConnectAI } from './onboarding/StepConnectAI'
 import { StepWorkspace } from './onboarding/StepWorkspace'
 import { StepTemplate } from './onboarding/StepTemplate'
+import { useConversationStore } from '../stores/conversationStore'
 import './OnboardingWizard.css'
 
 // ── Welcome message templates ───────────────────────────────
@@ -64,6 +65,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
   // Step 3 state
   const [template, setTemplate] = useState<number | null>(null)
+  const [finishing, setFinishing] = useState(false)
+  const [finishError, setFinishError] = useState<string | null>(null)
 
   // ── Navigation ──────────────────────────────────────────
 
@@ -80,34 +83,30 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   // ── Finish wizard ───────────────────────────────────────
 
   const handleFinish = useCallback(async () => {
-    if (template === null) return
+    if (template === null || finishing) return
 
-    // Set API key first — this must succeed for agent/run to work.
-    // Each call is independent so a disk-write failure in config/set
-    // doesn't prevent the API key from being set.
+    setFinishing(true)
+    setFinishError(null)
+
     try {
       await window.ouroboros.rpc('config/setApiKey', { provider, apiKey })
-    } catch {
-      // env var set failed — agent/run will report the error later
-    }
-
-    try {
       await window.ouroboros.rpc('config/set', { path: 'model.provider', value: provider })
       await window.ouroboros.rpc('config/set', { path: 'model.name', value: model })
-    } catch {
-      // Config persistence failed — defaults will be used
-    }
 
-    if (workspace) {
-      try {
+      if (workspace) {
         await window.ouroboros.rpc('workspace/set', { directory: workspace })
-      } catch {
-        // Non-critical
       }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to complete onboarding setup'
+      setFinishError(message)
+      setFinishing(false)
+      return
     }
 
     // Generate welcome message and transition to chat
     const welcomeMessage = getWelcomeMessage(template, workspace)
+    setFinishing(false)
     onComplete(welcomeMessage, template)
 
     // For template 2, auto-trigger codebase exploration
@@ -116,11 +115,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         await window.ouroboros.rpc('agent/run', {
           message: 'Explore this project and give me an overview',
         })
-      } catch {
-        // Non-critical; user can manually trigger
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to start initial project exploration'
+        useConversationStore.getState().handleAgentError({
+          message: `Initial exploration failed: ${message}`,
+        })
       }
     }
-  }, [provider, apiKey, model, workspace, template, onComplete])
+  }, [provider, apiKey, model, workspace, template, onComplete, finishing])
 
   // ── Step indicator ──────────────────────────────────────
 
@@ -168,6 +171,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           selectedTemplate={template}
           onTemplateChange={setTemplate}
           onFinish={handleFinish}
+          isFinishing={finishing}
+          errorMessage={finishError}
         />
       )
       break
