@@ -66,6 +66,16 @@
       "sourceType": "github",
       "computedHash": "c1b1133e43d087a9f97de44c2b8abdd4b6c59364d3ac9c0456b01916d58a55b2"
     },
+    "electron": {
+      "source": "partme-ai/full-stack-skills",
+      "sourceType": "github",
+      "computedHash": "9d82126e6c46dd626fc6b1d2e259687d1b64ad61900166b8fc5a3b661c243cf4"
+    },
+    "electron-scaffold": {
+      "source": "chrisvoncsefalvay/claude-skills",
+      "sourceType": "github",
+      "computedHash": "3e9d436fa84d0b1d990f42a99290ac76009007524fb9e19fed113781db16a8e0"
+    },
     "extract": {
       "source": "pbakaus/impeccable",
       "sourceType": "github",
