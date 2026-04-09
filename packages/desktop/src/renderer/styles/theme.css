@@ -2,37 +2,37 @@
 :root,
 [data-theme='light'] {
   /* Background surfaces */
-  --bg-primary: #FAFAF8;
-  --bg-secondary: #F2F1EE;
-  --bg-tertiary: #E8E7E3;
+  --bg-primary: #F5F6F7;
+  --bg-secondary: #ECEEF0;
+  --bg-tertiary: #DCE1E7;
   --bg-chat: #FFFFFF;
   --bg-input: #FFFFFF;
-  --bg-user-msg: #F4F0EB;
-  --bg-tool-chip: #F6F5F2;
-  --bg-tool-expanded: #FAFAF8;
-  --bg-rsi-card: linear-gradient(135deg, #FFF8F0 0%, #FFF5E8 100%);
-  --bg-sidebar: #F7F6F3;
-  --bg-sidebar-active: #EDECEA;
-  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-user-msg: #EFF1F3;
+  --bg-tool-chip: #F1F3F6;
+  --bg-tool-expanded: #F8FAFC;
+  --bg-rsi-card: linear-gradient(135deg, #F4F7FB 0%, #EDF2F8 100%);
+  --bg-sidebar: #ECEEF0;
+  --bg-sidebar-active: rgba(62, 95, 138, 0.10);
+  --bg-hover: rgba(14, 17, 22, 0.05);
   --bg-overlay: rgba(0, 0, 0, 0.3);
 
   /* Text */
-  --text-primary: #1A1A1A;
-  --text-secondary: #6B6B6B;
-  --text-tertiary: #9B9B9B;
+  --text-primary: #0E1116;
+  --text-secondary: #5E6673;
+  --text-tertiary: #8C95A3;
   --text-inverse: #FFFFFF;
 
   /* Borders */
-  --border-light: #E8E7E3;
-  --border-medium: #D4D3CF;
+  --border-light: #DCE1E7;
+  --border-medium: #C9D1DB;
 
   /* Accent & Status */
-  --accent-primary: #D97706;
-  --accent-primary-hover: #B45309;
-  --accent-muted: rgba(217, 119, 6, 0.08);
-  --accent-amber: #D97706;
-  --accent-amber-hover: #F59E0B;
-  --accent-amber-bg: rgba(217, 119, 6, 0.08);
+  --accent-primary: #3E5F8A;
+  --accent-primary-hover: #334F74;
+  --accent-muted: rgba(62, 95, 138, 0.10);
+  --accent-amber: #3E5F8A;
+  --accent-amber-hover: #334F74;
+  --accent-amber-bg: rgba(62, 95, 138, 0.10);
   --accent-green: #16A34A;
   --accent-blue: #2563EB;
   --accent-purple: #7C3AED;
@@ -42,10 +42,10 @@
   /* Semantic text colors */
   --text-success: #16A34A;
   --text-error: #DC2626;
-  --text-link: #2563EB;
+  --text-link: #3E5F8A;
 
   /* Focus */
-  --border-focus: #D97706;
+  --border-focus: #3E5F8A;
 
   /* Shadows */
   --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -86,37 +86,37 @@
 /* Dark theme */
 [data-theme='dark'] {
   /* Background surfaces */
-  --bg-primary: #1A1A1E;
-  --bg-secondary: #222226;
-  --bg-tertiary: #2C2C30;
-  --bg-chat: #1E1E22;
-  --bg-input: #2A2A2E;
-  --bg-user-msg: #2A2720;
-  --bg-tool-chip: #28282C;
-  --bg-tool-expanded: #222226;
-  --bg-rsi-card: linear-gradient(135deg, #2A2518 0%, #2C2418 100%);
-  --bg-sidebar: #1A1A1E;
-  --bg-sidebar-active: #28282C;
+  --bg-primary: #0B0D10;
+  --bg-secondary: #12161B;
+  --bg-tertiary: #171C22;
+  --bg-chat: #0F1317;
+  --bg-input: #11161A;
+  --bg-user-msg: #171C22;
+  --bg-tool-chip: #151A20;
+  --bg-tool-expanded: #12161B;
+  --bg-rsi-card: linear-gradient(135deg, rgba(62, 95, 138, 0.18) 0%, #10151B 100%);
+  --bg-sidebar: #12161B;
+  --bg-sidebar-active: rgba(137, 167, 209, 0.16);
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-overlay: rgba(0, 0, 0, 0.6);
 
   /* Text */
-  --text-primary: #ECECEC;
-  --text-secondary: #9B9B9B;
-  --text-tertiary: #6B6B6B;
-  --text-inverse: #1A1A1A;
+  --text-primary: #EEF2F6;
+  --text-secondary: #97A1AD;
+  --text-tertiary: #64707C;
+  --text-inverse: #0E1116;
 
   /* Borders */
-  --border-light: #333337;
-  --border-medium: #444448;
+  --border-light: #232A33;
+  --border-medium: #2F3944;
 
   /* Accent & Status — same hues */
-  --accent-primary: #D97706;
-  --accent-primary-hover: #F59E0B;
-  --accent-muted: rgba(217, 119, 6, 0.12);
-  --accent-amber: #D97706;
-  --accent-amber-hover: #F59E0B;
-  --accent-amber-bg: rgba(217, 119, 6, 0.12);
+  --accent-primary: #3E5F8A;
+  --accent-primary-hover: #334F74;
+  --accent-muted: rgba(62, 95, 138, 0.16);
+  --accent-amber: #3E5F8A;
+  --accent-amber-hover: #89A7D1;
+  --accent-amber-bg: rgba(137, 167, 209, 0.12);
   --accent-green: #16A34A;
   --accent-blue: #2563EB;
   --accent-purple: #7C3AED;
@@ -126,10 +126,10 @@
   /* Semantic text colors */
   --text-success: #22C55E;
   --text-error: #EF4444;
-  --text-link: #60A5FA;
+  --text-link: #89A7D1;
 
   /* Focus */
-  --border-focus: #D97706;
+  --border-focus: #3E5F8A;
 
   /* Shadows — higher opacity for dark theme */
   --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.2);

@@ -2,54 +2,54 @@
 
 ## 1. Visual Theme & Atmosphere
 
-Ouroboros is a chat-first autonomous AI agent desktop app. The visual language is warm, clean, and approachable — designed for non-technical users and technical-but-GUI-preferring users who want to experience an AI that improves itself. The aesthetic draws from Claude.ai's generous whitespace and warm neutrals, Linear's precision and restraint, and Arc's command-palette-driven navigation.
+Ouroboros is a chat-first autonomous AI agent desktop app. The visual language is calm, precise, and readable — designed for users who want a conversational interface that still feels like a focused tool. The aesthetic draws from Codex-style restraint, Linear's precision, and Arc's command-palette-driven navigation.
 
-The light theme uses warm off-whites and cream tones that feel organic and inviting — not the cold blue-grays of developer tools. The dark theme mirrors this warmth with amber-tinted dark surfaces rather than pure blacks. Amber is the signature accent color, evoking the Ouroboros serpent and the warmth of self-improvement. It appears only on interactive elements, RSI activity indicators, and the primary send action — never decoratively.
+The light theme uses cool neutrals and soft off-whites. The dark theme uses charcoal and blue-black surfaces rather than warm gray. Slate blue is the signature accent color: present on interactive elements, active states, links, and the primary send action, but never spread across large surfaces.
 
 Typography uses the system font stack for speed and native feel, with Inter as the preferred web fallback. Text is set in clean sans-serif at comfortable sizes optimized for reading conversations. Monospace is reserved strictly for code blocks and tool output. The overall density is low: generous padding, breathing room between messages, and progressive disclosure that hides complexity until requested.
 
 **Key Characteristics:**
-- Warm neutral palette: off-white backgrounds (`#FAFAF8`), cream message bubbles (`#F4F0EB`), warm dark mode (`#1A1A1E`)
-- Amber accent: `#D97706` (primary), `#F59E0B` (light/hover) — the only chromatic accent in the core UI
+- Neutral-first palette: soft off-white backgrounds (`#F5F6F7`), cool gray message bubbles (`#EFF1F3`), blue-black dark mode (`#0B0D10`)
+- Slate blue accent: `#3E5F8A` (primary), `#334F74` (hover), `#89A7D1` (dark-mode highlight) — the only branded accent in the shell
 - System font stack with Inter fallback — native feel on every platform
 - Chat-first layout: conversation is always the primary surface
 - Progressive disclosure: minimal by default, details on demand (command palette, drawers, expandable chips)
 - Low information density: generous whitespace, comfortable font sizes, relaxed line heights
-- Dual theme: light (default) and dark, both warm-toned
+- Dual theme: light (default) and dark, both cool and restrained
 
 ## 2. Color Palette & Roles
 
 ### Light Theme
 
 #### Background Surfaces
-- **Primary** (`#FAFAF8`): Main app background. Warm off-white with a barely perceptible yellow undertone.
-- **Secondary** (`#F2F1EE`): Sidebar background, section dividers. One step darker.
-- **Tertiary** (`#E8E7E3`): Borders, divider lines, subtle separators.
+- **Primary** (`#F5F6F7`): Main app background. Soft cool white.
+- **Secondary** (`#ECEEF0`): Sidebar background, section dividers. One step darker.
+- **Tertiary** (`#DCE1E7`): Borders, divider lines, subtle separators.
 - **Chat** (`#FFFFFF`): Chat area background. Pure white for maximum readability of conversation.
 - **Input** (`#FFFFFF`): Input field backgrounds.
-- **User Message** (`#F4F0EB`): User message bubble background. Warm cream — distinct from agent messages.
-- **Tool Chip** (`#F6F5F2`): Collapsed tool call chip background.
-- **Tool Expanded** (`#FAFAF8`): Expanded tool call detail background.
-- **RSI Card** (`linear-gradient(135deg, #FFF8F0 0%, #FFF5E8 100%)`): RSI notification card. Warm amber-tinted gradient.
-- **Sidebar** (`#F7F6F3`): Session sidebar background.
-- **Sidebar Active** (`#EDECEA`): Active/selected session item.
-- **Hover** (`rgba(0,0,0,0.04)`): Universal hover state overlay.
+- **User Message** (`#EFF1F3`): User message bubble background. Subtly distinct without introducing warmth.
+- **Tool Chip** (`#F1F3F6`): Collapsed tool call chip background.
+- **Tool Expanded** (`#F8FAFC`): Expanded tool call detail background.
+- **RSI Card** (`linear-gradient(135deg, #F4F7FB 0%, #EDF2F8 100%)`): RSI notification card. Light slate-blue tint without becoming decorative.
+- **Sidebar** (`#ECEEF0`): Session sidebar background.
+- **Sidebar Active** (`rgba(62,95,138,0.10)`): Active/selected session item.
+- **Hover** (`rgba(14,17,22,0.05)`): Universal hover state overlay.
 - **Overlay** (`rgba(0,0,0,0.3)`): Modal/drawer backdrop.
 
 #### Text
-- **Primary** (`#1A1A1A`): Headings, agent message body, user input. Near-black for strong contrast.
-- **Secondary** (`#6B6B6B`): Body text, descriptions, session metadata. Mid-gray.
-- **Tertiary** (`#9B9B9B`): Timestamps, placeholders, de-emphasized content. Light gray.
-- **Inverse** (`#FFFFFF`): Text on amber buttons or dark surfaces.
+- **Primary** (`#0E1116`): Headings, agent message body, user input. Near-black for strong contrast.
+- **Secondary** (`#5E6673`): Body text, descriptions, session metadata. Mid-gray with a cool cast.
+- **Tertiary** (`#8C95A3`): Timestamps, placeholders, de-emphasized content.
+- **Inverse** (`#FFFFFF`): Text on primary action buttons or dark surfaces.
 
 #### Border
-- **Light** (`#E8E7E3`): Default borders — sidebar edges, input outlines, card dividers.
-- **Medium** (`#D4D3CF`): Stronger borders for emphasis — focused inputs, active sections.
+- **Light** (`#DCE1E7`): Default borders — sidebar edges, input outlines, card dividers.
+- **Medium** (`#C9D1DB`): Stronger borders for emphasis — focused inputs, active sections.
 
 #### Accent & Status
-- **Amber** (`#D97706`): Primary interactive accent. Send button, RSI glow, active indicators, links.
-- **Amber Light** (`#F59E0B`): Hover state for amber elements. Status indicator pulse.
-- **Amber Background** (`rgba(217,119,6,0.08)`): Subtle amber tint for RSI-related backgrounds.
+- **Slate Blue** (`#3E5F8A`): Primary interactive accent. Send button, active indicators, focus rings, links.
+- **Slate Blue Hover** (`#334F74`): Hover state for primary accent elements.
+- **Slate Blue Background** (`rgba(62,95,138,0.10)`): Subtle accent tint for active chips and RSI-related backgrounds.
 - **Green** (`#16A34A`): Success states. Tool call completed, tests passed, skill promoted.
 - **Blue** (`#2563EB`): Informational. Links in agent messages, core skill badges.
 - **Purple** (`#7C3AED`): Generated skill badges, evolution events.
@@ -59,33 +59,33 @@ Typography uses the system font stack for speed and native feel, with Inter as t
 ### Dark Theme
 
 #### Background Surfaces
-- **Primary** (`#1A1A1E`): Main app background. Warm dark gray, not pure black.
-- **Secondary** (`#222226`): Elevated panels, drawer background.
-- **Tertiary** (`#2C2C30`): Higher elevation — dropdown menus, popovers.
-- **Chat** (`#1E1E22`): Chat area. Slightly lighter than primary for subtle depth.
-- **Input** (`#2A2A2E`): Input field backgrounds.
-- **User Message** (`#2A2720`): User bubble. Warm amber-dark tint.
-- **Tool Chip** (`#28282C`): Collapsed tool chip.
-- **Tool Expanded** (`#222226`): Expanded tool detail.
-- **RSI Card** (`linear-gradient(135deg, #2A2518 0%, #2C2418 100%)`): RSI card with amber warmth.
-- **Sidebar** (`#1A1A1E`): Matches primary.
-- **Sidebar Active** (`#28282C`): Selected session.
+- **Primary** (`#0B0D10`): Main app background. Blue-black, not pure black.
+- **Secondary** (`#12161B`): Elevated panels, drawer background.
+- **Tertiary** (`#171C22`): Higher elevation — dropdown menus, popovers.
+- **Chat** (`#0F1317`): Chat area. Slightly lighter than primary for subtle depth.
+- **Input** (`#11161A`): Input field backgrounds.
+- **User Message** (`#171C22`): User bubble. Distinct from the chat plane without warmth.
+- **Tool Chip** (`#151A20`): Collapsed tool chip.
+- **Tool Expanded** (`#12161B`): Expanded tool detail.
+- **RSI Card** (`linear-gradient(135deg, rgba(62,95,138,0.18) 0%, #10151B 100%)`): RSI card with a restrained slate-blue tint.
+- **Sidebar** (`#12161B`): Matches secondary for stronger structure.
+- **Sidebar Active** (`rgba(137,167,209,0.16)`): Selected session.
 - **Hover** (`rgba(255,255,255,0.06)`): Universal hover overlay.
 - **Overlay** (`rgba(0,0,0,0.6)`): Darker overlay for modals on dark backgrounds.
 
 #### Text (Dark)
-- **Primary** (`#ECECEC`): Headings and body. Not pure white — prevents eye strain.
-- **Secondary** (`#9B9B9B`): Descriptions, metadata.
-- **Tertiary** (`#6B6B6B`): Placeholders, timestamps.
-- **Inverse** (`#1A1A1A`): Text on light or amber surfaces.
+- **Primary** (`#EEF2F6`): Headings and body. Not pure white — prevents eye strain.
+- **Secondary** (`#97A1AD`): Descriptions, metadata.
+- **Tertiary** (`#64707C`): Placeholders, timestamps.
+- **Inverse** (`#0E1116`): Text on light accent surfaces.
 
 #### Border (Dark)
-- **Light** (`#333337`): Default borders.
-- **Medium** (`#444448`): Emphasized borders.
+- **Light** (`#232A33`): Default borders.
+- **Medium** (`#2F3944`): Emphasized borders.
 
-#### Accent (Dark) — same hues, adjusted opacity
-- **Amber Background** (`rgba(217,119,6,0.12)`): Slightly more opaque for visibility on dark.
-- **Amber Glow** (`rgba(245,158,11,0.5)`): RSI pulse animation glow.
+#### Accent (Dark) — same base hue, brighter highlights
+- **Slate Blue Background** (`rgba(137,167,209,0.12)`): Slightly more opaque for visibility on dark.
+- **Slate Blue Highlight** (`#89A7D1`): Links, hover text, and selected inline emphasis.
 - All other accent colors remain unchanged between themes.
 
 ## 3. Typography Rules
@@ -123,12 +123,12 @@ Typography uses the system font stack for speed and native feel, with Inter as t
 
 ### Buttons
 
-**Primary (Amber)**
-- Background: `#D97706`
+**Primary (Slate Blue)**
+- Background: `#3E5F8A`
 - Text: `#FFFFFF`, 14px weight 500
 - Padding: 8px 16px
 - Radius: 6px
-- Hover: `#F59E0B`
+- Hover: `#334F74`
 - Use: Send message, confirm actions, primary onboarding CTAs
 
 **Secondary (Ghost)**
@@ -199,7 +199,7 @@ Typography uses the system font stack for speed and native feel, with Inter as t
 
 ### RSI Notification Card
 
-- Background: `var(--bg-rsi-card)` (amber-tinted gradient)
+- Background: `var(--bg-rsi-card)` (slate-blue tinted gradient)
 - Text: `var(--text-primary)`, 14px weight 400
 - Padding: 12px 16px
 - Radius: 10px
@@ -219,7 +219,7 @@ Typography uses the system font stack for speed and native feel, with Inter as t
 - Title: 14px weight 600
 - Description: 13px weight 400, `var(--text-secondary)`
 - Risk badge: pill with color (red for high, orange for medium)
-- Buttons: Approve (amber primary) + Deny (danger) side by side
+- Buttons: Approve (slate blue primary) + Deny (danger) side by side
 - Animation: slide in from right, fade out on dismiss
 
 ### Command Palette
@@ -264,7 +264,7 @@ Typography uses the system font stack for speed and native feel, with Inter as t
 | Type | Background | Text | Border | Use |
 |------|-----------|------|--------|-----|
 | Core | `rgba(37,99,235,0.1)` | `#2563EB` | none | Core skills |
-| Generated | `rgba(217,119,6,0.1)` | `#D97706` | none | Self-generated skills |
+| Generated | `rgba(62,95,138,0.1)` | `#3E5F8A` | none | Self-generated skills |
 | Staging | `rgba(107,107,107,0.1)` | `#6B6B6B` | none | Skills under test |
 | Success | `rgba(22,163,74,0.1)` | `#16A34A` | none | Tests passed |
 | Error | `rgba(220,38,38,0.1)` | `#DC2626` | none | Tests failed |
@@ -280,7 +280,7 @@ All badges: 11px weight 600, 4px 8px padding, 4px radius.
 - Attachment button: icon button, left of textarea
 - Workspace indicator: 12px weight 400, folder icon + path, `var(--text-secondary)`, clickable
 - Model badge: 11px weight 500, pill shape, `var(--text-tertiary)`, clickable
-- Send button: amber primary, right of textarea
+- Send button: slate blue primary, right of textarea
 
 ## 5. Layout Principles
 
@@ -322,34 +322,34 @@ All badges: 11px weight 600, 4px 8px padding, 4px radius.
 | High | `0 12px 40px rgba(0,0,0,0.12)` | RSI drawer, approval toasts |
 | Maximum | `0 20px 60px rgba(0,0,0,0.16)` | Command palette, modal overlays |
 
-**Dark theme shadows** use higher opacity: 0.2, 0.3, 0.4, and include no additional border tricks — the elevated surface background colors (`#222226`, `#2C2C30`) already create visual separation.
+**Dark theme shadows** use higher opacity: 0.2, 0.3, 0.4, and include no additional border tricks — the elevated surface background colors (`#12161B`, `#171C22`) already create visual separation.
 
 **Elevation strategy**: The chat area is flat (Level 0). Overlays stack above it: drawer (High), command palette (Maximum), approval toast (High). This creates a clear z-axis: conversation < panels < modals.
 
 ## 7. Do's and Don'ts
 
 ### Do
-- Use warm neutrals for backgrounds — `#FAFAF8`, `#F4F0EB`, `#F2F1EE` — not cold grays or pure whites
-- Keep amber (`#D97706`) reserved for interactive elements and RSI indicators only
+- Use neutral-first backgrounds — `#F5F6F7`, `#ECEEF0`, `#EFF1F3` — and let contrast, not color, carry structure
+- Keep slate blue (`#3E5F8A`) reserved for interactive elements, focus, active states, and links
 - Use system fonts first (`-apple-system, BlinkMacSystemFont`) for native feel
 - Set body text at 15px minimum — this is a reading interface, not a code editor
 - Provide generous whitespace between chat messages (16px+ gaps)
 - Show tool calls as compact chips by default — expand on click
 - Keep RSI activity ambient: subtle glow on the serpent icon, brief inline cards
 - Use plain language for RSI events: "Learned a new skill" not "Crystallization outcome: promoted"
-- Support both light and dark themes with warm tones in both
+- Support both light and dark themes with cool, restrained neutrals in both
 - Make the command palette the primary navigation — it replaces menus and nav bars
 
 ### Don't
 - Don't use monospace for anything except code blocks and tool output
-- Don't use cold blue-grays — the palette is warm (cream, amber, warm dark)
+- Don't flood the interface with accent color — the shell should still read clearly in grayscale
 - Don't show RSI pipeline stages or technical details inline — those belong in the drawer
 - Don't use celebration animations for skill crystallization — keep it ambient
 - Don't add navigation bars, tab strips, or activity bars — the command palette handles navigation
 - Don't use information-dense layouts — this is not an IDE, it's a conversation
-- Don't use pure black (`#000000`) in dark mode — warm dark (`#1A1A1E`) prevents harshness
-- Don't use pure white (`#FFFFFF`) as a background in light mode (except for the chat area) — off-white (`#FAFAF8`) is warmer
-- Don't apply amber to large surfaces — it's an accent, not a theme color
+- Don't use pure black (`#000000`) in dark mode — blue-black (`#0B0D10`) keeps depth without harshness
+- Don't over-warm the light theme with cream or beige surfaces
+- Don't apply slate blue to large surfaces — it's an accent, not a theme color
 - Don't show technical jargon in the default view — "Read file" not "FileReadTool: src/config.ts"
 
 ## 8. Responsive Behavior
@@ -382,39 +382,40 @@ All badges: 11px weight 600, 4px 8px padding, 4px radius.
 ## 9. Agent Prompt Guide
 
 ### Quick Color Reference (Light)
-- Page background: `#FAFAF8`
+- Page background: `#F5F6F7`
 - Chat background: `#FFFFFF`
-- User message: `#F4F0EB`
-- Primary text: `#1A1A1A`
-- Secondary text: `#6B6B6B`
-- Amber accent: `#D97706`
-- Amber hover: `#F59E0B`
-- Default border: `#E8E7E3`
+- User message: `#EFF1F3`
+- Primary text: `#0E1116`
+- Secondary text: `#5E6673`
+- Slate blue accent: `#3E5F8A`
+- Slate blue hover: `#334F74`
+- Default border: `#DCE1E7`
 - Success: `#16A34A`
 - Error: `#DC2626`
 
 ### Quick Color Reference (Dark)
-- Page background: `#1A1A1E`
-- Chat background: `#1E1E22`
-- User message: `#2A2720`
-- Primary text: `#ECECEC`
-- Secondary text: `#9B9B9B`
-- Amber accent: `#D97706` (unchanged)
-- Default border: `#333337`
+- Page background: `#0B0D10`
+- Chat background: `#0F1317`
+- User message: `#171C22`
+- Primary text: `#EEF2F6`
+- Secondary text: `#97A1AD`
+- Slate blue accent: `#3E5F8A`
+- Slate blue highlight: `#89A7D1`
+- Default border: `#232A33`
 
 ### Example Component Prompts
-- "Create a chat message from the agent: no background, left-aligned, 28px Ouroboros avatar circle, 'Ouroboros' name at 14px weight 600, body at 15px weight 400 line-height 1.6, `#1A1A1A` text on `#FFFFFF` chat background. Max width 80%."
-- "Create a tool call chip: `#F6F5F2` background, `1px solid #E8E7E3` border, 6px radius, 6px 12px padding. Terminal icon + 'Ran command' at 13px weight 500 `#6B6B6B`. Green checkmark right-aligned. Click expands to show monospace output."
-- "Create the RSI status indicator: 24px serpent SVG icon in `#9B9B9B`. When active, pulse with `rgba(245,158,11,0.4)` glow animation, 2s infinite. On click, slide in a 350px drawer from the right."
-- "Create a command palette: `#FFFFFF` background, `1px solid #E8E7E3` border, 12px radius, `0 20px 60px rgba(0,0,0,0.16)` shadow. 560px wide, centered. Search input 16px, full width. Results in groups with 11px uppercase headers."
-- "Create an approval toast: `#FFFFFF` background, 12px radius, `0 12px 40px rgba(0,0,0,0.12)` shadow. Fixed top-right. Title 14px weight 600, description 13px `#6B6B6B`. Amber 'Approve' button + red 'Deny' button."
+- "Create a chat message from the agent: no background, left-aligned, 28px Ouroboros avatar circle, 'Ouroboros' name at 14px weight 600, body at 15px weight 400 line-height 1.6, `#0E1116` text on `#FFFFFF` chat background. Max width 80%."
+- "Create a tool call chip: `#F1F3F6` background, `1px solid #DCE1E7` border, 6px radius, 6px 12px padding. Terminal icon + 'Ran command' at 13px weight 500 `#5E6673`. Green checkmark right-aligned. Click expands to show monospace output."
+- "Create the RSI status indicator: 24px serpent SVG icon in `#8C95A3`. When active, use a restrained `rgba(62,95,138,0.18)` accent surface or drawer highlight rather than a warm glow."
+- "Create a command palette: `#FFFFFF` background, `1px solid #DCE1E7` border, 12px radius, `0 20px 60px rgba(0,0,0,0.16)` shadow. 560px wide, centered. Search input 16px, full width. Results in groups with 11px uppercase headers."
+- "Create an approval toast: `#FFFFFF` background, 12px radius, `0 12px 40px rgba(0,0,0,0.12)` shadow. Fixed top-right. Title 14px weight 600, description 13px `#5E6673`. Slate blue 'Approve' button + red 'Deny' button."
 
 ### Iteration Guide
 1. Always use the system font stack — never load custom web fonts in the Electron renderer
-2. Amber (`#D97706`) is the ONLY chromatic accent in the shell — everything else is neutral gray
+2. Slate blue (`#3E5F8A`) is the ONLY branded accent in the shell — everything else is neutral gray
 3. Status colors (green, blue, purple, red, orange) appear only in badges, icons, and inline indicators — never as surface colors
 4. Chat messages at 15px body, 16px gap — optimize for comfortable reading, not density
 5. Tool chips are compact by default — detail is progressive, revealed on click
 6. RSI activity is ambient — serpent icon glow + brief inline cards, nothing modal or interruptive
 7. Command palette is the front door to every feature — if a user can't find it via Cmd+K, it doesn't exist in the UI
-8. Both themes must feel warm — light uses cream/off-white, dark uses warm gray with amber tint, never cold
+8. Both themes must feel cool and restrained — light uses soft neutrals, dark uses blue-black surfaces, never warm beige or amber

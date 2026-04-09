@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ouroboros Slate Blue Theme Preview</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --canvas: #e8edf4;
+    --board-bg: rgba(255, 255, 255, 0.74);
+    --board-border: rgba(83, 98, 122, 0.18);
+    --board-shadow: 0 30px 80px rgba(30, 38, 52, 0.14);
+    --font-sans: "SF Pro Display", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+
+    --light-bg-primary: #f5f6f7;
+    --light-bg-secondary: #eceef0;
+    --light-bg-chat: #ffffff;
+    --light-bg-user: #eff1f3;
+    --light-bg-sidebar-active: rgba(62, 95, 138, 0.1);
+    --light-border: #dce1e7;
+    --light-border-strong: #c9d1db;
+    --light-text-primary: #0e1116;
+    --light-text-secondary: #5e6673;
+    --light-text-tertiary: #8c95a3;
+    --light-hover: rgba(14, 17, 22, 0.05);
+
+    --dark-bg-primary: #0b0d10;
+    --dark-bg-secondary: #12161b;
+    --dark-bg-chat: #0f1317;
+    --dark-bg-user: #171c22;
+    --dark-bg-sidebar-active: rgba(137, 167, 209, 0.16);
+    --dark-border: #232a33;
+    --dark-border-strong: #2f3944;
+    --dark-text-primary: #eef2f6;
+    --dark-text-secondary: #97a1ad;
+    --dark-text-tertiary: #64707c;
+    --dark-hover: rgba(255, 255, 255, 0.06);
+
+    --accent-primary: #3e5f8a;
+    --accent-hover: #334f74;
+    --accent-muted: rgba(62, 95, 138, 0.1);
+    --accent-bright: #89a7d1;
+  }
+
+  html, body {
+    min-height: 100%;
+    font-family: var(--font-sans);
+    background:
+      radial-gradient(circle at top left, rgba(137, 167, 209, 0.26), transparent 30%),
+      radial-gradient(circle at bottom right, rgba(62, 95, 138, 0.12), transparent 28%),
+      linear-gradient(180deg, #f4f7fb 0%, #edf2f8 100%);
+    color: #0e1116;
+  }
+
+  body {
+    padding: 48px;
+  }
+
+  .sheet {
+    width: 1600px;
+    min-height: 980px;
+    margin: 0 auto;
+    border-radius: 32px;
+    border: 1px solid var(--board-border);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 250, 253, 0.92));
+    box-shadow: var(--board-shadow);
+    overflow: hidden;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 32px;
+    padding: 34px 38px 28px;
+    border-bottom: 1px solid rgba(83, 98, 122, 0.12);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.35));
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-primary);
+    background: rgba(62, 95, 138, 0.08);
+    border: 1px solid rgba(62, 95, 138, 0.16);
+  }
+
+  .eyebrow-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    box-shadow: 0 0 0 4px rgba(62, 95, 138, 0.12);
+  }
+
+  h1 {
+    margin-top: 18px;
+    font-size: 44px;
+    line-height: 1.02;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    max-width: 620px;
+  }
+
+  .lede {
+    margin-top: 14px;
+    max-width: 720px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: #4b5565;
+  }
+
+  .accent-chip {
+    min-width: 270px;
+    padding: 18px 20px;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(83, 98, 122, 0.14);
+    box-shadow: 0 18px 44px rgba(44, 56, 77, 0.1);
+  }
+
+  .accent-chip .label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #64707c;
+  }
+
+  .accent-row {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .accent-swatch {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: var(--accent-primary);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+  }
+
+  .accent-value {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    color: #243246;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 0.92fr 1.08fr;
+    gap: 24px;
+    padding: 26px 28px 30px;
+  }
+
+  .panel {
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.58);
+    border: 1px solid rgba(83, 98, 122, 0.12);
+    box-shadow: 0 18px 44px rgba(44, 56, 77, 0.08);
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 22px 24px 18px;
+    border-bottom: 1px solid rgba(83, 98, 122, 0.1);
+  }
+
+  .panel-title {
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+
+  .panel-meta {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7b8492;
+  }
+
+  .board-content {
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+  }
+
+  .token-card {
+    border-radius: 22px;
+    padding: 18px;
+    border: 1px solid rgba(83, 98, 122, 0.12);
+    overflow: hidden;
+  }
+
+  .token-card.light {
+    background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(245,247,250,0.9));
+  }
+
+  .token-card.dark {
+    background: linear-gradient(180deg, rgba(14,18,24,0.96), rgba(9,11,15,0.98));
+    color: var(--dark-text-primary);
+  }
+
+  .token-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .token-card h3 {
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+
+  .pill {
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .light .pill {
+    color: var(--accent-primary);
+    background: rgba(62, 95, 138, 0.08);
+    border: 1px solid rgba(62, 95, 138, 0.16);
+  }
+
+  .dark .pill {
+    color: var(--accent-bright);
+    background: rgba(137, 167, 209, 0.12);
+    border: 1px solid rgba(137, 167, 209, 0.18);
+  }
+
+  .swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .swatch {
+    border-radius: 16px;
+    padding: 10px;
+    border: 1px solid rgba(83, 98, 122, 0.12);
+    min-height: 102px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
+  .dark .swatch {
+    border-color: rgba(255,255,255,0.08);
+  }
+
+  .swatch-name {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .swatch-value {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    opacity: 0.82;
+  }
+
+  .text-sample {
+    margin-top: 14px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .text-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed rgba(83, 98, 122, 0.18);
+  }
+
+  .dark .text-line {
+    border-bottom-color: rgba(255,255,255,0.08);
+  }
+
+  .text-role {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .text-demo {
+    font-size: 14px;
+  }
+
+  .utility-row {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .utility-box {
+    border-radius: 14px;
+    padding: 12px;
+    border: 1px solid rgba(83, 98, 122, 0.12);
+    min-height: 68px;
+  }
+
+  .dark .utility-box {
+    border-color: rgba(255,255,255,0.08);
+  }
+
+  .utility-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+
+  .utility-value {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    opacity: 0.8;
+  }
+
+  .button-strip {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    border-radius: 12px;
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid transparent;
+  }
+
+  .btn.primary {
+    background: var(--accent-primary);
+    color: white;
+  }
+
+  .btn.hover {
+    background: var(--accent-hover);
+    color: white;
+  }
+
+  .btn.ghost.light {
+    background: transparent;
+    color: var(--light-text-primary);
+    border-color: var(--light-border);
+  }
+
+  .btn.ghost.dark {
+    background: transparent;
+    color: var(--dark-text-primary);
+    border-color: var(--dark-border-strong);
+  }
+
+  .mockup-wrap {
+    padding: 18px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0)),
+      rgba(236, 241, 247, 0.3);
+  }
+
+  .mockup-stack {
+    display: grid;
+    gap: 18px;
+  }
+
+  .window {
+    border-radius: 24px;
+    overflow: hidden;
+    border: 1px solid rgba(83, 98, 122, 0.12);
+    box-shadow: 0 24px 54px rgba(36, 48, 68, 0.12);
+  }
+
+  .window.light {
+    background: var(--light-bg-primary);
+  }
+
+  .window.dark {
+    background: var(--dark-bg-primary);
+  }
+
+  .window-bar {
+    height: 42px;
+    padding: 0 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid;
+  }
+
+  .window.light .window-bar {
+    background: rgba(255,255,255,0.62);
+    border-bottom-color: var(--light-border);
+  }
+
+  .window.dark .window-bar {
+    background: rgba(255,255,255,0.02);
+    border-bottom-color: var(--dark-border);
+  }
+
+  .traffic {
+    display: flex;
+    gap: 8px;
+  }
+
+  .traffic span {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .traffic .red { background: #ff5f57; }
+  .traffic .yellow { background: #ffbd2e; }
+  .traffic .green { background: #28c840; }
+
+  .window-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .window.light .window-title { color: var(--light-text-secondary); }
+  .window.dark .window-title { color: var(--dark-text-secondary); }
+
+  .window-body {
+    display: grid;
+    grid-template-columns: 208px 1fr;
+    min-height: 352px;
+  }
+
+  .sidebar {
+    padding: 18px 14px;
+    border-right: 1px solid;
+  }
+
+  .window.light .sidebar {
+    background: var(--light-bg-secondary);
+    border-right-color: var(--light-border);
+  }
+
+  .window.dark .sidebar {
+    background: var(--dark-bg-secondary);
+    border-right-color: var(--dark-border);
+  }
+
+  .nav-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .brand {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .window.light .brand { color: var(--light-text-primary); }
+  .window.dark .brand { color: var(--dark-text-primary); }
+
+  .new-pill {
+    padding: 7px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .window.light .new-pill {
+    background: rgba(62, 95, 138, 0.08);
+    color: var(--accent-primary);
+  }
+
+  .window.dark .new-pill {
+    background: rgba(137, 167, 209, 0.12);
+    color: var(--accent-bright);
+  }
+
+  .session-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .session {
+    border-radius: 14px;
+    padding: 11px 12px;
+    border: 1px solid transparent;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .window.light .session {
+    color: var(--light-text-secondary);
+  }
+
+  .window.dark .session {
+    color: var(--dark-text-secondary);
+  }
+
+  .session.active {
+    position: relative;
+  }
+
+  .session.active::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: 9px;
+    bottom: 9px;
+    width: 3px;
+    border-radius: 999px;
+    background: var(--accent-primary);
+  }
+
+  .window.light .session.active {
+    background: var(--light-bg-sidebar-active);
+    color: var(--light-text-primary);
+    border-color: rgba(62, 95, 138, 0.12);
+  }
+
+  .window.dark .session.active {
+    background: var(--dark-bg-sidebar-active);
+    color: var(--dark-text-primary);
+    border-color: rgba(137, 167, 209, 0.12);
+  }
+
+  .content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .chat {
+    flex: 1;
+    padding: 22px 24px 16px;
+  }
+
+  .window.light .chat {
+    background: var(--light-bg-chat);
+  }
+
+  .window.dark .chat {
+    background: var(--dark-bg-chat);
+  }
+
+  .message {
+    max-width: 70%;
+    margin-bottom: 16px;
+  }
+
+  .message.agent .speaker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .window.light .message.agent .speaker { color: var(--light-text-secondary); }
+  .window.dark .message.agent .speaker { color: var(--dark-text-secondary); }
+
+  .bubble {
+    border-radius: 18px;
+    padding: 14px 16px;
+    border: 1px solid;
+    font-size: 14px;
+    line-height: 1.62;
+  }
+
+  .window.light .message.agent .bubble {
+    background: rgba(255,255,255,0.96);
+    border-color: var(--light-border);
+    color: var(--light-text-primary);
+  }
+
+  .window.dark .message.agent .bubble {
+    background: rgba(255,255,255,0.02);
+    border-color: var(--dark-border);
+    color: var(--dark-text-primary);
+  }
+
+  .message.user {
+    margin-left: auto;
+  }
+
+  .window.light .message.user .bubble {
+    background: var(--light-bg-user);
+    border-color: var(--light-border);
+    color: var(--light-text-primary);
+  }
+
+  .window.dark .message.user .bubble {
+    background: var(--dark-bg-user);
+    border-color: var(--dark-border);
+    color: var(--dark-text-primary);
+  }
+
+  .inline-link {
+    color: var(--accent-primary);
+    font-weight: 600;
+  }
+
+  .composer {
+    padding: 14px 18px 18px;
+    border-top: 1px solid;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .window.light .composer {
+    background: rgba(245, 246, 247, 0.88);
+    border-top-color: var(--light-border);
+  }
+
+  .window.dark .composer {
+    background: rgba(11, 13, 16, 0.88);
+    border-top-color: var(--dark-border);
+  }
+
+  .composer-field {
+    flex: 1;
+    min-height: 48px;
+    border-radius: 16px;
+    border: 1px solid;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 14px;
+  }
+
+  .window.light .composer-field {
+    background: #ffffff;
+    border-color: var(--light-border);
+    box-shadow: inset 0 0 0 1px rgba(62, 95, 138, 0.08);
+    color: var(--light-text-secondary);
+  }
+
+  .window.dark .composer-field {
+    background: rgba(255,255,255,0.02);
+    border-color: var(--dark-border-strong);
+    box-shadow: inset 0 0 0 1px rgba(137, 167, 209, 0.08);
+    color: var(--dark-text-secondary);
+  }
+
+  .send {
+    border: none;
+    min-width: 102px;
+    height: 48px;
+    border-radius: 16px;
+    background: var(--accent-primary);
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    box-shadow: 0 12px 24px rgba(62, 95, 138, 0.22);
+  }
+
+  .mini-caption {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #6c7787;
+  }
+
+  .footer-note {
+    padding: 0 32px 28px;
+    font-size: 13px;
+    color: #6d7583;
+  }
+</style>
+</head>
+<body>
+  <main class="sheet">
+    <section class="header">
+      <div>
+        <div class="eyebrow"><span class="eyebrow-dot"></span> Slate Blue Minimalism</div>
+        <h1>Black, gray, and white doing the work. Slate blue only where action matters.</h1>
+        <p class="lede">
+          A neutral-first desktop direction for Ouroboros: no warm cream, no amber signature,
+          just quiet surfaces, thin borders, high legibility, and a restrained accent that reads
+          intentional instead of decorative.
+        </p>
+      </div>
+      <aside class="accent-chip">
+        <div class="label">Core Accent</div>
+        <div class="accent-row">
+          <div class="accent-swatch"></div>
+          <div>
+            <div class="accent-value">#3E5F8A</div>
+            <div class="mini-caption">primary action, focus, active state</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="grid">
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Theme Board</div>
+          <div class="panel-meta">Light + Dark Tokens</div>
+        </div>
+        <div class="board-content">
+          <article class="token-card light">
+            <div class="token-card-header">
+              <h3>Light Mode</h3>
+              <span class="pill">cool neutrals</span>
+            </div>
+            <div class="swatch-grid">
+              <div class="swatch" style="background:#F5F6F7;">
+                <div class="swatch-name">Primary</div>
+                <div class="swatch-value">#F5F6F7</div>
+              </div>
+              <div class="swatch" style="background:#ECEEF0;">
+                <div class="swatch-name">Secondary</div>
+                <div class="swatch-value">#ECEEF0</div>
+              </div>
+              <div class="swatch" style="background:#FFFFFF;">
+                <div class="swatch-name">Chat</div>
+                <div class="swatch-value">#FFFFFF</div>
+              </div>
+              <div class="swatch" style="background:#EFF1F3;">
+                <div class="swatch-name">User Bubble</div>
+                <div class="swatch-value">#EFF1F3</div>
+              </div>
+            </div>
+            <div class="text-sample">
+              <div class="text-line">
+                <span class="text-role" style="color:#5E6673;">Text Primary</span>
+                <span class="text-demo" style="color:#0E1116;">Quiet, high-contrast UI copy</span>
+              </div>
+              <div class="text-line">
+                <span class="text-role" style="color:#5E6673;">Text Secondary</span>
+                <span class="text-demo" style="color:#5E6673;">Metadata and supporting guidance</span>
+              </div>
+              <div class="text-line" style="border-bottom:none;">
+                <span class="text-role" style="color:#5E6673;">Text Tertiary</span>
+                <span class="text-demo" style="color:#8C95A3;">Timestamps and placeholders</span>
+              </div>
+            </div>
+            <div class="utility-row">
+              <div class="utility-box" style="background:#FFFFFF;">
+                <div class="utility-label" style="color:#5E6673;">Border</div>
+                <div class="utility-value">#DCE1E7</div>
+              </div>
+              <div class="utility-box" style="background:rgba(14,17,22,0.05);">
+                <div class="utility-label" style="color:#5E6673;">Hover</div>
+                <div class="utility-value">rgba(14,17,22,0.05)</div>
+              </div>
+              <div class="utility-box" style="background:rgba(62,95,138,0.10);">
+                <div class="utility-label" style="color:#5E6673;">Muted Accent</div>
+                <div class="utility-value">rgba(62,95,138,0.10)</div>
+              </div>
+            </div>
+            <div class="button-strip">
+              <div class="btn primary">Primary Button</div>
+              <div class="btn hover">Hover State</div>
+              <div class="btn ghost light">Ghost Action</div>
+            </div>
+          </article>
+
+          <article class="token-card dark">
+            <div class="token-card-header">
+              <h3>Dark Mode</h3>
+              <span class="pill">charcoal blue-black</span>
+            </div>
+            <div class="swatch-grid">
+              <div class="swatch" style="background:#0B0D10;">
+                <div class="swatch-name">Primary</div>
+                <div class="swatch-value">#0B0D10</div>
+              </div>
+              <div class="swatch" style="background:#12161B;">
+                <div class="swatch-name">Secondary</div>
+                <div class="swatch-value">#12161B</div>
+              </div>
+              <div class="swatch" style="background:#0F1317;">
+                <div class="swatch-name">Chat</div>
+                <div class="swatch-value">#0F1317</div>
+              </div>
+              <div class="swatch" style="background:#171C22;">
+                <div class="swatch-name">User Bubble</div>
+                <div class="swatch-value">#171C22</div>
+              </div>
+            </div>
+            <div class="text-sample">
+              <div class="text-line">
+                <span class="text-role" style="color:#97A1AD;">Text Primary</span>
+                <span class="text-demo" style="color:#EEF2F6;">Readable without glowing white</span>
+              </div>
+              <div class="text-line">
+                <span class="text-role" style="color:#97A1AD;">Text Secondary</span>
+                <span class="text-demo" style="color:#97A1AD;">Calm system metadata</span>
+              </div>
+              <div class="text-line" style="border-bottom:none;">
+                <span class="text-role" style="color:#97A1AD;">Accent Bright</span>
+                <span class="text-demo" style="color:#89A7D1;">Focused links and selections</span>
+              </div>
+            </div>
+            <div class="utility-row">
+              <div class="utility-box" style="background:#0F1317;">
+                <div class="utility-label" style="color:#97A1AD;">Border</div>
+                <div class="utility-value">#232A33</div>
+              </div>
+              <div class="utility-box" style="background:rgba(255,255,255,0.06);">
+                <div class="utility-label" style="color:#97A1AD;">Hover</div>
+                <div class="utility-value">rgba(255,255,255,0.06)</div>
+              </div>
+              <div class="utility-box" style="background:rgba(137,167,209,0.12);">
+                <div class="utility-label" style="color:#97A1AD;">Highlight</div>
+                <div class="utility-value">#89A7D1 tint</div>
+              </div>
+            </div>
+            <div class="button-strip">
+              <div class="btn primary">Primary Button</div>
+              <div class="btn hover">Hover State</div>
+              <div class="btn ghost dark">Ghost Action</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Chat Mockup</div>
+          <div class="panel-meta">contextual usage</div>
+        </div>
+        <div class="mockup-wrap">
+          <div class="mockup-stack">
+            <section class="window light">
+              <div class="window-bar">
+                <div class="traffic">
+                  <span class="red"></span><span class="yellow"></span><span class="green"></span>
+                </div>
+                <div class="window-title">Ouroboros Light</div>
+                <div></div>
+              </div>
+              <div class="window-body">
+                <aside class="sidebar">
+                  <div class="nav-head">
+                    <div class="brand">Ouroboros</div>
+                    <div class="new-pill">New</div>
+                  </div>
+                  <div class="session-list">
+                    <div class="session active">Slate blue minimalism<br><span style="opacity:0.72;">Current conversation</span></div>
+                    <div class="session">CLI crash recovery<br><span style="opacity:0.72;">Yesterday</span></div>
+                    <div class="session">Skill promotion audit<br><span style="opacity:0.72;">Apr 08</span></div>
+                  </div>
+                </aside>
+                <div class="content">
+                  <div class="chat">
+                    <div class="message agent">
+                      <div class="speaker">Ouroboros</div>
+                      <div class="bubble">
+                        Shift the desktop UI to neutral surfaces and reserve slate blue for focus,
+                        action, and active navigation. <span class="inline-link">This keeps the app
+                        distinct from warm assistant palettes.</span>
+                      </div>
+                    </div>
+                    <div class="message user">
+                      <div class="bubble">
+                        Keep the accent subtle. I want the interface to read minimal first, branded second.
+                      </div>
+                    </div>
+                  </div>
+                  <div class="composer">
+                    <div class="composer-field">Describe the theme update…</div>
+                    <button class="send">Send</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="window dark">
+              <div class="window-bar">
+                <div class="traffic">
+                  <span class="red"></span><span class="yellow"></span><span class="green"></span>
+                </div>
+                <div class="window-title">Ouroboros Dark</div>
+                <div></div>
+              </div>
+              <div class="window-body">
+                <aside class="sidebar">
+                  <div class="nav-head">
+                    <div class="brand">Ouroboros</div>
+                    <div class="new-pill">New</div>
+                  </div>
+                  <div class="session-list">
+                    <div class="session active">Theme token review<br><span style="opacity:0.72;">Selected</span></div>
+                    <div class="session">Desktop transport notes<br><span style="opacity:0.72;">Pinned</span></div>
+                    <div class="session">Model provider setup<br><span style="opacity:0.72;">Recent</span></div>
+                  </div>
+                </aside>
+                <div class="content">
+                  <div class="chat">
+                    <div class="message agent">
+                      <div class="speaker">Ouroboros</div>
+                      <div class="bubble">
+                        Dark mode stays blue-black and readable. The accent is visible in active states,
+                        links, and primary actions, but the structure still works without relying on color.
+                      </div>
+                    </div>
+                    <div class="message user">
+                      <div class="bubble">
+                        This feels closer to a focused developer tool than a warm consumer chat product.
+                      </div>
+                    </div>
+                  </div>
+                  <div class="composer">
+                    <div class="composer-field">Review light and dark tokens…</div>
+                    <button class="send">Send</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <div class="footer-note">
+      Concept preview only. Neutral structure does the heavy lifting; slate blue appears only on focus, links, active navigation, and the primary send action.
+    </div>
+  </main>
+</body>
+</html>

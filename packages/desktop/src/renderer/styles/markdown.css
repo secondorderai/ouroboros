@@ -292,11 +292,11 @@
 }
 
 /* ── Highlight.js Theme (Light) ─────────────────────────────────── */
-/* Warm-toned highlight theme matching DESIGN.md palette */
+/* Neutral highlight theme matching the desktop palette */
 
 :root,
 [data-theme='light'] {
-  --bg-code-block: #FAFAF8;
+  --bg-code-block: #F8FAFC;
   --bg-palette: #FFFFFF;
   --hljs-keyword: #a626a4;
   --hljs-string: #50a14f;
@@ -314,8 +314,8 @@
 }
 
 [data-theme='dark'] {
-  --bg-code-block: #222226;
-  --bg-palette: #2C2C30;
+  --bg-code-block: #12161B;
+  --bg-palette: #171C22;
   --hljs-keyword: #c678dd;
   --hljs-string: #98c379;
   --hljs-number: #d19a66;
