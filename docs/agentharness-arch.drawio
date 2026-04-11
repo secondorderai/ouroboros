@@ -1,0 +1,328 @@
+<mxfile host="65bd71144e">
+    <diagram id="ouroboros-arch" name="Standard Agent Harness">
+        <mxGraphModel dx="700" dy="620" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+
+                <!-- ── Title ─────────────────────────────────── -->
+                <mxCell id="title" value="&lt;b&gt;Ouroboros — Standard Agent Harness&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="15" width="480" height="40" as="geometry"/>
+                </mxCell>
+
+                <!-- ── Consumer Layer (outside harness) ──────── -->
+                <mxCell id="consumer-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;strokeWidth=1;dashed=1;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="70" width="920" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="consumer-label" value="&lt;b&gt;Your Application&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#888&quot;&gt;any I/O consumer — swap or combine freely&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="315" y="75" width="400" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="con-cli" value="&lt;b&gt;CLI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Commander.js&lt;br&gt;REPL + single-shot&lt;br&gt;ANSI renderer&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="100" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="con-web" value="&lt;b&gt;Web Server&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Express, Hono, etc.&lt;br&gt;SSE / WebSocket&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="100" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="con-jsonrpc" value="&lt;b&gt;JSON-RPC&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MCP, LSP, or&lt;br&gt;custom protocol&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="100" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="con-custom" value="&lt;b&gt;Your Code&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Tests, scripts,&lt;br&gt;Slack bots, …&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;strokeDasharray=3 3;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="100" width="140" height="60" as="geometry"/>
+                </mxCell>
+
+                <!-- ── Interface arrows (consumer → harness) ─── -->
+                <mxCell id="iface-label-run" value="&lt;font style=&quot;font-size:11px&quot;&gt;&lt;b&gt;agent.run(prompt)&lt;/b&gt;&lt;/font&gt;" style="text;html=1;align=center;fontSize=11;fontColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="175" width="160" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="iface-label-event" value="&lt;font style=&quot;font-size:11px&quot;&gt;&lt;b&gt;onEvent(callback)&lt;/b&gt;&lt;/font&gt;" style="text;html=1;align=center;fontSize=11;fontColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="175" width="160" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="iface-arrow-down" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#d6b656;" parent="1" source="con-cli" target="agent" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="iface-arrow-down2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#d6b656;dashed=1;" parent="1" source="con-web" target="agent" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="iface-arrow-down3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#d6b656;dashed=1;" parent="1" source="con-jsonrpc" target="agent" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="iface-arrow-down4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#d6b656;dashed=1;" parent="1" source="con-custom" target="agent" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- ══ HARNESS BOUNDARY ══════════════════════── -->
+                <mxCell id="harness" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#d6b656;strokeWidth=3;arcSize=4;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="200" width="1520" height="720" as="geometry"/>
+                </mxCell>
+                <mxCell id="harness-label" value="&lt;font style=&quot;font-size:14px;color:#d6b656&quot;&gt;&lt;b&gt;HARNESS&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#999&quot;&gt;composable, embeddable, provider-agnostic&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=12;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="205" width="500" height="25" as="geometry"/>
+                </mxCell>
+
+                <!-- ── Agent Loop ────────────────────────────── -->
+                <mxCell id="agent" value="&lt;b style=&quot;font-size:14px&quot;&gt;Agent Loop&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;src/agent.ts&lt;br&gt;&lt;br&gt;Plan → Act → Observe → Loop&lt;br&gt;&lt;br&gt;Events: text-chunk, tool-call-start,&lt;br&gt;tool-call-end, turn-complete, error&lt;br&gt;&lt;br&gt;Multi-turn state &amp;amp; parallel tool exec&lt;br&gt;Max iteration guard (default 50)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=11;verticalAlign=middle;arcSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="530" y="250" width="340" height="160" as="geometry"/>
+                </mxCell>
+
+                <!-- ── LLM Layer ─────────────────────────────── -->
+                <mxCell id="llm-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="255" width="420" height="155" as="geometry"/>
+                </mxCell>
+                <mxCell id="llm-label" value="&lt;b&gt;LLM Layer&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#888&quot;&gt;src/llm/ — provider-agnostic&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="75" y="260" width="300" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="llm-provider" value="&lt;b&gt;provider.ts&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;createProvider()&lt;br&gt;Vercel AI SDK&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="290" width="120" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="llm-streaming" value="&lt;b&gt;streaming.ts&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;streamResponse()&lt;br&gt;Async iterable chunks&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="215" y="290" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="llm-types" value="&lt;b&gt;types.ts&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;LLMMessage, ToolCall,&lt;br&gt;StreamChunk&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="350" width="120" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="llm-prompt" value="&lt;b&gt;prompt.ts&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;buildSystemPrompt()&lt;br&gt;Base + Tools + Skills + Memory&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="215" y="350" width="250" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-agent-llm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#82b366;" parent="1" source="agent" target="llm-streaming" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-agent-llm-label" value="streamResponse()" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" parent="edge-agent-llm" vertex="1" connectable="0">
+                    <mxGeometry x="0.1" relative="1" as="geometry">
+                        <mxPoint y="-10" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <!-- ── External LLM APIs ─────────────────────── -->
+                <mxCell id="ext-anthropic" value="&lt;b&gt;Anthropic&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Claude&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="440" width="100" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext-openai" value="&lt;b&gt;OpenAI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;GPT&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="440" width="100" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext-compat" value="&lt;b&gt;OpenAI-compat&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Ollama, vLLM&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="440" width="110" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-prov-anth" style="rounded=1;strokeWidth=1;strokeColor=#b85450;dashed=1;" parent="1" source="llm-provider" target="ext-anthropic" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-prov-oai" style="rounded=1;strokeWidth=1;strokeColor=#b85450;dashed=1;" parent="1" source="llm-provider" target="ext-openai" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-prov-compat" style="rounded=1;strokeWidth=1;strokeColor=#b85450;dashed=1;" parent="1" source="llm-provider" target="ext-compat" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- ── Tool Layer ────────────────────────────── -->
+                <mxCell id="tool-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="240" width="600" height="330" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-label" value="&lt;b&gt;Tool Registry&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#888&quot;&gt;src/tools/ — plugin-based, Zod-validated&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="955" y="245" width="380" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-registry" value="&lt;b style=&quot;font-size:12px&quot;&gt;ToolRegistry&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;registry.ts&lt;br&gt;Auto-discover • Zod validate • Dispatch&lt;br&gt;getTools() • getTool() • executeTool()&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="270" width="290" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-agent-tools" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#9673a6;" parent="1" source="agent" target="tool-registry" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-agent-tools-label" value="executeTool(name, args)" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" parent="edge-agent-tools" vertex="1" connectable="0">
+                    <mxGeometry x="-0.1" relative="1" as="geometry">
+                        <mxPoint y="-10" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <!-- Built-in tools grid -->
+                <mxCell id="tool-bash" value="&lt;b&gt;bash&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Shell exec&lt;br&gt;+ timeout&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="960" y="355" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-fread" value="&lt;b&gt;file-read&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Line ranges&lt;br&gt;Binary detect&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1065" y="355" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-fwrite" value="&lt;b&gt;file-write&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Auto mkdir&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="355" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-fedit" value="&lt;b&gt;file-edit&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Search &amp;amp;&lt;br&gt;replace&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1275" y="355" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-wfetch" value="&lt;b&gt;web-fetch&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;HTML→MD&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="355" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-wsearch" value="&lt;b&gt;web-search&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;DuckDuckGo&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="960" y="420" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-ask" value="&lt;b&gt;ask-user&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Terminal&lt;br&gt;prompts&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1065" y="420" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-todo" value="&lt;b&gt;todo&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Task list&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="420" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-memory" value="&lt;b&gt;memory&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;MEMORY.md&lt;br&gt;Topics, Search&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1275" y="420" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-skillmgr" value="&lt;b&gt;skill-manager&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Discover, Activate&lt;br&gt;Deactivate, Info&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="420" width="90" height="50" as="geometry"/>
+                </mxCell>
+
+                <!-- Drop-in tool slot -->
+                <mxCell id="tool-custom" value="&lt;b&gt;your-tool&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Drop-in plugin&lt;br&gt;export name, schema,&lt;br&gt;description, execute&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;strokeDasharray=3 3;" parent="1" vertex="1">
+                    <mxGeometry x="1100" y="490" width="170" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool-grid-label" value="&lt;font color=&quot;#999&quot;&gt;Auto-discovered at startup — add tools by dropping files into src/tools/&lt;/font&gt;" style="text;html=1;align=center;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1020" y="550" width="420" height="20" as="geometry"/>
+                </mxCell>
+
+                <!-- ── Memory Layer ──────────────────────────── -->
+                <mxCell id="mem-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="520" width="520" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem-label" value="&lt;b&gt;Memory Layer&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#888&quot;&gt;src/memory/ + memory/ — 3-layer persistent store&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="385" y="525" width="450" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem-l1" value="&lt;b&gt;Layer 1&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MEMORY.md&lt;br&gt;&lt;i&gt;Always loaded&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="555" width="140" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem-l2" value="&lt;b&gt;Layer 2&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;topics/*.md&lt;br&gt;&lt;i&gt;On demand&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="550" y="555" width="140" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem-l3" value="&lt;b&gt;Layer 3&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;transcripts.db&lt;br&gt;&lt;i&gt;bun:sqlite&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="710" y="555" width="150" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem-files" value="&lt;font color=&quot;#999&quot;&gt;memory/MEMORY.md • memory/topics/*.md • memory/transcripts.db&lt;/font&gt;" style="text;html=1;align=center;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="620" width="380" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-agent-mem" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#d6b656;" parent="1" source="agent" target="mem-l1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="620" y="480"/>
+                            <mxPoint x="460" y="480"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-agent-mem-label" value="getMemoryIndex()" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" parent="edge-agent-mem" vertex="1" connectable="0">
+                    <mxGeometry x="0.2" relative="1" as="geometry">
+                        <mxPoint x="20" y="-10" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-toolmem-mem" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1;strokeColor=#d6b656;dashed=1;" parent="1" source="tool-memory" target="mem-l2" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="930" y="445"/>
+                            <mxPoint x="930" y="583"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+
+                <!-- ── Skills Layer ──────────────────────────── -->
+                <mxCell id="skill-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="680" width="520" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="skill-label" value="&lt;b&gt;Skills&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#888&quot;&gt;agentskills.io — portable across any compatible agent&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="385" y="685" width="450" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="skill-core" value="&lt;b&gt;skills/core/&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Built-in skills&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="715" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="skill-staging" value="&lt;b&gt;skills/staging/&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Under test&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="550" y="715" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="skill-gen" value="&lt;b&gt;skills/generated/&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Self-generated&lt;br&gt;&lt;i&gt;(RSI layer)&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;strokeDasharray=3 3;" parent="1" vertex="1">
+                    <mxGeometry x="710" y="715" width="150" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-skillmgr-skills" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1;strokeColor=#82b366;dashed=1;" parent="1" source="tool-skillmgr" target="skill-core" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1425" y="640"/>
+                            <mxPoint x="460" y="640"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-skillmgr-label" value="discoverSkills() — YAML frontmatter → catalog" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" parent="edge-skillmgr-skills" vertex="1" connectable="0">
+                    <mxGeometry x="0.3" relative="1" as="geometry">
+                        <mxPoint y="-10" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <!-- ── Config Layer ──────────────────────────── -->
+                <mxCell id="config" value="&lt;b&gt;Config&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size:10px&quot;&gt;config.ts — Zod schema + env vars + .ouroboros JSON &amp;nbsp;|&amp;nbsp; types.ts — Result&amp;lt;T, E&amp;gt;, ok(), err()&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="840" width="600" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="config-note" value="&lt;font color=&quot;#999&quot;&gt;All behavior (model, permissions, memory, skills) driven by config — no hardcoded settings&lt;/font&gt;" style="text;html=1;align=left;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="885" width="550" height="20" as="geometry"/>
+                </mxCell>
+
+                <!-- ── RSI Layer (outside harness, optional) ─── -->
+                <mxCell id="rsi-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#ccc;strokeWidth=1;strokeDasharray=5 5;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="620" width="600" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-label" value="&lt;b&gt;RSI Layer&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#999&quot;&gt;optional — built on the harness, not part of it&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#999;" parent="1" vertex="1">
+                    <mxGeometry x="955" y="625" width="400" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-crystallize" value="&lt;b&gt;Crystallize&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Extract skills&lt;br&gt;from sessions&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#ccc;strokeDasharray=3 3;fontSize=11;fontColor=#999;" parent="1" vertex="1">
+                    <mxGeometry x="960" y="655" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-selftest" value="&lt;b&gt;Self-Test&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Validate generated&lt;br&gt;skills automatically&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#ccc;strokeDasharray=3 3;fontSize=11;fontColor=#999;" parent="1" vertex="1">
+                    <mxGeometry x="1100" y="655" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-dream" value="&lt;b&gt;Dream&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Consolidate&lt;br&gt;memory offline&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#ccc;strokeDasharray=3 3;fontSize=11;fontColor=#999;" parent="1" vertex="1">
+                    <mxGeometry x="1250" y="655" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-evolve" value="&lt;b&gt;Evolve&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Self-modify&lt;br&gt;+ git commit&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#ccc;strokeDasharray=3 3;fontSize=11;fontColor=#999;" parent="1" vertex="1">
+                    <mxGeometry x="1390" y="655" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-note" value="&lt;font color=&quot;#999&quot;&gt;Phase 2 — uses Agent, Tools, Memory, and Skills as primitives&lt;/font&gt;" style="text;html=1;align=center;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1040" y="720" width="380" height="20" as="geometry"/>
+                </mxCell>
+
+                <!-- ── Legend ─────────────────────────────────── -->
+                <mxCell id="legend-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#ccc;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="510" width="260" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-title" value="&lt;b&gt;Legend&lt;/b&gt;" style="text;html=1;align=left;fontSize=11;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="75" y="515" width="60" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-gold" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#d6b656;strokeWidth=3;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="542" width="20" height="14" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-gold-t" value="Harness boundary" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="539" width="130" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-blue" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="564" width="20" height="14" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-blue-t" value="Consumer / I/O layer" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="561" width="140" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-yellow" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="586" width="20" height="14" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-yellow-t" value="Agent loop &amp; memory" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="583" width="130" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-green" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="608" width="20" height="14" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-green-t" value="LLM layer &amp; skills" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="605" width="120" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-purple" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="630" width="20" height="14" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-purple-t" value="Tool registry &amp; tools" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="627" width="130" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-red" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="652" width="20" height="14" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-red-t" value="External APIs" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="649" width="100" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-dashed" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#ccc;strokeDasharray=5 5;fontSize=9;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="674" width="20" height="14" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-dashed-t" value="Phase 2 / extensible" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="671" width="130" height="20" as="geometry"/>
+                </mxCell>
+
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
