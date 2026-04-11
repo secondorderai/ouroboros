@@ -60,3 +60,5 @@ evolution.log.json
 packages/desktop/test-results/**/*
 packages/desktop/.ouroboros
 packages/desktop/.ouroboros-transcripts.db-shm
+**/*/.ouroboros
+packages/desktop/resources/**/*
