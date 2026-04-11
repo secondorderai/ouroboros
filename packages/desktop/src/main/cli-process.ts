@@ -7,6 +7,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog } from 'electron'
 import { EventEmitter } from 'node:events'
@@ -17,6 +18,10 @@ import { TEST_SCENARIO_PATH } from './test-paths'
 const MAX_RESTART_ATTEMPTS = 3
 const RESTART_DELAY_MS = 1000
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 3000
+const MACOS_PACKAGED_CLI_BY_ARCH: Partial<Record<NodeJS.Architecture, string>> = {
+  arm64: 'ouroboros-darwin-arm64',
+  x64: 'ouroboros-darwin-x64',
+}
 
 export type LineHandler = (line: string) => void
 
@@ -125,11 +130,14 @@ export class CLIProcessManager extends EventEmitter {
       return { command: envPath, args: ['--json-rpc'] }
     }
 
-    const resourcesPath = app.isPackaged
-      ? join(process.resourcesPath, 'ouroboros')
-      : join(app.getAppPath(), '..', 'cli', 'dist', 'ouroboros')
+    if (app.isPackaged) {
+      return { command: this.resolvePackagedCliPath(), args: ['--json-rpc'] }
+    }
 
-    return { command: resourcesPath, args: ['--json-rpc'] }
+    return {
+      command: join(app.getAppPath(), '..', 'cli', 'dist', process.platform === 'win32' ? 'ouroboros.exe' : 'ouroboros'),
+      args: ['--json-rpc'],
+    }
   }
 
   private spawnProcess(): void {
@@ -210,5 +218,23 @@ export class CLIProcessManager extends EventEmitter {
     this.setStatus('restarting')
     writeTestLog(`cli restarting attempt=${this.restartCount}`)
     setTimeout(() => this.spawnProcess(), RESTART_DELAY_MS)
+  }
+
+  private resolvePackagedCliPath(): string {
+    const candidates: string[] = []
+
+    if (process.platform === 'darwin') {
+      const archSpecificBinary = MACOS_PACKAGED_CLI_BY_ARCH[process.arch]
+      if (archSpecificBinary) {
+        candidates.push(join(process.resourcesPath, archSpecificBinary))
+      }
+    }
+
+    candidates.push(
+      join(process.resourcesPath, process.platform === 'win32' ? 'ouroboros.exe' : 'ouroboros'),
+      join(process.resourcesPath, 'ouroboros'),
+    )
+
+    return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
   }
 }

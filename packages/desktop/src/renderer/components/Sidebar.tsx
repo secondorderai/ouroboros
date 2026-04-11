@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
-import type { SessionInfo, SessionData } from '../../shared/protocol'
+import type { SessionData, SessionInfo } from '../../shared/protocol'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -8,6 +8,7 @@ import type { SessionInfo, SessionData } from '../../shared/protocol'
 
 interface SidebarProps {
   isOpen: boolean
+  onOpenSettings: () => void
 }
 
 interface DateGroup {
@@ -71,7 +72,10 @@ function relativeTime(dateStr: string): string {
 // Sidebar
 // ---------------------------------------------------------------------------
 
-export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
+export function Sidebar({
+  isOpen,
+  onOpenSettings,
+}: SidebarProps): React.ReactElement {
   const sessions = useConversationStore((s) => s.sessions)
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
   const setSessions = useConversationStore((s) => s.setSessions)
@@ -199,7 +203,6 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
     setConfirmDelete(null)
   }, [])
 
-  // Close confirmation dialog on Escape
   useEffect(() => {
     if (!confirmDelete) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -227,7 +230,6 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
       className="no-select"
     >
       <div style={styles.content}>
-        {/* Header with new conversation button */}
         <div style={styles.header}>
           <span style={styles.headerText}>Sessions</span>
           <button
@@ -240,7 +242,6 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
           </button>
         </div>
 
-        {/* Session list */}
         <div style={styles.sessionList}>
           {dateGroups.length === 0 ? (
             <div style={styles.placeholder}>
@@ -265,7 +266,19 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
         </div>
       </div>
 
-      {/* Context menu */}
+      <div style={styles.footer}>
+        <div style={styles.footerLabel}>App</div>
+        <button
+          style={styles.settingsItem}
+          onClick={onOpenSettings}
+          title="Settings"
+          aria-label="Open settings"
+        >
+          <SettingsIcon />
+          <span>Settings</span>
+        </button>
+      </div>
+
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -282,7 +295,6 @@ export function Sidebar({ isOpen }: SidebarProps): React.ReactElement {
         </div>
       )}
 
-      {/* Delete confirmation dialog */}
       {confirmDelete && (
         <div style={styles.overlay}>
           <div style={styles.dialog}>
@@ -333,9 +345,7 @@ function SessionItem({
     <button
       style={{
         ...styles.sessionItem,
-        backgroundColor: isActive
-          ? 'var(--bg-sidebar-active)'
-          : 'transparent',
+        backgroundColor: isActive ? 'var(--bg-sidebar-active)' : 'transparent',
       }}
       onClick={onClick}
       onContextMenu={onContextMenu}
@@ -345,9 +355,7 @@ function SessionItem({
     >
       <div style={styles.sessionTitle}>{title}</div>
       <div style={styles.sessionMeta}>
-        <span style={styles.sessionTime}>
-          {relativeTime(session.lastActive)}
-        </span>
+        <span style={styles.sessionTime}>{relativeTime(session.lastActive)}</span>
         {session.messageCount > 0 && (
           <span style={styles.sessionBadge}>{session.messageCount}</span>
         )}
@@ -395,6 +403,24 @@ function TrashIcon(): React.ReactElement {
       <path d="M10 11v6" />
       <path d="M14 11v6" />
       <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+    </svg>
+  )
+}
+
+function SettingsIcon(): React.ReactElement {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   )
 }
@@ -600,5 +626,37 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-sans)',
     fontWeight: 500,
     cursor: 'pointer',
+  },
+  footer: {
+    padding: '12px',
+    borderTop: '1px solid var(--border-light)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  footerLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    textTransform: 'uppercase' as const,
+    color: 'var(--text-tertiary)',
+    letterSpacing: '0.04em',
+    padding: '0 8px 2px',
+  },
+  settingsItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '8px 10px',
+    border: 'none',
+    background: 'transparent',
+    borderRadius: 6,
+    color: 'var(--text-secondary)',
+    fontSize: 13,
+    fontFamily: 'var(--font-sans)',
+    fontWeight: 500,
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'background-color 0.1s ease',
   },
 }

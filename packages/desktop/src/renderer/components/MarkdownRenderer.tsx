@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef } from 'react'
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -175,6 +175,12 @@ const markdownComponents: Components = {
 
 interface MarkdownRendererProps {
   content: string
+  trailingContent?: React.ReactNode
+}
+
+interface TrailingPosition {
+  left: number
+  top: number
 }
 
 /**
@@ -183,9 +189,40 @@ interface MarkdownRendererProps {
  * CSS styles from markdown.css apply.
  */
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(
-  ({ content }) => {
+  ({ content, trailingContent }) => {
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const [trailingPosition, setTrailingPosition] = useState<TrailingPosition | null>(null)
+
+    useLayoutEffect(() => {
+      if (!trailingContent || !containerRef.current) {
+        setTrailingPosition(null)
+        return
+      }
+
+      const container = containerRef.current
+
+      const updatePosition = () => {
+        setTrailingPosition(measureTrailingPosition(container))
+      }
+
+      updatePosition()
+
+      const resizeObserver =
+        typeof ResizeObserver !== 'undefined'
+          ? new ResizeObserver(() => updatePosition())
+          : null
+
+      resizeObserver?.observe(container)
+      window.addEventListener('resize', updatePosition)
+
+      return () => {
+        resizeObserver?.disconnect()
+        window.removeEventListener('resize', updatePosition)
+      }
+    }, [content, trailingContent])
+
     return (
-      <div className="markdown-body">
+      <div className="markdown-body" ref={containerRef}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight]}
@@ -193,6 +230,17 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(
         >
           {content}
         </ReactMarkdown>
+        {trailingContent && trailingPosition && (
+          <span
+            className="markdown-trailing-overlay"
+            style={{
+              left: `${trailingPosition.left}px`,
+              top: `${trailingPosition.top}px`,
+            }}
+          >
+            {trailingContent}
+          </span>
+        )}
       </div>
     )
   }
@@ -215,6 +263,46 @@ function extractText(children: React.ReactNode): string {
     return extractText(el.props.children)
   }
   return ''
+}
+
+function measureTrailingPosition(container: HTMLElement): TrailingPosition | null {
+  const lastTextNode = findLastTextNode(container)
+  if (!lastTextNode) return null
+
+  const range = document.createRange()
+  const endOffset = lastTextNode.textContent?.length ?? 0
+  range.setStart(lastTextNode, endOffset)
+  range.setEnd(lastTextNode, endOffset)
+
+  const rects = range.getClientRects()
+  const lineRect = rects.item(rects.length - 1) ?? range.getBoundingClientRect()
+  if (!lineRect) return null
+
+  const containerRect = container.getBoundingClientRect()
+  return {
+    left: lineRect.right - containerRect.left + 2,
+    top: lineRect.bottom - containerRect.top,
+  }
+}
+
+function findLastTextNode(root: HTMLElement): Text | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.textContent?.trim()
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT
+    },
+  })
+
+  let current = walker.nextNode()
+  let last: Text | null = null
+
+  while (current) {
+    last = current as Text
+    current = walker.nextNode()
+  }
+
+  return last
 }
 
 // ---------------------------------------------------------------------------

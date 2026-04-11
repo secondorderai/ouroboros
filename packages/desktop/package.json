@@ -1,13 +1,13 @@
 {
   "name": "@ouroboros/desktop",
   "version": "0.1.0",
-  "description": "Ouroboros Desktop \u2014 Electron app for the self-improving AI agent",
+  "description": "Ouroboros Desktop — Electron app for the self-improving AI agent",
   "type": "module",
   "private": true,
   "license": "MIT",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run build:cli && electron-vite dev",
     "build": "electron-vite build && electron-builder --config electron-builder.yml --dir",
     "build:vite": "electron-vite build",
     "preview": "electron-vite preview",

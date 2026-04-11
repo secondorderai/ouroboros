@@ -102,7 +102,9 @@ function getApiKeyEnv(apiKeys: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {}
   if (apiKeys.anthropic) env.ANTHROPIC_API_KEY = apiKeys.anthropic
   if (apiKeys.openai) env.OPENAI_API_KEY = apiKeys.openai
-  if (apiKeys['openai-compatible']) env.OPENAI_API_KEY = apiKeys['openai-compatible']
+  if (apiKeys['openai-compatible']) {
+    env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = apiKeys['openai-compatible']
+  }
   return env
 }
 

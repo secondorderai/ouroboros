@@ -246,7 +246,7 @@ export function App(): React.ReactElement {
         pendingApprovals={pendingApprovals.length}
       />
       <div style={styles.body}>
-        <Sidebar isOpen={sidebarOpen} />
+        <Sidebar isOpen={sidebarOpen} onOpenSettings={() => openSettings()} />
         <div
           style={styles.main}
           onDragEnter={handleDragEnter}

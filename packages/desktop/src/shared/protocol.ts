@@ -190,41 +190,98 @@ export type AIProvider = 'anthropic' | 'openai' | 'openai-compatible'
 
 // ── Request Param Types ────────────────────────────────────────────
 
-export interface AgentRunParams { message: string; files?: string[] }
+export type AgentClient = 'desktop' | 'cli'
+export type AgentResponseStyle = 'default' | 'desktop-readable'
+
+export interface AgentRunParams {
+  message: string
+  files?: string[]
+  client?: AgentClient
+  responseStyle?: AgentResponseStyle
+}
 export type AgentCancelParams = Record<string, never>
-export interface SessionListParams { limit?: number }
-export interface SessionLoadParams { id: string }
+export interface SessionListParams {
+  limit?: number
+}
+export interface SessionLoadParams {
+  id: string
+}
 export type SessionNewParams = Record<string, never>
-export interface SessionDeleteParams { id: string }
+export interface SessionDeleteParams {
+  id: string
+}
 export type ConfigGetParams = Record<string, never>
-export interface ConfigSetParams { path: string; value: unknown }
-export interface ConfigSetApiKeyParams { provider: AIProvider; apiKey: string }
+export interface ConfigSetParams {
+  path: string
+  value: unknown
+}
+export interface ConfigSetApiKeyParams {
+  provider: AIProvider
+  apiKey: string
+}
 export interface ConfigTestConnectionParams {
   provider: AIProvider
   apiKey: string
   baseUrl?: string
 }
 export type SkillsListParams = Record<string, never>
-export interface SkillsGetParams { name: string }
+export interface SkillsGetParams {
+  name: string
+}
 export type RsiDreamParams = Record<string, never>
 export type RsiStatusParams = Record<string, never>
-export interface EvolutionListParams { limit?: number }
+export interface EvolutionListParams {
+  limit?: number
+}
 export type EvolutionStatsParams = Record<string, never>
 export type ApprovalListParams = Record<string, never>
-export interface ApprovalRespondParams { id: string; approved: boolean; reason?: string }
-export interface WorkspaceSetParams { directory: string }
+export interface ApprovalRespondParams {
+  id: string
+  approved: boolean
+  reason?: string
+}
+export interface WorkspaceSetParams {
+  directory: string
+}
 
 // ── Response Types (19 methods) ────────────────────────────────────
 
-export interface AgentRunResult { text: string; iterations: number; maxIterationsReached: boolean }
-export interface AgentCancelResult { cancelled: boolean; message?: string }
+export interface AgentRunResult {
+  text: string
+  iterations: number
+  maxIterationsReached: boolean
+}
+export interface AgentCancelResult {
+  cancelled: boolean
+  message?: string
+}
 
-export interface SessionInfo { id: string; createdAt: string; lastActive: string; messageCount: number; title?: string }
-export interface SessionListResult { sessions: SessionInfo[] }
-export interface SessionMessage { role: 'user' | 'assistant'; content: string; timestamp: string }
-export interface SessionData { id: string; createdAt: string; messages: SessionMessage[] }
-export interface SessionNewResult { sessionId: string }
-export interface SessionDeleteResult { deleted: boolean }
+export interface SessionInfo {
+  id: string
+  createdAt: string
+  lastActive: string
+  messageCount: number
+  title?: string
+}
+export interface SessionListResult {
+  sessions: SessionInfo[]
+}
+export interface SessionMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+}
+export interface SessionData {
+  id: string
+  createdAt: string
+  messages: SessionMessage[]
+}
+export interface SessionNewResult {
+  sessionId: string
+}
+export interface SessionDeleteResult {
+  deleted: boolean
+}
 
 export interface OuroborosConfig {
   model: { provider: 'anthropic' | 'openai' | 'openai-compatible'; name: string; baseUrl?: string }
@@ -233,7 +290,9 @@ export interface OuroborosConfig {
   memory: { consolidationSchedule: 'session-end' | 'daily' | 'manual' }
   rsi: { noveltyThreshold: number; autoReflect: boolean }
 }
-export interface ConfigSetApiKeyResult { ok: boolean }
+export interface ConfigSetApiKeyResult {
+  ok: boolean
+}
 
 /** Result from a connection test — used in onboarding wizard */
 export interface ConnectionTestResult {
@@ -243,16 +302,42 @@ export interface ConnectionTestResult {
 }
 export type ConfigTestConnectionResult = ConnectionTestResult
 
-export interface SkillInfo { name: string; description: string; version: string; enabled: boolean }
-export interface SkillsListResult { skills: SkillInfo[] }
-export interface SkillsGetResult extends SkillInfo { instructions: string | null }
+export interface SkillInfo {
+  name: string
+  description: string
+  version: string
+  enabled: boolean
+}
+export interface SkillsListResult {
+  skills: SkillInfo[]
+}
+export interface SkillsGetResult extends SkillInfo {
+  instructions: string | null
+}
 
-export interface RsiDreamResult { status: string; message: string }
-export interface RsiStatusResult { status: string; message: string }
+export interface RsiDreamResult {
+  status: string
+  message: string
+}
+export interface RsiStatusResult {
+  status: string
+  message: string
+}
 
-export interface EvolutionEntry { id: string; timestamp: string; type: string; description: string }
-export interface EvolutionListResult { entries: EvolutionEntry[]; message?: string }
-export interface EvolutionStatsResult { stats: Record<string, unknown>; message?: string }
+export interface EvolutionEntry {
+  id: string
+  timestamp: string
+  type: string
+  description: string
+}
+export interface EvolutionListResult {
+  entries: EvolutionEntry[]
+  message?: string
+}
+export interface EvolutionStatsResult {
+  stats: Record<string, unknown>
+  message?: string
+}
 
 export interface ApprovalItem {
   id: string
@@ -262,10 +347,17 @@ export interface ApprovalItem {
   risk?: 'high' | 'medium' | 'low'
   diff?: string
 }
-export interface ApprovalListResult { approvals: ApprovalItem[] }
-export interface ApprovalRespondResult { status: string; message?: string }
+export interface ApprovalListResult {
+  approvals: ApprovalItem[]
+}
+export interface ApprovalRespondResult {
+  status: string
+  message?: string
+}
 
-export interface WorkspaceSetResult { directory: string }
+export interface WorkspaceSetResult {
+  directory: string
+}
 
 // ── Method Map (method name -> params & result types) ──────────────
 
@@ -279,7 +371,10 @@ export interface RpcMethodMap {
   'config/get': { params: ConfigGetParams; result: OuroborosConfig }
   'config/set': { params: ConfigSetParams; result: OuroborosConfig }
   'config/setApiKey': { params: ConfigSetApiKeyParams; result: ConfigSetApiKeyResult }
-  'config/testConnection': { params: ConfigTestConnectionParams; result: ConfigTestConnectionResult }
+  'config/testConnection': {
+    params: ConfigTestConnectionParams
+    result: ConfigTestConnectionResult
+  }
   'skills/list': { params: SkillsListParams; result: SkillsListResult }
   'skills/get': { params: SkillsGetParams; result: SkillsGetResult }
   'rsi/dream': { params: RsiDreamParams; result: RsiDreamResult }
@@ -295,15 +390,42 @@ export type RpcMethod = keyof RpcMethodMap
 
 // ── Notification Types ─────────────────────────────────────────────
 
-export interface AgentTextNotification { text: string }
-export interface AgentToolCallStartNotification { toolCallId: string; toolName: string; input: unknown }
-export interface AgentToolCallEndNotification { toolCallId: string; toolName: string; result: unknown; isError: boolean }
-export interface AgentTurnCompleteNotification { text: string; iterations: number }
-export interface AgentErrorNotification { message: string; recoverable?: boolean }
-export interface AgentThinkingNotification { text: string }
-export interface AgentStatusNotification { status: string; message?: string }
-export interface MemoryUpdatedNotification { topic: string; action: 'created' | 'updated' | 'deleted' }
-export interface SkillActivatedNotification { name: string }
+export interface AgentTextNotification {
+  text: string
+}
+export interface AgentToolCallStartNotification {
+  toolCallId: string
+  toolName: string
+  input: unknown
+}
+export interface AgentToolCallEndNotification {
+  toolCallId: string
+  toolName: string
+  result: unknown
+  isError: boolean
+}
+export interface AgentTurnCompleteNotification {
+  text: string
+  iterations: number
+}
+export interface AgentErrorNotification {
+  message: string
+  recoverable?: boolean
+}
+export interface AgentThinkingNotification {
+  text: string
+}
+export interface AgentStatusNotification {
+  status: string
+  message?: string
+}
+export interface MemoryUpdatedNotification {
+  topic: string
+  action: 'created' | 'updated' | 'deleted'
+}
+export interface SkillActivatedNotification {
+  name: string
+}
 export interface ApprovalRequestNotification {
   id: string
   type: string
@@ -312,14 +434,20 @@ export interface ApprovalRequestNotification {
   risk?: 'high' | 'medium' | 'low'
   diff?: string
 }
-export interface RsiReflectionNotification { description?: string }
+export interface RsiReflectionNotification {
+  description?: string
+}
 export interface RsiCrystallizationNotification {
   outcome?: string
   skillName?: string
   description?: string
 }
-export interface RsiDreamNotification { message?: string }
-export interface RsiErrorNotification { message?: string }
+export interface RsiDreamNotification {
+  message?: string
+}
+export interface RsiErrorNotification {
+  message?: string
+}
 
 export interface NotificationMap {
   'agent/text': AgentTextNotification

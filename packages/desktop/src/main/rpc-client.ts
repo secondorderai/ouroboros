@@ -24,6 +24,7 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const HEALTH_CHECK_TIMEOUT_MS = 5_000
+const METHODS_WITHOUT_TIMEOUT = new Set(['agent/run'])
 
 // ── Error Types ────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ interface PendingRequest {
   method: string
   resolve: (result: unknown) => void
   reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
+  timer: ReturnType<typeof setTimeout> | null
 }
 
 // ── Notification Listener ──────────────────────────────────────────
@@ -85,26 +86,32 @@ export class RpcClient {
    *
    * @param method - The RPC method name
    * @param params - The request parameters (typed per method)
-   * @param timeoutMs - Optional timeout override (default: 30s)
+   * @param timeoutMs - Optional timeout override. Pass `null` to disable the timeout.
    * @returns Promise resolving to the typed result
    */
   send<M extends RpcMethod>(
     method: M,
     params?: RpcMethodMap[M]['params'],
-    timeoutMs?: number,
+    timeoutMs?: number | null,
   ): Promise<RpcMethodMap[M]['result']>
 
   /**
    * Send an untyped JSON-RPC request (for methods not in the type map).
    */
-  send(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<unknown>
+  send(method: string, params?: Record<string, unknown>, timeoutMs?: number | null): Promise<unknown>
 
   send(
     method: string,
     params?: Record<string, unknown>,
-    timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    timeoutMs?: number | null,
   ): Promise<unknown> {
     const id = this.nextId++
+    const effectiveTimeoutMs =
+      timeoutMs === undefined
+        ? METHODS_WITHOUT_TIMEOUT.has(method)
+          ? null
+          : DEFAULT_TIMEOUT_MS
+        : timeoutMs
 
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
@@ -114,11 +121,13 @@ export class RpcClient {
     }
 
     return new Promise((resolve, reject) => {
-      // Set up timeout
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new RpcTimeoutError(method, id, timeoutMs))
-      }, timeoutMs)
+      const timer =
+        effectiveTimeoutMs == null
+          ? null
+          : setTimeout(() => {
+              this.pending.delete(id)
+              reject(new RpcTimeoutError(method, id, effectiveTimeoutMs))
+            }, effectiveTimeoutMs)
 
       // Track pending request
       this.pending.set(id, { method, resolve, reject, timer })
@@ -130,7 +139,7 @@ export class RpcClient {
         }
         this.cliProcess.writeLine(JSON.stringify(request))
       } catch (error) {
-        clearTimeout(timer)
+        if (timer) clearTimeout(timer)
         this.pending.delete(id)
         reject(error instanceof Error ? error : new Error(String(error)))
       }
@@ -206,7 +215,7 @@ export class RpcClient {
    */
   rejectAll(reason: string): void {
     for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer)
+      if (pending.timer) clearTimeout(pending.timer)
       pending.reject(new Error(`${reason} (pending request '${pending.method}' id=${id})`))
     }
     this.pending.clear()
@@ -241,7 +250,7 @@ export class RpcClient {
     }
 
     this.pending.delete(response.id)
-    clearTimeout(pending.timer)
+    if (pending.timer) clearTimeout(pending.timer)
 
     if (response.error) {
       pending.reject(new RpcError(pending.method, response.error))

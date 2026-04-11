@@ -36,9 +36,9 @@ function getWelcomeMessage(template: number, workspace: string): string {
 // ── Back arrow icon ─────────────────────────────────────────
 
 const BackArrow = () => (
-  <svg viewBox="0 0 24 24">
-    <line x1="19" y1="12" x2="5" y2="12" />
-    <polyline points="12 19 5 12 12 5" />
+  <svg viewBox='0 0 24 24'>
+    <line x1='19' y1='12' x2='5' y2='12' />
+    <polyline points='12 19 5 12 12 5' />
   </svg>
 )
 
@@ -48,9 +48,7 @@ interface OnboardingWizardProps {
   onComplete: (welcomeMessage: string, template: number) => void
 }
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
-  onComplete,
-}) => {
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
   // Wizard state
   const [step, setStep] = useState(1)
   const [direction, setDirection] = useState<'forward' | 'back'>('forward')
@@ -97,8 +95,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         await window.ouroboros.rpc('workspace/set', { directory: workspace })
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to complete onboarding setup'
+      const message = error instanceof Error ? error.message : 'Failed to complete onboarding setup'
       setFinishError(message)
       setFinishing(false)
       return
@@ -114,6 +111,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       try {
         await window.ouroboros.rpc('agent/run', {
           message: 'Explore this project and give me an overview',
+          client: 'desktop',
+          responseStyle: 'desktop-readable',
         })
       } catch (error) {
         const message =
@@ -158,11 +157,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       break
     case 2:
       stepContent = (
-        <StepWorkspace
-          workspace={workspace}
-          onWorkspaceChange={setWorkspace}
-          onNext={goNext}
-        />
+        <StepWorkspace workspace={workspace} onWorkspaceChange={setWorkspace} onNext={goNext} />
       )
       break
     case 3:
@@ -179,14 +174,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   }
 
   return (
-    <div className="onboarding-wizard">
-      <div className="onboarding-wizard__card">
+    <div className='onboarding-wizard'>
+      <div className='onboarding-wizard__card'>
         {/* Step indicator */}
-        <div className="onboarding-wizard__dots">{dots}</div>
+        <div className='onboarding-wizard__dots'>{dots}</div>
 
         {/* Back button (steps 2 and 3) */}
         {step > 1 && (
-          <button className="onboarding-wizard__back" onClick={goBack}>
+          <button className='onboarding-wizard__back' onClick={goBack}>
             <BackArrow />
             Back
           </button>

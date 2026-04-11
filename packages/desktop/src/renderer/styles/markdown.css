@@ -3,6 +3,22 @@
  * No hardcoded colors — everything adapts to light/dark theme.
  * ────────────────────────────────────────────────────────────────── */
 
+/* ── Markdown Container / Overlays ──────────────────────────────── */
+
+.markdown-body {
+  position: relative;
+  min-width: 0;
+}
+
+.markdown-trailing-overlay {
+  position: absolute;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: flex-end;
+  transform: translateY(-100%);
+  z-index: 1;
+}
+
 /* ── Headings ───────────────────────────────────────────────────── */
 
 .markdown-body h1 {
@@ -10,7 +26,7 @@
   font-weight: 700;
   line-height: 1.2;
   color: var(--text-primary);
-  margin: 20px 0 12px;
+  margin: 30px 0 14px;
 }
 
 .markdown-body h2 {
@@ -18,7 +34,7 @@
   font-weight: 600;
   line-height: 1.3;
   color: var(--text-primary);
-  margin: 18px 0 10px;
+  margin: 28px 0 14px;
 }
 
 .markdown-body h3 {
@@ -26,7 +42,7 @@
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-primary);
-  margin: 16px 0 8px;
+  margin: 24px 0 12px;
 }
 
 .markdown-body h4 {
@@ -34,7 +50,7 @@
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-primary);
-  margin: 14px 0 6px;
+  margin: 22px 0 10px;
 }
 
 .markdown-body h5 {
@@ -42,7 +58,7 @@
   font-weight: 600;
   line-height: 1.5;
   color: var(--text-primary);
-  margin: 12px 0 4px;
+  margin: 20px 0 8px;
 }
 
 .markdown-body h6 {
@@ -50,7 +66,7 @@
   font-weight: 600;
   line-height: 1.5;
   color: var(--text-secondary);
-  margin: 12px 0 4px;
+  margin: 18px 0 8px;
 }
 
 /* Remove top margin on first heading */
@@ -68,9 +84,9 @@
 .markdown-body p {
   font-size: 15px;
   font-weight: 400;
-  line-height: 1.6;
+  line-height: 1.75;
   color: var(--text-primary);
-  margin: 0 0 12px;
+  margin: 0 0 15px;
 }
 
 .markdown-body p:last-child {
@@ -81,6 +97,7 @@
 
 .markdown-body strong {
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .markdown-body em {
@@ -109,21 +126,35 @@
 
 .markdown-body ul,
 .markdown-body ol {
-  margin: 0 0 12px;
-  padding-left: 24px;
+  margin: 8px 0 18px;
+  padding-left: 1.35em;
 }
 
 .markdown-body li {
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 9px;
+  padding-left: 0.25em;
 }
 
 .markdown-body li > ul,
 .markdown-body li > ol {
-  margin-top: 4px;
-  margin-bottom: 4px;
+  margin-top: 8px;
+  margin-bottom: 6px;
+  padding-left: 1.2em;
+}
+
+.markdown-body li:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body li::marker {
+  color: var(--text-secondary);
+}
+
+.markdown-body li > p {
+  margin-bottom: 8px;
 }
 
 .markdown-body ul:last-child,
@@ -134,8 +165,8 @@
 /* ── Blockquotes ────────────────────────────────────────────────── */
 
 .markdown-body blockquote {
-  margin: 0 0 12px;
-  padding: 8px 16px;
+  margin: 0 0 18px;
+  padding: 12px 16px;
   border-left: 3px solid var(--accent-amber);
   background: var(--bg-hover);
   border-radius: 0 var(--radius-micro) var(--radius-micro) 0;
@@ -154,7 +185,7 @@
 .markdown-body hr {
   border: none;
   border-top: 1px solid var(--border-light);
-  margin: 16px 0;
+  margin: 22px 0;
 }
 
 /* ── Tables ─────────────────────────────────────────────────────── */
@@ -162,7 +193,7 @@
 .markdown-body table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0 0 12px;
+  margin: 0 0 18px;
   font-size: 14px;
   line-height: 1.5;
 }
@@ -196,20 +227,22 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
-  padding: 2px 6px;
+  padding: 1px 5px;
   border-radius: var(--radius-micro);
   background: var(--bg-tool-chip);
   color: var(--text-primary);
+  border: 1px solid var(--border-light);
 }
 
 /* ── Code Blocks ────────────────────────────────────────────────── */
 
 .markdown-body .code-block-wrapper {
   position: relative;
-  margin: 0 0 12px;
+  margin: 4px 0 18px;
   border-radius: var(--radius-standard);
   border: 1px solid var(--border-light);
   overflow: hidden;
+  box-shadow: var(--shadow-subtle);
 }
 
 .markdown-body .code-block-wrapper:last-child {
@@ -245,7 +278,10 @@
   font-size: 11px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .markdown-body .code-block-wrapper:hover .code-block-copy {
@@ -296,8 +332,8 @@
 
 :root,
 [data-theme='light'] {
-  --bg-code-block: #F8FAFC;
-  --bg-palette: #FFFFFF;
+  --bg-code-block: #f8fafc;
+  --bg-palette: #ffffff;
   --hljs-keyword: #a626a4;
   --hljs-string: #50a14f;
   --hljs-number: #986801;
@@ -314,8 +350,8 @@
 }
 
 [data-theme='dark'] {
-  --bg-code-block: #12161B;
-  --bg-palette: #171C22;
+  --bg-code-block: #12161b;
+  --bg-palette: #171c22;
   --hljs-keyword: #c678dd;
   --hljs-string: #98c379;
   --hljs-number: #d19a66;
@@ -433,8 +469,19 @@
 
 /* ── Task list checkboxes (GFM) ─────────────────────────────────── */
 
-.markdown-body input[type="checkbox"] {
+.markdown-body input[type='checkbox'] {
   margin-right: 6px;
   vertical-align: middle;
   pointer-events: none;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  border-radius: 999px;
+  background: var(--accent-amber);
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.12);
+  vertical-align: -0.08em;
+  animation: ob-blink 1s step-end infinite;
 }

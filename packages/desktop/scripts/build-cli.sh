@@ -16,6 +16,28 @@ bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/ouroboros
 echo "==> Copying binary to $OUT_DIR ..."
 mkdir -p "$OUT_DIR"
 
+if [[ "$OSTYPE" == darwin* ]]; then
+  echo "==> Building macOS release binaries for both architectures ..."
+
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    cp "$CLI_DIR/dist/ouroboros" "$OUT_DIR/ouroboros-darwin-arm64"
+    chmod +x "$OUT_DIR/ouroboros-darwin-arm64"
+    echo "    Copied host ouroboros-darwin-arm64"
+
+    bun build --compile --minify --sourcemap ./src/cli.ts --target=bun-darwin-x64 --outfile "$OUT_DIR/ouroboros-darwin-x64"
+    chmod +x "$OUT_DIR/ouroboros-darwin-x64"
+    echo "    Built ouroboros-darwin-x64"
+  else
+    cp "$CLI_DIR/dist/ouroboros" "$OUT_DIR/ouroboros-darwin-x64"
+    chmod +x "$OUT_DIR/ouroboros-darwin-x64"
+    echo "    Copied host ouroboros-darwin-x64"
+
+    bun build --compile --minify --sourcemap ./src/cli.ts --target=bun-darwin-arm64 --outfile "$OUT_DIR/ouroboros-darwin-arm64"
+    chmod +x "$OUT_DIR/ouroboros-darwin-arm64"
+    echo "    Built ouroboros-darwin-arm64"
+  fi
+fi
+
 # Copy the compiled binary (ouroboros on Unix, ouroboros.exe on Windows)
 if [[ -f "$CLI_DIR/dist/ouroboros.exe" ]]; then
   cp "$CLI_DIR/dist/ouroboros.exe" "$OUT_DIR/"

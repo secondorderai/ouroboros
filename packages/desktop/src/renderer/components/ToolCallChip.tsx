@@ -281,11 +281,18 @@ function getInputDisplay(
 
 interface ToolCallChipProps {
   toolCall: ToolCallState
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
 }
 
-export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
-  const [expanded, setExpanded] = useState(false)
+export const ToolCallChip: React.FC<ToolCallChipProps> = ({
+  toolCall,
+  expanded: expandedProp,
+  onExpandedChange,
+}) => {
+  const [internalExpanded, setInternalExpanded] = useState(false)
   const [showAllOutput, setShowAllOutput] = useState(false)
+  const expanded = expandedProp ?? internalExpanded
 
   const meta = useMemo(() => getToolMeta(toolCall.toolName), [toolCall.toolName])
 
@@ -316,8 +323,12 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
   }, [displayedOutput, toolCall.toolName, toolCall.status])
 
   const toggleExpanded = useCallback(() => {
-    setExpanded((prev) => !prev)
-  }, [])
+    const nextExpanded = !expanded
+    if (expandedProp === undefined) {
+      setInternalExpanded(nextExpanded)
+    }
+    onExpandedChange?.(nextExpanded)
+  }, [expanded, expandedProp, onExpandedChange])
 
   const handleShowAll = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -352,8 +363,10 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
       <button
         className="tool-chip"
         onClick={toggleExpanded}
+        type="button"
         aria-expanded={false}
         aria-label={`${meta.label} — click to expand`}
+        data-testid="tool-chip-collapsed"
       >
         <span className="tool-chip__icon">{meta.icon}</span>
         <span>{meta.label}</span>
@@ -365,7 +378,7 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
   // ── Expanded view ──────────────────────────────────────
 
   return (
-    <div className="tool-chip-expanded" aria-expanded={true}>
+    <div className="tool-chip-expanded" aria-expanded={true} data-testid="tool-chip-expanded">
       <div className="tool-chip-expanded__inner">
         {/* Header — click to collapse */}
         <div
@@ -389,7 +402,7 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
         </div>
 
         {/* Body */}
-        <div className="tool-chip-expanded__body">
+        <div className="tool-chip-expanded__body" data-testid="tool-chip-expanded-body">
           {/* Input section */}
           <div className="tool-chip-expanded__section-label">Input</div>
           {inputDisplay.type === 'code' ? (
@@ -426,6 +439,7 @@ export const ToolCallChip: React.FC<ToolCallChipProps> = ({ toolCall }) => {
                     <button
                       className="tool-chip-expanded__show-all"
                       onClick={handleShowAll}
+                      type="button"
                     >
                       Show all ({outputLines.length} lines)
                     </button>
