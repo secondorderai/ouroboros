@@ -38,6 +38,8 @@ export interface BuildSystemPromptOptions {
   memory?: string
   /** Whether RSI (self-improvement) is enabled */
   rsiEnabled?: boolean
+  /** Optional response-style guidance for a specific client surface */
+  responseStyle?: 'default' | 'desktop-readable'
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +118,29 @@ You have autonomous self-improvement capabilities (RSI). After completing tasks,
 All self-improvement activity is logged to the evolution log for auditability. These processes run automatically in the background and do not require user intervention.`
 }
 
+function formatResponseStyleSection(responseStyle: 'default' | 'desktop-readable'): string {
+  if (responseStyle !== 'desktop-readable') {
+    return ''
+  }
+
+  return `## Response Style
+
+The current client is a desktop chat interface optimized for reading longer answers. Favor prose that scans cleanly:
+
+- Apply this style on every desktop turn, including answers produced without any tool calls.
+- The desktop client will render markdown, but it will not rewrite a dense answer for you after generation.
+- Start with a short framing paragraph before lists when the task allows it.
+- Lead with a direct answer or recommendation before supporting detail.
+- Use bullets only for real enumeration, not for every sentence.
+- Keep lists short by default, with no more than 4 bullets unless the task clearly needs more.
+- Avoid nested bullets unless the user asked for structured steps or the task is procedural.
+- Separate sections with blank lines.
+- Use short, descriptive headings when they improve scanability.
+- For comparisons or recommendations, prefer a compact pattern like "Option: why it fits".
+- Avoid long uninterrupted blocks of text, raw dumps, and list items that contain multiple unrelated ideas.
+- Prefer short paragraphs and clear headings over bulleting every sentence.`
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -131,9 +156,13 @@ All self-improvement activity is logged to the evolution log for auditability. T
  * @returns A plain string system prompt ready for any LLM provider
  */
 export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): string {
-  const { tools, skills, memory, rsiEnabled } = options
+  const { tools, skills, memory, rsiEnabled, responseStyle } = options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
+
+  if (responseStyle === 'desktop-readable') {
+    sections.push(formatResponseStyleSection(responseStyle))
+  }
 
   if (tools && tools.length > 0) {
     sections.push(formatToolsSection(tools))

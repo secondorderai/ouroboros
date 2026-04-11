@@ -12,20 +12,40 @@ function makeTempDir(): string {
 
 describe('loadConfig', () => {
   let tempDir: string
+  const savedEnv: Record<string, string | undefined> = {}
 
   beforeEach(() => {
     tempDir = makeTempDir()
+    savedEnv.OUROBOROS_MODEL_PROVIDER = process.env.OUROBOROS_MODEL_PROVIDER
+    savedEnv.OUROBOROS_MODEL_NAME = process.env.OUROBOROS_MODEL_NAME
+    savedEnv.OUROBOROS_MODEL_BASE_URL = process.env.OUROBOROS_MODEL_BASE_URL
+    savedEnv.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
+    savedEnv.OUROBOROS_CONSOLIDATION = process.env.OUROBOROS_CONSOLIDATION
+    savedEnv.OUROBOROS_NOVELTY = process.env.OUROBOROS_NOVELTY
+    savedEnv.OUROBOROS_AUTO_REFLECT = process.env.OUROBOROS_AUTO_REFLECT
+    savedEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
+    savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
+
+    delete process.env.OUROBOROS_MODEL_PROVIDER
+    delete process.env.OUROBOROS_MODEL_NAME
+    delete process.env.OUROBOROS_MODEL_BASE_URL
+    delete process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
+    delete process.env.OUROBOROS_CONSOLIDATION
+    delete process.env.OUROBOROS_NOVELTY
+    delete process.env.OUROBOROS_AUTO_REFLECT
+    delete process.env.ANTHROPIC_API_KEY
+    delete process.env.OPENAI_API_KEY
   })
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true })
-    // Clean up env vars
-    delete process.env.OUROBOROS_MODEL_PROVIDER
-    delete process.env.OUROBOROS_MODEL_NAME
-    delete process.env.OUROBOROS_MODEL_BASE_URL
-    delete process.env.OUROBOROS_CONSOLIDATION
-    delete process.env.OUROBOROS_NOVELTY
-    delete process.env.OUROBOROS_AUTO_REFLECT
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
   })
 
   test('loads defaults when no .ouroboros file exists', () => {
@@ -40,6 +60,7 @@ describe('loadConfig', () => {
     expect(config.model.provider).toBe('anthropic')
     expect(config.model.name).toBe('claude-sonnet-4-20250514')
     expect(config.model.baseUrl).toBeUndefined()
+    expect(config.model.apiKey).toBeUndefined()
 
     // Permission defaults
     expect(config.permissions.tier0).toBe(true)
@@ -173,6 +194,94 @@ describe('loadConfig', () => {
     expect(result.value.model.name).toBe('claude-sonnet-4-20250514')
   })
 
+  test('loads model.apiKey from .ouroboros when present', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai',
+          name: 'gpt-5.4',
+          apiKey: 'cfg-openai',
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.apiKey).toBe('cfg-openai')
+  })
+
+  test('provider env vars take precedence over model.apiKey', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai',
+          name: 'gpt-5.4',
+          apiKey: 'cfg-openai',
+        },
+      }),
+    )
+
+    process.env.OPENAI_API_KEY = 'env-openai'
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.apiKey).toBe('env-openai')
+  })
+
+  test('dedicated openai-compatible env var takes precedence over model.apiKey', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai-compatible',
+          name: 'compatible-model',
+          baseUrl: 'http://localhost:11434/v1',
+          apiKey: 'cfg-compatible',
+        },
+      }),
+    )
+
+    process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = 'env-compatible'
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.apiKey).toBe('env-compatible')
+  })
+
+  test('OPENAI_API_KEY does not override openai-compatible model.apiKey', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai-compatible',
+          name: 'compatible-model',
+          baseUrl: 'http://localhost:11434/v1',
+          apiKey: 'cfg-compatible',
+        },
+      }),
+    )
+
+    process.env.OPENAI_API_KEY = 'env-openai'
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.apiKey).toBe('cfg-compatible')
+  })
+
   test('handles malformed JSON in .ouroboros', () => {
     writeFileSync(join(tempDir, '.ouroboros'), '{ invalid json }}}')
 
@@ -251,6 +360,7 @@ describe('loadConfig', () => {
       model: {
         provider: 'openai',
         name: 'gpt-4o',
+        apiKey: 'cfg-openai',
       },
       permissions: {
         tier0: true,
@@ -277,6 +387,7 @@ describe('loadConfig', () => {
 
     expect(result.value.model.provider).toBe('openai')
     expect(result.value.model.name).toBe('gpt-4o')
+    expect(result.value.model.apiKey).toBe('cfg-openai')
     expect(result.value.permissions.tier2).toBe(false)
     expect(result.value.skillDirectories).toEqual(['skills/core', 'skills/custom'])
     expect(result.value.memory.consolidationSchedule).toBe('daily')

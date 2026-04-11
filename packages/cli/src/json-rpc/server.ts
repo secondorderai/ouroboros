@@ -79,6 +79,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
 
   // Mutable abort controller for cancelling agent runs
   let currentRunAbort: AbortController | null = null
+  let currentSessionId: string | null = null
 
   // Build handler context
   const ctx: HandlerContext = {
@@ -90,6 +91,11 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     setCurrentRunAbort: (abort) => {
       currentRunAbort = abort
       ctx.currentRunAbort = abort
+    },
+    currentSessionId,
+    setCurrentSessionId: (sessionId) => {
+      currentSessionId = sessionId
+      ctx.currentSessionId = sessionId
     },
     setConfig: (newConfig) => {
       config = newConfig

@@ -344,6 +344,36 @@ describe('streamResponse', () => {
     if (errorChunk?.type !== 'error') return
     expect(errorChunk.error.message).toContain('Rate limited')
   })
+
+  test('object-shaped quota errors are classified with readable text', async () => {
+    const model = createMockModel({
+      error: {
+        type: 'error',
+        error: {
+          type: 'insufficient_quota',
+          code: 'insufficient_quota',
+          message: 'You exceeded your current quota.',
+        },
+      } as unknown as Error,
+    })
+
+    const result = streamResponse(model, testMessages)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of result.value.stream) {
+      chunks.push(chunk)
+    }
+
+    const errorChunk = chunks.find((c) => c.type === 'error')
+    expect(errorChunk).toBeDefined()
+    if (errorChunk?.type !== 'error') return
+    expect(errorChunk.error.message).toContain('Rate limited or quota exceeded')
+    expect(errorChunk.error.message).toContain('You exceeded your current quota.')
+    expect(errorChunk.error.message).not.toContain('[object Object]')
+  })
 })
 
 describe('generateResponse', () => {
@@ -428,6 +458,28 @@ describe('generateResponse', () => {
 
     expect(result.error).toBeInstanceOf(Error)
     expect(result.error.message).toContain('Rate limited')
+  })
+
+  test('object-shaped provider errors return readable Result errors', async () => {
+    const model = createMockModel({
+      error: {
+        type: 'error',
+        error: {
+          type: 'insufficient_quota',
+          code: 'insufficient_quota',
+          message: 'You exceeded your current quota.',
+        },
+      } as unknown as Error,
+    })
+
+    const result = await generateResponse(model, testMessages)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+
+    expect(result.error.message).toContain('Rate limited or quota exceeded')
+    expect(result.error.message).toContain('You exceeded your current quota.')
+    expect(result.error.message).not.toContain('[object Object]')
   })
 })
 

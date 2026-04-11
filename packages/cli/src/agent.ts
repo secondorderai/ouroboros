@@ -76,6 +76,10 @@ export interface AgentRunResult {
   maxIterationsReached: boolean
 }
 
+export interface AgentRunOptions {
+  responseStyle?: 'default' | 'desktop-readable'
+}
+
 // ── Agent class ──────────────────────────────────────────────────────
 
 export class Agent {
@@ -119,7 +123,7 @@ export class Agent {
    *
    * Multi-turn: conversation history persists between calls.
    */
-  async run(userMessage: string): Promise<AgentRunResult> {
+  async run(userMessage: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
     // Append user message to conversation history
     this.conversationHistory.push({ role: 'user', content: userMessage })
 
@@ -130,7 +134,7 @@ export class Agent {
       iterations++
 
       // Build system prompt with current state
-      const systemPrompt = this.buildCurrentSystemPrompt()
+      const systemPrompt = this.buildCurrentSystemPrompt(options)
 
       // Build tool definitions for the LLM
       const toolDefs = this.buildToolDefinitions()
@@ -250,6 +254,13 @@ export class Agent {
   }
 
   /**
+   * Replace the current conversation history (e.g. when loading a past session).
+   */
+  setConversationHistory(history: LLMMessage[]): void {
+    this.conversationHistory = [...history]
+  }
+
+  /**
    * Clear conversation history (start a new session).
    */
   clearHistory(): void {
@@ -298,7 +309,7 @@ export class Agent {
   /**
    * Build the system prompt with current tools, skills, and memory.
    */
-  private buildCurrentSystemPrompt(): string {
+  private buildCurrentSystemPrompt(options: AgentRunOptions = {}): string {
     const tools = this.toolRegistry.getTools()
     const memory = this.memoryProvider()
 
@@ -309,7 +320,7 @@ export class Agent {
       description: s.description,
     }))
 
-    return this.systemPromptBuilder({ tools, skills, memory })
+    return this.systemPromptBuilder({ tools, skills, memory, responseStyle: options.responseStyle })
   }
 
   /**

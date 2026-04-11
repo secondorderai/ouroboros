@@ -8,9 +8,10 @@
 
 import type { Agent, AgentEvent } from '@src/agent'
 import type { OuroborosConfig } from '@src/config'
+import type { LLMMessage } from '@src/llm/types'
 import { saveConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
-import { TranscriptStore } from '@src/memory/transcripts'
+import type { SessionSummary, SessionWithMessages, TranscriptStore } from '@src/memory/transcripts'
 import { listSkills, getSkillInfo, activateSkill } from '@src/tools/skill-manager'
 import { JSON_RPC_ERRORS, makeNotification } from './types'
 import { writeMessage } from './transport'
@@ -28,6 +29,8 @@ export interface HandlerContext {
   /** Set to the abort controller of the current agent run, or null. */
   currentRunAbort: AbortController | null
   setCurrentRunAbort: (abort: AbortController | null) => void
+  currentSessionId: string | null
+  setCurrentSessionId: (sessionId: string | null) => void
   setConfig: (config: OuroborosConfig) => void
 }
 
@@ -100,6 +103,8 @@ export function bridgeAgentEvent(event: AgentEvent): void {
  */
 export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> {
   const handlers = new Map<string, MethodHandler>()
+  const validClients = new Set(['desktop', 'cli'])
+  const validResponseStyles = new Set(['default', 'desktop-readable'])
 
   // ── agent/* ──────────────────────────────────────────────────────
 
@@ -109,6 +114,23 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       throw new HandlerError(
         JSON_RPC_ERRORS.INVALID_PARAMS.code,
         'params.message is required and must be a non-empty string',
+      )
+    }
+    const client = params.client
+    if (client !== undefined && (typeof client !== 'string' || !validClients.has(client))) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.client must be "desktop" or "cli" when provided',
+      )
+    }
+    const responseStyle = params.responseStyle
+    if (
+      responseStyle !== undefined &&
+      (typeof responseStyle !== 'string' || !validResponseStyles.has(responseStyle))
+    ) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.responseStyle must be "default" or "desktop-readable" when provided',
       )
     }
 
@@ -124,7 +146,24 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     // via the onEvent handler already wired in the server.
     try {
       const agent = ctx.getAgent()
-      const result = await agent.run(message)
+      const historyBeforeRun = agent.getConversationHistory().length
+      const result = await agent.run(message, {
+        responseStyle:
+          typeof responseStyle === 'string'
+            ? (responseStyle as 'default' | 'desktop-readable')
+            : undefined,
+      })
+      const sessionId = ctx.currentSessionId
+      if (sessionId) {
+        const persistResult = persistConversationDelta(
+          ctx.transcriptStore,
+          sessionId,
+          agent.getConversationHistory().slice(historyBeforeRun),
+        )
+        if (!persistResult.ok) {
+          throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, persistResult.error.message)
+        }
+      }
       return {
         text: result.text,
         iterations: result.iterations,
@@ -151,7 +190,19 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const result = ctx.transcriptStore.getRecentSessions(limit)
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
-    return { sessions: result.value }
+
+    const sessionResults = result.value.map((summary) =>
+      toDesktopSessionInfo(summary, ctx.transcriptStore),
+    )
+    const sessions = []
+    for (const session of sessionResults) {
+      if (!session.ok) {
+        throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, session.error.message)
+      }
+      sessions.push(session.value)
+    }
+
+    return { sessions }
   })
 
   handlers.set('session/load', async (params) => {
@@ -162,7 +213,15 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const result = ctx.transcriptStore.getSession(id)
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
-    return result.value
+
+    ctx.setCurrentSessionId(id)
+    try {
+      ctx.getAgent().setConversationHistory(toConversationHistory(result.value))
+    } catch {
+      /* agent not yet created — session will hydrate on first run */
+    }
+
+    return toDesktopSessionData(result.value)
   })
 
   handlers.set('session/new', async () => {
@@ -175,6 +234,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const result = ctx.transcriptStore.createSession()
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    ctx.setCurrentSessionId(result.value)
     return { sessionId: result.value }
   })
 
@@ -186,6 +246,14 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const result = ctx.transcriptStore.deleteSession(id)
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    if (ctx.currentSessionId === id) {
+      ctx.setCurrentSessionId(null)
+      try {
+        ctx.getAgent().clearHistory()
+      } catch {
+        /* agent not yet created — nothing to clear */
+      }
+    }
     return { deleted: true }
   })
 
@@ -230,7 +298,12 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const apiKey = typeof params.apiKey === 'string' ? params.apiKey : undefined
 
     // Temporarily set the env var so createProvider picks it up
-    const envKey = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+    const envKey =
+      provider === 'anthropic'
+        ? 'ANTHROPIC_API_KEY'
+        : provider === 'openai-compatible'
+          ? 'OUROBOROS_OPENAI_COMPATIBLE_API_KEY'
+          : 'OPENAI_API_KEY'
     const previousValue = process.env[envKey]
     if (apiKey) process.env[envKey] = apiKey
 
@@ -238,6 +311,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       const providerResult = createProvider({
         ...ctx.config.model,
         provider: provider as 'anthropic' | 'openai' | 'openai-compatible',
+        apiKey,
       })
       if (!providerResult.ok) {
         return { success: false, error: providerResult.error.message }
@@ -264,7 +338,29 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         'params.provider and params.apiKey are required',
       )
     }
-    const envKey = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+
+    const updatedConfig: OuroborosConfig = {
+      ...ctx.config,
+      model: {
+        ...ctx.config.model,
+        provider: provider as 'anthropic' | 'openai' | 'openai-compatible',
+        apiKey,
+      },
+    }
+
+    const saveResult = saveConfig(ctx.configDir, updatedConfig)
+    if (!saveResult.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, saveResult.error.message)
+    }
+
+    ctx.setConfig(updatedConfig)
+
+    const envKey =
+      provider === 'anthropic'
+        ? 'ANTHROPIC_API_KEY'
+        : provider === 'openai-compatible'
+          ? 'OUROBOROS_OPENAI_COMPATIBLE_API_KEY'
+          : 'OPENAI_API_KEY'
     process.env[envKey] = apiKey
     return { ok: true }
   })
@@ -349,6 +445,121 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   })
 
   return handlers
+}
+
+function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: TranscriptStore) {
+  if (summary.messageCount === 0) {
+    return {
+      ok: true as const,
+      value: {
+        id: summary.id,
+        createdAt: summary.startedAt,
+        lastActive: summary.endedAt ?? summary.startedAt,
+        messageCount: 0,
+        title: summary.summary ?? undefined,
+      },
+    }
+  }
+
+  const sessionResult = transcriptStore.getSession(summary.id)
+  if (!sessionResult.ok) {
+    return sessionResult
+  }
+
+  return {
+    ok: true as const,
+    value: {
+      id: summary.id,
+      createdAt: summary.startedAt,
+      lastActive:
+        sessionResult.value.messages.at(-1)?.createdAt ?? summary.endedAt ?? summary.startedAt,
+      messageCount: summary.messageCount,
+      title: getSessionTitle(sessionResult.value) ?? summary.summary ?? undefined,
+    },
+  }
+}
+
+function toDesktopSessionData(session: SessionWithMessages) {
+  return {
+    id: session.id,
+    createdAt: session.startedAt,
+    messages: session.messages
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+        timestamp: message.createdAt,
+      })),
+  }
+}
+
+function toConversationHistory(session: SessionWithMessages): LLMMessage[] {
+  return session.messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) =>
+      message.role === 'user'
+        ? { role: 'user' as const, content: message.content }
+        : { role: 'assistant' as const, content: message.content },
+    )
+}
+
+function getSessionTitle(session: SessionWithMessages): string | undefined {
+  const firstUserMessage = session.messages.find(
+    (message) => message.role === 'user' && message.content.trim().length > 0,
+  )
+
+  return firstUserMessage?.content.trim().replace(/\s+/g, ' ').slice(0, 50)
+}
+
+function persistConversationDelta(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  historyDelta: LLMMessage[],
+) {
+  for (const message of historyDelta) {
+    if (message.role === 'user') {
+      const addResult = transcriptStore.addMessage(sessionId, {
+        role: 'user',
+        content: message.content,
+      })
+      if (!addResult.ok) return addResult
+      continue
+    }
+
+    if (message.role === 'assistant') {
+      if (message.content.trim().length > 0) {
+        const addResult = transcriptStore.addMessage(sessionId, {
+          role: 'assistant',
+          content: message.content,
+        })
+        if (!addResult.ok) return addResult
+      }
+
+      for (const toolCall of message.toolCalls ?? []) {
+        const addResult = transcriptStore.addMessage(sessionId, {
+          role: 'tool-call',
+          content: `${toolCall.toolName}: ${JSON.stringify(toolCall.input)}`,
+          toolName: toolCall.toolName,
+          toolArgs: toolCall.input,
+        })
+        if (!addResult.ok) return addResult
+      }
+      continue
+    }
+
+    if (message.role === 'tool') {
+      for (const toolResult of message.content) {
+        const addResult = transcriptStore.addMessage(sessionId, {
+          role: 'tool-result',
+          content: JSON.stringify(toolResult.result),
+          toolName: toolResult.toolName,
+        })
+        if (!addResult.ok) return addResult
+      }
+    }
+  }
+
+  return { ok: true as const, value: undefined }
 }
 
 // ── Utility ──────────────────────────────────────────────────────────

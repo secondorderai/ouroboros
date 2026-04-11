@@ -224,4 +224,25 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toMatch(/^<\?xml/)
     expect(prompt).not.toMatch(/^\{/)
   })
+
+  test('default mode does not inject desktop readability guidance', () => {
+    const prompt = buildSystemPrompt({})
+
+    expect(prompt).not.toContain('desktop chat interface optimized for reading longer answers')
+    expect(prompt).not.toContain('Start with a short framing paragraph before lists')
+  })
+
+  test('desktop-readable mode injects prose-first guidance', () => {
+    const prompt = buildSystemPrompt({ responseStyle: 'desktop-readable' })
+
+    expect(prompt).toContain('desktop chat interface optimized for reading longer answers')
+    expect(prompt).toContain('including answers produced without any tool calls')
+    expect(prompt).toContain('it will not rewrite a dense answer for you after generation')
+    expect(prompt).toContain('Start with a short framing paragraph before lists')
+    expect(prompt).toContain('Lead with a direct answer or recommendation before supporting detail')
+    expect(prompt).toContain('no more than 4 bullets')
+    expect(prompt).toContain('Use short, descriptive headings when they improve scanability')
+    expect(prompt).toContain('Option: why it fits')
+    expect(prompt).toContain('Prefer short paragraphs and clear headings')
+  })
 })

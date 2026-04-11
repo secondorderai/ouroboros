@@ -17,6 +17,11 @@ export const configSchema = z.object({
         .describe('LLM provider to use'),
       name: z.string().default('claude-sonnet-4-20250514').describe('Model name/identifier'),
       baseUrl: z.string().url().optional().describe('Base URL for OpenAI-compatible endpoints'),
+      apiMode: z
+        .enum(['responses', 'chat', 'completion'])
+        .optional()
+        .describe('API style to use for OpenAI-compatible endpoints'),
+      apiKey: z.string().min(1).optional().describe('Fallback API key for the selected provider'),
     })
     .default({ provider: 'anthropic' as const, name: 'claude-sonnet-4-20250514' }),
 
@@ -72,6 +77,8 @@ export type OuroborosConfig = z.infer<typeof configSchema>
  *   OUROBOROS_MODEL_PROVIDER  -> model.provider
  *   OUROBOROS_MODEL_NAME      -> model.name
  *   OUROBOROS_MODEL_BASE_URL  -> model.baseUrl
+ *   OUROBOROS_MODEL_API_MODE  -> model.apiMode
+ *   OUROBOROS_OPENAI_COMPATIBLE_API_KEY -> model.apiKey (for provider=openai-compatible)
  *   OUROBOROS_CONSOLIDATION   -> memory.consolidationSchedule
  *   OUROBOROS_NOVELTY         -> rsi.noveltyThreshold
  *   OUROBOROS_AUTO_REFLECT    -> rsi.autoReflect
@@ -106,6 +113,18 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
   }
   if (env.OUROBOROS_MODEL_BASE_URL) {
     model.baseUrl = env.OUROBOROS_MODEL_BASE_URL
+  }
+  if (env.OUROBOROS_MODEL_API_MODE) {
+    model.apiMode = env.OUROBOROS_MODEL_API_MODE
+  }
+  if (env.ANTHROPIC_API_KEY && model.provider === 'anthropic') {
+    model.apiKey = env.ANTHROPIC_API_KEY
+  }
+  if (env.OPENAI_API_KEY && model.provider === 'openai') {
+    model.apiKey = env.OPENAI_API_KEY
+  }
+  if (env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY && model.provider === 'openai-compatible') {
+    model.apiKey = env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
   }
   if (env.OUROBOROS_CONSOLIDATION) {
     memory.consolidationSchedule = env.OUROBOROS_CONSOLIDATION

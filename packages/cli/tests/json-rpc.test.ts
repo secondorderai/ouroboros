@@ -17,7 +17,7 @@ import {
 } from '@src/json-rpc/types'
 import { createHandlers, bridgeAgentEvent, type HandlerContext } from '@src/json-rpc/handlers'
 import { writeMessage } from '@src/json-rpc/transport'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -95,6 +95,7 @@ function createTestContext(overrides?: {
   config?: OuroborosConfig
   configDir?: string
   transcriptStore?: TranscriptStore
+  agentOptions?: Partial<AgentOptions>
 }): HandlerContext {
   const registry = overrides?.registry ?? new ToolRegistry()
   const model =
@@ -128,10 +129,12 @@ function createTestContext(overrides?: {
   const transcriptStore = overrides?.transcriptStore ?? new TranscriptStore(dbPath)
 
   let currentRunAbort: AbortController | null = null
+  let currentSessionId: string | null = null
 
   const agent = new Agent(
     makeAgentOptions(model, registry, {
       onEvent: bridgeAgentEvent,
+      ...overrides?.agentOptions,
     }),
   )
 
@@ -144,6 +147,11 @@ function createTestContext(overrides?: {
     setCurrentRunAbort: (abort) => {
       currentRunAbort = abort
       ctx.currentRunAbort = abort
+    },
+    currentSessionId,
+    setCurrentSessionId: (sessionId) => {
+      currentSessionId = sessionId
+      ctx.currentSessionId = sessionId
     },
     setConfig: (newConfig) => {
       ctx.config = newConfig
@@ -184,6 +192,27 @@ function parseNdjson(output: string): unknown[] {
 // ── Feature Tests ───────────────────────────────────────────────────
 
 describe('JSON-RPC', () => {
+  const savedEnv: Record<string, string | undefined> = {}
+
+  beforeEach(() => {
+    savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
+    savedEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
+  })
+
+  afterEach(() => {
+    if (savedEnv.OPENAI_API_KEY === undefined) {
+      delete process.env.OPENAI_API_KEY
+    } else {
+      process.env.OPENAI_API_KEY = savedEnv.OPENAI_API_KEY
+    }
+
+    if (savedEnv.ANTHROPIC_API_KEY === undefined) {
+      delete process.env.ANTHROPIC_API_KEY
+    } else {
+      process.env.ANTHROPIC_API_KEY = savedEnv.ANTHROPIC_API_KEY
+    }
+  })
+
   // -------------------------------------------------------------------
   // Test: Type helpers
   // -------------------------------------------------------------------
@@ -270,6 +299,56 @@ describe('JSON-RPC', () => {
         (m) => (m as Record<string, unknown>).method === 'agent/turnComplete',
       )
       expect(turnComplete).toBeDefined()
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run accepts desktop response-style hints', async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const ctx = createTestContext({
+        agentOptions: {
+          systemPromptBuilder: (options) => {
+            promptCalls.push(options as Record<string, unknown>)
+            return 'You are a test assistant.'
+          },
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      await handlers.get('agent/run')!({
+        message: 'Say hello',
+        client: 'desktop',
+        responseStyle: 'desktop-readable',
+      })
+
+      expect(promptCalls).toContainEqual(
+        expect.objectContaining({
+          responseStyle: 'desktop-readable',
+        }),
+      )
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run remains backward compatible when response-style hints are omitted', async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const ctx = createTestContext({
+        agentOptions: {
+          systemPromptBuilder: (options) => {
+            promptCalls.push(options as Record<string, unknown>)
+            return 'You are a test assistant.'
+          },
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      await handlers.get('agent/run')!({ message: 'Say hello' })
+
+      expect(promptCalls).toContainEqual(
+        expect.objectContaining({
+          responseStyle: undefined,
+        }),
+      )
 
       ctx.transcriptStore.close()
     })
@@ -456,6 +535,31 @@ describe('JSON-RPC', () => {
 
       ctx.transcriptStore.close()
     })
+
+    test('config/setApiKey persists model.apiKey into .ouroboros', async () => {
+      const config = makeTestConfig()
+      writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config, null, 2), 'utf-8')
+
+      const ctx = createTestContext({ config, configDir: tempDir })
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('config/setApiKey')!({
+        provider: 'openai',
+        apiKey: 'cfg-openai-key',
+      })) as { ok: boolean }
+
+      expect(result.ok).toBe(true)
+      expect(ctx.config.model.provider).toBe('openai')
+      expect(ctx.config.model.apiKey).toBe('cfg-openai-key')
+
+      const persisted = JSON.parse(readFileSync(join(tempDir, '.ouroboros'), 'utf-8')) as {
+        model: { provider: string; apiKey: string }
+      }
+      expect(persisted.model.provider).toBe('openai')
+      expect(persisted.model.apiKey).toBe('cfg-openai-key')
+
+      ctx.transcriptStore.close()
+    })
   })
 
   // -------------------------------------------------------------------
@@ -470,12 +574,26 @@ describe('JSON-RPC', () => {
       const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
       expect(newResult.sessionId).toBeDefined()
 
+      await handlers.get('agent/run')!({ message: 'Restore my previous tab' })
+
       // List should include it
       const listResult = (await handlers.get('session/list')!({})) as {
-        sessions: Array<{ id: string }>
+        sessions: Array<{
+          id: string
+          createdAt: string
+          lastActive: string
+          messageCount: number
+          title?: string
+        }>
       }
       expect(listResult.sessions.length).toBeGreaterThanOrEqual(1)
-      expect(listResult.sessions.some((s) => s.id === newResult.sessionId)).toBe(true)
+      expect(listResult.sessions).toContainEqual(
+        expect.objectContaining({
+          id: newResult.sessionId,
+          messageCount: 2,
+          title: 'Restore my previous tab',
+        }),
+      )
 
       ctx.transcriptStore.close()
     })
@@ -486,13 +604,52 @@ describe('JSON-RPC', () => {
 
       // Create a session
       const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      await handlers.get('agent/run')!({ message: 'Load this chat again' })
 
       // Load it
       const loadResult = (await handlers.get('session/load')!({
         id: newResult.sessionId,
-      })) as { id: string; messages: unknown[] }
+      })) as {
+        id: string
+        createdAt: string
+        messages: Array<{ role: string; content: string; timestamp: string }>
+      }
       expect(loadResult.id).toBe(newResult.sessionId)
+      expect(typeof loadResult.createdAt).toBe('string')
       expect(loadResult.messages).toBeInstanceOf(Array)
+      expect(loadResult.messages).toEqual([
+        expect.objectContaining({
+          role: 'user',
+          content: 'Load this chat again',
+        }),
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'Hello from agent',
+        }),
+      ])
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run persists transcript messages to the active session', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      await handlers.get('agent/run')!({ message: 'Persist this exchange' })
+
+      const sessionResult = ctx.transcriptStore.getSession(newResult.sessionId)
+      expect(sessionResult.ok).toBe(true)
+      if (!sessionResult.ok) return
+
+      expect(sessionResult.value.messages.map((message) => message.role)).toEqual([
+        'user',
+        'assistant',
+      ])
+      expect(sessionResult.value.messages.map((message) => message.content)).toEqual([
+        'Persist this exchange',
+        'Hello from agent',
+      ])
 
       ctx.transcriptStore.close()
     })

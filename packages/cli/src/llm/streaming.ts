@@ -88,6 +88,57 @@ function toToolSet(tools?: Record<string, LLMToolSpec>): ToolSet | undefined {
  * Classify an error into an actionable message.
  */
 function classifyError(error: unknown): Error {
+  const details = extractErrorDetails(error)
+
+  if (details) {
+    const msg = details.message.toLowerCase()
+    const name = details.name.toLowerCase()
+    const code = details.code?.toLowerCase() ?? ''
+
+    // Authentication errors
+    if (
+      msg.includes('api key') ||
+      msg.includes('unauthorized') ||
+      msg.includes('401') ||
+      msg.includes('authentication') ||
+      name.includes('authenticationerror')
+    ) {
+      return new Error(
+        `Authentication failed: ${details.message}. Check that your API key is valid and has not expired.`,
+      )
+    }
+
+    // Rate limiting / quota errors
+    if (
+      msg.includes('rate limit') ||
+      msg.includes('429') ||
+      msg.includes('too many requests') ||
+      msg.includes('quota') ||
+      code.includes('insufficient_quota')
+    ) {
+      return new Error(
+        `Rate limited or quota exceeded: ${details.message}. Check billing/quota, wait a moment, or reduce request frequency.`,
+      )
+    }
+
+    // Network errors
+    if (
+      msg.includes('econnrefused') ||
+      msg.includes('enotfound') ||
+      msg.includes('network') ||
+      msg.includes('fetch failed') ||
+      msg.includes('timeout') ||
+      msg.includes('econnreset') ||
+      name.includes('aborterror')
+    ) {
+      return new Error(
+        `Network error: ${details.message}. Check your internet connection and that the API endpoint is reachable.`,
+      )
+    }
+
+    return new Error(details.message)
+  }
+
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
     const name = error.name.toLowerCase()
@@ -131,6 +182,57 @@ function classifyError(error: unknown): Error {
   }
 
   return new Error(String(error))
+}
+
+function extractErrorDetails(
+  error: unknown,
+): { message: string; name: string; code?: string } | null {
+  if (error instanceof Error) {
+    const errorWithCode = error as Error & { code?: unknown }
+    return {
+      message: error.message,
+      name: error.name,
+      code: typeof errorWithCode.code === 'string' ? errorWithCode.code : undefined,
+    }
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    const nested =
+      record.error && typeof record.error === 'object'
+        ? (record.error as Record<string, unknown>)
+        : undefined
+
+    const message =
+      pickString(record.message) ??
+      pickString(record.value) ??
+      pickString(nested?.message) ??
+      pickString(nested?.value)
+
+    const code = pickString(record.code) ?? pickString(nested?.code)
+    const name =
+      pickString(record.name) ?? pickString(record.type) ?? pickString(nested?.type) ?? 'Error'
+
+    if (message) {
+      return { message, name, code: code ?? undefined }
+    }
+
+    try {
+      return {
+        message: JSON.stringify(error, null, 2),
+        name: name || 'Error',
+        code: code ?? undefined,
+      }
+    } catch {
+      return { message: String(error), name: name || 'Error', code: code ?? undefined }
+    }
+  }
+
+  return null
+}
+
+function pickString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
 /**

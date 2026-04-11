@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { createProvider } from '@src/llm/provider'
+import { createProvider, patchMalformedToolCallTypes } from '@src/llm/provider'
 import type { ModelConfig } from '@src/llm/provider'
 
 describe('createProvider', () => {
@@ -9,8 +9,10 @@ describe('createProvider', () => {
     // Save and clear relevant env vars
     savedEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
     savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
+    savedEnv.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
     delete process.env.ANTHROPIC_API_KEY
     delete process.env.OPENAI_API_KEY
+    delete process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
   })
 
   afterEach(() => {
@@ -24,6 +26,11 @@ describe('createProvider', () => {
       process.env.OPENAI_API_KEY = savedEnv.OPENAI_API_KEY
     } else {
       delete process.env.OPENAI_API_KEY
+    }
+    if (savedEnv.OUROBOROS_OPENAI_COMPATIBLE_API_KEY !== undefined) {
+      process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = savedEnv.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
+    } else {
+      delete process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
     }
   })
 
@@ -49,6 +56,23 @@ describe('createProvider', () => {
     expect(typeof model.doStream).toBe('function')
   })
 
+  test('uses model.apiKey for Anthropic when env var is absent', () => {
+    const config: ModelConfig = {
+      provider: 'anthropic',
+      name: 'claude-sonnet-4-20250514',
+      apiKey: 'config-anthropic-key',
+      baseUrl: undefined,
+    }
+
+    const result = createProvider(config)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const model = result.value as Record<string, unknown>
+    expect(model.modelId).toBe('claude-sonnet-4-20250514')
+  })
+
   test('creates OpenAI model when API key is set', () => {
     process.env.OPENAI_API_KEY = 'test-openai-key'
 
@@ -70,6 +94,23 @@ describe('createProvider', () => {
     expect(typeof model.doStream).toBe('function')
   })
 
+  test('uses OPENAI_API_KEY env var before model.apiKey for OpenAI', () => {
+    process.env.OPENAI_API_KEY = 'env-openai-key'
+
+    const result = createProvider({
+      provider: 'openai',
+      name: 'gpt-4o',
+      baseUrl: undefined,
+      apiKey: 'config-openai-key',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const model = result.value as Record<string, unknown>
+    expect(model.modelId).toBe('gpt-4o')
+  })
+
   test('creates OpenAI-compatible model with baseUrl', () => {
     const config: ModelConfig = {
       provider: 'openai-compatible',
@@ -85,8 +126,90 @@ describe('createProvider', () => {
     const model = result.value as Record<string, unknown>
     expect(model).toBeDefined()
     expect(model.modelId).toBe('llama-3.1-8b')
+    expect(model.provider).toBe('openai-compatible.chat')
     expect(typeof model.doGenerate).toBe('function')
     expect(typeof model.doStream).toBe('function')
+  })
+
+  test('uses model.apiKey for OpenAI-compatible when env var is absent', () => {
+    const result = createProvider({
+      provider: 'openai-compatible',
+      name: 'llama-3.1-8b',
+      baseUrl: 'http://localhost:11434/v1',
+      apiKey: 'config-compatible-key',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const model = result.value as Record<string, unknown>
+    expect(model.modelId).toBe('llama-3.1-8b')
+  })
+
+  test('uses dedicated env var before model.apiKey for OpenAI-compatible', () => {
+    process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = 'env-compatible-key'
+
+    const result = createProvider({
+      provider: 'openai-compatible',
+      name: 'llama-3.1-8b',
+      baseUrl: 'http://localhost:11434/v1',
+      apiKey: 'config-compatible-key',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const model = result.value as Record<string, unknown>
+    expect(model.modelId).toBe('llama-3.1-8b')
+  })
+
+  test('does not reuse OPENAI_API_KEY for OpenAI-compatible', () => {
+    process.env.OPENAI_API_KEY = 'wrong-openai-key'
+
+    const result = createProvider({
+      provider: 'openai-compatible',
+      name: 'llama-3.1-8b',
+      baseUrl: 'http://localhost:11434/v1',
+      apiKey: 'config-compatible-key',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const model = result.value as Record<string, unknown>
+    expect(model.modelId).toBe('llama-3.1-8b')
+  })
+
+  test('supports explicit OpenAI-compatible completion apiMode', () => {
+    const result = createProvider({
+      provider: 'openai-compatible',
+      name: 'llama-3.1-8b',
+      baseUrl: 'http://localhost:11434/v1',
+      apiMode: 'completion',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const model = result.value as Record<string, unknown>
+    expect(model.modelId).toBe('llama-3.1-8b')
+    expect(model.provider).toBe('openai-compatible.completion')
+  })
+
+  test('supports explicit OpenAI-compatible responses apiMode', () => {
+    const result = createProvider({
+      provider: 'openai-compatible',
+      name: 'llama-3.1-8b',
+      baseUrl: 'http://localhost:11434/v1',
+      apiMode: 'responses',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const model = result.value as Record<string, unknown>
+    expect(model.modelId).toBe('llama-3.1-8b')
+    expect(model.provider).toBe('openai-compatible.responses')
   })
 
   test('returns error when Anthropic API key is missing', () => {
@@ -157,5 +280,59 @@ describe('createProvider', () => {
     expect(result.error).toBeInstanceOf(Error)
     expect(result.error.message).toContain('Unsupported LLM provider')
     expect(result.error.message).toContain('Supported providers')
+  })
+})
+
+describe('patchMalformedToolCallTypes', () => {
+  test('fills in missing function tool-call type for streamed deltas', () => {
+    const payload: Record<string, unknown> = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                type: '',
+                function: {
+                  arguments: ' Brisbane',
+                },
+              },
+            ],
+          },
+        },
+      ],
+    }
+
+    const changed = patchMalformedToolCallTypes(payload)
+
+    expect(changed).toBe(true)
+    expect(
+      (payload.choices as Array<{ delta: { tool_calls: Array<{ type: string }> } }>)[0].delta
+        .tool_calls[0].type,
+    ).toBe('function')
+  })
+
+  test('leaves valid tool-call chunks unchanged', () => {
+    const payload: Record<string, unknown> = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                type: 'function',
+                function: {
+                  arguments: '{}',
+                },
+              },
+            ],
+          },
+        },
+      ],
+    }
+
+    const changed = patchMalformedToolCallTypes(payload)
+
+    expect(changed).toBe(false)
   })
 })
