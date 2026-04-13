@@ -44,6 +44,11 @@ interface MockSession {
 interface MockScenario {
   config?: Json
   apiKeys?: Record<string, string>
+  authStatus?: {
+    connected?: boolean
+    accountId?: string
+    models?: string[]
+  }
   workspace?: string | null
   approvals?: Json[]
   skills?: Json[]
@@ -174,10 +179,68 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
       return
     }
     case 'config/testConnection':
+      if (request.params?.provider === 'openai-chatgpt') {
+        writeResult(
+          request.id,
+          runtime.auth.connected
+            ? { success: true, models: runtime.auth.models }
+            : { success: false, error: 'ChatGPT subscription not connected' },
+        )
+      } else {
+        writeResult(request.id, {
+          success: true,
+          models: ['claude-opus-4-20250514', 'gpt-5.4'],
+        })
+      }
+      return
+    case 'auth/getStatus':
+      writeResult(request.id, getAuthStatus(runtime))
+      return
+    case 'auth/startLogin': {
+      runtime.auth.pending = true
+      runtime.auth.flowId = 'flow-1'
       writeResult(request.id, {
-        success: true,
-        models: ['claude-opus-4-20250514', 'gpt-5.4'],
+        flowId: runtime.auth.flowId,
+        provider: 'openai-chatgpt',
+        method: request.params?.method ?? 'browser',
+        url: 'https://chatgpt.com/login',
+        instructions: 'Open the browser to continue',
+        pending: true,
       })
+      return
+    }
+    case 'auth/pollLogin':
+      if (request.params?.flowId !== runtime.auth.flowId) {
+        writeResponse({
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32001, message: 'Auth flow not found' },
+        })
+        return
+      }
+      if (runtime.auth.pending) {
+        runtime.auth.pending = false
+        runtime.auth.connected = true
+        runtime.auth.accountId ??= 'acct_test'
+      }
+      writeResult(request.id, {
+        ...getAuthStatus(runtime),
+        flowId: runtime.auth.flowId,
+        method: 'browser',
+        success: runtime.auth.connected,
+      })
+      return
+    case 'auth/cancelLogin':
+      runtime.auth.pending = false
+      runtime.auth.flowId = null
+      writeResult(request.id, { cancelled: true })
+      return
+    case 'auth/logout':
+      runtime.auth.connected = false
+      runtime.auth.pending = false
+      runtime.auth.accountId = undefined
+      runtime.auth.flowId = null
+      writeResult(request.id, { ok: true })
       return
     case 'workspace/set':
       runtime.workspace = typeof request.params?.directory === 'string'
@@ -316,6 +379,25 @@ function createRuntimeState(currentScenario: MockScenario) {
     },
     sessions: [...(currentScenario.sessions ?? [])],
     sessionCounter: currentScenario.sessionCounter ?? currentScenario.sessions?.length ?? 0,
+    auth: {
+      connected: currentScenario.authStatus?.connected ?? false,
+      pending: false,
+      flowId: null as string | null,
+      accountId: currentScenario.authStatus?.accountId,
+      models: currentScenario.authStatus?.models ?? ['gpt-5.4', 'gpt-5.4-mini'],
+    },
+  }
+}
+
+function getAuthStatus(runtime: ReturnType<typeof createRuntimeState>): Json {
+  return {
+    provider: 'openai-chatgpt',
+    connected: runtime.auth.connected,
+    authType: runtime.auth.connected ? 'oauth' : null,
+    pending: runtime.auth.pending,
+    accountId: runtime.auth.accountId,
+    availableMethods: ['browser', 'headless'],
+    models: runtime.auth.models,
   }
 }
 

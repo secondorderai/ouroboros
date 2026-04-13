@@ -18,6 +18,8 @@ import { getMemoryIndex } from '@src/memory/index'
 import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
 import type { RSIEvent } from '@src/rsi/types'
 import type { RSIOrchestrator } from '@src/rsi/orchestrator'
+import type { ModeManager } from '@src/modes/manager'
+import type { Plan } from '@src/modes/plan/types'
 
 // ── Event types ──────────────────────────────────────────────────────
 
@@ -39,6 +41,9 @@ export type AgentEvent =
     }
   | { type: 'turn-complete'; text: string; iterations: number }
   | { type: 'error'; error: Error; recoverable: boolean }
+  | { type: 'mode-entered'; modeId: string; displayName: string; reason: string }
+  | { type: 'mode-exited'; modeId: string; reason: string }
+  | { type: 'plan-submitted'; plan: Plan }
   | RSIEvent
 
 /** Callback function for agent events. */
@@ -63,6 +68,8 @@ export interface AgentOptions {
   skillCatalogProvider?: () => SkillCatalogEntry[]
   /** RSI orchestrator instance (initialized lazily, only if RSI is enabled) */
   rsiOrchestrator?: RSIOrchestrator
+  /** Mode manager for behavioral overlays (plan mode, etc.) */
+  modeManager?: ModeManager
 }
 
 // ── Agent result ─────────────────────────────────────────────────────
@@ -91,6 +98,7 @@ export class Agent {
   private memoryProvider: () => string
   private skillCatalogProvider: () => SkillCatalogEntry[]
   private rsiOrchestrator: RSIOrchestrator | null
+  private modeManager: ModeManager | null
 
   /** Conversation history persisted across run() calls within a session. */
   private conversationHistory: LLMMessage[] = []
@@ -109,6 +117,7 @@ export class Agent {
       })
     this.skillCatalogProvider = options.skillCatalogProvider ?? getSkillCatalog
     this.rsiOrchestrator = options.rsiOrchestrator ?? null
+    this.modeManager = options.modeManager ?? null
   }
 
   /**
@@ -320,7 +329,16 @@ export class Agent {
       description: s.description,
     }))
 
-    return this.systemPromptBuilder({ tools, skills, memory, responseStyle: options.responseStyle })
+    // Get mode overlay (active mode section or auto-detection hints)
+    const modeOverlay = this.modeManager?.getPromptOverlay() ?? undefined
+
+    return this.systemPromptBuilder({
+      tools,
+      skills,
+      memory,
+      responseStyle: options.responseStyle,
+      modeOverlay,
+    })
   }
 
   /**
@@ -328,7 +346,13 @@ export class Agent {
    * used by streamResponse().
    */
   private buildToolDefinitions(): Record<string, LLMToolSpec> {
-    const tools = this.toolRegistry.getTools()
+    let tools = this.toolRegistry.getTools()
+
+    // Filter tools based on active mode (if any)
+    if (this.modeManager) {
+      tools = this.modeManager.filterTools(tools)
+    }
+
     const defs: Record<string, LLMToolSpec> = {}
 
     for (const tool of tools) {
@@ -398,6 +422,24 @@ export class Agent {
   ): Promise<Array<{ toolCallId: string; toolName: string; result: unknown }>> {
     const results = await Promise.all(
       toolCalls.map(async (tc) => {
+        // Intercept bash commands in active mode (e.g. block writes in plan mode)
+        if (tc.toolName === 'bash' && this.modeManager) {
+          const command = (tc.input as Record<string, unknown>).command
+          if (typeof command === 'string') {
+            const blocked = this.modeManager.interceptBash(command)
+            if (blocked) {
+              this.emitEvent({
+                type: 'tool-call-end',
+                toolCallId: tc.toolCallId,
+                toolName: tc.toolName,
+                result: blocked,
+                isError: true,
+              })
+              return { toolCallId: tc.toolCallId, toolName: tc.toolName, result: blocked }
+            }
+          }
+        }
+
         const execResult = await this.toolRegistry.executeTool(tc.toolName, tc.input)
 
         const isError = !execResult.ok

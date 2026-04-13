@@ -12,7 +12,7 @@ export const configSchema = z.object({
   model: z
     .object({
       provider: z
-        .enum(['anthropic', 'openai', 'openai-compatible'])
+        .enum(['anthropic', 'openai', 'openai-compatible', 'openai-chatgpt'])
         .default('anthropic')
         .describe('LLM provider to use'),
       name: z.string().default('claude-sonnet-4-20250514').describe('Model name/identifier'),

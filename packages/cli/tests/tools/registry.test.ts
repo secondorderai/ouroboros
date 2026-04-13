@@ -176,7 +176,9 @@ describe('ToolRegistry', () => {
       'bash',
       'crystallize',
       'dream',
+      'enter-mode',
       'evolution',
+      'exit-mode',
       'file-edit',
       'file-read',
       'file-write',
@@ -185,11 +187,12 @@ describe('ToolRegistry', () => {
       'self-test',
       'skill-gen',
       'skill-manager',
+      'submit-plan',
       'todo',
       'web-fetch',
       'web-search',
     ])
-    expect(bundledRegistry.size).toBe(16)
+    expect(bundledRegistry.size).toBe(19)
   })
 
   test('all built-in tools produce JSON Schema with type: "object" (AI SDK requirement)', async () => {

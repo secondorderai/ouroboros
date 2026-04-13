@@ -7,6 +7,7 @@ import type { ToolDefinition } from '@src/tools/types'
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 import { Renderer } from '@src/cli/renderer'
+import { parseModelFlag } from '@src/cli/model-flag'
 import { createRSIEventHandler } from '@src/cli/rsi-output'
 import { createSingleShotHandler } from '@src/cli/single-shot'
 
@@ -389,74 +390,46 @@ describe('CLI', () => {
   // Test: Model flag overrides config
   // -------------------------------------------------------------------
   describe('model flag overrides config', () => {
-    test('parseModelFlag correctly parses provider/model format', async () => {
-      // We test the parseModelFlag logic indirectly by verifying that
-      // the Agent is created with the correct model when the flag is used.
-      // Since createProvider requires API keys, we test the parsing logic directly.
+    test('parseModelFlag parses explicit providers', () => {
+      const openAIResult = parseModelFlag('openai/gpt-4o')
+      expect(openAIResult.ok).toBe(true)
+      if (openAIResult.ok) {
+        expect(openAIResult.value).toEqual({ provider: 'openai', name: 'gpt-4o' })
+      }
 
-      // Import parseModelFlag — it's not exported, so we test via the integration
-      // path. Instead, we verify the agent receives the correct model by checking
-      // that the mock model's provider matches.
+      const chatGPTResult = parseModelFlag('openai-chatgpt/gpt-5.4')
+      expect(chatGPTResult.ok).toBe(true)
+      if (chatGPTResult.ok) {
+        expect(chatGPTResult.value).toEqual({ provider: 'openai-chatgpt', name: 'gpt-5.4' })
+      }
 
-      const model = createMockModel([
-        [
-          { type: 'text-start', id: 'tx5' },
-          { type: 'text-delta', id: 'tx5', delta: 'test' },
-          { type: 'text-end', id: 'tx5' },
-          {
-            type: 'finish',
-            finishReason: { unified: 'stop', raw: 'stop' },
-            usage: {
-              inputTokens: {
-                total: 5,
-                noCache: undefined,
-                cacheRead: undefined,
-                cacheWrite: undefined,
-              },
-              outputTokens: { total: 1, text: undefined, reasoning: undefined },
-            },
-          },
-        ],
-      ])
-
-      // Verify the mock model has the expected provider
-      const m = model as Record<string, unknown>
-      expect(m.provider).toBe('mock')
-      expect(m.modelId).toBe('mock-model')
-
-      // The actual model override is tested by creating an agent with a different model
-      // and verifying it uses that model for generation
-      const { handler } = collectEvents()
-      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
-
-      const result = await agent.run('test')
-      expect(result.text).toBe('test')
-
-      // Verify the agent used our mock model (the mock model returns predetermined responses)
-      expect(result.iterations).toBe(1)
+      const anthropicResult = parseModelFlag('anthropic/claude-sonnet-4-20250514')
+      expect(anthropicResult.ok).toBe(true)
+      if (anthropicResult.ok) {
+        expect(anthropicResult.value).toEqual({
+          provider: 'anthropic',
+          name: 'claude-sonnet-4-20250514',
+        })
+      }
     })
 
-    test('model flag with openai provider creates correct config', () => {
-      // Test the parsing logic for various model flag formats
-      // We import and test the parse function directly
+    test('parseModelFlag defaults to anthropic without provider prefix', () => {
+      const result = parseModelFlag('claude-sonnet-4-20250514')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
 
-      // Format: provider/model
-      const input1 = 'openai/gpt-4o'
-      const parts1 = input1.split('/')
-      expect(parts1[0]).toBe('openai')
-      expect(parts1[1]).toBe('gpt-4o')
+      expect(result.value).toEqual({
+        provider: 'anthropic',
+        name: 'claude-sonnet-4-20250514',
+      })
+    })
 
-      // Format: model only (no provider)
-      const input2 = 'claude-sonnet-4-20250514'
-      const parts2 = input2.split('/')
-      expect(parts2.length).toBe(1)
-      expect(parts2[0]).toBe('claude-sonnet-4-20250514')
+    test('parseModelFlag rejects unknown providers', () => {
+      const result = parseModelFlag('invalid/model')
+      expect(result.ok).toBe(false)
+      if (result.ok) return
 
-      // Format: anthropic/model
-      const input3 = 'anthropic/claude-sonnet-4-20250514'
-      const parts3 = input3.split('/')
-      expect(parts3[0]).toBe('anthropic')
-      expect(parts3[1]).toBe('claude-sonnet-4-20250514')
+      expect(result.error.message).toContain('Invalid provider')
     })
   })
 

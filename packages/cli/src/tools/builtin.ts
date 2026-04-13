@@ -17,6 +17,11 @@ import * as todoTool from './todo'
 import * as webFetchTool from './web-fetch'
 import * as webSearchTool from './web-search'
 
+// Mode tools
+import * as enterModeTool from '@src/modes/tools/enter-mode'
+import * as submitPlanTool from '@src/modes/tools/submit-plan'
+import * as exitModeTool from '@src/modes/tools/exit-mode'
+
 export const BUILTIN_TOOLS: ToolDefinition[] = [
   askUserTool,
   bashTool,
@@ -34,4 +39,8 @@ export const BUILTIN_TOOLS: ToolDefinition[] = [
   todoTool,
   webFetchTool,
   webSearchTool,
+  // Mode system
+  enterModeTool,
+  submitPlanTool,
+  exitModeTool,
 ] as ToolDefinition[]

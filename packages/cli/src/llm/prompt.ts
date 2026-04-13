@@ -40,6 +40,8 @@ export interface BuildSystemPromptOptions {
   rsiEnabled?: boolean
   /** Optional response-style guidance for a specific client surface */
   responseStyle?: 'default' | 'desktop-readable'
+  /** Mode overlay — active mode section or auto-detection hints */
+  modeOverlay?: { section?: string; autoDetectionHints: string[] }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,15 @@ The current client is a desktop chat interface optimized for reading longer answ
 - Prefer short paragraphs and clear headings over bulleting every sentence.`
 }
 
+function formatModeSection(section: string): string {
+  // The section already includes its own heading (e.g. "## Active Mode: Plan")
+  return section
+}
+
+function formatAutoDetectionSection(hints: string[]): string {
+  return `## Mode Awareness\n\nYou have access to specialized modes that change your behavior for specific tasks.\n\n${hints.join('\n\n')}`
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -156,12 +167,19 @@ The current client is a desktop chat interface optimized for reading longer answ
  * @returns A plain string system prompt ready for any LLM provider
  */
 export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): string {
-  const { tools, skills, memory, rsiEnabled, responseStyle } = options
+  const { tools, skills, memory, rsiEnabled, responseStyle, modeOverlay } = options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
 
   if (responseStyle === 'desktop-readable') {
     sections.push(formatResponseStyleSection(responseStyle))
+  }
+
+  // Inject mode overlay: either the active mode's prompt or auto-detection hints
+  if (modeOverlay?.section) {
+    sections.push(formatModeSection(modeOverlay.section))
+  } else if (modeOverlay?.autoDetectionHints && modeOverlay.autoDetectionHints.length > 0) {
+    sections.push(formatAutoDetectionSection(modeOverlay.autoDetectionHints))
   }
 
   if (tools && tools.length > 0) {
