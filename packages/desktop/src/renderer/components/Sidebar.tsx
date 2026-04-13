@@ -8,6 +8,8 @@ import type { SessionData, SessionInfo } from '../../shared/protocol'
 
 interface SidebarProps {
   isOpen: boolean
+  width: number
+  onResize: (width: number) => void
   onOpenSettings: () => void
 }
 
@@ -74,6 +76,8 @@ function relativeTime(dateStr: string): string {
 
 export function Sidebar({
   isOpen,
+  width,
+  onResize,
   onOpenSettings,
 }: SidebarProps): React.ReactElement {
   const sessions = useConversationStore((s) => s.sessions)
@@ -91,6 +95,7 @@ export function Sidebar({
   } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
 
   // ---- Load sessions on mount -----------------------------------------------
 
@@ -214,6 +219,40 @@ export function Sidebar({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [confirmDelete])
 
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      const resizeState = resizeStateRef.current
+      if (!resizeState) return
+      onResize(resizeState.startWidth + (e.clientX - resizeState.startX))
+    }
+
+    const stopResizing = () => {
+      resizeStateRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResizing)
+    window.addEventListener('pointercancel', stopResizing)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResizing)
+      window.removeEventListener('pointercancel', stopResizing)
+      stopResizing()
+    }
+  }, [onResize])
+
+  const handleResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isOpen) return
+    resizeStateRef.current = { startX: e.clientX, startWidth: width }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    e.currentTarget.setPointerCapture(e.pointerId)
+    e.preventDefault()
+  }, [isOpen, width])
+
   // ---- Render ---------------------------------------------------------------
 
   const dateGroups = groupSessionsByDate(sessions)
@@ -222,14 +261,14 @@ export function Sidebar({
     <div
       style={{
         ...styles.sidebar,
-        width: isOpen ? 'var(--sidebar-width)' : 0,
-        minWidth: isOpen ? 'var(--sidebar-width)' : 0,
+        width: isOpen ? width : 0,
+        minWidth: isOpen ? width : 0,
         opacity: isOpen ? 1 : 0,
         overflow: 'hidden',
       }}
       className="no-select"
     >
-      <div style={styles.content}>
+      <div style={{ ...styles.content, width }}>
         <div style={styles.header}>
           <span style={styles.headerText}>Sessions</span>
           <button
@@ -256,6 +295,7 @@ export function Sidebar({
                     key={session.id}
                     session={session}
                     isActive={session.id === currentSessionId}
+                    width={width}
                     onClick={() => handleLoadSession(session.id)}
                     onContextMenu={(e) => handleContextMenu(e, session.id)}
                   />
@@ -318,6 +358,22 @@ export function Sidebar({
           </div>
         </div>
       )}
+
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuemin={250}
+        aria-valuemax={560}
+        aria-valuenow={width}
+        style={{
+          ...styles.resizeHandle,
+          opacity: isOpen ? 1 : 0,
+          pointerEvents: isOpen ? 'auto' : 'none',
+        }}
+        className="no-drag"
+        onPointerDown={handleResizeStart}
+      />
     </div>
   )
 }
@@ -329,17 +385,18 @@ export function Sidebar({
 function SessionItem({
   session,
   isActive,
+  width,
   onClick,
   onContextMenu,
 }: {
   session: SessionInfo
   isActive: boolean
+  width: number
   onClick: () => void
   onContextMenu: (e: React.MouseEvent) => void
 }): React.ReactElement {
-  const title = session.title
-    ? session.title.slice(0, 50)
-    : 'New conversation'
+  const title = session.title || 'New conversation'
+  const lineClamp = width >= 460 ? 4 : width >= 360 ? 3 : 2
 
   return (
     <button
@@ -353,7 +410,15 @@ function SessionItem({
       aria-label={`Session: ${title}`}
       aria-current={isActive ? 'true' : undefined}
     >
-      <div style={styles.sessionTitle}>{title}</div>
+      <div
+        style={{
+          ...styles.sessionTitle,
+          WebkitLineClamp: lineClamp,
+          maxHeight: `${lineClamp * 1.3}em`,
+        }}
+      >
+        {title}
+      </div>
       <div style={styles.sessionMeta}>
         <span style={styles.sessionTime}>{relativeTime(session.lastActive)}</span>
         {session.messageCount > 0 && (
@@ -444,7 +509,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    width: 250,
     overflow: 'hidden',
   },
   header: {
@@ -510,9 +574,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     color: 'var(--text-primary)',
     overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
     lineHeight: 1.3,
+    wordBreak: 'break-word',
   },
   sessionMeta: {
     display: 'flex',
@@ -626,6 +691,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-sans)',
     fontWeight: 500,
     cursor: 'pointer',
+  },
+  resizeHandle: {
+    position: 'absolute',
+    top: 0,
+    right: -4,
+    width: 8,
+    height: '100%',
+    cursor: 'col-resize',
+    zIndex: 2,
   },
   footer: {
     padding: '12px',

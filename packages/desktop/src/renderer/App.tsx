@@ -18,7 +18,20 @@ import { useApprovals } from './stores/approvalStore'
 
 // Keys for persisting state
 const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
+const SIDEBAR_WIDTH_KEY = 'ouroboros:sidebar-width'
 const ONBOARDING_DONE_KEY = 'ouroboros:onboarding-done'
+
+const DEFAULT_SIDEBAR_WIDTH = 250
+const MIN_SIDEBAR_WIDTH = 250
+const MAX_SIDEBAR_WIDTH = 560
+
+function clampSidebarWidth(width: number, viewportWidth: number): number {
+  const maxAllowedWidth = Math.max(
+    MIN_SIDEBAR_WIDTH,
+    Math.min(MAX_SIDEBAR_WIDTH, viewportWidth - 320),
+  )
+  return Math.min(Math.max(width, MIN_SIDEBAR_WIDTH), maxAllowedWidth)
+}
 
 export function App(): React.ReactElement {
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme()
@@ -48,6 +61,16 @@ export function App(): React.ReactElement {
       return stored !== null ? stored === 'true' : true
     } catch {
       return true
+    }
+  })
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
+      const parsed = stored ? Number.parseInt(stored, 10) : DEFAULT_SIDEBAR_WIDTH
+      const initialWidth = Number.isFinite(parsed) ? parsed : DEFAULT_SIDEBAR_WIDTH
+      return clampSidebarWidth(initialWidth, window.innerWidth)
+    } catch {
+      return DEFAULT_SIDEBAR_WIDTH
     }
   })
 
@@ -91,8 +114,20 @@ export function App(): React.ReactElement {
     }
   }, [sidebarOpen])
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth))
+    } catch {
+      // ignore
+    }
+  }, [sidebarWidth])
+
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => !prev)
+  }, [])
+
+  const resizeSidebar = useCallback((width: number) => {
+    setSidebarWidth(clampSidebarWidth(width, window.innerWidth))
   }, [])
 
   // Listen for sidebar toggle from menu accelerator (Cmd/Ctrl+B)
@@ -117,6 +152,15 @@ export function App(): React.ReactElement {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    const handleResize = () => {
+      setSidebarWidth((prev) => clampSidebarWidth(prev, window.innerWidth))
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   // Fetch config on mount to populate model name
@@ -245,8 +289,18 @@ export function App(): React.ReactElement {
         onSerpentClick={rsi.openDrawer}
         pendingApprovals={pendingApprovals.length}
       />
-      <div style={styles.body}>
-        <Sidebar isOpen={sidebarOpen} onOpenSettings={() => openSettings()} />
+      <div
+        style={{
+          ...styles.body,
+          ['--sidebar-width' as string]: `${sidebarWidth}px`,
+        }}
+      >
+        <Sidebar
+          isOpen={sidebarOpen}
+          width={sidebarWidth}
+          onResize={resizeSidebar}
+          onOpenSettings={() => openSettings()}
+        />
         <div
           style={styles.main}
           onDragEnter={handleDragEnter}
