@@ -309,6 +309,48 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('workspace/set changes AGENTS.md prompt context for subsequent runs', async () => {
+      const baseDir = join(tmpdir(), `ouroboros-jsonrpc-agents-${crypto.randomUUID()}`)
+      const rootDir = join(baseDir, 'root')
+      const nestedDir = join(rootDir, 'packages', 'app')
+      mkdirSync(nestedDir, { recursive: true })
+      writeFileSync(join(rootDir, 'AGENTS.md'), '# Root\n\nRoot rules.')
+      writeFileSync(join(nestedDir, 'AGENTS.md'), '# Nested\n\nNested rules.')
+
+      const promptCalls: Array<Record<string, unknown>> = []
+      const ctx = createTestContext({
+        configDir: baseDir,
+        agentOptions: {
+          systemPromptBuilder: (options) => {
+            promptCalls.push(options as Record<string, unknown>)
+            return 'You are a test assistant.'
+          },
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      const workspaceHandler = handlers.get('workspace/set')!
+      const runHandler = handlers.get('agent/run')!
+
+      const originalCwd = process.cwd()
+      try {
+        await workspaceHandler({ directory: rootDir })
+        await runHandler({ message: 'First run' })
+        await workspaceHandler({ directory: nestedDir })
+        await runHandler({ message: 'Second run' })
+      } finally {
+        process.chdir(originalCwd)
+        rmSync(baseDir, { recursive: true, force: true })
+        ctx.transcriptStore.close()
+      }
+
+      expect(promptCalls).toHaveLength(2)
+      expect(String(promptCalls[0]?.agentsInstructions ?? '')).toContain('Root rules.')
+      expect(String(promptCalls[0]?.agentsInstructions ?? '')).not.toContain('Nested rules.')
+      expect(String(promptCalls[1]?.agentsInstructions ?? '')).toContain('Root rules.')
+      expect(String(promptCalls[1]?.agentsInstructions ?? '')).toContain('Nested rules.')
+    })
+
     test('agent/run accepts desktop response-style hints', async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const ctx = createTestContext({

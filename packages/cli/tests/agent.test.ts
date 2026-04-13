@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { Agent, type AgentEvent, type AgentOptions } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
@@ -6,6 +6,9 @@ import { ok } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -87,9 +90,15 @@ function makeAgentOptions(
 
 describe('Agent', () => {
   let registry: ToolRegistry
+  let originalCwd: string
 
   beforeEach(() => {
     registry = new ToolRegistry()
+    originalCwd = process.cwd()
+  })
+
+  afterEach(() => {
+    process.chdir(originalCwd)
   })
 
   // -------------------------------------------------------------------
@@ -805,8 +814,16 @@ describe('Agent', () => {
   })
 
   describe('system prompt building', () => {
-    test('system prompt builder is called with tools, skills, and memory', async () => {
+    test('system prompt builder is called with tools, skills, memory, and AGENTS.md instructions', async () => {
       registry.register(makeTool('test-tool'))
+
+      const tempDir = join(
+        tmpdir(),
+        `ouroboros-agent-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      )
+      mkdirSync(tempDir, { recursive: true })
+      writeFileSync(join(tempDir, 'AGENTS.md'), '# Root instructions\n\nFollow repo rules.')
+      process.chdir(tempDir)
 
       let capturedOptions: unknown = null
       const model = createMockModel([
@@ -830,26 +847,36 @@ describe('Agent', () => {
         ],
       ])
 
-      const agent = new Agent(
-        makeAgentOptions(model, registry, {
-          systemPromptBuilder: (opts) => {
-            capturedOptions = opts
-            return 'Test system prompt'
-          },
-          memoryProvider: () => 'Test memory content',
-          skillCatalogProvider: () => [
-            { name: 'test-skill', description: 'A test skill', status: 'core' as const },
-          ],
-        }),
-      )
+      try {
+        const agent = new Agent(
+          makeAgentOptions(model, registry, {
+            systemPromptBuilder: (opts) => {
+              capturedOptions = opts
+              return 'Test system prompt'
+            },
+            memoryProvider: () => 'Test memory content',
+            skillCatalogProvider: () => [
+              { name: 'test-skill', description: 'A test skill', status: 'core' as const },
+            ],
+          }),
+        )
 
-      await agent.run('Test')
+        await agent.run('Test')
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
 
       expect(capturedOptions).toBeDefined()
-      const opts = capturedOptions as { tools: unknown[]; skills: unknown[]; memory: string }
+      const opts = capturedOptions as {
+        tools: unknown[]
+        skills: unknown[]
+        memory: string
+        agentsInstructions: string
+      }
       expect(opts.tools).toHaveLength(1)
       expect(opts.skills).toHaveLength(1)
       expect(opts.memory).toBe('Test memory content')
+      expect(opts.agentsInstructions).toContain('Follow repo rules.')
     })
   })
 })

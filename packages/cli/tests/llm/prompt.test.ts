@@ -143,6 +143,17 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('2026-04-01: Initial setup and configuration')
   })
 
+  test('AGENTS.md instructions are injected', () => {
+    const prompt = buildSystemPrompt({
+      agentsInstructions:
+        '### ancestor: /repo/AGENTS.md\n\nRoot policy.\n\n### nearest: /repo/pkg/AGENTS.md\n\nPackage policy.',
+    })
+
+    expect(prompt).toContain('## AGENTS.md Instructions')
+    expect(prompt).toContain('Root policy.')
+    expect(prompt).toContain('Package policy.')
+  })
+
   // -------------------------------------------------------------------------
   // Feature Test: Empty sections are omitted
   // -------------------------------------------------------------------------
