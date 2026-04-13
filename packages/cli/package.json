@@ -8,7 +8,7 @@
     "ouroboros": "dist/ouroboros"
   },
   "scripts": {
-    "dev": "bun run --watch src/cli.ts",
+    "dev": "bash scripts/dev.sh",
     "dev-run": "bun run src/cli.ts",
     "build": "bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/ouroboros",
     "start": "./dist/ouroboros",

@@ -1,20 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { loadConfig } from '@src/config'
 
 const REPO_ROOT = join(import.meta.dir, '..', '..', '..')
 const ROOT_PACKAGE_JSON = join(REPO_ROOT, 'package.json')
-const ROOT_CONFIG_JSON = join(REPO_ROOT, '.ouroboros')
 
 interface RootPackageJson {
   scripts?: Record<string, string>
-}
-
-interface RootConfig {
-  model?: {
-    provider?: string
-    name?: string
-  }
 }
 
 function readJsonFile<T>(path: string): T {
@@ -28,6 +22,37 @@ async function runRootDevInPty(): Promise<{ stdout: string; stderr: string; exit
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+    },
+  )
+
+  const timeout = setTimeout(() => {
+    proc.kill()
+  }, 15_000)
+
+  const exitCode = await proc.exited
+  clearTimeout(timeout)
+
+  const stdout = await new Response(proc.stdout).text()
+  const stderr = await new Response(proc.stderr).text()
+
+  return { stdout, stderr, exitCode }
+}
+
+async function runCliPackageDevCommand(
+  args: string[],
+  env: Record<string, string>,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const quotedArgs = args.map((arg) => JSON.stringify(arg)).join(' ')
+  const proc = Bun.spawn(
+    ['sh', '-lc', `cd "${join(REPO_ROOT, 'packages', 'cli')}" && bun run dev -- ${quotedArgs}`],
+    {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...process.env,
+        ...env,
+      },
     },
   )
 
@@ -60,9 +85,12 @@ describe('root dev workflow regressions', () => {
       return
     }
 
-    const config = readJsonFile<RootConfig>(ROOT_CONFIG_JSON)
-    const provider = config.model?.provider
-    const model = config.model?.name
+    const configResult = loadConfig(join(REPO_ROOT, 'packages', 'cli'))
+    expect(configResult.ok).toBe(true)
+    if (!configResult.ok) return
+
+    const provider = configResult.value.model.provider
+    const model = configResult.value.model.name
 
     expect(typeof provider).toBe('string')
     expect(typeof model).toBe('string')
@@ -78,5 +106,24 @@ describe('root dev workflow regressions', () => {
     expect(combined).not.toContain('How can I help?')
     expect(combined).not.toContain('Hi — what would you like me to do?')
     expect(combined).not.toContain('Usage:')
+  })
+
+  test('packages/cli bun run dev -- auth list runs once instead of staying in watch mode', async () => {
+    if (process.platform === 'win32') {
+      return
+    }
+
+    const tempDir = mkdtempSync(join(tmpdir(), 'ouroboros-auth-list-'))
+    const authFile = join(tempDir, 'auth.json')
+
+    const result = await runCliPackageDevCommand(['auth', 'list'], {
+      OUROBOROS_AUTH_FILE: authFile,
+    })
+    const combined = result.stdout + result.stderr
+
+    expect(result.exitCode).toBe(0)
+    expect(combined).toContain('No stored provider authentication.')
+    expect(combined).not.toContain('Ouroboros v0.1.0')
+    expect(combined).not.toContain('Type your message. Ctrl+C to cancel, Ctrl+C twice to exit.')
   })
 })

@@ -138,18 +138,37 @@ export async function completeOnboarding(
   page: Page,
   options: {
     apiKey?: string
+    provider?: 'anthropic' | 'openai' | 'openai-chatgpt' | 'openai-compatible'
     workspace?: string
     templateName?: 'Help me with a project' | 'Explore this codebase' | 'General assistant' | 'Let the agent evolve'
   } = {},
 ): Promise<void> {
   const apiKey = options.apiKey ?? 'sk-test-key'
+  const provider = options.provider ?? 'anthropic'
   const workspace = options.workspace
   const templateName = options.templateName ?? 'Help me with a project'
 
   await expect(page.getByRole('heading', { name: 'Connect your AI' })).toBeVisible()
-  await page.getByPlaceholder('sk-...').fill(apiKey)
-  await page.getByRole('button', { name: 'Test Connection' }).click()
-  await expect(page.getByText('Connected')).toBeVisible()
+
+  if (provider !== 'anthropic') {
+    const providerLabel =
+      provider === 'openai-chatgpt'
+        ? 'ChatGPT Subscription'
+        : provider === 'openai-compatible'
+          ? 'OpenAI-compatible'
+          : 'OpenAI API'
+    await page.getByText(providerLabel, { exact: true }).click()
+  }
+
+  if (provider === 'openai-chatgpt') {
+    await page.getByRole('button', { name: 'Sign in with ChatGPT' }).click()
+    await expect(page.getByText(/Connected/)).toBeVisible()
+  } else {
+    await page.getByPlaceholder('sk-...').fill(apiKey)
+    await page.getByRole('button', { name: 'Test Connection' }).click()
+    await expect(page.getByText('Connected')).toBeVisible()
+  }
+
   await page.getByRole('button', { name: 'Next' }).click()
 
   if (workspace) {

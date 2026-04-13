@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { streamResponse, generateResponse, toModelMsgs } from '@src/llm/streaming'
+import { OPENAI_CHATGPT_PROVIDER } from '@src/auth/openai-chatgpt'
 import type { LLMMessage, StreamChunk, LLMCallOptions } from '@src/llm/types'
 import type { LanguageModelV3FinishReason, LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
@@ -374,6 +375,92 @@ describe('streamResponse', () => {
     expect(errorChunk.error.message).toContain('You exceeded your current quota.')
     expect(errorChunk.error.message).not.toContain('[object Object]')
   })
+
+  test('maps chatgpt system prompts to openai instructions', async () => {
+    let capturedSystem: unknown
+    let capturedProviderOptions: unknown
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.4',
+      supportedUrls: {},
+      doGenerate: async () => {
+        throw new Error('Not implemented')
+      },
+      doStream: async (options: Record<string, unknown>) => {
+        capturedSystem = options.prompt
+        capturedProviderOptions = options.providerOptions
+
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
+            },
+          }),
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = streamResponse(model, testMessages, { system: 'Be precise.' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    for await (const _chunk of result.value.stream) {
+      // Exhaust stream to force the provider call.
+    }
+
+    expect(capturedSystem).toBeDefined()
+    expect(capturedProviderOptions).toEqual({
+      openai: {
+        store: false,
+        instructions: 'Be precise.',
+      },
+    })
+  })
+
+  test('forces chatgpt responses store off even without system prompt', async () => {
+    let capturedProviderOptions: unknown
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.4',
+      supportedUrls: {},
+      doGenerate: async () => {
+        throw new Error('Not implemented')
+      },
+      doStream: async (options: Record<string, unknown>) => {
+        capturedProviderOptions = options.providerOptions
+
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
+            },
+          }),
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = streamResponse(model, [{ role: 'user', content: 'Hello' }])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    for await (const _chunk of result.value.stream) {
+      // Exhaust stream to force the provider call.
+    }
+
+    expect(capturedProviderOptions).toEqual({
+      openai: {
+        store: false,
+      },
+    })
+  })
 })
 
 describe('generateResponse', () => {
@@ -480,6 +567,94 @@ describe('generateResponse', () => {
     expect(result.error.message).toContain('Rate limited or quota exceeded')
     expect(result.error.message).toContain('You exceeded your current quota.')
     expect(result.error.message).not.toContain('[object Object]')
+  })
+
+  test('maps chatgpt system prompts to openai instructions', async () => {
+    let capturedSystem: unknown
+    let capturedProviderOptions: unknown
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.4',
+      supportedUrls: {},
+      doGenerate: async (options: Record<string, unknown>) => {
+        capturedSystem = options.prompt
+        capturedProviderOptions = options.providerOptions
+
+        return {
+          content: [{ type: 'text', id: 'gen', text: 'ok' }],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: {
+            inputTokens: {
+              total: 1,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 1, text: undefined, reasoning: undefined },
+          },
+          warnings: [],
+        }
+      },
+      doStream: async () => {
+        throw new Error('Not implemented')
+      },
+    } as unknown as LanguageModel
+
+    const result = await generateResponse(model, testMessages, { system: 'Be precise.' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(capturedSystem).toBeDefined()
+    expect(capturedProviderOptions).toEqual({
+      openai: {
+        store: false,
+        instructions: 'Be precise.',
+      },
+    })
+  })
+
+  test('forces chatgpt responses store off even without system prompt', async () => {
+    let capturedProviderOptions: unknown
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.4',
+      supportedUrls: {},
+      doGenerate: async (options: Record<string, unknown>) => {
+        capturedProviderOptions = options.providerOptions
+
+        return {
+          content: [{ type: 'text', id: 'gen', text: 'ok' }],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: {
+            inputTokens: {
+              total: 1,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 1, text: undefined, reasoning: undefined },
+          },
+          warnings: [],
+        }
+      },
+      doStream: async () => {
+        throw new Error('Not implemented')
+      },
+    } as unknown as LanguageModel
+
+    const result = await generateResponse(model, [{ role: 'user', content: 'Hello' }])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(capturedProviderOptions).toEqual({
+      openai: {
+        store: false,
+      },
+    })
   })
 })
 

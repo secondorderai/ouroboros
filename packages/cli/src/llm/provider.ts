@@ -7,13 +7,20 @@
 
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
+import {
+  createOpenAIChatGPTFetch,
+  isSupportedOpenAIChatGPTModel,
+  OPENAI_CHATGPT_OAUTH_DUMMY_KEY,
+  OPENAI_CHATGPT_PROVIDER,
+} from '@src/auth/openai-chatgpt'
+import { getAuth } from '@src/auth'
 import type { LanguageModel } from 'ai'
 import type { OuroborosConfig } from '@src/config'
 import { type Result, ok, err } from '@src/types'
 
 export type ModelConfig = OuroborosConfig['model']
 
-const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'openai-compatible'] as const
+const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'openai-compatible', 'openai-chatgpt'] as const
 const DEBUG_HTTP_ENV = 'OUROBOROS_DEBUG_HTTP'
 type OpenAIFetch = NonNullable<Parameters<typeof createOpenAI>[0]>['fetch']
 
@@ -24,6 +31,7 @@ type OpenAIFetch = NonNullable<Parameters<typeof createOpenAI>[0]>['fetch']
  *   - Anthropic: ANTHROPIC_API_KEY, then model.apiKey
  *   - OpenAI: OPENAI_API_KEY, then model.apiKey
  *   - OpenAI-compatible: OUROBOROS_OPENAI_COMPATIBLE_API_KEY, then model.apiKey
+ *   - OpenAI ChatGPT: OAuth auth store managed via `ouroboros auth`
  *
  * @returns A Result containing either a LanguageModel or a descriptive error
  */
@@ -93,6 +101,35 @@ export function createProvider(modelConfig: ModelConfig): Result<LanguageModel> 
       }
     }
 
+    case OPENAI_CHATGPT_PROVIDER: {
+      if (!isSupportedOpenAIChatGPTModel(modelId)) {
+        return err(
+          new Error(
+            `Unsupported ChatGPT subscription model "${modelId}". ` +
+              'Choose one of the supported Codex models in settings or via --model.',
+          ),
+        )
+      }
+      const authResult = getAuth(OPENAI_CHATGPT_PROVIDER)
+      if (!authResult.ok) {
+        return authResult
+      }
+      if (!authResult.value) {
+        return err(
+          new Error(
+            'Missing ChatGPT subscription login. Run `ouroboros auth login --provider openai-chatgpt` first.',
+          ),
+        )
+      }
+
+      const openai = createOpenAI({
+        name: OPENAI_CHATGPT_PROVIDER,
+        apiKey: OPENAI_CHATGPT_OAUTH_DUMMY_KEY,
+        fetch: createOpenAIChatGPTFetch(createProviderFetch(OPENAI_CHATGPT_PROVIDER)),
+      })
+      return ok(openai.responses(modelId))
+    }
+
     default: {
       // Exhaustiveness — if a new provider is added to the config schema
       // but not handled here, TypeScript will catch it at compile time.
@@ -158,7 +195,9 @@ function createProviderFetch(provider: string): OpenAIFetch {
     return response
   }
 
-  return debugFetch as OpenAIFetch
+  const providerFetch = debugFetch as unknown as typeof fetch
+  providerFetch.preconnect = fetch.preconnect.bind(fetch)
+  return providerFetch as OpenAIFetch
 }
 
 function sanitizeOpenAICompatibleResponse(response: Response): Response {

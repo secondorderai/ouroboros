@@ -12,9 +12,10 @@ Built on this harness, Ouroboros ships with a recursive self-improvement layer: 
 ### Prerequisites
 
 - [Bun](https://bun.sh) v1.3+
-- An API key for at least one LLM provider:
+- One LLM provider configured:
   - `ANTHROPIC_API_KEY` for Claude (default)
   - `OPENAI_API_KEY` for OpenAI models
+  - or a ChatGPT Plus/Pro subscription login for `openai-chatgpt`
 
 ```bash
 bun install   # install dependencies for all packages
@@ -93,6 +94,66 @@ Ouroboros is configured via a `.ouroboros` JSON file in the project root. All fi
 ```
 
 Config values can also be set via environment variables (e.g. `OUROBOROS_MODEL_PROVIDER=openai`).
+
+### Provider Setup
+
+#### Anthropic / OpenAI API key providers
+
+Use a normal `.ouroboros` config plus the matching API key:
+
+```json
+{
+  "model": {
+    "provider": "openai",
+    "name": "gpt-5.4",
+    "apiKey": "YOUR OPENAI API KEY"
+  }
+}
+```
+
+#### OpenAI ChatGPT subscription provider
+
+`openai-chatgpt` uses OAuth login, not an API key. Credentials are stored separately from project config in `~/.ouroboros/auth.json`.
+
+1. Set the provider in `.ouroboros`:
+
+```json
+{
+  "model": {
+    "provider": "openai-chatgpt",
+    "name": "gpt-5.4"
+  }
+}
+```
+
+2. Log in from the CLI:
+
+```bash
+cd packages/cli
+bun run dev -- auth login --provider openai-chatgpt
+```
+
+Or with the compiled binary:
+
+```bash
+./dist/ouroboros auth login --provider openai-chatgpt
+```
+
+Available login methods:
+
+```bash
+./dist/ouroboros auth login --provider openai-chatgpt --method browser
+./dist/ouroboros auth login --provider openai-chatgpt --method headless
+```
+
+Useful auth commands:
+
+```bash
+./dist/ouroboros auth list
+./dist/ouroboros auth logout --provider openai-chatgpt
+```
+
+Desktop setup uses the same auth store. In the onboarding flow or Settings page, choose `ChatGPT Subscription` and complete the browser sign-in flow. No API key field is required for that provider.
 
 ## Architecture
 
@@ -183,6 +244,7 @@ Provider-agnostic via [Vercel AI SDK](https://sdk.vercel.ai). Supports:
 
 - **Anthropic** (Claude) — default
 - **OpenAI** (GPT-4o, etc.)
+- **OpenAI ChatGPT subscription** via `openai-chatgpt`
 - **OpenAI-compatible** endpoints (Ollama, vLLM, etc.) via `baseUrl` config
 
 ### Embedding the Harness

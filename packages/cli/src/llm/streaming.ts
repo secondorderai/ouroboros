@@ -14,6 +14,7 @@ import {
   type ToolSet,
 } from 'ai'
 import { type Result, ok, err } from '@src/types'
+import { OPENAI_CHATGPT_PROVIDER } from '@src/auth/openai-chatgpt'
 import type {
   LLMMessage,
   LLMCallOptions,
@@ -82,6 +83,33 @@ function toToolSet(tools?: Record<string, LLMToolSpec>): ToolSet | undefined {
     } as ToolSet[string]
   }
   return toolSet
+}
+
+function getProviderPromptOptions(
+  model: LanguageModel,
+  options?: LLMCallOptions,
+): Pick<LLMCallOptions, 'system'> & {
+  providerOptions?: {
+    openai: {
+      store: boolean
+      instructions?: string
+    }
+  }
+} {
+  const provider = (model as { provider?: unknown }).provider
+
+  if (provider !== `${OPENAI_CHATGPT_PROVIDER}.responses`) {
+    return options?.system ? { system: options.system } : {}
+  }
+
+  return {
+    providerOptions: {
+      openai: {
+        store: false,
+        ...(options?.system ? { instructions: options.system } : {}),
+      },
+    },
+  }
 }
 
 /**
@@ -255,10 +283,11 @@ export function streamResponse(
   try {
     const modelMessages = toModelMsgs(messages)
     const tools = toToolSet(options?.tools)
+    const promptOptions = getProviderPromptOptions(model, options)
 
     const result = streamText({
       model,
-      ...(options?.system ? { system: options.system } : {}),
+      ...promptOptions,
       messages: modelMessages,
       temperature: options?.temperature,
       maxOutputTokens: options?.maxTokens,
@@ -366,10 +395,11 @@ export async function generateResponse(
   try {
     const modelMessages = toModelMsgs(messages)
     const tools = toToolSet(options?.tools)
+    const promptOptions = getProviderPromptOptions(model, options)
 
     const result = await generateText({
       model,
-      ...(options?.system ? { system: options.system } : {}),
+      ...promptOptions,
       messages: modelMessages,
       temperature: options?.temperature,
       maxOutputTokens: options?.maxTokens,

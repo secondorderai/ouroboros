@@ -7,6 +7,13 @@
  */
 
 import type { Agent, AgentEvent } from '@src/agent'
+import type { ModeManager } from '@src/modes/manager'
+import type { ModeId } from '@src/modes/types'
+import {
+  OpenAIChatGPTAuthManager,
+  OPENAI_CHATGPT_AUTH_METHODS,
+  OPENAI_CHATGPT_PROVIDER,
+} from '@src/auth/openai-chatgpt'
 import type { OuroborosConfig } from '@src/config'
 import type { LLMMessage } from '@src/llm/types'
 import { saveConfig } from '@src/config'
@@ -32,6 +39,8 @@ export interface HandlerContext {
   currentSessionId: string | null
   setCurrentSessionId: (sessionId: string | null) => void
   setConfig: (config: OuroborosConfig) => void
+  authManager: OpenAIChatGPTAuthManager
+  modeManager: ModeManager
 }
 
 // ── Handler errors ───────────────────────────────────────────────────
@@ -84,6 +93,26 @@ export function bridgeAgentEvent(event: AgentEvent): void {
         }),
       )
       break
+    case 'mode-entered':
+      writeMessage(
+        makeNotification('mode/entered', {
+          modeId: event.modeId,
+          displayName: event.displayName,
+          reason: event.reason,
+        }),
+      )
+      break
+    case 'mode-exited':
+      writeMessage(
+        makeNotification('mode/exited', {
+          modeId: event.modeId,
+          reason: event.reason,
+        }),
+      )
+      break
+    case 'plan-submitted':
+      writeMessage(makeNotification('mode/planSubmitted', { plan: event.plan }))
+      break
     case 'error':
       writeMessage(
         makeNotification('agent/error', {
@@ -105,6 +134,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   const handlers = new Map<string, MethodHandler>()
   const validClients = new Set(['desktop', 'cli'])
   const validResponseStyles = new Set(['default', 'desktop-readable'])
+  const validAuthMethods = new Set(OPENAI_CHATGPT_AUTH_METHODS)
 
   // ── agent/* ──────────────────────────────────────────────────────
 
@@ -297,6 +327,14 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       typeof params.provider === 'string' ? params.provider : ctx.config.model.provider
     const apiKey = typeof params.apiKey === 'string' ? params.apiKey : undefined
 
+    if (provider === OPENAI_CHATGPT_PROVIDER) {
+      const authResult = await ctx.authManager.testConnection()
+      if (!authResult.ok) {
+        return { success: false, error: authResult.error.message }
+      }
+      return { success: true, models: authResult.value.models }
+    }
+
     // Temporarily set the env var so createProvider picks it up
     const envKey =
       provider === 'anthropic'
@@ -310,7 +348,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     try {
       const providerResult = createProvider({
         ...ctx.config.model,
-        provider: provider as 'anthropic' | 'openai' | 'openai-compatible',
+        provider: provider as 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt',
         apiKey,
       })
       if (!providerResult.ok) {
@@ -338,12 +376,18 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         'params.provider and params.apiKey are required',
       )
     }
+    if (provider === OPENAI_CHATGPT_PROVIDER) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'openai-chatgpt uses interactive auth, not API keys',
+      )
+    }
 
     const updatedConfig: OuroborosConfig = {
       ...ctx.config,
       model: {
         ...ctx.config.model,
-        provider: provider as 'anthropic' | 'openai' | 'openai-compatible',
+        provider: provider as 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt',
         apiKey,
       },
     }
@@ -362,6 +406,100 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
           ? 'OUROBOROS_OPENAI_COMPATIBLE_API_KEY'
           : 'OPENAI_API_KEY'
     process.env[envKey] = apiKey
+    return { ok: true }
+  })
+
+  handlers.set('auth/getStatus', async (params) => {
+    const provider = params.provider
+    if (provider !== OPENAI_CHATGPT_PROVIDER) {
+      return {
+        provider,
+        connected: false,
+        authType: null,
+        pending: false,
+        availableMethods: [],
+        models: [],
+      }
+    }
+    return ctx.authManager.getStatus()
+  })
+
+  handlers.set('auth/startLogin', async (params) => {
+    const provider = params.provider
+    const method = typeof params.method === 'string' ? params.method : 'browser'
+
+    if (provider !== OPENAI_CHATGPT_PROVIDER) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        `Provider "${String(provider)}" does not support interactive login`,
+      )
+    }
+    if (!validAuthMethods.has(method as (typeof OPENAI_CHATGPT_AUTH_METHODS)[number])) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.method must be "browser" or "headless"',
+      )
+    }
+
+    const startResult = await ctx.authManager.startLogin(
+      method as (typeof OPENAI_CHATGPT_AUTH_METHODS)[number],
+    )
+    if (!startResult.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, startResult.error.message)
+    }
+    return startResult.value
+  })
+
+  handlers.set('auth/pollLogin', async (params) => {
+    const provider = params.provider
+    const flowId = params.flowId
+
+    if (provider !== OPENAI_CHATGPT_PROVIDER || typeof flowId !== 'string') {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.provider=openai-chatgpt and params.flowId are required',
+      )
+    }
+
+    const pollResult = await ctx.authManager.pollLogin(flowId)
+    if (!pollResult.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, pollResult.error.message)
+    }
+    return pollResult.value
+  })
+
+  handlers.set('auth/cancelLogin', async (params) => {
+    const provider = params.provider
+    const flowId = params.flowId
+
+    if (provider !== OPENAI_CHATGPT_PROVIDER || typeof flowId !== 'string') {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.provider=openai-chatgpt and params.flowId are required',
+      )
+    }
+
+    const cancelResult = await ctx.authManager.cancelLogin(flowId)
+    if (!cancelResult.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, cancelResult.error.message)
+    }
+    return cancelResult.value
+  })
+
+  handlers.set('auth/logout', async (params) => {
+    const provider = params.provider
+
+    if (provider !== OPENAI_CHATGPT_PROVIDER) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        `Provider "${String(provider)}" does not support logout`,
+      )
+    }
+
+    const logoutResult = await ctx.authManager.logout()
+    if (!logoutResult.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, logoutResult.error.message)
+    }
     return { ok: true }
   })
 
@@ -423,6 +561,38 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   handlers.set('approval/respond', async () => {
     // Approval queue not yet implemented
     return { status: 'not-implemented', message: 'Approval system not yet available' }
+  })
+
+  // ── mode/* ───────────────────────────────────────────────────────
+
+  handlers.set('mode/getState', async () => {
+    return ctx.modeManager.getActiveMode()
+  })
+
+  handlers.set('mode/enter', async (params) => {
+    const mode = params.mode
+    if (typeof mode !== 'string') {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.mode is required')
+    }
+    const reason = typeof params.reason === 'string' ? params.reason : undefined
+    const result = ctx.modeManager.enterMode(mode as ModeId, reason)
+    if (!result.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    }
+    return { displayName: result.value }
+  })
+
+  handlers.set('mode/exit', async (params) => {
+    const reason = typeof params.reason === 'string' ? params.reason : undefined
+    const result = ctx.modeManager.exitMode(reason)
+    if (!result.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    }
+    return { displayName: result.value }
+  })
+
+  handlers.set('mode/getPlan', async () => {
+    return ctx.modeManager.getCurrentPlan()
   })
 
   // ── workspace/* ──────────────────────────────────────────────────
@@ -508,7 +678,69 @@ function getSessionTitle(session: SessionWithMessages): string | undefined {
     (message) => message.role === 'user' && message.content.trim().length > 0,
   )
 
-  return firstUserMessage?.content.trim().replace(/\s+/g, ' ').slice(0, 50)
+  if (!firstUserMessage) return undefined
+  return deriveSessionTitle(firstUserMessage.content)
+}
+
+function toSentenceCase(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+}
+
+function finalizeSessionTitle(input: string): string {
+  const maxChars = 42
+  const words = input.split(/\s+/).filter(Boolean)
+  const limitedWords = words.slice(0, 6).join(' ')
+  const candidate =
+    limitedWords.length > maxChars
+      ? limitedWords.slice(0, maxChars).replace(/\s+\S*$/, '')
+      : limitedWords
+
+  return candidate || 'New conversation'
+}
+
+function deriveSessionTitle(input: string): string {
+  let text = input.trim().replace(/\s+/g, ' ')
+  if (!text) return 'New conversation'
+
+  text = text
+    .replace(/^(?:[#>*-]+\s*)+/, '')
+    .replace(/^(?:\/[\w-]+\s+)+/i, '')
+    .replace(/^without web search,?\s*/i, '')
+    .replace(/^(?:plan|task|question)\s+/i, '')
+
+  const matchers: Array<[RegExp, (...matches: string[]) => string]> = [
+    [/^create (?:a )?plan to (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^plan for (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^what are the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
+    [/^what is the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
+    [
+      /^what materials are good for use in (.+)$/i,
+      (subject) => `${toSentenceCase(subject)} materials`,
+    ],
+    [/^what materials are good for (.+)$/i, (subject) => `${toSentenceCase(subject)} materials`],
+    [/^how to (.+)$/i, (subject) => toSentenceCase(subject)],
+  ]
+
+  for (const [pattern, formatter] of matchers) {
+    const match = text.match(pattern)
+    if (match) {
+      return finalizeSessionTitle(
+        formatter(...match.slice(1))
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
+    }
+  }
+
+  text = text
+    .replace(/^(?:can you|could you|would you|please|help me|i need to)\s+/i, '')
+    .replace(/\bto follow\b/gi, '')
+    .replace(/\s+(?:and|or)\s+/gi, ' / ')
+    .trim()
+
+  return finalizeSessionTitle(toSentenceCase(text))
 }
 
 function persistConversationDelta(

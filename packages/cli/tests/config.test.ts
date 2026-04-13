@@ -214,6 +214,26 @@ describe('loadConfig', () => {
     expect(result.value.model.apiKey).toBe('cfg-openai')
   })
 
+  test('accepts openai-chatgpt as a config provider', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai-chatgpt',
+          name: 'gpt-5.4',
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.provider).toBe('openai-chatgpt')
+    expect(result.value.model.name).toBe('gpt-5.4')
+  })
+
   test('provider env vars take precedence over model.apiKey', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),

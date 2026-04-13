@@ -186,7 +186,8 @@ export function isJsonRpcNotification(obj: unknown): obj is JsonRpcNotification 
 export type CLIStatus = 'starting' | 'ready' | 'error' | 'restarting'
 
 /** AI provider type used in onboarding and settings */
-export type AIProvider = 'anthropic' | 'openai' | 'openai-compatible'
+export type AIProvider = 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
+export type AuthMethod = 'browser' | 'headless'
 
 // ── Request Param Types ────────────────────────────────────────────
 
@@ -221,8 +222,26 @@ export interface ConfigSetApiKeyParams {
 }
 export interface ConfigTestConnectionParams {
   provider: AIProvider
-  apiKey: string
+  apiKey?: string
   baseUrl?: string
+}
+export interface AuthGetStatusParams {
+  provider: AIProvider
+}
+export interface AuthStartLoginParams {
+  provider: AIProvider
+  method?: AuthMethod
+}
+export interface AuthPollLoginParams {
+  provider: AIProvider
+  flowId: string
+}
+export interface AuthCancelLoginParams {
+  provider: AIProvider
+  flowId: string
+}
+export interface AuthLogoutParams {
+  provider: AIProvider
 }
 export type SkillsListParams = Record<string, never>
 export interface SkillsGetParams {
@@ -284,7 +303,11 @@ export interface SessionDeleteResult {
 }
 
 export interface OuroborosConfig {
-  model: { provider: 'anthropic' | 'openai' | 'openai-compatible'; name: string; baseUrl?: string }
+  model: {
+    provider: 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
+    name: string
+    baseUrl?: string
+  }
   permissions: { tier0: boolean; tier1: boolean; tier2: boolean; tier3: boolean; tier4: boolean }
   skillDirectories: string[]
   memory: { consolidationSchedule: 'session-end' | 'daily' | 'manual' }
@@ -301,6 +324,35 @@ export interface ConnectionTestResult {
   models?: string[]
 }
 export type ConfigTestConnectionResult = ConnectionTestResult
+export interface AuthStatusResult {
+  provider: AIProvider
+  connected: boolean
+  authType: 'oauth' | null
+  pending: boolean
+  accountId?: string
+  availableMethods: AuthMethod[]
+  models: string[]
+}
+export interface AuthStartLoginResult {
+  flowId: string
+  provider: AIProvider
+  method: AuthMethod
+  url: string
+  instructions: string
+  pending: true
+}
+export interface AuthPollLoginResult extends AuthStatusResult {
+  flowId: string
+  method: AuthMethod
+  success: boolean
+  error?: string
+}
+export interface AuthCancelLoginResult {
+  cancelled: boolean
+}
+export interface AuthLogoutResult {
+  ok: boolean
+}
 
 export interface SkillInfo {
   name: string
@@ -359,6 +411,48 @@ export interface WorkspaceSetResult {
   directory: string
 }
 
+// ── Mode Types ──────────────────────────────────────────────────────
+
+export interface PlanStep {
+  description: string
+  targetFiles: string[]
+  tools: string[]
+  dependsOn?: number[]
+}
+
+export interface Plan {
+  title: string
+  summary: string
+  steps: PlanStep[]
+  exploredFiles: string[]
+  status: 'draft' | 'submitted' | 'approved' | 'rejected'
+  feedback?: string
+}
+
+export type ModeState =
+  | { status: 'inactive' }
+  | { status: 'active'; modeId: string; enteredAt: string }
+
+export interface ModeGetStateParams {
+  [key: string]: never
+}
+export interface ModeEnterParams {
+  mode: string
+  reason?: string
+}
+export interface ModeEnterResult {
+  displayName: string
+}
+export interface ModeExitParams {
+  reason?: string
+}
+export interface ModeExitResult {
+  displayName: string
+}
+export interface ModeGetPlanParams {
+  [key: string]: never
+}
+
 // ── Method Map (method name -> params & result types) ──────────────
 
 export interface RpcMethodMap {
@@ -375,6 +469,11 @@ export interface RpcMethodMap {
     params: ConfigTestConnectionParams
     result: ConfigTestConnectionResult
   }
+  'auth/getStatus': { params: AuthGetStatusParams; result: AuthStatusResult }
+  'auth/startLogin': { params: AuthStartLoginParams; result: AuthStartLoginResult }
+  'auth/pollLogin': { params: AuthPollLoginParams; result: AuthPollLoginResult }
+  'auth/cancelLogin': { params: AuthCancelLoginParams; result: AuthCancelLoginResult }
+  'auth/logout': { params: AuthLogoutParams; result: AuthLogoutResult }
   'skills/list': { params: SkillsListParams; result: SkillsListResult }
   'skills/get': { params: SkillsGetParams; result: SkillsGetResult }
   'rsi/dream': { params: RsiDreamParams; result: RsiDreamResult }
@@ -384,6 +483,10 @@ export interface RpcMethodMap {
   'approval/list': { params: ApprovalListParams; result: ApprovalListResult }
   'approval/respond': { params: ApprovalRespondParams; result: ApprovalRespondResult }
   'workspace/set': { params: WorkspaceSetParams; result: WorkspaceSetResult }
+  'mode/getState': { params: ModeGetStateParams; result: ModeState }
+  'mode/enter': { params: ModeEnterParams; result: ModeEnterResult }
+  'mode/exit': { params: ModeExitParams; result: ModeExitResult }
+  'mode/getPlan': { params: ModeGetPlanParams; result: Plan | null }
 }
 
 export type RpcMethod = keyof RpcMethodMap
@@ -449,6 +552,19 @@ export interface RsiErrorNotification {
   message?: string
 }
 
+export interface ModeEnteredNotification {
+  modeId: string
+  displayName: string
+  reason: string
+}
+export interface ModeExitedNotification {
+  modeId: string
+  reason: string
+}
+export interface ModePlanSubmittedNotification {
+  plan: Plan
+}
+
 export interface NotificationMap {
   'agent/text': AgentTextNotification
   'agent/toolCallStart': AgentToolCallStartNotification
@@ -464,6 +580,9 @@ export interface NotificationMap {
   'rsi/crystallization': RsiCrystallizationNotification
   'rsi/dream': RsiDreamNotification
   'rsi/error': RsiErrorNotification
+  'mode/entered': ModeEnteredNotification
+  'mode/exited': ModeExitedNotification
+  'mode/planSubmitted': ModePlanSubmittedNotification
 }
 
 export type NotificationMethod = keyof NotificationMap

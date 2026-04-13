@@ -127,7 +127,19 @@ export async function startRepl(options: ReplOptions): Promise<void> {
       continue
     }
 
-    // Save to history
+    // Handle /plan command — prepend plan mode trigger
+    let effectiveInput = input
+    if (input.startsWith('/plan')) {
+      const planMessage = input.slice(5).trim()
+      if (!planMessage) {
+        renderer.writeInfo('Usage: /plan <task description>')
+        renderer.writePrompt()
+        continue
+      }
+      effectiveInput = `[User requests plan mode] ${planMessage}`
+    }
+
+    // Save to history (original input, not transformed)
     appendToHistory(input)
 
     // Run agent
@@ -153,6 +165,14 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           renderer.writeTurnComplete()
           break
 
+        case 'mode-entered':
+          renderer.writeInfo(`Entered ${event.displayName} mode`)
+          break
+
+        case 'mode-exited':
+          renderer.writeInfo(`Exited ${event.modeId} mode`)
+          break
+
         case 'error':
           renderer.writeError(event.error)
           break
@@ -160,7 +180,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
     })
 
     try {
-      await agent.run(input)
+      await agent.run(effectiveInput)
     } catch (e) {
       if ((e as Error).name === 'AbortError') {
         // Cancelled by Ctrl+C — already handled in SIGINT handler

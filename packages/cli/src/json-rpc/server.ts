@@ -10,9 +10,14 @@
  */
 
 import { Agent, type AgentEventHandler } from '@src/agent'
+import { OpenAIChatGPTAuthManager } from '@src/auth/openai-chatgpt'
 import type { OuroborosConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { TranscriptStore } from '@src/memory/transcripts'
+import { ModeManager, PLAN_MODE } from '@src/modes'
+import { setModeManager as setEnterModeModeManager } from '@src/modes/tools/enter-mode'
+import { setModeManager as setSubmitPlanModeManager } from '@src/modes/tools/submit-plan'
+import { setModeManager as setExitModeModeManager } from '@src/modes/tools/exit-mode'
 import { createRegistry } from '@src/tools/registry'
 import { resolve } from 'node:path'
 import { createHandlers, bridgeAgentEvent, HandlerError, type HandlerContext } from './handlers'
@@ -57,6 +62,17 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     currentHandler(event)
   }
 
+  // Create ModeManager and register plan mode
+  const modeManager = new ModeManager((event) => {
+    eventProxy(event as Parameters<AgentEventHandler>[0])
+  })
+  modeManager.registerMode(PLAN_MODE)
+
+  // Wire ModeManager into mode tools
+  setEnterModeModeManager(modeManager)
+  setSubmitPlanModeManager(modeManager)
+  setExitModeModeManager(modeManager)
+
   // Agent is created lazily on first use — allows the server to start
   // even when the API key is not yet configured.
   let agent: Agent | null = null
@@ -73,6 +89,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       model: providerResult.value,
       toolRegistry: registry,
       onEvent: eventProxy,
+      modeManager,
     })
     return agent
   }
@@ -103,6 +120,8 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       // Reset agent so it picks up the new config on next use
       agent = null
     },
+    authManager: new OpenAIChatGPTAuthManager(),
+    modeManager,
   }
 
   // Build method handlers

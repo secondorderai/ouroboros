@@ -8,6 +8,7 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { configSchema, type OuroborosConfig } from '@src/config'
+import { OpenAIChatGPTAuthManager } from '@src/auth/openai-chatgpt'
 import {
   isJsonRpcRequest,
   makeResponse,
@@ -17,6 +18,7 @@ import {
 } from '@src/json-rpc/types'
 import { createHandlers, bridgeAgentEvent, type HandlerContext } from '@src/json-rpc/handlers'
 import { writeMessage } from '@src/json-rpc/transport'
+import { ModeManager } from '@src/modes/manager'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -96,6 +98,8 @@ function createTestContext(overrides?: {
   configDir?: string
   transcriptStore?: TranscriptStore
   agentOptions?: Partial<AgentOptions>
+  authManager?: OpenAIChatGPTAuthManager
+  modeManager?: ModeManager
 }): HandlerContext {
   const registry = overrides?.registry ?? new ToolRegistry()
   const model =
@@ -143,6 +147,7 @@ function createTestContext(overrides?: {
     config,
     configDir,
     transcriptStore,
+    authManager: overrides?.authManager ?? new OpenAIChatGPTAuthManager(),
     currentRunAbort,
     setCurrentRunAbort: (abort) => {
       currentRunAbort = abort
@@ -156,6 +161,7 @@ function createTestContext(overrides?: {
     setConfig: (newConfig) => {
       ctx.config = newConfig
     },
+    modeManager: overrides?.modeManager ?? new ModeManager(),
   }
 
   return ctx
@@ -560,6 +566,117 @@ describe('JSON-RPC', () => {
 
       ctx.transcriptStore.close()
     })
+
+    test('config/testConnection uses auth manager for openai-chatgpt', async () => {
+      const authManager = {
+        testConnection: async () => ({
+          ok: true as const,
+          value: { models: ['gpt-5.4', 'gpt-5.4-mini'], accountId: 'acct_test' },
+        }),
+      } as unknown as OpenAIChatGPTAuthManager
+      const ctx = createTestContext({ authManager })
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('config/testConnection')!({
+        provider: 'openai-chatgpt',
+      })) as { success: boolean; models?: string[]; error?: string }
+
+      expect(result).toEqual({
+        success: true,
+        models: ['gpt-5.4', 'gpt-5.4-mini'],
+      })
+
+      ctx.transcriptStore.close()
+    })
+  })
+
+  describe('auth operations', () => {
+    test('auth RPC handlers proxy to auth manager', async () => {
+      const authManager = {
+        getStatus: async () => ({
+          provider: 'openai-chatgpt',
+          connected: false,
+          authType: null,
+          pending: false,
+          availableMethods: ['browser', 'headless'],
+          models: ['gpt-5.4'],
+        }),
+        startLogin: async () => ({
+          ok: true as const,
+          value: {
+            flowId: 'flow-1',
+            provider: 'openai-chatgpt',
+            method: 'browser',
+            url: 'https://chatgpt.com/login',
+            instructions: 'Open the browser',
+            pending: true as const,
+          },
+        }),
+        pollLogin: async () => ({
+          ok: true as const,
+          value: {
+            provider: 'openai-chatgpt',
+            connected: true,
+            authType: 'oauth' as const,
+            pending: false,
+            availableMethods: ['browser', 'headless'] as const,
+            models: ['gpt-5.4'],
+            flowId: 'flow-1',
+            method: 'browser' as const,
+            success: true,
+            accountId: 'acct_test',
+          },
+        }),
+        cancelLogin: async () => ({ ok: true as const, value: { cancelled: true } }),
+        logout: async () => ({ ok: true as const, value: undefined }),
+      } as unknown as OpenAIChatGPTAuthManager
+
+      const ctx = createTestContext({ authManager })
+      const handlers = createHandlers(ctx)
+
+      const status = (await handlers.get('auth/getStatus')!({
+        provider: 'openai-chatgpt',
+      })) as {
+        connected: boolean
+        pending: boolean
+        models: string[]
+      }
+      expect(status.connected).toBe(false)
+      expect(status.pending).toBe(false)
+
+      const start = (await handlers.get('auth/startLogin')!({
+        provider: 'openai-chatgpt',
+        method: 'browser',
+      })) as { flowId: string; pending: boolean; url: string }
+      expect(start).toEqual(
+        expect.objectContaining({
+          flowId: 'flow-1',
+          pending: true,
+          url: 'https://chatgpt.com/login',
+        }),
+      )
+
+      const poll = (await handlers.get('auth/pollLogin')!({
+        provider: 'openai-chatgpt',
+        flowId: 'flow-1',
+      })) as { success: boolean; connected: boolean; accountId?: string }
+      expect(poll.success).toBe(true)
+      expect(poll.connected).toBe(true)
+      expect(poll.accountId).toBe('acct_test')
+
+      const cancel = (await handlers.get('auth/cancelLogin')!({
+        provider: 'openai-chatgpt',
+        flowId: 'flow-1',
+      })) as { cancelled: boolean }
+      expect(cancel.cancelled).toBe(true)
+
+      const logout = (await handlers.get('auth/logout')!({
+        provider: 'openai-chatgpt',
+      })) as { ok: boolean }
+      expect(logout.ok).toBe(true)
+
+      ctx.transcriptStore.close()
+    })
   })
 
   // -------------------------------------------------------------------
@@ -881,7 +998,13 @@ describe('JSON-RPC', () => {
         'session/delete',
         'config/get',
         'config/set',
+        'config/setApiKey',
         'config/testConnection',
+        'auth/getStatus',
+        'auth/startLogin',
+        'auth/pollLogin',
+        'auth/cancelLogin',
+        'auth/logout',
         'skills/list',
         'skills/get',
         'rsi/dream',

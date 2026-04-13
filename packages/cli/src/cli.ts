@@ -15,7 +15,18 @@
  */
 
 import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'
+import { ModeManager, PLAN_MODE } from '@src/modes'
+import { setModeManager as setEnterModeModeManager } from '@src/modes/tools/enter-mode'
+import { setModeManager as setSubmitPlanModeManager } from '@src/modes/tools/submit-plan'
+import { setModeManager as setExitModeModeManager } from '@src/modes/tools/exit-mode'
+import { listAuth } from '@src/auth'
+import {
+  OpenAIChatGPTAuthManager,
+  OPENAI_CHATGPT_AUTH_METHODS,
+  OPENAI_CHATGPT_PROVIDER,
+} from '@src/auth/openai-chatgpt'
 import { Renderer } from '@src/cli/renderer'
+import { parseModelFlag } from '@src/cli/model-flag'
 import { startRepl } from '@src/cli/repl'
 import { createRSIEventHandler, writeRSIEvent } from '@src/cli/rsi-output'
 import { createSingleShotHandler } from '@src/cli/single-shot'
@@ -25,7 +36,6 @@ import { createProvider } from '@src/llm/provider'
 import { createRegistry } from '@src/tools/registry'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { RSIEvent } from '@src/rsi/types'
-import { type Result, err, ok } from '@src/types'
 import { Command } from 'commander'
 
 // ── CLI program definition ──────────────────────────────────────────
@@ -44,7 +54,25 @@ program
   .option('--debug-tools', 'Print registered tool names and exit')
   .option('--no-rsi', 'Disable all RSI (self-improvement) hooks')
   .option('--json-rpc', 'Start in JSON-RPC 2.0 server mode (stdin/stdout)')
+  .option('--plan', 'Enter plan mode for the first message')
   .action(runMain)
+
+const authCommand = program.command('auth').description('Manage provider authentication')
+
+authCommand.command('list').description('List stored provider authentication').action(runAuthList)
+
+authCommand
+  .command('login')
+  .description('Log in to a provider')
+  .option('--provider <provider>', 'Provider to authenticate', OPENAI_CHATGPT_PROVIDER)
+  .option('--method <method>', 'Login method: browser or headless', 'browser')
+  .action(runAuthLogin)
+
+authCommand
+  .command('logout')
+  .description('Remove stored provider authentication')
+  .option('--provider <provider>', 'Provider to remove', OPENAI_CHATGPT_PROVIDER)
+  .action(runAuthLogout)
 
 // ── Dream subcommand ────────────────────────────────────────────────
 
@@ -103,6 +131,7 @@ async function runMain(): Promise<void> {
     debugTools?: boolean
     rsi: boolean
     jsonRpc?: boolean
+    plan?: boolean
   }>()
 
   // Load config
@@ -167,6 +196,17 @@ async function runMain(): Promise<void> {
     process.exit(0)
   }
 
+  // Create ModeManager and register plan mode
+  const modeManager = new ModeManager((event) => {
+    eventProxy({ ...event } as AgentEvent)
+  })
+  modeManager.registerMode(PLAN_MODE)
+
+  // Wire ModeManager into mode tools
+  setEnterModeModeManager(modeManager)
+  setSubmitPlanModeManager(modeManager)
+  setExitModeModeManager(modeManager)
+
   // Create RSI orchestrator (lazily — only if RSI is enabled)
   const rsiEnabled = opts.rsi !== false
   let rsiOrchestrator: RSIOrchestrator | undefined
@@ -195,6 +235,7 @@ async function runMain(): Promise<void> {
     toolRegistry: registry,
     onEvent: eventProxy,
     rsiOrchestrator,
+    modeManager,
   })
 
   if (prompt !== null) {
@@ -203,8 +244,11 @@ async function runMain(): Promise<void> {
     const { handler } = createSingleShotHandler({ verbose, noStream })
     currentHandler = handler
 
+    // If --plan flag is set, prepend plan mode trigger
+    const effectivePrompt = opts.plan ? `[User requests plan mode] ${prompt}` : prompt
+
     try {
-      const result = await agent.run(prompt)
+      const result = await agent.run(effectivePrompt)
       // Ensure output ends with a newline
       process.stdout.write('\n')
       process.exit(result.maxIterationsReached ? 1 : 0)
@@ -243,35 +287,88 @@ async function runMain(): Promise<void> {
  *   "openai/gpt-5.4"               → provider=openai, name=gpt-5.4
  *   "claude-sonnet-4-20250514"            → provider=anthropic (default), name=claude-sonnet-4-20250514
  */
-function parseModelFlag(
-  value: string,
-): Result<{ provider: 'anthropic' | 'openai' | 'openai-compatible'; name: string }> {
-  const parts = value.split('/')
-
-  if (parts.length === 1) {
-    // No provider prefix — use default
-    return ok({ provider: 'anthropic', name: parts[0] })
+async function runAuthList(): Promise<void> {
+  const authResult = listAuth()
+  if (!authResult.ok) {
+    process.stderr.write(`${authResult.error.message}\n`)
+    process.exit(1)
   }
 
-  if (parts.length === 2) {
-    const [providerStr, name] = parts
-    const validProviders = ['anthropic', 'openai', 'openai-compatible'] as const
-    const provider = validProviders.find((p) => p === providerStr)
+  const entries = Object.entries(authResult.value)
+  if (entries.length === 0) {
+    process.stdout.write('No stored provider authentication.\n')
+    return
+  }
 
-    if (!provider) {
-      return err(
-        new Error(
-          `Invalid provider "${providerStr}" in --model flag. ` +
-            `Valid providers: ${validProviders.join(', ')}. ` +
-            `Usage: --model provider/model-name`,
-        ),
-      )
+  for (const [provider, info] of entries) {
+    const account = info.accountId ? ` account=${info.accountId}` : ''
+    process.stdout.write(`${provider} type=${info.type}${account}\n`)
+  }
+}
+
+async function runAuthLogin(options: { provider?: string; method?: string }): Promise<void> {
+  const provider = options.provider ?? OPENAI_CHATGPT_PROVIDER
+  if (provider !== OPENAI_CHATGPT_PROVIDER) {
+    process.stderr.write(`Unsupported auth provider "${provider}".\n`)
+    process.exit(1)
+  }
+
+  const method = (options.method ?? 'browser').toLowerCase()
+  if (
+    !OPENAI_CHATGPT_AUTH_METHODS.includes(method as (typeof OPENAI_CHATGPT_AUTH_METHODS)[number])
+  ) {
+    process.stderr.write(`Unsupported auth method "${method}". Use browser or headless.\n`)
+    process.exit(1)
+  }
+
+  const manager = new OpenAIChatGPTAuthManager()
+  const startResult = await manager.startLogin(
+    method as (typeof OPENAI_CHATGPT_AUTH_METHODS)[number],
+  )
+  if (!startResult.ok) {
+    process.stderr.write(`${startResult.error.message}\n`)
+    process.exit(1)
+  }
+
+  process.stdout.write(`${startResult.value.instructions}\n${startResult.value.url}\n`)
+  if (startResult.value.method === 'browser') {
+    const openResult = await manager.openStartedFlow(startResult.value)
+    if (!openResult.ok) {
+      process.stderr.write(`${openResult.error.message}\n`)
+      process.stderr.write(`Open this URL manually:\n${startResult.value.url}\n`)
     }
-
-    return ok({ provider, name })
   }
 
-  return err(new Error(`Invalid --model format: "${value}". Usage: --model provider/model-name`))
+  const waitResult = await manager.waitForCompletion(startResult.value.flowId)
+  if (!waitResult.ok) {
+    process.stderr.write(`${waitResult.error.message}\n`)
+    process.exit(1)
+  }
+
+  if (!waitResult.value.success) {
+    process.stderr.write(`${waitResult.value.error ?? 'Authentication failed'}\n`)
+    process.exit(1)
+  }
+
+  const account = waitResult.value.accountId ? ` (account ${waitResult.value.accountId})` : ''
+  process.stdout.write(`ChatGPT subscription login successful${account}.\n`)
+}
+
+async function runAuthLogout(options: { provider?: string }): Promise<void> {
+  const provider = options.provider ?? OPENAI_CHATGPT_PROVIDER
+  if (provider !== OPENAI_CHATGPT_PROVIDER) {
+    process.stderr.write(`Unsupported auth provider "${provider}".\n`)
+    process.exit(1)
+  }
+
+  const manager = new OpenAIChatGPTAuthManager()
+  const result = await manager.logout()
+  if (!result.ok) {
+    process.stderr.write(`${result.error.message}\n`)
+    process.exit(1)
+  }
+
+  process.stdout.write(`Removed stored authentication for ${provider}.\n`)
 }
 
 /**
