@@ -15,6 +15,7 @@ import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/promp
 import type { LLMMessage, ToolCall, StreamChunk, LLMToolSpec } from '@src/llm/types'
 import type { ToolRegistry } from '@src/tools/registry'
 import { getMemoryIndex } from '@src/memory/index'
+import { getAgentsMdInstructions } from '@src/agents-md'
 import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
 import type { RSIEvent } from '@src/rsi/types'
 import type { RSIOrchestrator } from '@src/rsi/orchestrator'
@@ -321,6 +322,7 @@ export class Agent {
   private buildCurrentSystemPrompt(options: AgentRunOptions = {}): string {
     const tools = this.toolRegistry.getTools()
     const memory = this.memoryProvider()
+    const agentsInstructions = getAgentsMdInstructions()
 
     // Map skill catalog entries to the format expected by buildSystemPrompt
     const skillCatalog = this.skillCatalogProvider()
@@ -336,6 +338,7 @@ export class Agent {
       tools,
       skills,
       memory,
+      agentsInstructions,
       responseStyle: options.responseStyle,
       modeOverlay,
     })

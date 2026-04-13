@@ -36,6 +36,8 @@ export interface BuildSystemPromptOptions {
   skills?: SkillEntry[]
   /** Raw MEMORY.md content to inject as memory context */
   memory?: string
+  /** Raw AGENTS.md instructions resolved from cwd ancestors */
+  agentsInstructions?: string
   /** Whether RSI (self-improvement) is enabled */
   rsiEnabled?: boolean
   /** Optional response-style guidance for a specific client surface */
@@ -109,6 +111,10 @@ function formatMemorySection(memory: string): string {
   return `## Memory Context\n\n${memory}`
 }
 
+function formatAgentsSection(agentsInstructions: string): string {
+  return `## AGENTS.md Instructions\n\n${agentsInstructions}`
+}
+
 function formatRSISection(): string {
   return `## Self-Improvement
 
@@ -167,7 +173,8 @@ function formatAutoDetectionSection(hints: string[]): string {
  * @returns A plain string system prompt ready for any LLM provider
  */
 export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): string {
-  const { tools, skills, memory, rsiEnabled, responseStyle, modeOverlay } = options
+  const { tools, skills, memory, agentsInstructions, rsiEnabled, responseStyle, modeOverlay } =
+    options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
 
@@ -192,6 +199,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 
   if (memory && memory.trim().length > 0) {
     sections.push(formatMemorySection(memory))
+  }
+
+  if (agentsInstructions && agentsInstructions.trim().length > 0) {
+    sections.push(formatAgentsSection(agentsInstructions))
   }
 
   if (rsiEnabled) {
