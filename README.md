@@ -73,6 +73,21 @@ bun run build:win    # Windows installer
 
 Ouroboros is configured via a `.ouroboros` JSON file in the project root. All fields are optional and have sensible defaults.
 
+### AGENTS.md support
+
+Ouroboros also supports the [AGENTS.md](https://agents.md/) instruction format.
+
+- `.ouroboros`: machine-readable runtime configuration such as model, permissions, and RSI settings.
+- `AGENTS.md`: human-authored agent instructions that are injected into the system prompt.
+- `MEMORY.md` / `memory/`: accumulated runtime memory, separate from repo instructions.
+
+Discovery is workspace-aware:
+
+- In a single repo, Ouroboros loads `AGENTS.md` from the current working directory or its ancestors.
+- In nested workspaces or package folders, it loads all matching `AGENTS.md` files from root to nearest folder.
+- More specific workspace/package instructions appear after broader root instructions.
+- If no `AGENTS.md` is present, prompt construction proceeds normally with no extra section.
+
 ```json
 {
   "model": {

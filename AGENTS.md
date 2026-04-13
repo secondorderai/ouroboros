@@ -88,6 +88,14 @@ ouroboros/
 ### Shared types
 - Imported as `@ouroboros/shared` across packages
 
+## AGENTS.md compatibility
+
+This repository uses `AGENTS.md` as the canonical human instruction file.
+
+- Ouroboros now discovers `AGENTS.md` from the active working directory upward.
+- In nested workspaces, root instructions are loaded first and nearest workspace/package instructions are appended after them.
+- `.ouroboros` remains the source for runtime configuration, not behavioral prose instructions.
+
 ## Conventions
 
 ### CLI
