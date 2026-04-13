@@ -5,8 +5,12 @@
  * model selector (after success), and help link.
  */
 
-import React, { useState, useCallback } from 'react'
-import type { AIProvider, ConnectionTestResult } from '../../../shared/protocol'
+import React, { useState, useCallback, useEffect } from 'react'
+import type {
+  AIProvider,
+  AuthStatusResult,
+  ConnectionTestResult,
+} from '../../../shared/protocol'
 
 // ── Provider card SVG icons ─────────────────────────────────
 
@@ -47,7 +51,7 @@ const styles = {
   } as React.CSSProperties,
   providerGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: '12px',
     marginBottom: '20px',
   } as React.CSSProperties,
@@ -182,12 +186,14 @@ const PROVIDER_HELP_URLS: Record<AIProvider, string> = {
   anthropic: 'https://console.anthropic.com/settings/keys',
   openai: 'https://platform.openai.com/api-keys',
   'openai-compatible': 'https://platform.openai.com/api-keys',
+  'openai-chatgpt': 'https://chatgpt.com/pricing',
 }
 
 const DEFAULT_MODELS: Record<AIProvider, string> = {
   anthropic: 'claude-opus-4-20250514',
   openai: 'gpt-5.4',
   'openai-compatible': 'gpt-5.4',
+  'openai-chatgpt': 'gpt-5.4',
 }
 
 // ── Component ───────────────────────────────────────────────
@@ -213,11 +219,41 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
 }) => {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
-  const [, setAvailableModels] = useState<string[]>([])
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [authStatus, setAuthStatus] = useState<AuthStatusResult | null>(null)
   const [inputFocused, setInputFocused] = useState(false)
 
-  const canTest = apiKey.trim().length > 0
-  const canProceed = apiKey.trim().length > 0 && testResult?.success === true
+  const isChatGPTProvider = provider === 'openai-chatgpt'
+  const canTest = isChatGPTProvider ? !testing : apiKey.trim().length > 0
+  const canProceed = isChatGPTProvider
+    ? authStatus?.connected === true && model.trim().length > 0
+    : apiKey.trim().length > 0 && testResult?.success === true
+
+  const syncChatGPTStatus = useCallback(async () => {
+    const status = await window.ouroboros.rpc('auth/getStatus', {
+      provider: 'openai-chatgpt',
+    })
+    setAuthStatus(status)
+    setAvailableModels(status.models)
+    if (!model && status.models.length > 0) {
+      onModelChange(status.models[0])
+    }
+  }, [model, onModelChange])
+
+  useEffect(() => {
+    if (!isChatGPTProvider) {
+      setAuthStatus(null)
+      setAvailableModels([])
+      return
+    }
+
+    void syncChatGPTStatus().catch((error: unknown) => {
+      setTestResult({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load ChatGPT auth status',
+      })
+    })
+  }, [isChatGPTProvider, syncChatGPTStatus])
 
   const handleTestConnection = useCallback(async () => {
     if (!canTest || testing) return
@@ -248,6 +284,54 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
     }
   }, [canTest, testing, provider, apiKey, model, onModelChange])
 
+  const handleChatGPTLogin = useCallback(async () => {
+    if (testing) return
+
+    setTesting(true)
+    setTestResult(null)
+
+    try {
+      const flow = await window.ouroboros.rpc('auth/startLogin', {
+        provider: 'openai-chatgpt',
+        method: 'browser',
+      })
+      window.electronAPI.openExternal(flow.url)
+
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        const poll = await window.ouroboros.rpc('auth/pollLogin', {
+          provider: 'openai-chatgpt',
+          flowId: flow.flowId,
+        })
+        setAuthStatus(poll)
+        setAvailableModels(poll.models)
+
+        if (!poll.pending) {
+          if (poll.success) {
+            if (!model && poll.models.length > 0) {
+              onModelChange(poll.models[0])
+            }
+            setTestResult({ success: true, models: poll.models })
+          } else {
+            setTestResult({
+              success: false,
+              error: poll.error ?? 'ChatGPT sign-in failed',
+            })
+          }
+          break
+        }
+      }
+    } catch (error) {
+      setTestResult({
+        success: false,
+        error: error instanceof Error ? error.message : 'ChatGPT sign-in failed',
+      })
+    } finally {
+      setTesting(false)
+      void syncChatGPTStatus().catch(() => {})
+    }
+  }, [model, onModelChange, syncChatGPTStatus, testing])
+
   const handleHelpClick = useCallback(() => {
     const url = PROVIDER_HELP_URLS[provider]
     window.electronAPI.openExternal(url)
@@ -255,14 +339,19 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
 
   const providers: { id: AIProvider; label: string; icon: React.ReactNode }[] = [
     { id: 'anthropic', label: 'Anthropic', icon: <AnthropicIcon /> },
-    { id: 'openai', label: 'OpenAI', icon: <OpenAIIcon /> },
+    { id: 'openai', label: 'OpenAI API', icon: <OpenAIIcon /> },
+    { id: 'openai-chatgpt', label: 'ChatGPT Subscription', icon: <OpenAIIcon /> },
     { id: 'openai-compatible', label: 'OpenAI-compatible', icon: <GenericAIIcon /> },
   ]
 
   return (
     <div>
       <h2 style={styles.heading}>Connect your AI</h2>
-      <p style={styles.subheading}>Enter your API key to get started</p>
+      <p style={styles.subheading}>
+        {isChatGPTProvider
+          ? 'Sign in with ChatGPT Plus or Pro to use subscription-backed Codex models'
+          : 'Enter your API key to get started'}
+      </p>
 
       {/* Provider selector */}
       <div style={styles.providerGrid}>
@@ -297,26 +386,27 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
         ))}
       </div>
 
-      {/* API key input */}
-      <div style={styles.inputGroup}>
-        <label style={styles.label}>API Key</label>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => {
-            onApiKeyChange(e.target.value)
-            setTestResult(null)
-          }}
-          placeholder="sk-..."
-          style={{
-            ...styles.input,
-            ...(inputFocused ? styles.inputFocused : {}),
-          }}
-          onFocus={() => setInputFocused(true)}
-          onBlur={() => setInputFocused(false)}
-          autoComplete="off"
-        />
-      </div>
+      {!isChatGPTProvider && (
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>API Key</label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => {
+              onApiKeyChange(e.target.value)
+              setTestResult(null)
+            }}
+            placeholder="sk-..."
+            style={{
+              ...styles.input,
+              ...(inputFocused ? styles.inputFocused : {}),
+            }}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            autoComplete="off"
+          />
+        </div>
+      )}
 
       {/* Test connection */}
       <div style={styles.buttonRow}>
@@ -325,11 +415,19 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
             ...styles.testButton,
             ...(!canTest || testing ? styles.testButtonDisabled : {}),
           }}
-          onClick={handleTestConnection}
+          onClick={isChatGPTProvider ? handleChatGPTLogin : handleTestConnection}
           disabled={!canTest || testing}
         >
           {testing && <span style={styles.spinner} />}
-          {testing ? 'Testing...' : 'Test Connection'}
+          {testing
+            ? isChatGPTProvider
+              ? 'Waiting for sign-in...'
+              : 'Testing...'
+            : isChatGPTProvider
+              ? authStatus?.connected
+                ? 'Reconnect ChatGPT'
+                : 'Sign in with ChatGPT'
+              : 'Test Connection'}
         </button>
         {testResult && (
           <span
@@ -338,7 +436,13 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
               ...(testResult.success ? styles.successText : styles.errorText),
             }}
           >
-            {testResult.success ? 'Connected' : testResult.error ?? 'Failed'}
+            {testResult.success
+              ? isChatGPTProvider
+                ? authStatus?.accountId
+                  ? `Connected (${authStatus.accountId})`
+                  : 'Connected'
+                : 'Connected'
+              : testResult.error ?? 'Failed'}
           </span>
         )}
       </div>
@@ -346,14 +450,30 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
       {/* Model input */}
       <div style={styles.inputGroup}>
         <label style={styles.label}>Model</label>
-        <input
-          type="text"
-          value={model}
-          onChange={(e) => onModelChange(e.target.value)}
-          placeholder={DEFAULT_MODELS[provider]}
-          style={styles.input}
-          autoComplete="off"
-        />
+        {isChatGPTProvider ? (
+          <select
+            value={model}
+            onChange={(e) => onModelChange(e.target.value)}
+            style={styles.select}
+          >
+            {(availableModels.length > 0 ? availableModels : [DEFAULT_MODELS[provider]]).map(
+              (modelOption) => (
+                <option key={modelOption} value={modelOption}>
+                  {modelOption}
+                </option>
+              ),
+            )}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={model}
+            onChange={(e) => onModelChange(e.target.value)}
+            placeholder={DEFAULT_MODELS[provider]}
+            style={styles.input}
+            autoComplete="off"
+          />
+        )}
       </div>
 
       {/* Help link */}
@@ -366,7 +486,7 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
           if (e.key === 'Enter') handleHelpClick()
         }}
       >
-        Don't have an API key?
+        {isChatGPTProvider ? 'Need ChatGPT Plus or Pro?' : "Don't have an API key?"}
       </span>
 
       {/* Next button */}

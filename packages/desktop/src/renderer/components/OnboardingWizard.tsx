@@ -87,9 +87,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     setFinishError(null)
 
     try {
-      await window.ouroboros.rpc('config/setApiKey', { provider, apiKey })
       await window.ouroboros.rpc('config/set', { path: 'model.provider', value: provider })
       await window.ouroboros.rpc('config/set', { path: 'model.name', value: model })
+      if (provider !== 'openai-chatgpt') {
+        await window.ouroboros.rpc('config/setApiKey', { provider, apiKey })
+      }
 
       if (workspace) {
         await window.ouroboros.rpc('workspace/set', { directory: workspace })

@@ -4,6 +4,7 @@ import type { LaunchedApp } from './helpers'
 import {
   clearClientState,
   clearRpcOverrides,
+  completeOnboarding,
   emitNotification,
   emitUpdateDownloaded,
   getInstallUpdateCount,
@@ -104,6 +105,43 @@ test('onboarding stays open when required setup fails', async ({}, testInfo) => 
 
   await expect(launched.page.getByText('Invalid API key')).toBeVisible()
   await expect(launched.page.getByText('What would you like to do?')).toBeVisible()
+})
+
+test('onboarding supports ChatGPT subscription without API key entry', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await clearClientState(launched.page)
+
+  await launched.page.getByText('ChatGPT Subscription', { exact: true }).click()
+  await expect(launched.page.getByPlaceholder('sk-...')).toHaveCount(0)
+
+  await launched.page.getByRole('button', { name: 'Sign in with ChatGPT' }).click()
+  await expect(launched.page.getByText(/Connected/)).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Next' }).click()
+
+  await expect(launched.page.getByText('Choose your workspace')).toBeVisible()
+})
+
+test('settings can switch to ChatGPT subscription and sign out cleanly', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await completeOnboarding(launched.page)
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init = currentModKey === 'metaKey'
+      ? { key: ',', metaKey: true }
+      : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await expect(launched.page.getByRole('navigation').getByText('Settings')).toBeVisible()
+  await launched.page.locator('select').first().selectOption('openai-chatgpt')
+  await expect(launched.page.getByPlaceholder('Enter your API key...')).toHaveCount(0)
+
+  await launched.page.getByRole('button', { name: 'Sign in with ChatGPT' }).click()
+  await expect(launched.page.getByText('Connected account: acct_test')).toBeVisible()
+
+  await launched.page.getByRole('button', { name: 'Sign out' }).click()
+  await expect(launched.page.getByText('Disconnected from ChatGPT subscription')).toBeVisible()
 })
 
 test('agent notifications finalize chat output and completed tool calls', async ({}, testInfo) => {
@@ -427,7 +465,7 @@ test('settings overlay surfaces load failures and closes with Escape', async ({}
 
   await expect(launched.page.getByText('Settings unavailable')).toBeVisible()
   await launched.page.keyboard.press('Escape')
-  await expect(launched.page.getByText('Settings', { exact: true })).not.toBeVisible()
+  await expect(launched.page.getByRole('button', { name: 'Close settings' })).toHaveCount(0)
 })
 
 test('update banner can be exercised without leaving the renderer contract suite', async ({}, testInfo) => {
