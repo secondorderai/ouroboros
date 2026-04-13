@@ -508,7 +508,69 @@ function getSessionTitle(session: SessionWithMessages): string | undefined {
     (message) => message.role === 'user' && message.content.trim().length > 0,
   )
 
-  return firstUserMessage?.content.trim().replace(/\s+/g, ' ').slice(0, 50)
+  if (!firstUserMessage) return undefined
+  return deriveSessionTitle(firstUserMessage.content)
+}
+
+function toSentenceCase(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+}
+
+function finalizeSessionTitle(input: string): string {
+  const maxChars = 42
+  const words = input.split(/\s+/).filter(Boolean)
+  const limitedWords = words.slice(0, 6).join(' ')
+  const candidate =
+    limitedWords.length > maxChars
+      ? limitedWords.slice(0, maxChars).replace(/\s+\S*$/, '')
+      : limitedWords
+
+  return candidate || 'New conversation'
+}
+
+function deriveSessionTitle(input: string): string {
+  let text = input.trim().replace(/\s+/g, ' ')
+  if (!text) return 'New conversation'
+
+  text = text
+    .replace(/^(?:[#>*-]+\s*)+/, '')
+    .replace(/^(?:\/[\w-]+\s+)+/i, '')
+    .replace(/^without web search,?\s*/i, '')
+    .replace(/^(?:plan|task|question)\s+/i, '')
+
+  const matchers: Array<[RegExp, (...matches: string[]) => string]> = [
+    [/^create (?:a )?plan to (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^plan for (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^what are the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
+    [/^what is the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
+    [
+      /^what materials are good for use in (.+)$/i,
+      (subject) => `${toSentenceCase(subject)} materials`,
+    ],
+    [/^what materials are good for (.+)$/i, (subject) => `${toSentenceCase(subject)} materials`],
+    [/^how to (.+)$/i, (subject) => toSentenceCase(subject)],
+  ]
+
+  for (const [pattern, formatter] of matchers) {
+    const match = text.match(pattern)
+    if (match) {
+      return finalizeSessionTitle(
+        formatter(...match.slice(1))
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
+    }
+  }
+
+  text = text
+    .replace(/^(?:can you|could you|would you|please|help me|i need to)\s+/i, '')
+    .replace(/\bto follow\b/gi, '')
+    .replace(/\s+(?:and|or)\s+/gi, ' / ')
+    .trim()
+
+  return finalizeSessionTitle(toSentenceCase(text))
 }
 
 function persistConversationDelta(

@@ -103,13 +103,77 @@ function makeId(prefix: string, n: number): string {
   return `${prefix}-${n}`
 }
 
+function toSentenceCase(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+}
+
+function finalizeSessionTitle(input: string): string {
+  const maxChars = 42
+  const words = input.split(/\s+/).filter(Boolean)
+  const limitedWords = words.slice(0, 6).join(' ')
+  const candidate =
+    limitedWords.length > maxChars
+      ? limitedWords.slice(0, maxChars).replace(/\s+\S*$/, '')
+      : limitedWords
+
+  return candidate || 'New conversation'
+}
+
+function deriveSessionTitle(input: string): string {
+  let text = input.trim().replace(/\s+/g, ' ')
+  if (!text) return 'New conversation'
+
+  text = text
+    .replace(/^(?:[#>*-]+\s*)+/, '')
+    .replace(/^(?:\/[\w-]+\s+)+/i, '')
+    .replace(/^without web search,?\s*/i, '')
+    .replace(/^(?:plan|task|question)\s+/i, '')
+
+  const matchers: Array<[RegExp, (...matches: string[]) => string]> = [
+    [/^create (?:a )?plan to (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^plan for (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^what are the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
+    [/^what is the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
+    [
+      /^what materials are good for use in (.+)$/i,
+      (subject) => `${toSentenceCase(subject)} materials`,
+    ],
+    [/^what materials are good for (.+)$/i, (subject) => `${toSentenceCase(subject)} materials`],
+    [/^how to (.+)$/i, (subject) => toSentenceCase(subject)],
+  ]
+
+  for (const [pattern, formatter] of matchers) {
+    const match = text.match(pattern)
+    if (match) {
+      return finalizeSessionTitle(
+        formatter(...match.slice(1))
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
+    }
+  }
+
+  text = text
+    .replace(/^(?:can you|could you|would you|please|help me|i need to)\s+/i, '')
+    .replace(/\bto follow\b/gi, '')
+    .replace(/\s+(?:and|or)\s+/gi, ' / ')
+    .trim()
+
+  return finalizeSessionTitle(toSentenceCase(text))
+}
+
 export function normalizeTextContent(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value == null) return ''
 
   if (Array.isArray(value)) {
-    const text = value.map((item) => normalizeTextContent(item)).filter(Boolean).join('')
+    const text = value
+      .map((item) => normalizeTextContent(item))
+      .filter(Boolean)
+      .join('')
     if (text) return text
   }
 
@@ -127,7 +191,10 @@ export function normalizeTextContent(value: unknown): string {
     }
 
     if (Array.isArray(record.content)) {
-      const text = record.content.map((item) => normalizeTextContent(item)).filter(Boolean).join('')
+      const text = record.content
+        .map((item) => normalizeTextContent(item))
+        .filter(Boolean)
+        .join('')
       if (text) return text
     }
 
@@ -302,7 +369,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         if (!title || title === 'New conversation') {
           const firstUserMsg = newMessages.find((m) => m.role === 'user')
           if (firstUserMsg) {
-            title = firstUserMsg.text.slice(0, 50)
+            title = deriveSessionTitle(firstUserMsg.text)
           }
         }
         return {
