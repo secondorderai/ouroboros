@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { type Result, ok, err } from '@src/types'
+import { getContextWindowTokens } from '@src/llm/model-capabilities'
 
 const CONFIG_FILE_NAME = '.ouroboros'
 
@@ -307,7 +308,17 @@ export function loadConfig(cwd?: string): Result<OuroborosConfig> {
     return err(new Error(`Invalid .ouroboros configuration:\n${issues}`))
   }
 
-  return ok(result.data)
+  // Auto-detect context window from model registry when not explicitly configured.
+  // Explicit user config always takes precedence.
+  const config = result.data
+  if (config.memory.contextWindowTokens === undefined) {
+    const detected = getContextWindowTokens(config.model.name, config.model.provider)
+    if (detected !== null) {
+      config.memory.contextWindowTokens = detected
+    }
+  }
+
+  return ok(config)
 }
 
 /**
