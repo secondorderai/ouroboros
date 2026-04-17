@@ -80,7 +80,8 @@ describe('loadConfig', () => {
 
     // Memory defaults
     expect(config.memory.consolidationSchedule).toBe('session-end')
-    expect(config.memory.contextWindowTokens).toBeUndefined()
+    // Auto-detected from default model claude-sonnet-4-20250514
+    expect(config.memory.contextWindowTokens).toBe(200_000)
     expect(config.memory.warnRatio).toBe(DEFAULT_MEMORY_CONFIG.warnRatio)
     expect(config.memory.flushRatio).toBe(DEFAULT_MEMORY_CONFIG.flushRatio)
     expect(config.memory.compactRatio).toBe(DEFAULT_MEMORY_CONFIG.compactRatio)
@@ -458,5 +459,90 @@ describe('loadConfig', () => {
     expect(result.value.rsi.checkpointEveryTurns).toBe(4)
     expect(result.value.rsi.durablePromotionThreshold).toBe(0.75)
     expect(result.value.rsi.crystallizeFromRepeatedPatternsOnly).toBe(false)
+  })
+
+  test('auto-detects contextWindowTokens for known Anthropic model', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'anthropic', name: 'claude-3-5-sonnet-latest' },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.memory.contextWindowTokens).toBe(200_000)
+  })
+
+  test('auto-detects contextWindowTokens for known OpenAI model', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'openai', name: 'gpt-4o' },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.memory.contextWindowTokens).toBe(128_000)
+  })
+
+  test('auto-detects contextWindowTokens via prefix match', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'openai', name: 'gpt-4o-2024-08-06' },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.memory.contextWindowTokens).toBe(128_000)
+  })
+
+  test('falls back to undefined for unknown model ID', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai-compatible',
+          name: 'my-custom-model',
+          baseUrl: 'http://localhost:11434/v1',
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.memory.contextWindowTokens).toBeUndefined()
+  })
+
+  test('explicit contextWindowTokens overrides auto-detection', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'anthropic', name: 'claude-3-5-sonnet-latest' },
+        memory: { contextWindowTokens: 50_000 },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.memory.contextWindowTokens).toBe(50_000)
   })
 })
