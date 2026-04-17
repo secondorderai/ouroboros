@@ -366,6 +366,7 @@ export class Agent {
               skillDirectories: ['skills/core', 'skills/generated'],
               memory: {
                 consolidationSchedule: 'session-end',
+                contextWindowTokens: 200_000,
                 warnRatio: 0.7,
                 flushRatio: 0.8,
                 compactRatio: 0.9,
