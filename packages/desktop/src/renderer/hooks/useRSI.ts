@@ -5,7 +5,8 @@ import type {
   SkillsListResult,
   EvolutionStatsResult,
   EvolutionListResult,
-  EvolutionEntry
+  EvolutionEntry,
+  RsiRuntimeNotification
 } from '../../shared/protocol'
 
 // ── Types ────────────────────────────────────────────────────────
@@ -36,6 +37,17 @@ interface CachedData<T> {
 
 const CACHE_TTL = 30_000 // 30 seconds
 
+function mergeActivities(existing: RSIActivity[], incoming: RSIActivity[]): RSIActivity[] {
+  const merged = new Map<string, RSIActivity>()
+  for (const activity of [...existing, ...incoming]) {
+    merged.set(activity.id, activity)
+  }
+
+  return [...merged.values()]
+    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
+    .slice(0, 20)
+}
+
 // ── Helper: translate RSI events to plain language ───────────────
 
 function describeRSIEvent(entry: EvolutionEntry): string {
@@ -48,10 +60,85 @@ function describeRSIEvent(entry: EvolutionEntry): string {
       return `Dream cycle completed -- ${entry.description}`
     case 'self-test':
       return `Self-test: ${entry.description}`
+    case 'observation-recorded':
+      return `Observed session activity -- ${entry.description}`
+    case 'checkpoint-written':
+      return `Checkpoint saved -- ${entry.description}`
+    case 'context-flushed':
+      return `Prepared memory flush -- ${entry.description}`
+    case 'history-compacted':
+      return `Compacted long session -- ${entry.description}`
+    case 'length-recovery-succeeded':
+      return `Recovered after context limit -- ${entry.description}`
+    case 'length-recovery-failed':
+      return `Context-limit recovery failed -- ${entry.description}`
+    case 'durable-memory-promoted':
+      return `Promoted durable memory -- ${entry.description}`
+    case 'durable-memory-pruned':
+      return `Pruned durable memory -- ${entry.description}`
+    case 'skill-proposed-from-observations':
+      return `Queued skill proposal -- ${entry.description}`
     case 'error':
       return `RSI error: ${entry.description}`
     default:
       return entry.description
+  }
+}
+
+function pickString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+  return null
+}
+
+function describeRuntimeEvent(eventType: string, payload: Record<string, unknown>): string {
+  const count = typeof payload.count === 'number' ? payload.count : null
+  const checkpointAt = pickString(payload.checkpointUpdatedAt, payload.updatedAt)
+  const summary = pickString(
+    payload.summary,
+    payload.message,
+    payload.description,
+    payload.reason,
+    payload.goal,
+    payload.nextStep,
+    payload.outcome
+  )
+
+  switch (eventType) {
+    case 'rsi-observation-recorded': {
+      const observationLabel = count === 1 ? '1 observation' : count != null ? `${count} observations` : 'New observations'
+      return summary ? `Observed session activity -- ${summary}` : `${observationLabel} recorded`
+    }
+    case 'rsi-checkpoint-written':
+      if (checkpointAt) return `Checkpoint saved -- ${checkpointAt}`
+      return summary ? `Checkpoint saved -- ${summary}` : 'Checkpoint saved for the active session'
+    case 'rsi-context-flushed':
+      return summary
+        ? `Prepared memory flush -- ${summary}`
+        : 'Prepared memory flush before trimming older context'
+    case 'rsi-history-compacted':
+      return summary
+        ? `Compacted long session -- ${summary}`
+        : 'Compacted long session and kept a short live tail'
+    case 'rsi-length-recovery-succeeded':
+      return summary
+        ? `Recovered after context limit -- ${summary}`
+        : 'Recovered after hitting the model context limit'
+    case 'rsi-length-recovery-failed':
+      return summary
+        ? `Context-limit recovery failed -- ${summary}`
+        : 'Could not recover automatically after hitting the context limit'
+    case 'rsi-durable-memory-promoted':
+      return summary ? `Promoted durable memory -- ${summary}` : 'Promoted validated memory into durable storage'
+    case 'rsi-durable-memory-pruned':
+      return summary ? `Pruned durable memory -- ${summary}` : 'Pruned outdated durable memory entries'
+    case 'rsi-skill-proposed-from-observations':
+      return summary ? `Queued skill proposal -- ${summary}` : 'Queued a skill proposal from repeated observations'
+    default:
+      return summary ? `RSI runtime activity -- ${summary}` : `RSI runtime activity -- ${eventType}`
   }
 }
 
@@ -71,6 +158,11 @@ function describeNotification(channel: string, params: Record<string, unknown>):
       return `Dream cycle completed -- ${(params.message as string) || 'done'}`
     case 'rsi/error':
       return `RSI error: ${(params.message as string) || 'unknown error'}`
+    case 'rsi/runtime':
+      return describeRuntimeEvent(
+        typeof params.eventType === 'string' ? params.eventType : 'unknown',
+        ((params.payload as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>
+      )
     default:
       return `RSI event: ${channel}`
   }
@@ -146,7 +238,7 @@ export function useRSI(): UseRSIReturn {
     ) {
       setSkills(skillsCache.current.data)
       setStats(statsCache.current.data)
-      setActivities(activitiesCache.current.data)
+      setActivities((prev) => mergeActivities(prev, activitiesCache.current!.data))
       return
     }
 
@@ -183,8 +275,9 @@ export function useRSI(): UseRSIReturn {
         description: describeRSIEvent(entry),
         timestamp: entry.timestamp
       }))
-      activitiesCache.current = { data: activityList, fetchedAt: now }
-      setActivities(activityList)
+      const mergedActivities = mergeActivities(activitiesCache.current?.data ?? [], activityList)
+      activitiesCache.current = { data: mergedActivities, fetchedAt: now }
+      setActivities((prev) => mergeActivities(prev, mergedActivities))
     } catch {
       // Silently handle -- data will show as empty/null
     } finally {
@@ -244,11 +337,18 @@ export function useRSI(): UseRSIReturn {
   useEffect(() => {
     const unsubscribers: Array<() => void> = []
 
-    const rsiChannels = ['rsi/reflection', 'rsi/crystallization', 'rsi/dream', 'rsi/error'] as const
+    const rsiChannels = [
+      'rsi/reflection',
+      'rsi/crystallization',
+      'rsi/dream',
+      'rsi/error',
+      'rsi/runtime'
+    ] as const
 
     for (const channel of rsiChannels) {
       const unsub = window.ouroboros.onNotification(channel, (params) => {
         const p = (params ?? {}) as Record<string, unknown>
+        const runtimeParams = (params ?? {}) as RsiRuntimeNotification
 
         // Update serpent state
         if (channel === 'rsi/crystallization' && p.outcome === 'promoted') {
@@ -283,7 +383,10 @@ export function useRSI(): UseRSIReturn {
         // Add to activity feed
         const newActivity: RSIActivity = {
           id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          description: describeNotification(channel, p),
+          description:
+            channel === 'rsi/runtime'
+              ? describeRuntimeEvent(runtimeParams.eventType, runtimeParams.payload ?? {})
+              : describeNotification(channel, p),
           timestamp: new Date().toISOString()
         }
         setActivities((prev) => [newActivity, ...prev].slice(0, 20))

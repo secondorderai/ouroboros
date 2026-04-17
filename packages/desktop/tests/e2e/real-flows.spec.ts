@@ -211,7 +211,7 @@ test('settings, RSI, and external-link safety remain observable without renderer
       : { key: ',', ctrlKey: true }
     window.dispatchEvent(new KeyboardEvent('keydown', init))
   }, modKey)
-  await expect(launched.page.getByText('Settings')).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: 'Close settings' })).toBeVisible()
   await launched.page.getByRole('button', { name: 'Appearance' }).click()
   await launched.page.getByRole('button', { name: 'Dark' }).click()
   await expect.poll(async () => {
@@ -233,4 +233,89 @@ test('settings, RSI, and external-link safety remain observable without renderer
       blocked: records.filter((record) => !record.allowed).length,
     }
   }).toEqual({ total: 2, allowed: 1, blocked: 1 })
+})
+
+test('desktop surfaces RSI compaction activity and preserves long-session continuity', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      ...baseScenario,
+      evolutionEntries: [
+        ...baseScenario.evolutionEntries,
+        {
+          id: 'evo-compact',
+          timestamp: new Date().toISOString(),
+          type: 'history-compacted',
+          description: 'Rebuilt the prompt from checkpoint memory and a short live tail.',
+        },
+      ],
+      agentRuns: [
+        {
+          response: {
+            text: 'Recovered context and continued the task.',
+            iterations: 2,
+            maxIterationsReached: false,
+          },
+          notifications: [
+            { delayMs: 40, method: 'agent/text', params: { text: 'Working through a long session…' } },
+            {
+              delayMs: 80,
+              method: 'rsi/runtime',
+              params: {
+                eventType: 'rsi-observation-recorded',
+                payload: { count: 3, summary: 'Captured recent tool results before compaction.' },
+              },
+            },
+            {
+              delayMs: 120,
+              method: 'rsi/runtime',
+              params: {
+                eventType: 'rsi-checkpoint-written',
+                payload: { checkpointUpdatedAt: '2026-04-17T10:15:00.000Z' },
+              },
+            },
+            {
+              delayMs: 160,
+              method: 'rsi/runtime',
+              params: {
+                eventType: 'rsi-history-compacted',
+                payload: { summary: 'Replaced older history with checkpoint memory and a short tail.' },
+              },
+            },
+            {
+              delayMs: 200,
+              method: 'rsi/runtime',
+              params: {
+                eventType: 'rsi-length-recovery-succeeded',
+                payload: { summary: 'Retried with compacted context and resumed the task.' },
+              },
+            },
+            { delayMs: 240, method: 'agent/text', params: { text: 'Recovered context and continued the task.' } },
+            {
+              delayMs: 280,
+              method: 'agent/turnComplete',
+              params: { text: 'Recovered context and continued the task.', iterations: 2 },
+            },
+          ],
+        },
+      ],
+    },
+  })
+
+  await completeOnboarding(launched.page)
+
+  await launched.page.getByLabel('Message input').fill('Keep going even if the context gets compacted')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Working through a long session…')).toBeVisible()
+  await expect(launched.page.getByText('Recovered context and continued the task.')).toBeVisible()
+
+  await launched.page.getByLabel(/^RSI status:/).click()
+  await expect(launched.page.getByRole('dialog', { name: 'Self-Improvement drawer' })).toBeVisible()
+  await expect(
+    launched.page.getByText(/Observation, checkpoint, compaction, and dream-cycle updates appear here\./i)
+  ).toBeVisible()
+  await expect(launched.page.getByText(/Observed session activity -- Captured recent tool results/i)).toBeVisible()
+  await expect(launched.page.getByText(/Checkpoint saved -- 2026-04-17T10:15:00.000Z/i)).toBeVisible()
+  await expect(launched.page.getByText(/Compacted long session -- Replaced older history/i)).toBeVisible()
+  await expect(launched.page.getByText(/Recovered after context limit -- Retried with compacted context/i)).toBeVisible()
 })
