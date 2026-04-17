@@ -34,8 +34,14 @@ export interface BuildSystemPromptOptions {
   tools?: ToolMetadata[]
   /** Skill catalog entries from discovered SKILL.md frontmatter */
   skills?: SkillEntry[]
-  /** Raw MEMORY.md content to inject as memory context */
+  /** Legacy raw MEMORY.md content to inject as durable memory */
   memory?: string
+  /** Structured memory sections loaded independently and budgeted upstream */
+  memorySections?: {
+    durableMemory?: string
+    checkpointMemory?: string
+    workingMemory?: string
+  }
   /** Raw AGENTS.md instructions resolved from cwd ancestors */
   agentsInstructions?: string
   /** Whether RSI (self-improvement) is enabled */
@@ -107,8 +113,28 @@ function formatSkillsSection(skills: SkillEntry[]): string {
   return `## Skills\n\n${entries.join('\n')}`
 }
 
-function formatMemorySection(memory: string): string {
-  return `## Memory Context\n\n${memory}`
+function formatMemorySection(
+  memorySections: NonNullable<BuildSystemPromptOptions['memorySections']>,
+): string {
+  const sections: string[] = []
+
+  if (memorySections.durableMemory?.trim()) {
+    sections.push(`### Durable Memory\n\n${memorySections.durableMemory.trim()}`)
+  }
+
+  if (memorySections.checkpointMemory?.trim()) {
+    sections.push(`### Checkpoint Memory\n\n${memorySections.checkpointMemory.trim()}`)
+  }
+
+  if (memorySections.workingMemory?.trim()) {
+    sections.push(`### Working Memory\n\n${memorySections.workingMemory.trim()}`)
+  }
+
+  if (sections.length === 0) {
+    return ''
+  }
+
+  return `## Memory Context\n\n${sections.join('\n\n')}`
 }
 
 function formatAgentsSection(agentsInstructions: string): string {
@@ -173,10 +199,21 @@ function formatAutoDetectionSection(hints: string[]): string {
  * @returns A plain string system prompt ready for any LLM provider
  */
 export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): string {
-  const { tools, skills, memory, agentsInstructions, rsiEnabled, responseStyle, modeOverlay } =
-    options
+  const {
+    tools,
+    skills,
+    memory,
+    memorySections,
+    agentsInstructions,
+    rsiEnabled,
+    responseStyle,
+    modeOverlay,
+  } = options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
+  const resolvedMemorySections =
+    memorySections ??
+    (memory && memory.trim().length > 0 ? { durableMemory: memory.trim() } : undefined)
 
   if (responseStyle === 'desktop-readable') {
     sections.push(formatResponseStyleSection(responseStyle))
@@ -197,8 +234,11 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
     sections.push(formatSkillsSection(skills))
   }
 
-  if (memory && memory.trim().length > 0) {
-    sections.push(formatMemorySection(memory))
+  if (resolvedMemorySections) {
+    const memorySection = formatMemorySection(resolvedMemorySections)
+    if (memorySection) {
+      sections.push(memorySection)
+    }
   }
 
   if (agentsInstructions && agentsInstructions.trim().length > 0) {

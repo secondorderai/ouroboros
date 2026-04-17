@@ -183,6 +183,40 @@ export class RSIOrchestrator {
           this.basePath,
         )
 
+        const sourceSessionIds =
+          crystalResult.reflection?.sourceReferences
+            ?.flatMap((reference) => reference.sessionId)
+            .filter((value, index, values) => values.indexOf(value) === index) ?? []
+        const repeatCount = crystalResult.reflection?.repeatCount ?? sourceSessionIds.length
+        if (sourceSessionIds.length > 0 && crystalResult.skillName) {
+          appendEntry(
+            {
+              type: 'skill-proposed-from-observations',
+              summary: `Observation-backed skill proposal: ${crystalResult.skillName}`,
+              details: {
+                skillName: crystalResult.skillName,
+                sourceSessionIds,
+                sourceObservationIds:
+                  crystalResult.reflection?.sourceReferences?.flatMap(
+                    (reference) => reference.observationIds,
+                  ) ?? [],
+                repeatCount,
+              },
+              motivation:
+                'Repeated observation patterns can be audited independently from transcripts.',
+            },
+            this.basePath,
+          )
+
+          this.emitEvent({
+            type: 'rsi-skill-proposed-from-observations',
+            skillName: crystalResult.skillName,
+            repeatCount,
+            sourceSessionIds,
+            reason: 'crystallization',
+          })
+        }
+
         this.emitEvent({
           type: 'rsi-crystallization',
           result: crystalResult,
@@ -237,6 +271,58 @@ export class RSIOrchestrator {
           type: 'rsi-dream',
           result: dreamResult,
         })
+
+        for (const item of dreamResult.durablePromotions) {
+          appendEntry(
+            {
+              type: 'durable-memory-promoted',
+              summary: `Promoted durable memory: ${item}`,
+              details: {
+                sessionId: `dream-${Date.now()}`,
+                item,
+                metadata: {
+                  contradictionsResolved: dreamResult.contradictionsResolvedEntries,
+                },
+              },
+              motivation:
+                'Dream consolidation promoted validated structured memory into durable memory.',
+            },
+            this.basePath,
+          )
+
+          this.emitEvent({
+            type: 'rsi-durable-memory-promoted',
+            sessionId: undefined,
+            item,
+            sourceSessionIds: [],
+            reason: 'dream',
+          })
+        }
+
+        for (const item of dreamResult.durablePrunes) {
+          appendEntry(
+            {
+              type: 'durable-memory-pruned',
+              summary: `Pruned durable memory: ${item}`,
+              details: {
+                sessionId: `dream-${Date.now()}`,
+                item,
+                metadata: {
+                  contradictionsResolved: dreamResult.contradictionsResolvedEntries,
+                },
+              },
+              motivation: 'Dream consolidation removed stale or contradicted durable memory.',
+            },
+            this.basePath,
+          )
+
+          this.emitEvent({
+            type: 'rsi-durable-memory-pruned',
+            sessionId: undefined,
+            item,
+            reason: 'dream',
+          })
+        }
       }
 
       return result

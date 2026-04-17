@@ -12,9 +12,11 @@ import { ApprovalQueue } from './components/ApprovalQueue'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useTheme } from './hooks/useTheme'
 import { useNotifications } from './hooks/useNotifications'
+import { useModeSync } from './hooks/useModeSync'
 import { useRSI } from './hooks/useRSI'
 import { useConversationStore } from './stores/conversationStore'
 import { useApprovals } from './stores/approvalStore'
+import type { SettingsSectionId } from './views/SettingsOverlay'
 
 // Keys for persisting state
 const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
@@ -38,6 +40,7 @@ export function App(): React.ReactElement {
 
   // Subscribe to CLI notifications so agent events reach the store
   useNotifications()
+  useModeSync()
 
   // RSI state (serpent icon, drawer, crystallizations)
   const rsi = useRSI()
@@ -77,7 +80,7 @@ export function App(): React.ReactElement {
   // Overlay states
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<string | undefined>(undefined)
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId | undefined>(undefined)
   const [approvalQueueOpen, setApprovalQueueOpen] = useState(false)
 
   // Drag-and-drop state
@@ -182,7 +185,7 @@ export function App(): React.ReactElement {
 
   // ---- Command palette overlay callbacks ------------------------------------
 
-  const openSettings = useCallback((section?: string) => {
+  const openSettings = useCallback((section?: SettingsSectionId) => {
     setCommandPaletteOpen(false)
     setSettingsSection(section)
     setSettingsOpen(true)

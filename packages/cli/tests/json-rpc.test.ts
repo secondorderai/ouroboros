@@ -272,6 +272,7 @@ describe('JSON-RPC', () => {
       expect(result.sessionId).toBeDefined()
       expect(typeof result.sessionId).toBe('string')
       expect(result.sessionId.length).toBeGreaterThan(0)
+      expect((ctx.getAgent() as unknown as { sessionId?: string }).sessionId).toBe(result.sessionId)
 
       ctx.transcriptStore.close()
     })
@@ -786,6 +787,9 @@ describe('JSON-RPC', () => {
           content: 'Hello from agent',
         }),
       ])
+      expect((ctx.getAgent() as unknown as { sessionId?: string }).sessionId).toBe(
+        newResult.sessionId,
+      )
 
       ctx.transcriptStore.close()
     })
@@ -859,26 +863,76 @@ describe('JSON-RPC', () => {
   // Test: Evolution operations (stubs)
   // -------------------------------------------------------------------
   describe('evolution operations', () => {
-    test('evolution/list returns empty entries', async () => {
+    test('evolution/list returns persisted entries', async () => {
       const ctx = createTestContext()
+      writeFileSync(
+        join(ctx.configDir, 'evolution.log.json'),
+        JSON.stringify(
+          [
+            {
+              id: 'entry-1',
+              timestamp: '2025-04-17T00:00:00.000Z',
+              type: 'context-flushed',
+              summary: 'Flushed context',
+              details: { sessionId: 'session-1' },
+              motivation: 'Preserve state',
+            },
+          ],
+          null,
+          2,
+        ),
+        'utf-8',
+      )
       const handlers = createHandlers(ctx)
 
       const result = (await handlers.get('evolution/list')!({})) as {
-        entries: unknown[]
+        entries: Array<{ id: string; timestamp: string; type: string; description: string }>
       }
-      expect(result.entries).toEqual([])
+      expect(result.entries).toHaveLength(1)
+      expect(result.entries[0]).toMatchObject({
+        type: 'context-flushed',
+        description: 'Flushed context',
+      })
 
       ctx.transcriptStore.close()
     })
 
-    test('evolution/stats returns empty stats', async () => {
+    test('evolution/stats returns computed metrics', async () => {
       const ctx = createTestContext()
+      writeFileSync(
+        join(ctx.configDir, 'evolution.log.json'),
+        JSON.stringify(
+          [
+            {
+              id: 'entry-2',
+              timestamp: '2025-04-17T00:00:00.000Z',
+              type: 'history-compacted',
+              summary: 'Compacted session',
+              details: { sessionId: 'session-1', droppedMessageCount: 6, retainedMessageCount: 2 },
+              motivation: 'Keep prompt bounded',
+            },
+            {
+              id: 'entry-1',
+              timestamp: '2025-04-16T00:00:00.000Z',
+              type: 'length-recovery-succeeded',
+              summary: 'Recovered',
+              details: { sessionId: 'session-1', repeatedWorkDetected: false },
+              motivation: 'Resume after compacting',
+            },
+          ],
+          null,
+          2,
+        ),
+        'utf-8',
+      )
       const handlers = createHandlers(ctx)
 
       const result = (await handlers.get('evolution/stats')!({})) as {
         stats: Record<string, unknown>
       }
-      expect(result.stats).toEqual({})
+      expect(result.stats.totalEntries).toBe(2)
+      expect(result.stats.successfulResumesAfterCompaction).toBe(1)
+      expect(result.stats.compactionsPerSession).toEqual({ 'session-1': 1 })
 
       ctx.transcriptStore.close()
     })
@@ -916,6 +970,34 @@ describe('JSON-RPC', () => {
       const notif = messages[0] as { method: string; params: { text: string } }
       expect(notif.method).toBe('agent/text')
       expect(notif.params.text).toBe('Hello world')
+    })
+
+    test('runtime RSI event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent({
+          type: 'rsi-context-flushed',
+          sessionId: 'session-1',
+          reason: 'flush',
+          unseenMessageCount: 3,
+          metrics: {
+            usageRatio: 0.82,
+            estimatedTotalTokens: 820,
+            contextWindowTokens: 1000,
+            threshold: 'flush',
+          },
+        })
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: { eventType: string; payload: { sessionId: string } }
+      }
+      expect(notif.method).toBe('rsi/runtime')
+      expect(notif.params.eventType).toBe('rsi-context-flushed')
+      expect(notif.params.payload.sessionId).toBe('session-1')
     })
 
     test('tool-call-start event is bridged correctly', async () => {

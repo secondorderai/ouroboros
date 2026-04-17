@@ -34,8 +34,20 @@ import { generateResponse } from '@src/llm'
 import type { LLMCallOptions } from '@src/llm/types'
 import type { SkillCatalogEntry } from '@src/tools/skill-manager'
 import { runSkillTests, type SkillTestResult } from '@src/rsi/validate'
+import type { ObservationRecord, ReflectionCheckpoint } from '@src/rsi/types'
 
 // ── ReflectionRecord schema ───────────────────────────────────────────
+
+const PatternTypeSchema = z.enum(['workflow', 'troubleshooting', 'open-loop-resolution'])
+
+export const CrystallizationSourceReferenceSchema = z.object({
+  sessionId: z.string().min(1),
+  observationIds: z.array(z.string().min(1)),
+  observationTimestamps: z.array(z.string().min(1)),
+  checkpointUpdatedAt: z.string().min(1).optional(),
+})
+
+export type CrystallizationSourceReference = z.infer<typeof CrystallizationSourceReferenceSchema>
 
 export const ReflectionRecordSchema = z.object({
   taskSummary: z.string().describe('Brief description of what the agent just accomplished'),
@@ -64,9 +76,58 @@ export const ReflectionRecordSchema = z.object({
   shouldCrystallize: z
     .boolean()
     .describe('Final decision: true if both novelty and generalizability exceed threshold'),
+  patternType: PatternTypeSchema.optional().describe('Observation-derived pattern classification'),
+  repeatCount: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe('How many times this pattern repeated across source sessions'),
+  repeatedAcrossSessions: z
+    .boolean()
+    .optional()
+    .describe('Whether this pattern was observed in multiple sessions'),
+  sourceReferences: z
+    .array(CrystallizationSourceReferenceSchema)
+    .optional()
+    .describe('Traceable source observation references for auditability'),
+  transcriptExcerpts: z
+    .array(z.string())
+    .optional()
+    .describe('Optional transcript excerpts used as secondary evidence'),
 })
 
 export type ReflectionRecord = z.infer<typeof ReflectionRecordSchema>
+
+export interface ObservationCrystallizationSession {
+  sessionId: string
+  observations: ObservationRecord[]
+  checkpoint?: ReflectionCheckpoint | null
+  transcriptExcerpt?: string
+}
+
+export interface ObservationPatternProposal {
+  patternType: z.infer<typeof PatternTypeSchema>
+  patternKey: string
+  proposedSkillName: string
+  proposedSkillDescription: string
+  keySteps: string[]
+  reasoning: string
+  novelty: number
+  generalizability: number
+  confidence: number
+  repeatCount: number
+  repeatedAcrossSessions: boolean
+  sourceReferences: CrystallizationSourceReference[]
+  transcriptExcerpts: string[]
+}
+
+export interface ObservationCrystallizationOptions {
+  existingSkills?: SkillCatalogEntry[]
+  repeatedPatternsOnly?: boolean
+  minimumRepeatCount?: number
+  noveltyThreshold?: number
+}
 
 function isOpenAIReasoningModel(llm: LanguageModel): boolean {
   const modelInfo = llm as { provider?: string; modelId?: string }
@@ -111,6 +172,9 @@ export interface SkillFrontmatter {
     generated: string
     confidence: number
     source_task: string
+    source_sessions?: string[]
+    source_observations?: string[]
+    source_timestamps?: string[]
   }
 }
 
@@ -278,6 +342,458 @@ export function shouldCrystallize(record: ReflectionRecord, threshold: number): 
   return record.novelty > threshold && record.generalizability > threshold
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
+function normalizePatternText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function slugifyPattern(value: string): string {
+  const slug = normalizePatternText(value).replace(/\s+/g, '-')
+  return slug || 'skill-pattern'
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const value of values) {
+    const trimmed = value.trim()
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue
+    }
+
+    seen.add(trimmed)
+    result.push(trimmed)
+  }
+
+  return result
+}
+
+function getTagValue(tags: string[], prefix: string): string | undefined {
+  const normalizedPrefix = `${prefix.toLowerCase()}:`
+  const match = tags.find((tag) => tag.toLowerCase().startsWith(normalizedPrefix))
+  return match?.slice(normalizedPrefix.length).trim()
+}
+
+function priorityToConfidence(priority: ObservationRecord['priority']): number {
+  switch (priority) {
+    case 'critical':
+      return 0.95
+    case 'high':
+      return 0.85
+    case 'normal':
+      return 0.7
+    case 'low':
+      return 0.55
+  }
+}
+
+function getSupersededObservationIds(observations: ObservationRecord[]): Set<string> {
+  const superseded = new Set<string>()
+  for (const observation of observations) {
+    for (const supersededId of observation.supersedes ?? []) {
+      superseded.add(supersededId)
+    }
+  }
+
+  return superseded
+}
+
+function getActiveObservations(observations: ObservationRecord[]): ObservationRecord[] {
+  const superseded = getSupersededObservationIds(observations)
+  return observations.filter((observation) => !superseded.has(observation.id))
+}
+
+interface ObservationPatternSeed {
+  patternType: ObservationPatternProposal['patternType']
+  patternKey: string
+  proposedSkillName: string
+  proposedSkillDescription: string
+  keySteps: string[]
+  confidence: number
+  sourceReference: CrystallizationSourceReference
+  transcriptExcerpt?: string
+}
+
+function buildSourceReference(
+  session: ObservationCrystallizationSession,
+  observationIds: string[],
+): CrystallizationSourceReference {
+  const timestamps = session.observations
+    .filter((observation) => observationIds.includes(observation.id))
+    .map((observation) => observation.observedAt)
+
+  return {
+    sessionId: session.sessionId,
+    observationIds: dedupeStrings(observationIds),
+    observationTimestamps: dedupeStrings(timestamps),
+    checkpointUpdatedAt: session.checkpoint?.updatedAt,
+  }
+}
+
+function validateObservationSession(
+  session: ObservationCrystallizationSession,
+): Result<ObservationCrystallizationSession> {
+  const mismatchedObservation = session.observations.find(
+    (observation) => observation.sessionId !== session.sessionId,
+  )
+  if (mismatchedObservation) {
+    return err(
+      new Error(
+        `Observation session mismatch: expected "${session.sessionId}" but found "${mismatchedObservation.sessionId}"`,
+      ),
+    )
+  }
+
+  if (session.checkpoint && session.checkpoint.sessionId !== session.sessionId) {
+    return err(
+      new Error(
+        `Checkpoint session mismatch: expected "${session.sessionId}" but found "${session.checkpoint.sessionId}"`,
+      ),
+    )
+  }
+
+  return ok(session)
+}
+
+function buildCheckpointSkillSeeds(
+  session: ObservationCrystallizationSession,
+): ObservationPatternSeed[] {
+  const checkpoint = session.checkpoint
+  if (!checkpoint) {
+    return []
+  }
+
+  return checkpoint.skillCandidates.map((candidate) => ({
+    patternType: 'workflow',
+    patternKey: [
+      'checkpoint-skill',
+      normalizePatternText(candidate.name),
+      candidate.workflow.map(normalizePatternText).join('>'),
+    ].join(':'),
+    proposedSkillName: candidate.name,
+    proposedSkillDescription: `${candidate.summary}. Activate when ${candidate.trigger}.`,
+    keySteps: dedupeStrings(candidate.workflow),
+    confidence: clamp01(candidate.confidence),
+    sourceReference: {
+      sessionId: session.sessionId,
+      observationIds: dedupeStrings(candidate.sourceObservationIds),
+      observationTimestamps: dedupeStrings(
+        session.observations
+          .filter((observation) => candidate.sourceObservationIds.includes(observation.id))
+          .map((observation) => observation.observedAt),
+      ),
+      checkpointUpdatedAt: checkpoint.updatedAt,
+    },
+    transcriptExcerpt: session.transcriptExcerpt,
+  }))
+}
+
+function buildWorkflowSequenceSeed(
+  session: ObservationCrystallizationSession,
+): ObservationPatternSeed | undefined {
+  const activeObservations = getActiveObservations(session.observations)
+  const workflowObservations = activeObservations.filter((observation) =>
+    ['progress', 'decision', 'warning'].includes(observation.kind),
+  )
+
+  if (workflowObservations.length < 2) {
+    return undefined
+  }
+
+  const normalizedSteps = dedupeStrings(
+    workflowObservations.map((observation) => observation.summary),
+  )
+  if (normalizedSteps.length < 2) {
+    return undefined
+  }
+
+  const taggedName =
+    workflowObservations
+      .map((observation) => getTagValue(observation.tags, 'workflow'))
+      .find(Boolean) ??
+    workflowObservations
+      .map((observation) => getTagValue(observation.tags, 'pattern'))
+      .find(Boolean) ??
+    workflowObservations.map((observation) => getTagValue(observation.tags, 'name')).find(Boolean)
+
+  const patternType = workflowObservations.some((observation) => observation.kind === 'warning')
+    ? 'troubleshooting'
+    : 'workflow'
+  const seedName = taggedName ?? normalizedSteps.slice(0, 3).join(' ')
+  const descriptionBase =
+    session.checkpoint?.goal || workflowObservations[workflowObservations.length - 1]?.summary
+
+  return {
+    patternType,
+    patternKey: `workflow:${taggedName ? normalizePatternText(taggedName) : normalizedSteps.map(normalizePatternText).join('>')}`,
+    proposedSkillName: slugifyPattern(seedName),
+    proposedSkillDescription: `Captures the repeated ${patternType} for ${descriptionBase}. Activate when similar constraints or steps appear again.`,
+    keySteps: normalizedSteps,
+    confidence: clamp01(
+      workflowObservations.reduce(
+        (sum, observation) => sum + priorityToConfidence(observation.priority),
+        0,
+      ) / workflowObservations.length,
+    ),
+    sourceReference: buildSourceReference(
+      session,
+      workflowObservations.map((observation) => observation.id),
+    ),
+    transcriptExcerpt: session.transcriptExcerpt,
+  }
+}
+
+function buildOpenLoopResolutionSeeds(
+  session: ObservationCrystallizationSession,
+): ObservationPatternSeed[] {
+  const sortedObservations = [...session.observations].sort(
+    (left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt),
+  )
+
+  return sortedObservations
+    .filter((observation) => observation.kind === 'open-loop')
+    .flatMap((openLoop) => {
+      const resolvers = sortedObservations.filter(
+        (candidate) =>
+          (candidate.supersedes ?? []).includes(openLoop.id) &&
+          ['progress', 'decision', 'warning'].includes(candidate.kind),
+      )
+
+      if (resolvers.length === 0) {
+        return []
+      }
+
+      const label =
+        getTagValue(openLoop.tags, 'workflow') ??
+        getTagValue(openLoop.tags, 'pattern') ??
+        getTagValue(openLoop.tags, 'name') ??
+        resolvers.map((resolver) => getTagValue(resolver.tags, 'workflow')).find(Boolean) ??
+        resolvers.map((resolver) => getTagValue(resolver.tags, 'pattern')).find(Boolean) ??
+        resolvers.map((resolver) => getTagValue(resolver.tags, 'name')).find(Boolean)
+
+      const keySteps = dedupeStrings([
+        openLoop.summary,
+        ...resolvers.map((resolver) => resolver.summary),
+      ])
+      return [
+        {
+          patternType: 'open-loop-resolution' as const,
+          patternKey: `resolution:${label ? normalizePatternText(label) : keySteps.map(normalizePatternText).join('>')}`,
+          proposedSkillName: slugifyPattern(label ?? `resolve ${openLoop.summary}`),
+          proposedSkillDescription: `Resolves "${openLoop.summary}" using a repeatable sequence. Activate when the same class of issue blocks forward progress.`,
+          keySteps,
+          confidence: clamp01(
+            resolvers.reduce((sum, resolver) => sum + priorityToConfidence(resolver.priority), 0) /
+              resolvers.length,
+          ),
+          sourceReference: buildSourceReference(session, [
+            openLoop.id,
+            ...resolvers.map((resolver) => resolver.id),
+          ]),
+          transcriptExcerpt: session.transcriptExcerpt,
+        },
+      ]
+    })
+}
+
+function isCoveredByExistingSkill(
+  proposal: Pick<ObservationPatternProposal, 'proposedSkillName' | 'proposedSkillDescription'>,
+  existingSkills: SkillCatalogEntry[],
+): boolean {
+  const normalizedName = normalizePatternText(proposal.proposedSkillName)
+  const normalizedDescription = normalizePatternText(proposal.proposedSkillDescription)
+
+  return existingSkills.some((skill) => {
+    const skillName = normalizePatternText(skill.name)
+    const skillDescription = normalizePatternText(skill.description)
+
+    return (
+      skillName === normalizedName ||
+      normalizedDescription.includes(skillName) ||
+      skillDescription.includes(normalizedName)
+    )
+  })
+}
+
+export function proposeCrystallizationsFromObservations(
+  sessions: ObservationCrystallizationSession[],
+  options: ObservationCrystallizationOptions = {},
+): Result<ObservationPatternProposal[]> {
+  const {
+    existingSkills = [],
+    repeatedPatternsOnly = true,
+    minimumRepeatCount = 2,
+    noveltyThreshold = 0.7,
+  } = options
+
+  const seeds: ObservationPatternSeed[] = []
+
+  for (const session of sessions) {
+    const validatedSession = validateObservationSession(session)
+    if (!validatedSession.ok) {
+      return validatedSession
+    }
+
+    seeds.push(...buildCheckpointSkillSeeds(validatedSession.value))
+
+    const workflowSeed = buildWorkflowSequenceSeed(validatedSession.value)
+    if (workflowSeed) {
+      seeds.push(workflowSeed)
+    }
+
+    seeds.push(...buildOpenLoopResolutionSeeds(validatedSession.value))
+  }
+
+  const grouped = new Map<string, ObservationPatternSeed[]>()
+  for (const seed of seeds) {
+    const bucket = grouped.get(seed.patternKey) ?? []
+    bucket.push(seed)
+    grouped.set(seed.patternKey, bucket)
+  }
+
+  const proposals: ObservationPatternProposal[] = []
+
+  for (const [patternKey, patternSeeds] of grouped.entries()) {
+    const sourceReferences = patternSeeds.map((seed) => seed.sourceReference)
+    const sessionIds = new Set(sourceReferences.map((reference) => reference.sessionId))
+    const repeatCount = sessionIds.size
+    const repeatedAcrossSessions = repeatCount > 1
+    const confidence = clamp01(
+      patternSeeds.reduce((sum, seed) => sum + seed.confidence, 0) / patternSeeds.length,
+    )
+
+    const keySteps = dedupeStrings(patternSeeds.flatMap((seed) => seed.keySteps))
+    const seed = patternSeeds[0]
+    let novelty = clamp01(
+      0.4 +
+        confidence * 0.25 +
+        Math.min(repeatCount - 1, 2) * 0.15 +
+        (seed.patternType === 'troubleshooting'
+          ? 0.1
+          : seed.patternType === 'open-loop-resolution'
+            ? 0.05
+            : 0),
+    )
+    let generalizability = clamp01(0.35 + confidence * 0.25 + Math.min(repeatCount, 3) * 0.2)
+
+    const proposal: ObservationPatternProposal = {
+      patternType: seed.patternType,
+      patternKey,
+      proposedSkillName: seed.proposedSkillName,
+      proposedSkillDescription: seed.proposedSkillDescription,
+      keySteps,
+      reasoning: repeatedAcrossSessions
+        ? `Detected a repeated ${seed.patternType} across ${repeatCount} sessions with consistent steps and evidence.`
+        : `Detected a single-session ${seed.patternType} with strong evidence and a stable multi-step workflow.`,
+      novelty,
+      generalizability,
+      confidence,
+      repeatCount,
+      repeatedAcrossSessions,
+      sourceReferences: sourceReferences.map((reference) => ({
+        ...reference,
+        observationIds: dedupeStrings(reference.observationIds),
+        observationTimestamps: dedupeStrings(reference.observationTimestamps),
+      })),
+      transcriptExcerpts: dedupeStrings(
+        patternSeeds
+          .map((candidate) => candidate.transcriptExcerpt?.trim() ?? '')
+          .filter((value) => value.length > 0),
+      ),
+    }
+
+    const exceptionalSingleSession =
+      !repeatedAcrossSessions &&
+      proposal.novelty >= noveltyThreshold + 0.15 &&
+      proposal.confidence >= 0.9
+
+    if (repeatedPatternsOnly && repeatCount < minimumRepeatCount && !exceptionalSingleSession) {
+      continue
+    }
+
+    if (isCoveredByExistingSkill(proposal, existingSkills)) {
+      novelty = 0.15
+      generalizability = clamp01(generalizability - 0.2)
+      proposal.novelty = novelty
+      proposal.generalizability = generalizability
+      proposal.reasoning = `${proposal.reasoning} A similarly named skill already exists, so novelty is reduced.`
+    }
+
+    proposals.push(proposal)
+  }
+
+  return ok(
+    proposals.sort((left, right) => {
+      if (left.repeatedAcrossSessions !== right.repeatedAcrossSessions) {
+        return Number(right.repeatedAcrossSessions) - Number(left.repeatedAcrossSessions)
+      }
+      if (left.repeatCount !== right.repeatCount) {
+        return right.repeatCount - left.repeatCount
+      }
+      if (left.generalizability !== right.generalizability) {
+        return right.generalizability - left.generalizability
+      }
+      return right.confidence - left.confidence
+    }),
+  )
+}
+
+export function reflectFromObservationPatterns(
+  taskSummary: string,
+  sessions: ObservationCrystallizationSession[],
+  options: ObservationCrystallizationOptions = {},
+): Result<ReflectionRecord> {
+  const proposalResult = proposeCrystallizationsFromObservations(sessions, options)
+  if (!proposalResult.ok) {
+    return proposalResult
+  }
+
+  const topProposal = proposalResult.value[0]
+  if (!topProposal) {
+    return ok({
+      taskSummary,
+      novelty: 0.15,
+      generalizability: 0.25,
+      reasoning: 'No repeated observation or checkpoint pattern met the crystallization threshold.',
+      shouldCrystallize: false,
+      repeatCount: 1,
+      repeatedAcrossSessions: false,
+      sourceReferences: [],
+      transcriptExcerpts: [],
+    })
+  }
+
+  return ok({
+    taskSummary:
+      taskSummary.trim().length > 0
+        ? taskSummary
+        : `Repeated ${topProposal.patternType} across ${topProposal.repeatCount} sessions`,
+    novelty: topProposal.novelty,
+    generalizability: topProposal.generalizability,
+    proposedSkillName: topProposal.proposedSkillName,
+    proposedSkillDescription: topProposal.proposedSkillDescription,
+    keySteps: topProposal.keySteps,
+    reasoning: topProposal.reasoning,
+    shouldCrystallize:
+      topProposal.repeatedAcrossSessions ||
+      (topProposal.novelty > (options.noveltyThreshold ?? 0.7) && topProposal.confidence >= 0.9),
+    patternType: topProposal.patternType,
+    repeatCount: topProposal.repeatCount,
+    repeatedAcrossSessions: topProposal.repeatedAcrossSessions,
+    sourceReferences: topProposal.sourceReferences,
+    transcriptExcerpts: topProposal.transcriptExcerpts,
+  })
+}
+
 // ── Skill name / frontmatter validation ──────────────────────────────
 
 const KEBAB_CASE_RE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/
@@ -411,6 +927,23 @@ export function buildGenerationPrompt(
 ): string {
   const exampleSkills = loadExampleSkills(basePath)
   const keySteps = record.keySteps ?? []
+  const sourceReferences = record.sourceReferences ?? []
+  const transcriptEvidence = dedupeStrings([
+    ...(record.transcriptExcerpts ?? []),
+    transcript ?? '',
+  ]).join('\n\n')
+  const sourceSection =
+    sourceReferences.length > 0
+      ? `\n## Observation Evidence\n\n${sourceReferences
+          .map((reference, index) => {
+            const timestamps =
+              reference.observationTimestamps.length > 0
+                ? ` (${reference.observationTimestamps.join(', ')})`
+                : ''
+            return `${index + 1}. Session \`${reference.sessionId}\`${timestamps} — observations: ${reference.observationIds.join(', ')}`
+          })
+          .join('\n')}\n`
+      : ''
 
   return `You are a skill generator for the Ouroboros RSI engine. Your job is to transform a structured reflection record into a complete, portable skill conforming to the agentskills.io spec.
 
@@ -422,7 +955,7 @@ ${keySteps.map((step, i) => `  ${i + 1}. ${step}`).join('\n')}
 - **Proposed Skill Name:** ${record.proposedSkillName ?? 'unnamed'}
 - **Generalizability:** ${record.generalizability}
 - **Reasoning:** ${record.reasoning}
-${transcript ? `\n## Task Transcript (for additional context)\n\n${transcript}\n` : ''}
+${sourceSection}${transcriptEvidence ? `\n## Supporting Transcript Evidence (secondary)\n\n${transcriptEvidence}\n` : ''}
 ${exampleSkills}
 ## Your Task
 
@@ -526,6 +1059,15 @@ export function parseSkillResponse(
       generated: 'true',
       confidence: record.generalizability,
       source_task: record.taskSummary,
+      source_sessions: dedupeStrings(
+        (record.sourceReferences ?? []).map((reference) => reference.sessionId),
+      ),
+      source_observations: dedupeStrings(
+        (record.sourceReferences ?? []).flatMap((reference) => reference.observationIds),
+      ),
+      source_timestamps: dedupeStrings(
+        (record.sourceReferences ?? []).flatMap((reference) => reference.observationTimestamps),
+      ),
     },
   }
 
@@ -671,6 +1213,7 @@ export interface CrystallizeOptions {
   autoCommit?: boolean
   noveltyThreshold?: number
   existingSkills?: SkillCatalogEntry[]
+  observationSessions?: ObservationCrystallizationSession[]
 }
 
 // ── Git helper ──────────────────────────────────────────────────────
@@ -710,17 +1253,24 @@ export async function crystallize(
     autoCommit = true,
     noveltyThreshold = 0.7,
     existingSkills = [],
+    observationSessions = [],
   } = options
 
   // ── Stage 1: Reflect ────────────────────────────────────────────────
   process.stderr.write('[crystallize] Stage 1/5: Reflecting on task...\n')
 
-  const reflectResult = await reflect(taskSummary, existingSkills, llm)
-  if (!reflectResult.ok) {
-    return err(new Error(`[reflect] ${reflectResult.error.message}`))
+  const reflectionResult =
+    observationSessions.length > 0
+      ? reflectFromObservationPatterns(taskSummary, observationSessions, {
+          existingSkills,
+          noveltyThreshold,
+        })
+      : await reflect(taskSummary, existingSkills, llm)
+  if (!reflectionResult.ok) {
+    return err(new Error(`[reflect] ${reflectionResult.error.message}`))
   }
 
-  const reflection = reflectResult.value
+  const reflection = reflectionResult.value
 
   if (!shouldCrystallize(reflection, noveltyThreshold)) {
     process.stderr.write(

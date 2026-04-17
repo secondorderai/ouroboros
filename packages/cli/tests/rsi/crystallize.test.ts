@@ -8,14 +8,19 @@ import {
   ReflectionRecordSchema,
   reflect,
   shouldCrystallize,
+  proposeCrystallizationsFromObservations,
+  reflectFromObservationPatterns,
   generateSkill,
   writeSkillToStaging,
   parseSkillResponse,
   validateSkillName,
   checkNameUniqueness,
   validateRoundTrip,
+  crystallize,
   type ReflectionRecord,
+  type ObservationCrystallizationSession,
 } from '@src/rsi/crystallize'
+import type { ObservationRecord, ReflectionCheckpoint } from '@src/rsi/types'
 import type { SkillCatalogEntry } from '@src/tools/skill-manager'
 import { createExecute, type SkillGenInput } from '@src/tools/skill-gen'
 import { makeTempDir, cleanupTempDir } from '../helpers/test-utils'
@@ -158,6 +163,49 @@ function makeReflection(overrides?: Partial<ReflectionRecord>): ReflectionRecord
     proposedSkillName: 'test-skill',
     proposedSkillDescription: 'Generates cursor-based pagination for REST APIs',
     reasoning: 'Cursor-based pagination is a common pattern applicable across many REST APIs.',
+    ...overrides,
+  }
+}
+
+function makeObservation(
+  sessionId: string,
+  id: string,
+  observedAt: string,
+  kind: ObservationRecord['kind'],
+  summary: string,
+  overrides?: Partial<ObservationRecord>,
+): ObservationRecord {
+  return {
+    id,
+    sessionId,
+    observedAt,
+    kind,
+    summary,
+    evidence: [],
+    priority: 'high',
+    tags: [],
+    ...overrides,
+  }
+}
+
+function makeCheckpoint(
+  sessionId: string,
+  updatedAt: string,
+  overrides?: Partial<ReflectionCheckpoint>,
+): ReflectionCheckpoint {
+  return {
+    sessionId,
+    updatedAt,
+    goal: '',
+    currentPlan: [],
+    constraints: [],
+    decisionsMade: [],
+    filesInPlay: [],
+    completedWork: [],
+    openLoops: [],
+    nextBestStep: '',
+    durableMemoryCandidates: [],
+    skillCandidates: [],
     ...overrides,
   }
 }
@@ -553,6 +601,217 @@ describe('shouldCrystallize()', () => {
   })
 })
 
+describe('observation-based crystallization proposals', () => {
+  function makeRepeatedWorkflowSessions(): ObservationCrystallizationSession[] {
+    return [
+      {
+        sessionId: 'session-a',
+        observations: [
+          makeObservation(
+            'session-a',
+            'obs-a1',
+            '2026-04-15T01:00:00.000Z',
+            'progress',
+            'Inspect failing payment webhook logs',
+            {
+              evidence: ['Open the deploy logs', 'Trace the failing webhook event'],
+              priority: 'high',
+              tags: ['workflow:payment-webhook-debugging'],
+            },
+          ),
+          makeObservation(
+            'session-a',
+            'obs-a2',
+            '2026-04-15T01:05:00.000Z',
+            'decision',
+            'Replay webhook payloads against local fixtures',
+            {
+              evidence: ['Replay the payload', 'Confirm the parser output'],
+              priority: 'high',
+              tags: ['workflow:payment-webhook-debugging'],
+            },
+          ),
+          makeObservation(
+            'session-a',
+            'obs-a3',
+            '2026-04-15T01:10:00.000Z',
+            'progress',
+            'Patch signature verification and rerun regression tests',
+            {
+              evidence: ['Update the signature verifier', 'Run the webhook regression suite'],
+              priority: 'critical',
+              tags: ['workflow:payment-webhook-debugging'],
+            },
+          ),
+        ],
+        checkpoint: makeCheckpoint('session-a', '2026-04-15T01:15:00.000Z', {
+          goal: 'Restore the payment webhook pipeline',
+          skillCandidates: [
+            {
+              name: 'payment-webhook-debugging',
+              summary:
+                'Stabilize failing payment webhooks by replaying payloads and verifying signatures.',
+              trigger: 'payment webhook deliveries begin failing in production or staging',
+              workflow: [
+                'Inspect failing payment webhook logs',
+                'Replay webhook payloads against local fixtures',
+                'Patch signature verification and rerun regression tests',
+              ],
+              confidence: 0.92,
+              sourceObservationIds: ['obs-a1', 'obs-a2', 'obs-a3'],
+              sourceSessionIds: ['session-a'],
+            },
+          ],
+        }),
+        transcriptExcerpt:
+          'Webhook replay showed the signature verifier rejected valid payloads after a key rotation.',
+      },
+      {
+        sessionId: 'session-b',
+        observations: [
+          makeObservation(
+            'session-b',
+            'obs-b1',
+            '2026-04-16T03:00:00.000Z',
+            'progress',
+            'Inspect failing payment webhook logs',
+            {
+              evidence: ['Open the deploy logs', 'Trace the failing webhook event'],
+              priority: 'high',
+              tags: ['workflow:payment-webhook-debugging'],
+            },
+          ),
+          makeObservation(
+            'session-b',
+            'obs-b2',
+            '2026-04-16T03:04:00.000Z',
+            'decision',
+            'Replay webhook payloads against local fixtures',
+            {
+              evidence: ['Replay the payload', 'Confirm the parser output'],
+              priority: 'high',
+              tags: ['workflow:payment-webhook-debugging'],
+            },
+          ),
+          makeObservation(
+            'session-b',
+            'obs-b3',
+            '2026-04-16T03:09:00.000Z',
+            'progress',
+            'Patch signature verification and rerun regression tests',
+            {
+              evidence: ['Update the signature verifier', 'Run the webhook regression suite'],
+              priority: 'critical',
+              tags: ['workflow:payment-webhook-debugging'],
+            },
+          ),
+        ],
+        checkpoint: makeCheckpoint('session-b', '2026-04-16T03:12:00.000Z', {
+          goal: 'Restore the payment webhook pipeline',
+          skillCandidates: [
+            {
+              name: 'payment-webhook-debugging',
+              summary:
+                'Stabilize failing payment webhooks by replaying payloads and verifying signatures.',
+              trigger: 'payment webhook deliveries begin failing in production or staging',
+              workflow: [
+                'Inspect failing payment webhook logs',
+                'Replay webhook payloads against local fixtures',
+                'Patch signature verification and rerun regression tests',
+              ],
+              confidence: 0.9,
+              sourceObservationIds: ['obs-b1', 'obs-b2', 'obs-b3'],
+              sourceSessionIds: ['session-b'],
+            },
+          ],
+        }),
+        transcriptExcerpt:
+          'The repeated fix path was to replay payloads first, then patch the rotated-key verification flow.',
+      },
+    ]
+  }
+
+  test('repeated workflow becomes a crystallization proposal with source references', () => {
+    const result = proposeCrystallizationsFromObservations(makeRepeatedWorkflowSessions())
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const proposal = result.value[0]
+    expect(proposal).toBeDefined()
+    expect(proposal?.proposedSkillName).toBe('payment-webhook-debugging')
+    expect(proposal?.repeatedAcrossSessions).toBe(true)
+    expect(proposal?.repeatCount).toBe(2)
+    expect(proposal?.sourceReferences.map((reference) => reference.sessionId).sort()).toEqual([
+      'session-a',
+      'session-b',
+    ])
+    expect(
+      proposal?.sourceReferences.every((reference) => reference.observationIds.length > 0),
+    ).toBe(true)
+  })
+
+  test('one-off noise does not outrank a repeated workflow', () => {
+    const sessions = makeRepeatedWorkflowSessions()
+    sessions.push({
+      sessionId: 'session-noisy',
+      observations: [
+        makeObservation(
+          'session-noisy',
+          'obs-noise-1',
+          '2026-04-17T09:00:00.000Z',
+          'warning',
+          'Exotic one-off driver crash after toggling a staging-only kernel flag',
+          {
+            priority: 'critical',
+            tags: ['workflow:kernel-driver-firefight'],
+          },
+        ),
+        makeObservation(
+          'session-noisy',
+          'obs-noise-2',
+          '2026-04-17T09:02:00.000Z',
+          'decision',
+          'Patch the staging kernel module and restart the driver',
+          {
+            priority: 'critical',
+            tags: ['workflow:kernel-driver-firefight'],
+          },
+        ),
+      ],
+      checkpoint: makeCheckpoint('session-noisy', '2026-04-17T09:05:00.000Z'),
+      transcriptExcerpt: 'This was a weird one-off lab issue and did not recur elsewhere.',
+    })
+
+    const result = proposeCrystallizationsFromObservations(sessions)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value[0]?.proposedSkillName).toBe('payment-webhook-debugging')
+    expect(result.value[0]?.repeatCount).toBe(2)
+    expect(
+      result.value.some((proposal) => proposal.proposedSkillName === 'kernel-driver-firefight'),
+    ).toBe(false)
+  })
+
+  test('reflects the strongest proposal into a traceable reflection record', () => {
+    const result = reflectFromObservationPatterns(
+      'Observed repeated payment webhook debugging sequences',
+      makeRepeatedWorkflowSessions(),
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.shouldCrystallize).toBe(true)
+    expect(result.value.patternType).toBe('workflow')
+    expect(result.value.repeatCount).toBe(2)
+    expect(result.value.sourceReferences?.length).toBe(2)
+    expect(result.value.transcriptExcerpts?.length).toBe(2)
+  })
+})
+
 // ═══════════════════════════════════════════════════════════════════════
 // ── Part 2: Skill generation tests (Ticket 02) ──────────────────────
 // ═══════════════════════════════════════════════════════════════════════
@@ -614,6 +873,148 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(genResult.ok).toBe(true)
       expect(doGenerateCalls).toHaveLength(1)
       expect(doGenerateCalls[0]?.temperature).toBeUndefined()
+    })
+
+    it('can crystallize directly from repeated observations without reflection transcripts', async () => {
+      const llm = mockModelReturning(VALID_LLM_OUTPUT)
+      const observationSessions: ObservationCrystallizationSession[] = [
+        {
+          sessionId: 'session-a',
+          observations: [
+            makeObservation(
+              'session-a',
+              'obs-a1',
+              '2026-04-15T01:00:00.000Z',
+              'progress',
+              'Inspect failing payment webhook logs',
+              {
+                priority: 'high',
+                tags: ['workflow:payment-webhook-debugging'],
+              },
+            ),
+            makeObservation(
+              'session-a',
+              'obs-a2',
+              '2026-04-15T01:05:00.000Z',
+              'decision',
+              'Replay webhook payloads against local fixtures',
+              {
+                priority: 'high',
+                tags: ['workflow:payment-webhook-debugging'],
+              },
+            ),
+            makeObservation(
+              'session-a',
+              'obs-a3',
+              '2026-04-15T01:10:00.000Z',
+              'progress',
+              'Patch signature verification and rerun regression tests',
+              {
+                priority: 'critical',
+                tags: ['workflow:payment-webhook-debugging'],
+              },
+            ),
+          ],
+          checkpoint: makeCheckpoint('session-a', '2026-04-15T01:15:00.000Z', {
+            goal: 'Restore the payment webhook pipeline',
+            skillCandidates: [
+              {
+                name: 'payment-webhook-debugging',
+                summary:
+                  'Stabilize failing payment webhooks by replaying payloads and verifying signatures.',
+                trigger: 'payment webhook deliveries begin failing in production or staging',
+                workflow: [
+                  'Inspect failing payment webhook logs',
+                  'Replay webhook payloads against local fixtures',
+                  'Patch signature verification and rerun regression tests',
+                ],
+                confidence: 0.92,
+                sourceObservationIds: ['obs-a1', 'obs-a2', 'obs-a3'],
+                sourceSessionIds: ['session-a'],
+              },
+            ],
+          }),
+        },
+        {
+          sessionId: 'session-b',
+          observations: [
+            makeObservation(
+              'session-b',
+              'obs-b1',
+              '2026-04-16T03:00:00.000Z',
+              'progress',
+              'Inspect failing payment webhook logs',
+              {
+                priority: 'high',
+                tags: ['workflow:payment-webhook-debugging'],
+              },
+            ),
+            makeObservation(
+              'session-b',
+              'obs-b2',
+              '2026-04-16T03:04:00.000Z',
+              'decision',
+              'Replay webhook payloads against local fixtures',
+              {
+                priority: 'high',
+                tags: ['workflow:payment-webhook-debugging'],
+              },
+            ),
+            makeObservation(
+              'session-b',
+              'obs-b3',
+              '2026-04-16T03:09:00.000Z',
+              'progress',
+              'Patch signature verification and rerun regression tests',
+              {
+                priority: 'critical',
+                tags: ['workflow:payment-webhook-debugging'],
+              },
+            ),
+          ],
+          checkpoint: makeCheckpoint('session-b', '2026-04-16T03:12:00.000Z', {
+            goal: 'Restore the payment webhook pipeline',
+            skillCandidates: [
+              {
+                name: 'payment-webhook-debugging',
+                summary:
+                  'Stabilize failing payment webhooks by replaying payloads and verifying signatures.',
+                trigger: 'payment webhook deliveries begin failing in production or staging',
+                workflow: [
+                  'Inspect failing payment webhook logs',
+                  'Replay webhook payloads against local fixtures',
+                  'Patch signature verification and rerun regression tests',
+                ],
+                confidence: 0.9,
+                sourceObservationIds: ['obs-b1', 'obs-b2', 'obs-b3'],
+                sourceSessionIds: ['session-b'],
+              },
+            ],
+          }),
+        },
+      ]
+
+      const result = await crystallize('Repeated payment webhook incidents', {
+        llm,
+        observationSessions,
+        autoCommit: false,
+        noveltyThreshold: 0.7,
+        existingSkills: [],
+        skillDirs: {
+          staging: join(tmpDir, 'skills', 'staging'),
+          generated: join(tmpDir, 'skills', 'generated'),
+          core: join(tmpDir, 'skills', 'core'),
+        },
+      })
+
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      expect(result.value.outcome).toBe('promoted')
+      expect(result.value.skillName).toBe('payment-webhook-debugging')
+      expect(
+        result.value.reflection?.sourceReferences?.map((reference) => reference.sessionId).sort(),
+      ).toEqual(['session-a', 'session-b'])
     })
   })
 

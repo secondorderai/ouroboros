@@ -551,6 +551,10 @@ export interface RsiDreamNotification {
 export interface RsiErrorNotification {
   message?: string
 }
+export interface RsiRuntimeNotification {
+  eventType: string
+  payload: Record<string, unknown>
+}
 
 export interface ModeEnteredNotification {
   modeId: string
@@ -580,6 +584,7 @@ export interface NotificationMap {
   'rsi/crystallization': RsiCrystallizationNotification
   'rsi/dream': RsiDreamNotification
   'rsi/error': RsiErrorNotification
+  'rsi/runtime': RsiRuntimeNotification
   'mode/entered': ModeEnteredNotification
   'mode/exited': ModeExitedNotification
   'mode/planSubmitted': ModePlanSubmittedNotification

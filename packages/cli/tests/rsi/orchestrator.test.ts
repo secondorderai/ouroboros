@@ -28,9 +28,25 @@ import type { LanguageModel } from 'ai'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function makeConfig(overrides?: Partial<OuroborosConfig>): OuroborosConfig {
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Array<unknown>
+    ? T[K]
+    : T[K] extends Record<string, unknown>
+      ? DeepPartial<T[K]>
+      : T[K]
+}
+
+function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
   const base = configSchema.parse({})
-  return { ...base, ...overrides }
+  return {
+    ...base,
+    ...overrides,
+    model: { ...base.model, ...overrides?.model },
+    permissions: { ...base.permissions, ...overrides?.permissions },
+    skillDirectories: overrides?.skillDirectories ?? base.skillDirectories,
+    memory: { ...base.memory, ...overrides?.memory },
+    rsi: { ...base.rsi, ...overrides?.rsi },
+  }
 }
 
 function reflectionJson(novelty: number, generalizability: number, crystallize: boolean): string {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Fuse from 'fuse.js'
 import { useConversationStore } from '../stores/conversationStore'
+import type { SettingsSectionId } from '../views/SettingsOverlay'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,6 +126,16 @@ function SearchIcon(): React.ReactElement {
   )
 }
 
+function LayersIcon(): React.ReactElement {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
+    </svg>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Default actions
 // ---------------------------------------------------------------------------
@@ -142,6 +153,7 @@ function createDefaultActions(handlers: {
   onConfigurePermissions: () => void
   onManageApiKeys: () => void
   onAppearance: () => void
+  onModes: () => void
 }): PaletteAction[] {
   const isMac = navigator.userAgent.includes('Mac')
   const mod = isMac ? 'Cmd' : 'Ctrl'
@@ -234,6 +246,14 @@ function createDefaultActions(handlers: {
       shortcut: `${mod}+,`,
       handler: handlers.onAppearance,
     },
+    {
+      id: 'modes',
+      group: 'Settings',
+      icon: <LayersIcon />,
+      title: 'Modes',
+      description: 'Review and switch planning modes',
+      handler: handlers.onModes,
+    },
   ]
 }
 
@@ -257,7 +277,7 @@ const fuseOptions = {
 interface CommandPaletteProps {
   isOpen: boolean
   onClose: () => void
-  onOpenSettings?: (section?: string) => void
+  onOpenSettings?: (section?: SettingsSectionId) => void
   onOpenApprovals?: () => void
   onOpenRSIDrawer?: () => void
 }
@@ -318,8 +338,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
       onAppearance: () => {
         if (onOpenSettings) onOpenSettings('appearance')
       },
+      onModes: () => {
+        if (onOpenSettings) onOpenSettings('mode')
+      },
     })
-  }, [resetConversation])
+  }, [onOpenApprovals, onOpenRSIDrawer, onOpenSettings, resetConversation])
 
   // Fuse.js index
   const fuse = useMemo(() => new Fuse(actions, fuseOptions), [actions])

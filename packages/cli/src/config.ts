@@ -5,6 +5,27 @@ import { type Result, ok, err } from '@src/types'
 
 const CONFIG_FILE_NAME = '.ouroboros'
 
+export const DEFAULT_MEMORY_CONFIG = {
+  consolidationSchedule: 'session-end' as const,
+  warnRatio: 0.7,
+  flushRatio: 0.8,
+  compactRatio: 0.9,
+  tailMessageCount: 12,
+  dailyLoadDays: 2,
+  durableMemoryBudgetTokens: 1500,
+  checkpointBudgetTokens: 1200,
+  workingMemoryBudgetTokens: 1000,
+}
+
+export const DEFAULT_RSI_CONFIG = {
+  noveltyThreshold: 0.7,
+  autoReflect: true,
+  observeEveryTurns: 1,
+  checkpointEveryTurns: 6,
+  durablePromotionThreshold: 0.8,
+  crystallizeFromRepeatedPatternsOnly: true,
+}
+
 /**
  * Zod schema for the .ouroboros configuration file.
  */
@@ -46,10 +67,62 @@ export const configSchema = z.object({
         .enum(['session-end', 'daily', 'manual'])
         .default('session-end')
         .describe('When to run memory consolidation / dream cycle'),
+      contextWindowTokens: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Optional context window budget used by memory compaction heuristics'),
+      warnRatio: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(DEFAULT_MEMORY_CONFIG.warnRatio)
+        .describe('Budget threshold that emits a context warning'),
+      flushRatio: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(DEFAULT_MEMORY_CONFIG.flushRatio)
+        .describe('Budget threshold that triggers checkpoint flush preparation'),
+      compactRatio: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(DEFAULT_MEMORY_CONFIG.compactRatio)
+        .describe('Budget threshold that triggers conversation compaction'),
+      tailMessageCount: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_MEMORY_CONFIG.tailMessageCount)
+        .describe('Number of recent raw messages to preserve after compaction'),
+      dailyLoadDays: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_MEMORY_CONFIG.dailyLoadDays)
+        .describe('How many recent daily memory files to load into context'),
+      durableMemoryBudgetTokens: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_MEMORY_CONFIG.durableMemoryBudgetTokens)
+        .describe('Prompt token budget reserved for durable memory'),
+      checkpointBudgetTokens: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_MEMORY_CONFIG.checkpointBudgetTokens)
+        .describe('Prompt token budget reserved for checkpoint memory'),
+      workingMemoryBudgetTokens: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_MEMORY_CONFIG.workingMemoryBudgetTokens)
+        .describe('Prompt token budget reserved for working memory'),
     })
-    .default({
-      consolidationSchedule: 'session-end' as const,
-    }),
+    .default(DEFAULT_MEMORY_CONFIG),
 
   rsi: z
     .object({
@@ -63,8 +136,30 @@ export const configSchema = z.object({
         .boolean()
         .default(true)
         .describe('Automatically run reflection after task completion'),
+      observeEveryTurns: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_RSI_CONFIG.observeEveryTurns)
+        .describe('Cadence for observation capture during active sessions'),
+      checkpointEveryTurns: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_RSI_CONFIG.checkpointEveryTurns)
+        .describe('Cadence for rewriting structured checkpoints'),
+      durablePromotionThreshold: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(DEFAULT_RSI_CONFIG.durablePromotionThreshold)
+        .describe('Minimum confidence required to promote working memory into durable memory'),
+      crystallizeFromRepeatedPatternsOnly: z
+        .boolean()
+        .default(DEFAULT_RSI_CONFIG.crystallizeFromRepeatedPatternsOnly)
+        .describe('Whether crystallization should require repeated evidence across observations'),
     })
-    .default({ noveltyThreshold: 0.7, autoReflect: true }),
+    .default(DEFAULT_RSI_CONFIG),
 })
 
 export type OuroborosConfig = z.infer<typeof configSchema>

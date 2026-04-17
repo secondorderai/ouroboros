@@ -293,6 +293,99 @@ describe('Evolution Log — Track All Self-Modifications', () => {
     expect(result.value.byType['memory-updated']).toBe(1)
     expect(result.value.firstEntry).toBe('2025-01-01T00:00:00.000Z')
     expect(result.value.lastEntry).toBe('2025-05-01T00:00:00.000Z')
+    expect(result.value.compactionsPerSession).toEqual({})
+    expect(result.value.successfulResumesAfterCompaction).toBe(0)
+    expect(result.value.repeatedWorkRateAfterCompaction).toBe(0)
+    expect(result.value.durableMemoryReuseRate).toBe(0)
+  })
+
+  test('getStats summarizes compaction and structured memory metrics', () => {
+    const entries: EvolutionEntry[] = [
+      {
+        id: 'e6',
+        timestamp: '2025-06-01T00:00:00.000Z',
+        type: 'checkpoint-written',
+        summary: 'checkpoint',
+        details: {
+          sessionId: 'session-a',
+          metadata: {
+            reusedDurableMemoryItems: ['Keep migration constraints visible (constraint)'],
+          },
+        },
+        motivation: 'r',
+      },
+      {
+        id: 'e5',
+        timestamp: '2025-05-01T00:00:00.000Z',
+        type: 'length-recovery-succeeded',
+        summary: 'recovered',
+        details: {
+          sessionId: 'session-a',
+          repeatedWorkDetected: false,
+        },
+        motivation: 'r',
+      },
+      {
+        id: 'e4',
+        timestamp: '2025-04-01T00:00:00.000Z',
+        type: 'history-compacted',
+        summary: 'compacted',
+        details: {
+          sessionId: 'session-a',
+          droppedMessageCount: 8,
+          retainedMessageCount: 2,
+        },
+        motivation: 'r',
+      },
+      {
+        id: 'e3',
+        timestamp: '2025-03-01T00:00:00.000Z',
+        type: 'durable-memory-promoted',
+        summary: 'promoted',
+        details: {
+          sessionId: 'session-a',
+          item: 'Keep migration constraints visible (constraint)',
+        },
+        motivation: 'r',
+      },
+      {
+        id: 'e2',
+        timestamp: '2025-02-01T00:00:00.000Z',
+        type: 'skill-proposed-from-observations',
+        summary: 'proposal',
+        details: {
+          skillName: 'checkpoint-recovery',
+          sourceSessionIds: ['session-a', 'session-b'],
+          repeatCount: 2,
+        },
+        motivation: 'r',
+      },
+      {
+        id: 'e1',
+        timestamp: '2025-01-01T00:00:00.000Z',
+        type: 'length-recovery-failed',
+        summary: 'failed',
+        details: {
+          sessionId: 'session-b',
+          repeatedWorkDetected: true,
+        },
+        motivation: 'r',
+      },
+    ]
+    writeFileSync(join(tempDir, 'evolution.log.json'), JSON.stringify(entries, null, 2), 'utf-8')
+
+    const result = getStats(tempDir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.compactionsPerSession).toEqual({ 'session-a': 1 })
+    expect(result.value.successfulResumesAfterCompaction).toBe(1)
+    expect(result.value.repeatedWorkRateAfterCompaction).toBe(0.5)
+    expect(result.value.durableMemoryReuseRate).toBe(1)
+    expect(result.value.skillProposalsFromObservations).toBe(1)
+    expect(result.value.durablePromotions).toBe(1)
+    expect(result.value.sessionsAnalyzed).toBe(2)
+    expect(result.value.successRate).toBe(0.5)
   })
 
   // ── Test: Atomic write safety ───────────────────────────────────
@@ -392,6 +485,10 @@ describe('Evolution Log — Track All Self-Modifications', () => {
     expect(result.value.skillsFailed).toBe(0)
     expect(result.value.firstEntry).toBeUndefined()
     expect(result.value.lastEntry).toBeUndefined()
+    expect(result.value.compactionsPerSession).toEqual({})
+    expect(result.value.successfulResumesAfterCompaction).toBe(0)
+    expect(result.value.repeatedWorkRateAfterCompaction).toBe(0)
+    expect(result.value.durableMemoryReuseRate).toBe(0)
   })
 
   // ── Test: All functions return Result — never throw ─────────────

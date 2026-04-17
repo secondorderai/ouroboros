@@ -41,6 +41,15 @@ export const schema = z.object({
       'memory-consolidated',
       'config-changed',
       'skill-proposal',
+      'observation-recorded',
+      'checkpoint-written',
+      'context-flushed',
+      'history-compacted',
+      'length-recovery-succeeded',
+      'length-recovery-failed',
+      'durable-memory-promoted',
+      'durable-memory-pruned',
+      'skill-proposed-from-observations',
     ])
     .optional()
     .describe('Filter entries by type (for search action)'),
@@ -61,6 +70,15 @@ export interface EvolutionToolInput {
     | 'memory-consolidated'
     | 'config-changed'
     | 'skill-proposal'
+    | 'observation-recorded'
+    | 'checkpoint-written'
+    | 'context-flushed'
+    | 'history-compacted'
+    | 'length-recovery-succeeded'
+    | 'length-recovery-failed'
+    | 'durable-memory-promoted'
+    | 'durable-memory-pruned'
+    | 'skill-proposed-from-observations'
   since?: string
 }
 

@@ -133,7 +133,9 @@ test('settings can switch to ChatGPT subscription and sign out cleanly', async (
     window.dispatchEvent(new KeyboardEvent('keydown', init))
   }, modKey)
 
-  await expect(launched.page.getByRole('navigation').getByText('Settings')).toBeVisible()
+  await expect(
+    launched.page.getByRole('navigation').getByText('Settings', { exact: true }),
+  ).toBeVisible()
   await launched.page.locator('select').first().selectOption('openai-chatgpt')
   await expect(launched.page.getByPlaceholder('Enter your API key...')).toHaveCount(0)
 
@@ -466,6 +468,78 @@ test('settings overlay surfaces load failures and closes with Escape', async ({}
   await expect(launched.page.getByText('Settings unavailable')).toBeVisible()
   await launched.page.keyboard.press('Escape')
   await expect(launched.page.getByRole('button', { name: 'Close settings' })).toHaveCount(0)
+})
+
+test('composer mode chip and settings mode section stay in sync', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      plan: {
+        title: 'Repository migration plan',
+        summary: 'Break the migration into reviewable phases before coding.',
+        steps: [
+          { id: 'step-1', title: 'Audit affected modules', status: 'completed' },
+          { id: 'step-2', title: 'Stage incremental patches', status: 'in_progress' },
+        ],
+        exploredFiles: ['packages/cli/src/agent.ts'],
+        status: 'submitted',
+      },
+    },
+  })
+  await openMainApp()
+
+  const modeButton = launched.page.getByRole('button', { name: 'Open mode picker' })
+  await expect(modeButton).toBeVisible()
+  await modeButton.click()
+  await launched.page.getByRole('menuitem', { name: /Plan/ }).click()
+
+  await expect(launched.page.getByRole('button', { name: 'Exit Plan mode' })).toBeVisible()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await expect(launched.page.getByRole('button', { name: 'Modes' })).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Modes' }).click()
+  await expect(launched.page.getByText('Current mode', { exact: true })).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: 'Exit current mode' })).toBeVisible()
+  await expect(launched.page.getByText('Repository migration plan')).toBeVisible()
+
+  await launched.page.getByRole('button', { name: 'Exit current mode' }).click()
+  await launched.page.getByLabel('Close settings').click()
+
+  await expect(launched.page.getByRole('button', { name: 'Open mode picker' })).toBeVisible()
+})
+
+test('mode notifications update both the composer and settings surfaces', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await emitNotification(launched.page, 'mode/entered', {
+    modeId: 'plan',
+    displayName: 'Plan',
+    reason: 'Testing notification sync',
+  })
+
+  await expect(launched.page.getByRole('button', { name: 'Exit Plan mode' })).toBeVisible()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+  await launched.page.getByRole('button', { name: 'Modes' }).click()
+  await expect(launched.page.getByText('Plan mode has been active since')).toBeVisible()
+
+  await emitNotification(launched.page, 'mode/exited', {
+    modeId: 'plan',
+    reason: 'Stopped testing notification sync',
+  })
+
+  await expect(launched.page.getByText('Inactive')).toBeVisible()
+  await launched.page.getByLabel('Close settings').click()
+  await expect(launched.page.getByRole('button', { name: 'Open mode picker' })).toBeVisible()
 })
 
 test('update banner can be exercised without leaving the renderer contract suite', async ({}, testInfo) => {

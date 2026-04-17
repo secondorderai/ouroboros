@@ -5,6 +5,7 @@ import { AppearanceSection } from '../components/settings/AppearanceSection'
 import { PermissionsSection } from '../components/settings/PermissionsSection'
 import { RsiSection } from '../components/settings/RsiSection'
 import { MemorySection } from '../components/settings/MemorySection'
+import { ModeSection } from '../components/settings/ModeSection'
 import type { Theme, OuroborosConfig } from '../../shared/protocol'
 
 interface SettingsOverlayProps {
@@ -12,22 +13,54 @@ interface SettingsOverlayProps {
   onClose: () => void
   theme: Theme
   onSetTheme: (theme: Theme) => void
-  initialSection?: string
+  initialSection?: SettingsSectionId
 }
 
-type SectionId = 'model' | 'appearance' | 'permissions' | 'rsi' | 'memory'
+export type SettingsSectionId =
+  | 'model'
+  | 'appearance'
+  | 'permissions'
+  | 'rsi'
+  | 'memory'
+  | 'mode'
 
 interface SectionDef {
-  id: SectionId
+  id: SettingsSectionId
   label: string
+  description: string
 }
 
 const SECTIONS: SectionDef[] = [
-  { id: 'model', label: 'Model & API Keys' },
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'permissions', label: 'Permissions' },
-  { id: 'rsi', label: 'RSI Behavior' },
-  { id: 'memory', label: 'Memory' },
+  {
+    id: 'model',
+    label: 'Model & API Keys',
+    description: 'Providers, authentication, and model selection.',
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    description: 'Theme, font size, and visual ergonomics.',
+  },
+  {
+    id: 'permissions',
+    label: 'Permissions',
+    description: 'Safety tiers and execution boundaries.',
+  },
+  {
+    id: 'rsi',
+    label: 'RSI Behavior',
+    description: 'Reflection and skill generation behavior.',
+  },
+  {
+    id: 'memory',
+    label: 'Memory',
+    description: 'Consolidation timing and memory workflow.',
+  },
+  {
+    id: 'mode',
+    label: 'Modes',
+    description: 'Current mode state and planning controls.',
+  },
 ]
 
 export function SettingsOverlay({
@@ -37,14 +70,14 @@ export function SettingsOverlay({
   onSetTheme,
   initialSection,
 }: SettingsOverlayProps): React.ReactElement | null {
-  const [activeSection, setActiveSection] = useState<SectionId>('model')
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('model')
 
   // Navigate to initial section when opening
   useEffect(() => {
     if (isOpen && initialSection) {
-      const valid: SectionId[] = ['model', 'appearance', 'permissions', 'rsi', 'memory']
-      if (valid.includes(initialSection as SectionId)) {
-        setActiveSection(initialSection as SectionId)
+      const valid: SettingsSectionId[] = ['model', 'appearance', 'permissions', 'rsi', 'memory', 'mode']
+      if (valid.includes(initialSection as SettingsSectionId)) {
+        setActiveSection(initialSection as SettingsSectionId)
       }
     }
   }, [isOpen, initialSection])
@@ -137,7 +170,13 @@ export function SettingsOverlay({
       <div style={styles.container}>
         {/* Section navigation */}
         <nav style={styles.nav}>
-          <div style={styles.navHeader}>Settings</div>
+          <div style={styles.navHeaderBlock}>
+            <div style={styles.navEyebrow}>Desktop settings</div>
+            <div style={styles.navHeader}>Settings</div>
+            <p style={styles.navDescription}>
+              Configure the desktop shell, agent behavior, and mode workflow.
+            </p>
+          </div>
           {SECTIONS.map((section) => (
             <button
               key={section.id}
@@ -148,8 +187,10 @@ export function SettingsOverlay({
                   : {}),
               }}
               onClick={() => setActiveSection(section.id)}
+              aria-current={activeSection === section.id ? 'page' : undefined}
             >
-              {section.label}
+              <span style={styles.navItemLabel}>{section.label}</span>
+              <span style={styles.navItemDescription}>{section.description}</span>
             </button>
           ))}
         </nav>
@@ -191,6 +232,7 @@ export function SettingsOverlay({
               onConfigChange={handleConfigChange}
             />
           )}
+          {activeSection === 'mode' && <ModeSection />}
         </div>
       </div>
     </div>,
@@ -289,51 +331,88 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
     width: '100%',
-    maxWidth: 640,
-    gap: 32,
-    padding: '32px 16px 48px',
+    maxWidth: 1080,
+    gap: 28,
+    padding: '28px 20px 40px',
+    alignItems: 'flex-start',
   },
   nav: {
-    width: 160,
+    width: 244,
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 2,
+    gap: 8,
     position: 'sticky' as const,
-    top: 'calc(var(--title-bar-height) + 32px)',
+    top: 'calc(var(--title-bar-height) + 28px)',
     alignSelf: 'flex-start',
+    padding: '18px',
+    border: '1px solid var(--border-light)',
+    borderRadius: 20,
+    background:
+      'linear-gradient(180deg, var(--bg-secondary) 0%, color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-primary)) 100%)',
   },
-  navHeader: {
+  navHeaderBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    padding: '4px 4px 8px',
+  },
+  navEyebrow: {
     fontSize: 11,
-    fontWeight: 600,
+    fontWeight: 700,
     textTransform: 'uppercase' as const,
     color: 'var(--text-tertiary)',
-    letterSpacing: '0.05em',
-    padding: '8px 12px',
-    marginBottom: 4,
+    letterSpacing: '0.08em',
+  },
+  navHeader: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: 'var(--text-primary)',
+    lineHeight: 1.1,
+  },
+  navDescription: {
+    margin: 0,
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: 'var(--text-secondary)',
   },
   navItem: {
-    display: 'block',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     width: '100%',
     textAlign: 'left' as const,
-    padding: '8px 12px',
+    padding: '12px 14px',
     fontSize: 13,
-    fontWeight: 500,
     fontFamily: 'var(--font-sans)',
     color: 'var(--text-secondary)',
     backgroundColor: 'transparent',
     border: 'none',
-    borderRadius: 'var(--radius-standard)',
+    borderRadius: 14,
     cursor: 'pointer',
+    gap: 4,
   },
   navItemActive: {
-    color: 'var(--text-primary)',
-    backgroundColor: 'var(--bg-hover)',
+    color: 'var(--accent-amber)',
+    backgroundColor: 'var(--accent-amber-bg)',
+    boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--accent-amber) 20%, transparent)',
+  },
+  navItemLabel: {
+    fontSize: 13,
     fontWeight: 600,
+  },
+  navItemDescription: {
+    fontSize: 11,
+    lineHeight: 1.4,
+    color: 'var(--text-tertiary)',
   },
   content: {
     flex: 1,
     minWidth: 0,
+    padding: '10px 0 24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 18,
   },
   errorBanner: {
     marginBottom: 16,

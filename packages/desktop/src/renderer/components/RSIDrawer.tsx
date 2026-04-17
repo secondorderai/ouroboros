@@ -235,6 +235,9 @@ export function RSIDrawer({
               {/* Recent Activity */}
               <div style={styles.section}>
                 <h3 style={styles.sectionTitle}>Recent Activity</h3>
+                <p style={styles.sectionHint}>
+                  Observation, checkpoint, compaction, and dream-cycle updates appear here.
+                </p>
                 <ActivityFeed activities={activities} />
               </div>
 
@@ -365,6 +368,12 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 8,
     margin: 0,
     paddingBottom: 8
+  },
+  sectionHint: {
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: 'var(--text-secondary)',
+    margin: '0 0 12px'
   },
   statsRow: {
     display: 'grid',
