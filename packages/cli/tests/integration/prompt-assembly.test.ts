@@ -7,11 +7,16 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { buildSystemPrompt } from '@src/llm/prompt'
+import { loadLayeredMemory } from '@src/memory/loaders'
 import { ToolRegistry } from '@src/tools/registry'
 import { discoverSkills, getSkillCatalog, _resetSkills } from '@src/tools/skill-manager'
 import { getMemoryIndex } from '@src/memory/index'
+import { writeCheckpoint } from '@src/memory/checkpoints'
+import { resolveDailyMemoryPath } from '@src/memory/paths'
+import { dirname } from 'node:path'
 import { z } from 'zod'
 import { ok } from '@src/types'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import {
   makeTempDir,
   cleanupTempDir,
@@ -232,5 +237,54 @@ describe('Prompt + Tools + Skills Assembly', () => {
     const prompt = buildSystemPrompt({ memory: '   \n\n   ' })
 
     expect(prompt).not.toContain('## Memory Context')
+  })
+
+  test('layered memory sections appear in durable-checkpoint-working order', () => {
+    setupMemoryDir(tempDir, '# Memory Index\n\n## Durable Facts\n- Stable fact')
+    writeCheckpoint(
+      {
+        sessionId: 'prompt-session',
+        updatedAt: '2026-04-15T11:00:00.000Z',
+        goal: 'Verify prompt ordering',
+        currentPlan: ['Load sections'],
+        constraints: ['Keep AGENTS intact'],
+        decisionsMade: ['Use layered memory'],
+        filesInPlay: ['prompt.ts'],
+        completedWork: [],
+        openLoops: ['Need assertion'],
+        nextBestStep: 'Check prompt order',
+        durableMemoryCandidates: [],
+        skillCandidates: [],
+      },
+      tempDir,
+    )
+    mkdirSync(dirname(resolveDailyMemoryPath('2026-04-15', tempDir)), { recursive: true })
+    writeFileSync(
+      resolveDailyMemoryPath('2026-04-15', tempDir),
+      '# Daily\n\nRecent working note',
+      'utf-8',
+    )
+
+    const memorySectionsResult = loadLayeredMemory({
+      basePath: tempDir,
+      sessionId: 'prompt-session',
+      config: {
+        dailyLoadDays: 1,
+        durableMemoryBudgetTokens: 200,
+        checkpointBudgetTokens: 200,
+        workingMemoryBudgetTokens: 200,
+      },
+    })
+    expect(memorySectionsResult.ok).toBe(true)
+    if (!memorySectionsResult.ok) return
+
+    const prompt = buildSystemPrompt({ memorySections: memorySectionsResult.value })
+
+    const durableIdx = prompt.indexOf('### Durable Memory')
+    const checkpointIdx = prompt.indexOf('### Checkpoint Memory')
+    const workingIdx = prompt.indexOf('### Working Memory')
+
+    expect(durableIdx).toBeLessThan(checkpointIdx)
+    expect(checkpointIdx).toBeLessThan(workingIdx)
   })
 })

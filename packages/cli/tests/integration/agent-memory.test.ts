@@ -6,16 +6,23 @@
  * transcripts are stored in SQLite.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { Agent } from '@src/agent'
+import { Agent, estimateContextUsage } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { getMemoryIndex } from '@src/memory/index'
+import { readCheckpoint, writeCheckpoint } from '@src/memory/checkpoints'
+import { resolveCheckpointPath, resolveObservationLogPath } from '@src/memory/paths'
+import { readObservations } from '@src/memory/observations'
 import { readTopic } from '@src/memory/topics'
 import { createExecute as createMemoryExecute } from '@src/tools/memory'
 import { buildSystemPrompt } from '@src/llm/prompt'
 import { z } from 'zod'
 import { ok } from '@src/types'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { resolveDailyMemoryPath } from '@src/memory/paths'
+import { configSchema } from '@src/config'
+import { getEntries } from '@src/rsi/evolution-log'
 import {
   createMockModel,
   createInspectingMockModel,
@@ -81,6 +88,453 @@ describe('Agent + Memory Integration', () => {
     expect(capturedSystemPrompt).toContain('TypeScript project')
     expect(capturedSystemPrompt).toContain('Uses Bun runtime')
     expect(capturedSystemPrompt).toContain('Memory Context')
+    expect(capturedSystemPrompt).toContain('Durable Memory')
+  })
+
+  test('agent loads layered durable, checkpoint, and working memory from disk', async () => {
+    setupMemoryDir(tempDir, '# Project Knowledge\n\n## Durable Facts\n- Uses Bun runtime')
+    writeCheckpoint(
+      {
+        sessionId: 'agent-session',
+        updatedAt: '2026-04-15T12:00:00.000Z',
+        goal: 'Keep layered memory visible',
+        currentPlan: ['Render prompt'],
+        constraints: ['Preserve checkpoint integrity'],
+        decisionsMade: ['Use the layered loader'],
+        filesInPlay: ['packages/cli/src/agent.ts'],
+        completedWork: ['Wired durable memory'],
+        openLoops: ['Add checkpoint assertions'],
+        nextBestStep: 'Verify prompt content',
+        durableMemoryCandidates: [],
+        skillCandidates: [],
+      },
+      tempDir,
+    )
+    mkdirSync(dirname(resolveDailyMemoryPath('2026-04-15', tempDir)), { recursive: true })
+    writeFileSync(
+      resolveDailyMemoryPath('2026-04-15', tempDir),
+      '# Working Notes\n\n- Recent context still matters',
+      'utf-8',
+    )
+
+    let capturedSystemPrompt = ''
+    const model = createInspectingMockModel((prompt) => {
+      const messages = prompt as Array<{ role: string; content: unknown }>
+      const systemMsg = messages.find((message) => message.role === 'system')
+      if (systemMsg) {
+        capturedSystemPrompt = String(
+          Array.isArray(systemMsg.content)
+            ? (systemMsg.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('')
+            : systemMsg.content,
+        )
+      }
+      return [...textBlock('Layered memory loaded.'), finishStop()]
+    })
+
+    const config = configSchema.parse({
+      memory: {
+        dailyLoadDays: 1,
+        durableMemoryBudgetTokens: 200,
+        checkpointBudgetTokens: 200,
+        workingMemoryBudgetTokens: 200,
+      },
+    })
+
+    const agent = new Agent(
+      makeAgentOptions(model, registry, {
+        systemPromptBuilder: buildSystemPrompt,
+        memoryProvider: undefined,
+        config,
+        basePath: tempDir,
+        sessionId: 'agent-session',
+      }),
+    )
+
+    await agent.run('What do you know right now?')
+
+    expect(capturedSystemPrompt).toContain('### Durable Memory')
+    expect(capturedSystemPrompt).toContain('Uses Bun runtime')
+    expect(capturedSystemPrompt).toContain('### Checkpoint Memory')
+    expect(capturedSystemPrompt).toContain('Preserve checkpoint integrity')
+    expect(capturedSystemPrompt).toContain('### Working Memory')
+    expect(capturedSystemPrompt).toContain('Recent context still matters')
+  })
+
+  test('estimates context usage across layered memory and conversation history', () => {
+    const usage = estimateContextUsage({
+      systemPrompt:
+        'System guidance.\n\n### Durable Memory\nKnown fact\n\n### Checkpoint Memory\nKeep the task moving',
+      memorySections: {
+        durableMemory: 'Known fact',
+        checkpointMemory: 'Keep the task moving',
+        workingMemory: 'Recent notes',
+      },
+      conversationHistory: [
+        { role: 'user', content: 'Investigate the long-running task state.' },
+        { role: 'assistant', content: 'I reviewed the current plan.' },
+        {
+          role: 'tool',
+          content: [{ toolCallId: 'call_1', toolName: 'bash', result: { output: 'done' } }],
+        },
+      ],
+      contextWindowTokens: 200,
+      warnRatio: 0.2,
+      flushRatio: 0.4,
+      compactRatio: 0.8,
+    })
+
+    expect(usage.systemPromptTokens).toBeGreaterThan(0)
+    expect(usage.durableMemoryTokens).toBeGreaterThan(0)
+    expect(usage.checkpointMemoryTokens).toBeGreaterThan(0)
+    expect(usage.workingMemoryTokens).toBeGreaterThan(0)
+    expect(usage.liveConversationTokens).toBeGreaterThan(0)
+    expect(usage.toolResultTokens).toBeGreaterThan(0)
+    expect(usage.estimatedTotalTokens).toBeGreaterThan(
+      usage.durableMemoryTokens + usage.checkpointMemoryTokens,
+    )
+    expect(usage.usageRatio).not.toBeNull()
+  })
+
+  test('flushes observations and rewrites the checkpoint before compaction', async () => {
+    setupMemoryDir(tempDir, '# Durable Memory\n\n- Preserve active tasks')
+
+    const config = configSchema.parse({
+      memory: {
+        contextWindowTokens: 400,
+        warnRatio: 0.2,
+        flushRatio: 0.35,
+        compactRatio: 0.95,
+        tailMessageCount: 2,
+      },
+    })
+
+    const longMessage = 'Plan the migration and keep all constraints intact. '.repeat(10).trim()
+    const history = [
+      { role: 'user' as const, content: longMessage },
+      { role: 'assistant' as const, content: 'Captured the repository constraints and plan.' },
+      { role: 'user' as const, content: 'Document the open loops before continuing.' },
+    ]
+
+    const agent = new Agent(
+      makeAgentOptions(
+        createMockModel([
+          [...textBlock('Checkpoint refreshed before the next turn.'), finishStop()],
+        ]),
+        registry,
+        {
+          config,
+          basePath: tempDir,
+          sessionId: 'flush-session',
+          systemPromptBuilder: () => 'Budgeted prompt',
+          memoryProvider: undefined,
+        },
+      ),
+    )
+    agent.setConversationHistory(history)
+
+    const result = await agent.run('Continue with the migration plan and preserve state.')
+
+    expect(result.text).toContain('Checkpoint refreshed')
+    const observations = readObservations('flush-session', tempDir)
+    expect(observations.ok).toBe(true)
+    if (observations.ok) {
+      expect(observations.value.length).toBeGreaterThan(0)
+    }
+
+    const checkpoint = readCheckpoint('flush-session', tempDir)
+    expect(checkpoint.ok).toBe(true)
+    if (checkpoint.ok) {
+      expect(checkpoint.value).not.toBeNull()
+      expect(checkpoint.value?.openLoops.join('\n')).not.toContain(longMessage)
+      expect(checkpoint.value?.openLoops.join('\n')).toContain('Continue with the migration plan')
+    }
+
+    expect(agent.getConversationHistory().length).toBeGreaterThan(config.memory.tailMessageCount)
+  })
+
+  test('does not advance observed state or compact history when observation writes fail', async () => {
+    const invalidBasePath = join(tempDir, 'not-a-directory')
+    writeFileSync(invalidBasePath, 'blocking file', 'utf-8')
+
+    const config = configSchema.parse({
+      memory: {
+        contextWindowTokens: 300,
+        warnRatio: 0.2,
+        flushRatio: 0.25,
+        compactRatio: 0.3,
+        tailMessageCount: 1,
+      },
+    })
+
+    const history = [
+      { role: 'user' as const, content: 'Capture this task before compaction.' },
+      { role: 'assistant' as const, content: 'I am tracking the current state.' },
+      { role: 'user' as const, content: 'Do not lose the follow-up request.' },
+    ]
+
+    const agent = new Agent(
+      makeAgentOptions(
+        createMockModel([[...textBlock('Continued without compaction.'), finishStop()]]),
+        registry,
+        {
+          config,
+          basePath: invalidBasePath,
+          sessionId: 'failed-observation-session',
+          systemPromptBuilder: () => 'Budgeted prompt',
+          memoryProvider: undefined,
+        },
+      ),
+    )
+    agent.setConversationHistory(history)
+
+    await agent.run('Keep going even if observation persistence fails.')
+
+    expect(agent.getConversationHistory()).toHaveLength(history.length + 2)
+    expect((agent as unknown as { observedHistoryLength: number }).observedHistoryLength).toBe(0)
+    expect(
+      (agent as unknown as { checkpointedHistoryLength: number }).checkpointedHistoryLength,
+    ).toBe(0)
+    expect(
+      existsSync(resolveObservationLogPath('failed-observation-session', invalidBasePath)),
+    ).toBe(false)
+    expect(existsSync(resolveCheckpointPath('failed-observation-session', invalidBasePath))).toBe(
+      false,
+    )
+  })
+
+  test('automatically retries once after a length stop using compacted checkpoint context', async () => {
+    setupMemoryDir(tempDir, '# Durable Memory\n\n- Use checkpoint recovery')
+    writeCheckpoint(
+      {
+        sessionId: 'length-session',
+        updatedAt: '2026-04-15T12:00:00.000Z',
+        goal: 'Complete the migration safely',
+        currentPlan: ['Inspect current state', 'Apply the fix'],
+        constraints: ['Do not lose active task state'],
+        decisionsMade: ['Use checkpoint-backed compaction'],
+        filesInPlay: ['packages/cli/src/agent.ts'],
+        completedWork: ['Added layered memory'],
+        openLoops: ['Finish the recovery flow'],
+        nextBestStep: 'Retry with compacted context',
+        durableMemoryCandidates: [],
+        skillCandidates: [],
+      },
+      tempDir,
+    )
+
+    const config = configSchema.parse({
+      memory: {
+        contextWindowTokens: 1000,
+        warnRatio: 0.8,
+        flushRatio: 0.9,
+        compactRatio: 0.95,
+        tailMessageCount: 2,
+        durableMemoryBudgetTokens: 200,
+        checkpointBudgetTokens: 200,
+        workingMemoryBudgetTokens: 200,
+      },
+    })
+
+    let secondPrompt = ''
+    const observedEvents: string[] = []
+    const model = createInspectingMockModel((prompt, callIndex) => {
+      const messages = prompt as Array<{ role: string; content: unknown }>
+      const systemMsg = messages.find((message) => message.role === 'system')
+      const systemText = String(
+        Array.isArray(systemMsg?.content)
+          ? (systemMsg?.content as Array<{ text?: string }>)
+              .map((chunk) => chunk.text ?? '')
+              .join('')
+          : (systemMsg?.content ?? ''),
+      )
+
+      if (callIndex === 0) {
+        return [
+          ...textBlock('Partial answer before the model ran out of room.'),
+          {
+            type: 'finish',
+            finishReason: { unified: 'length', raw: 'length' },
+            usage: {
+              inputTokens: {
+                total: 50,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 50, text: undefined, reasoning: undefined },
+            },
+          },
+        ]
+      }
+
+      secondPrompt = systemText
+      return [...textBlock('Recovered after compacting the history.'), finishStop()]
+    })
+
+    const agent = new Agent(
+      makeAgentOptions(model, registry, {
+        config,
+        basePath: tempDir,
+        sessionId: 'length-session',
+        systemPromptBuilder: buildSystemPrompt,
+        memoryProvider: undefined,
+        onEvent: (event) => observedEvents.push(event.type),
+      }),
+    )
+    agent.setConversationHistory([
+      { role: 'user', content: 'Previous task context that should be compacted.' },
+      { role: 'assistant', content: 'Acknowledged the previous task context.' },
+      { role: 'user', content: 'Keep the active migration state intact.' },
+      { role: 'assistant', content: 'Tracking the migration state.' },
+    ])
+
+    const result = await agent.run('Continue from the current migration checkpoint.')
+
+    expect(result.text).toContain('Recovered after compacting')
+    expect(secondPrompt).toContain('### Checkpoint Memory')
+    expect(secondPrompt).toContain('Do not lose active task state')
+    expect(secondPrompt).toContain('Retry with compacted context')
+    expect(agent.getConversationHistory().length).toBeLessThanOrEqual(
+      config.memory.tailMessageCount + 1,
+    )
+    expect(observedEvents).toContain('rsi-length-recovery-succeeded')
+
+    const logEntries = getEntries({ limit: 20 }, tempDir)
+    expect(logEntries.ok).toBe(true)
+    if (logEntries.ok) {
+      expect(logEntries.value.map((entry) => entry.type)).toContain('length-recovery-succeeded')
+    }
+  })
+
+  test('preserves checkpoint state when compaction runs before the LLM call', async () => {
+    setupMemoryDir(tempDir, '# Durable Memory\n\n- Protect continuity during compaction')
+    writeCheckpoint(
+      {
+        sessionId: 'compact-session',
+        updatedAt: '2026-04-15T13:00:00.000Z',
+        goal: 'Finish the multi-step refactor',
+        currentPlan: ['Audit state', 'Compact safely', 'Resume work'],
+        constraints: ['Keep all constraints visible'],
+        decisionsMade: ['Checkpoint is the recovery source'],
+        filesInPlay: ['packages/cli/src/agent.ts', 'packages/cli/src/llm/prompt.ts'],
+        completedWork: ['Built the checkpoint renderer'],
+        openLoops: ['Resume after compaction'],
+        nextBestStep: 'Continue from the compacted checkpoint',
+        durableMemoryCandidates: [],
+        skillCandidates: [],
+      },
+      tempDir,
+    )
+
+    const config = configSchema.parse({
+      memory: {
+        contextWindowTokens: 240,
+        warnRatio: 0.2,
+        flushRatio: 0.35,
+        compactRatio: 0.45,
+        tailMessageCount: 2,
+        durableMemoryBudgetTokens: 200,
+        checkpointBudgetTokens: 200,
+        workingMemoryBudgetTokens: 200,
+      },
+    })
+
+    const longLine =
+      'Keep the active task state and constraints visible through compaction. '.repeat(12)
+    let capturedPrompt = ''
+    const model = createInspectingMockModel((prompt) => {
+      const messages = prompt as Array<{ role: string; content: unknown }>
+      const systemMsg = messages.find((message) => message.role === 'system')
+      capturedPrompt = String(
+        Array.isArray(systemMsg?.content)
+          ? (systemMsg?.content as Array<{ text?: string }>)
+              .map((chunk) => chunk.text ?? '')
+              .join('')
+          : (systemMsg?.content ?? ''),
+      )
+      return [...textBlock('State preserved after compaction.'), finishStop()]
+    })
+
+    const agent = new Agent(
+      makeAgentOptions(model, registry, {
+        config,
+        basePath: tempDir,
+        sessionId: 'compact-session',
+        systemPromptBuilder: buildSystemPrompt,
+        memoryProvider: undefined,
+      }),
+    )
+    agent.setConversationHistory([
+      { role: 'user', content: longLine },
+      { role: 'assistant', content: 'State recorded.' },
+      { role: 'user', content: longLine },
+      { role: 'assistant', content: 'Still tracking the state.' },
+    ])
+
+    const result = await agent.run('Continue the refactor after compaction.')
+
+    expect(result.text).toContain('State preserved')
+    expect(capturedPrompt).toContain('Keep all constraints visible')
+    expect(capturedPrompt).toContain('Built the checkpoint renderer')
+    expect(capturedPrompt).toContain('Resume after compaction')
+    expect(capturedPrompt).toContain('Continue from the compacted checkpoint')
+    expect(agent.getConversationHistory().length).toBeLessThanOrEqual(
+      config.memory.tailMessageCount + 1,
+    )
+  })
+
+  test('emits and persists compaction lifecycle events', async () => {
+    setupMemoryDir(tempDir, '# Durable Memory\n\n- Track compaction events')
+
+    const config = configSchema.parse({
+      memory: {
+        contextWindowTokens: 220,
+        warnRatio: 0.2,
+        flushRatio: 0.25,
+        compactRatio: 0.35,
+        tailMessageCount: 2,
+      },
+    })
+
+    const observedEvents: string[] = []
+    const longLine = 'Keep the active task state intact while context is compacted. '.repeat(12)
+    const agent = new Agent(
+      makeAgentOptions(
+        createMockModel([[...textBlock('Compaction lifecycle captured.'), finishStop()]]),
+        registry,
+        {
+          config,
+          basePath: tempDir,
+          sessionId: 'metrics-session',
+          systemPromptBuilder: buildSystemPrompt,
+          memoryProvider: undefined,
+          onEvent: (event) => observedEvents.push(event.type),
+        },
+      ),
+    )
+    agent.setConversationHistory([
+      { role: 'user', content: longLine },
+      { role: 'assistant', content: 'State recorded.' },
+      { role: 'user', content: longLine },
+      { role: 'assistant', content: 'More state recorded.' },
+    ])
+
+    await agent.run('Continue while preserving checkpoint state.')
+
+    expect(observedEvents).toContain('rsi-context-flushed')
+    expect(observedEvents).toContain('rsi-observation-recorded')
+    expect(observedEvents).toContain('rsi-checkpoint-written')
+    expect(observedEvents).toContain('rsi-history-compacted')
+
+    const logEntries = getEntries({ limit: 10 }, tempDir)
+    expect(logEntries.ok).toBe(true)
+    if (!logEntries.ok) return
+
+    const entryTypes = logEntries.value.map((entry) => entry.type)
+    expect(entryTypes).toContain('context-flushed')
+    expect(entryTypes).toContain('observation-recorded')
+    expect(entryTypes).toContain('checkpoint-written')
+    expect(entryTypes).toContain('history-compacted')
   })
 
   // -------------------------------------------------------------------

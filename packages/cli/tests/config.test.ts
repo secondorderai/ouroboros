@@ -1,5 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { loadConfig, resolveConfigDir, type OuroborosConfig } from '@src/config'
+import {
+  DEFAULT_MEMORY_CONFIG,
+  DEFAULT_RSI_CONFIG,
+  loadConfig,
+  resolveConfigDir,
+  type OuroborosConfig,
+} from '@src/config'
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -74,10 +80,29 @@ describe('loadConfig', () => {
 
     // Memory defaults
     expect(config.memory.consolidationSchedule).toBe('session-end')
+    expect(config.memory.contextWindowTokens).toBeUndefined()
+    expect(config.memory.warnRatio).toBe(DEFAULT_MEMORY_CONFIG.warnRatio)
+    expect(config.memory.flushRatio).toBe(DEFAULT_MEMORY_CONFIG.flushRatio)
+    expect(config.memory.compactRatio).toBe(DEFAULT_MEMORY_CONFIG.compactRatio)
+    expect(config.memory.tailMessageCount).toBe(DEFAULT_MEMORY_CONFIG.tailMessageCount)
+    expect(config.memory.dailyLoadDays).toBe(DEFAULT_MEMORY_CONFIG.dailyLoadDays)
+    expect(config.memory.durableMemoryBudgetTokens).toBe(
+      DEFAULT_MEMORY_CONFIG.durableMemoryBudgetTokens,
+    )
+    expect(config.memory.checkpointBudgetTokens).toBe(DEFAULT_MEMORY_CONFIG.checkpointBudgetTokens)
+    expect(config.memory.workingMemoryBudgetTokens).toBe(
+      DEFAULT_MEMORY_CONFIG.workingMemoryBudgetTokens,
+    )
 
     // RSI defaults
-    expect(config.rsi.noveltyThreshold).toBe(0.7)
+    expect(config.rsi.noveltyThreshold).toBe(DEFAULT_RSI_CONFIG.noveltyThreshold)
     expect(config.rsi.autoReflect).toBe(true)
+    expect(config.rsi.observeEveryTurns).toBe(DEFAULT_RSI_CONFIG.observeEveryTurns)
+    expect(config.rsi.checkpointEveryTurns).toBe(DEFAULT_RSI_CONFIG.checkpointEveryTurns)
+    expect(config.rsi.durablePromotionThreshold).toBe(DEFAULT_RSI_CONFIG.durablePromotionThreshold)
+    expect(config.rsi.crystallizeFromRepeatedPatternsOnly).toBe(
+      DEFAULT_RSI_CONFIG.crystallizeFromRepeatedPatternsOnly,
+    )
   })
 
   test('finds the nearest .ouroboros in an ancestor directory', () => {
@@ -392,10 +417,23 @@ describe('loadConfig', () => {
       skillDirectories: ['skills/core', 'skills/custom'],
       memory: {
         consolidationSchedule: 'daily',
+        contextWindowTokens: 32000,
+        warnRatio: 0.65,
+        flushRatio: 0.8,
+        compactRatio: 0.9,
+        tailMessageCount: 16,
+        dailyLoadDays: 3,
+        durableMemoryBudgetTokens: 1800,
+        checkpointBudgetTokens: 1400,
+        workingMemoryBudgetTokens: 900,
       },
       rsi: {
         noveltyThreshold: 0.5,
         autoReflect: false,
+        observeEveryTurns: 2,
+        checkpointEveryTurns: 4,
+        durablePromotionThreshold: 0.75,
+        crystallizeFromRepeatedPatternsOnly: false,
       },
     }
     writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config))
@@ -411,7 +449,14 @@ describe('loadConfig', () => {
     expect(result.value.permissions.tier2).toBe(false)
     expect(result.value.skillDirectories).toEqual(['skills/core', 'skills/custom'])
     expect(result.value.memory.consolidationSchedule).toBe('daily')
+    expect(result.value.memory.contextWindowTokens).toBe(32000)
+    expect(result.value.memory.warnRatio).toBe(0.65)
+    expect(result.value.memory.tailMessageCount).toBe(16)
     expect(result.value.rsi.noveltyThreshold).toBe(0.5)
     expect(result.value.rsi.autoReflect).toBe(false)
+    expect(result.value.rsi.observeEveryTurns).toBe(2)
+    expect(result.value.rsi.checkpointEveryTurns).toBe(4)
+    expect(result.value.rsi.durablePromotionThreshold).toBe(0.75)
+    expect(result.value.rsi.crystallizeFromRepeatedPatternsOnly).toBe(false)
   })
 })

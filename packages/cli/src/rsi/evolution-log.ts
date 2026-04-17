@@ -22,9 +22,29 @@ export const evolutionEntryTypeSchema = z.enum([
   'memory-consolidated',
   'config-changed',
   'skill-proposal',
+  'observation-recorded',
+  'checkpoint-written',
+  'context-flushed',
+  'history-compacted',
+  'length-recovery-succeeded',
+  'length-recovery-failed',
+  'durable-memory-promoted',
+  'durable-memory-pruned',
+  'skill-proposed-from-observations',
 ])
 
 export type EvolutionEntryType = z.infer<typeof evolutionEntryTypeSchema>
+
+const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+)
 
 export const evolutionEntryDetailsSchema = z.object({
   before: z.string().optional(),
@@ -33,6 +53,28 @@ export const evolutionEntryDetailsSchema = z.object({
   reflectionId: z.string().optional(),
   skillName: z.string().optional(),
   sessionId: z.string().optional(),
+  checkpointUpdatedAt: z.string().optional(),
+  sourceObservationIds: z.array(z.string()).optional(),
+  sourceSessionIds: z.array(z.string()).optional(),
+  observationCount: z.number().int().nonnegative().optional(),
+  observationKinds: z.array(z.string()).optional(),
+  openLoopCount: z.number().int().nonnegative().optional(),
+  durableCandidateCount: z.number().int().nonnegative().optional(),
+  skillCandidateCount: z.number().int().nonnegative().optional(),
+  usageRatio: z.number().nullable().optional(),
+  estimatedTotalTokens: z.number().int().nonnegative().optional(),
+  contextWindowTokens: z.number().int().positive().nullable().optional(),
+  threshold: z.string().optional(),
+  unseenMessageCount: z.number().int().nonnegative().optional(),
+  droppedMessageCount: z.number().int().nonnegative().optional(),
+  retainedMessageCount: z.number().int().nonnegative().optional(),
+  tailMessageCount: z.number().int().positive().optional(),
+  partialResponseLength: z.number().int().nonnegative().optional(),
+  repeatedWorkDetected: z.boolean().optional(),
+  item: z.string().optional(),
+  kind: z.string().optional(),
+  repeatCount: z.number().int().nonnegative().optional(),
+  metadata: z.record(z.string(), jsonValueSchema).optional(),
 })
 
 export type EvolutionEntryDetails = z.infer<typeof evolutionEntryDetailsSchema>
@@ -56,6 +98,15 @@ export interface EvolutionStats {
   skillsCreated: number
   skillsPromoted: number
   skillsFailed: number
+  compactionsPerSession: Record<string, number>
+  successfulResumesAfterCompaction: number
+  repeatedWorkRateAfterCompaction: number
+  durableMemoryReuseRate: number
+  skillProposalsFromObservations: number
+  durablePromotions: number
+  durablePrunes: number
+  sessionsAnalyzed: number
+  successRate: number
 }
 
 export interface GetEntriesOptions {
@@ -236,6 +287,15 @@ export function getStats(basePath?: string): Result<EvolutionStats> {
       'memory-consolidated',
       'config-changed',
       'skill-proposal',
+      'observation-recorded',
+      'checkpoint-written',
+      'context-flushed',
+      'history-compacted',
+      'length-recovery-succeeded',
+      'length-recovery-failed',
+      'durable-memory-promoted',
+      'durable-memory-pruned',
+      'skill-proposed-from-observations',
     ]
 
     const byType: Record<EvolutionEntryType, number> = {} as Record<EvolutionEntryType, number>
@@ -251,6 +311,57 @@ export function getStats(basePath?: string): Result<EvolutionStats> {
     // Entries are newest-first, so last element is the oldest
     const firstEntry = entries.length > 0 ? entries[entries.length - 1].timestamp : undefined
     const lastEntry = entries.length > 0 ? entries[0].timestamp : undefined
+    const compactionsPerSession: Record<string, number> = {}
+    const compactionOutcomes = entries.filter(
+      (entry) =>
+        entry.type === 'length-recovery-succeeded' || entry.type === 'length-recovery-failed',
+    )
+    const repeatedWorkChecks = compactionOutcomes.filter(
+      (entry) => typeof entry.details.repeatedWorkDetected === 'boolean',
+    )
+    const repeatedWorkCount = repeatedWorkChecks.filter(
+      (entry) => entry.details.repeatedWorkDetected === true,
+    ).length
+    const promotedEntries = entries.filter((entry) => entry.type === 'durable-memory-promoted')
+    const promotedKeys = new Set(
+      promotedEntries
+        .map((entry) => entry.details.item?.trim())
+        .filter((item): item is string => !!item),
+    )
+    const reusedKeys = new Set<string>()
+
+    for (const entry of entries) {
+      if (
+        entry.type === 'checkpoint-written' &&
+        entry.details.metadata &&
+        Array.isArray(entry.details.metadata.reusedDurableMemoryItems)
+      ) {
+        for (const item of entry.details.metadata.reusedDurableMemoryItems) {
+          if (typeof item === 'string' && promotedKeys.has(item.trim())) {
+            reusedKeys.add(item.trim())
+          }
+        }
+      }
+
+      if (entry.type === 'history-compacted' && entry.details.sessionId) {
+        compactionsPerSession[entry.details.sessionId] =
+          (compactionsPerSession[entry.details.sessionId] ?? 0) + 1
+      }
+    }
+
+    const successfulResumesAfterCompaction = byType['length-recovery-succeeded']
+    const repeatedWorkRateAfterCompaction =
+      repeatedWorkChecks.length > 0 ? repeatedWorkCount / repeatedWorkChecks.length : 0
+    const durableMemoryReuseRate = promotedKeys.size > 0 ? reusedKeys.size / promotedKeys.size : 0
+    const skillProposalsFromObservations = byType['skill-proposed-from-observations']
+    const durablePromotions = byType['durable-memory-promoted']
+    const durablePrunes = byType['durable-memory-pruned']
+    const sessionsAnalyzed = new Set(
+      entries.map((entry) => entry.details.sessionId).filter((value): value is string => !!value),
+    ).size
+    const successDenominator = successfulResumesAfterCompaction + byType['length-recovery-failed']
+    const successRate =
+      successDenominator > 0 ? successfulResumesAfterCompaction / successDenominator : 0
 
     return ok({
       totalEntries: entries.length,
@@ -260,6 +371,15 @@ export function getStats(basePath?: string): Result<EvolutionStats> {
       skillsCreated: byType['skill-created'],
       skillsPromoted: byType['skill-promoted'],
       skillsFailed: byType['skill-failed'],
+      compactionsPerSession,
+      successfulResumesAfterCompaction,
+      repeatedWorkRateAfterCompaction,
+      durableMemoryReuseRate,
+      skillProposalsFromObservations,
+      durablePromotions,
+      durablePrunes,
+      sessionsAnalyzed,
+      successRate,
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)

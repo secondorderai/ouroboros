@@ -18,6 +18,7 @@ import { ModeManager, PLAN_MODE } from '@src/modes'
 import { setModeManager as setEnterModeModeManager } from '@src/modes/tools/enter-mode'
 import { setModeManager as setSubmitPlanModeManager } from '@src/modes/tools/submit-plan'
 import { setModeManager as setExitModeModeManager } from '@src/modes/tools/exit-mode'
+import { RSIOrchestrator } from '@src/rsi/orchestrator'
 import { createRegistry } from '@src/tools/registry'
 import { resolve } from 'node:path'
 import { createHandlers, bridgeAgentEvent, HandlerError, type HandlerContext } from './handlers'
@@ -85,10 +86,20 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       throw new Error(providerResult.error.message)
     }
 
+    const rsiOrchestrator = new RSIOrchestrator({
+      config,
+      llm: providerResult.value,
+      onEvent: eventProxy,
+      basePath: configDir,
+    })
+
     agent = new Agent({
       model: providerResult.value,
       toolRegistry: registry,
       onEvent: eventProxy,
+      config,
+      basePath: configDir,
+      rsiOrchestrator,
       modeManager,
     })
     return agent

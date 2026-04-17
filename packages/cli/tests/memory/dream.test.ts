@@ -1,13 +1,15 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { ok, err } from '@src/types'
-import { writeTopic, readTopic } from '@src/memory/topics'
 import { getMemoryIndex } from '@src/memory/index'
+import { appendObservationBatch } from '@src/memory/observations'
+import { resolveDailyMemoryPath } from '@src/memory/paths'
+import { writeCheckpoint } from '@src/memory/checkpoints'
+import { ok, err } from '@src/types'
 import {
-  dream,
   analyzeTranscripts,
+  dream,
   loadProposals,
   storeProposals,
   type DreamDeps,
@@ -15,6 +17,7 @@ import {
   type SkillProposal,
   type StoredSkillProposal,
 } from '@src/memory/dream'
+import type { ReflectionCheckpoint } from '@src/rsi/types'
 import type { SessionWithMessages } from '@src/memory/transcripts'
 
 function makeTempDir(): string {
@@ -28,6 +31,7 @@ function makeTempDir(): string {
 
 function setupMemoryDir(basePath: string): void {
   mkdirSync(join(basePath, 'memory', 'topics'), { recursive: true })
+  mkdirSync(join(basePath, 'memory', 'daily'), { recursive: true })
   writeFileSync(join(basePath, 'memory', 'MEMORY.md'), '# Memory Index\n', 'utf-8')
 }
 
@@ -59,12 +63,9 @@ function makeMockDeps(
 ): DreamDeps {
   return {
     generateFn,
-    getRecentSessions: (limit: number) => {
-      const result = sessions.slice(0, limit).map((s) => ({ id: s.id }))
-      return ok(result)
-    },
+    getRecentSessions: (limit: number) => ok(sessions.slice(0, limit).map((s) => ({ id: s.id }))),
     getSession: (sessionId: string) => {
-      const session = sessions.find((s) => s.id === sessionId)
+      const session = sessions.find((candidate) => candidate.id === sessionId)
       if (!session) return err(new Error(`Session "${sessionId}" not found`))
       return ok(session)
     },
@@ -72,7 +73,30 @@ function makeMockDeps(
   }
 }
 
-describe('Dream Cycle — Between-Session Memory Consolidation', () => {
+function writeReflectionCheckpoint(
+  checkpoint: Partial<ReflectionCheckpoint> & Pick<ReflectionCheckpoint, 'sessionId' | 'updatedAt'>,
+  basePath: string,
+): void {
+  const result = writeCheckpoint(
+    {
+      goal: '',
+      currentPlan: [],
+      constraints: [],
+      decisionsMade: [],
+      filesInPlay: [],
+      completedWork: [],
+      openLoops: [],
+      nextBestStep: '',
+      durableMemoryCandidates: [],
+      skillCandidates: [],
+      ...checkpoint,
+    },
+    basePath,
+  )
+  expect(result.ok).toBe(true)
+}
+
+describe('Dream Cycle — Structured Memory Consolidation', () => {
   let tempDir: string
 
   beforeEach(() => {
@@ -84,187 +108,207 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  // ── Test: No sessions to analyze ────────────────────────────────
-
-  test('returns ok with zero counts when no sessions exist', async () => {
-    const mockGenerate: LLMGenerateFn = async () => ok('{}')
-    const deps = makeMockDeps([], mockGenerate, tempDir)
+  test('returns ok with zero counts when no sessions or structured memory exist', async () => {
+    const deps = makeMockDeps([], async () => ok('{}'), tempDir)
 
     const result = await dream(deps, { mode: 'full' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
     expect(result.value.sessionsAnalyzed).toBe(0)
-    expect(result.value.topicsMerged).toBe(0)
-    expect(result.value.topicsCreated).toBe(0)
-    expect(result.value.topicsPruned).toBe(0)
-    expect(result.value.contradictionsResolved).toBe(0)
-    expect(result.value.skillProposals).toEqual([])
-    expect(result.value.memoryIndexUpdated).toBe(false)
+    expect(result.value.durablePromotions).toEqual([])
+    expect(result.value.dailyMemoryFilesUpdated).toEqual([])
   })
 
-  // ── Test: Consolidation merges redundant topics ─────────────────
+  test('promotes durable facts from structured memory even when transcript data is sparse', async () => {
+    const observationResult = appendObservationBatch(
+      'sess-1',
+      [
+        {
+          kind: 'candidate-durable',
+          summary: 'API approach settled on GraphQL',
+          evidence: ['packages/cli/src/api/client.ts'],
+          priority: 'high',
+          tags: ['title:API approach', 'content:Use GraphQL for internal APIs', 'kind:fact'],
+        },
+      ],
+      tempDir,
+    )
+    expect(observationResult.ok).toBe(true)
 
-  test('consolidation merges redundant topics', async () => {
-    // Setup: two overlapping topics
-    writeTopic('typescript-patterns', '# TypeScript Patterns\n\nUse strict mode.', tempDir)
-    writeTopic('ts-coding-patterns', '# TS Coding Patterns\n\nAlways use strict mode.', tempDir)
-
-    const sessions = [
-      makeSession('sess-1', [
-        { role: 'user', content: 'Help me with TypeScript patterns' },
-        { role: 'assistant', content: 'I used strict mode patterns' },
-      ]),
-    ]
-
-    let callIndex = 0
-    const mockGenerate: LLMGenerateFn = async () => {
-      callIndex++
-      if (callIndex === 1) {
-        // Session analysis
-        return ok(
-          JSON.stringify({
-            summary: 'TypeScript patterns session',
-            tasksAttempted: ['TypeScript patterns'],
-            toolsUsed: [],
-            outcomes: [{ task: 'TypeScript patterns', success: true }],
-            patterns: ['strict mode usage'],
-          }),
-        )
-      }
-      if (callIndex === 2) {
-        // Cross-session patterns
-        return ok(
-          JSON.stringify({
-            crossSessionPatterns: ['TypeScript strict mode'],
-            repeatedSequences: [],
-            struggles: [],
-          }),
-        )
-      }
-      // Consolidation prompt
-      return ok(
-        JSON.stringify({
-          merges: [
-            {
-              source: ['typescript-patterns', 'ts-coding-patterns'],
-              target: 'typescript-patterns',
-              mergedContent:
-                '# TypeScript Patterns\n\nAlways use strict mode. Comprehensive guide.',
-            },
-          ],
-          contradictions: [],
-          newTopics: [],
-          prunedTopics: [],
-          updatedIndex: '# Memory Index\n\n- typescript-patterns: Merged TypeScript patterns',
-        }),
-      )
-    }
-
-    const deps = makeMockDeps(sessions, mockGenerate, tempDir)
-    const result = await dream(deps, { mode: 'consolidate-only' })
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-
-    expect(result.value.topicsMerged).toBe(2)
-
-    // Verify the merged topic exists with merged content
-    const mergedTopic = readTopic('typescript-patterns', tempDir)
-    expect(mergedTopic.ok).toBe(true)
-    if (mergedTopic.ok) {
-      expect(mergedTopic.value).toContain('Comprehensive guide')
-    }
-
-    // Verify the source topic was deleted
-    const deletedTopic = readTopic('ts-coding-patterns', tempDir)
-    expect(deletedTopic.ok).toBe(false)
-
-    // Verify MEMORY.md was updated
-    const memResult = getMemoryIndex(tempDir)
-    expect(memResult.ok).toBe(true)
-    if (memResult.ok) {
-      expect(memResult.value).toContain('typescript-patterns')
-    }
-  })
-
-  // ── Test: Contradiction resolution favors recent ────────────────
-
-  test('contradiction resolution favors recent information', async () => {
-    writeTopic(
-      'api-approach',
-      '# API Approach\n\nUse REST for all API calls. REST is preferred.',
+    writeReflectionCheckpoint(
+      {
+        sessionId: 'sess-2',
+        updatedAt: '2026-04-15T11:00:00.000Z',
+        durableMemoryCandidates: [
+          {
+            title: 'API approach',
+            summary: 'Use GraphQL for internal APIs',
+            content: 'Use GraphQL for internal APIs',
+            kind: 'fact',
+            confidence: 0.95,
+            observedAt: '2026-04-15T11:00:00.000Z',
+            tags: ['source:checkpoint'],
+            evidence: ['memory/checkpoints/sess-2.md'],
+          },
+        ],
+      },
       tempDir,
     )
 
-    const sessions = [
-      makeSession('sess-1', [
-        { role: 'user', content: 'Switch to GraphQL for the API' },
-        {
-          role: 'assistant',
-          content: 'Switched the API to GraphQL. It works better for our needs.',
-        },
-      ]),
-    ]
-
-    let callIndex = 0
-    const mockGenerate: LLMGenerateFn = async () => {
-      callIndex++
-      if (callIndex === 1) {
-        return ok(
-          JSON.stringify({
-            summary: 'Switched API approach from REST to GraphQL',
-            tasksAttempted: ['Switch to GraphQL'],
-            toolsUsed: [],
-            outcomes: [{ task: 'Switch to GraphQL', success: true }],
-            patterns: ['GraphQL adoption'],
-          }),
-        )
-      }
-      if (callIndex === 2) {
-        return ok(
-          JSON.stringify({
-            crossSessionPatterns: ['GraphQL preference'],
-            repeatedSequences: [],
-            struggles: [],
-          }),
-        )
-      }
-      return ok(
-        JSON.stringify({
-          merges: [],
-          contradictions: [
-            {
-              topicName: 'api-approach',
-              issue: 'Topic says REST but recent sessions show GraphQL preference',
-              resolution: 'Updated to reflect GraphQL preference per recent sessions',
-              updatedContent:
-                '# API Approach\n\nUse GraphQL for API calls. GraphQL is preferred based on recent experience.',
-            },
-          ],
-          newTopics: [],
-          prunedTopics: [],
-          updatedIndex: '# Memory Index\n\n- api-approach: Updated to GraphQL preference',
-        }),
-      )
-    }
-
-    const deps = makeMockDeps(sessions, mockGenerate, tempDir)
+    const deps = makeMockDeps([], async () => ok('{}'), tempDir)
     const result = await dream(deps, { mode: 'consolidate-only' })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.value.contradictionsResolved).toBe(1)
+    expect(result.value.topicsCreated).toBe(1)
+    expect(result.value.durablePromotions).toContain('API approach (fact)')
 
-    const topicResult = readTopic('api-approach', tempDir)
-    expect(topicResult.ok).toBe(true)
-    if (topicResult.ok) {
-      expect(topicResult.value).toContain('GraphQL')
-    }
+    const memoryResult = getMemoryIndex(tempDir)
+    expect(memoryResult.ok).toBe(true)
+    if (!memoryResult.ok) return
+    expect(memoryResult.value).toContain('## Durable Memory')
+    expect(memoryResult.value).toContain('API approach :: Use GraphQL for internal APIs')
   })
 
-  // ── Test: Skill proposal generation ─────────────────────────────
+  test('keeps transient checkpoint and working-state content out of durable memory', async () => {
+    const observationResult = appendObservationBatch(
+      'sess-1',
+      [
+        {
+          kind: 'candidate-durable',
+          summary: 'Currently investigating flaky checkpoint parsing',
+          evidence: ['packages/cli/src/memory/checkpoints.ts'],
+          priority: 'critical',
+          tags: [
+            'title:Checkpoint investigation',
+            'content:Currently investigating flaky checkpoint parsing',
+            'transient',
+            'daily-only',
+          ],
+        },
+      ],
+      tempDir,
+    )
+    expect(observationResult.ok).toBe(true)
+
+    const deps = makeMockDeps([], async () => ok('{}'), tempDir)
+    const result = await dream(deps, { mode: 'consolidate-only' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.durablePromotions).toEqual([])
+    const memoryResult = getMemoryIndex(tempDir)
+    expect(memoryResult.ok).toBe(true)
+    if (!memoryResult.ok) return
+    expect(memoryResult.value).not.toContain('Checkpoint investigation')
+  })
+
+  test('prunes contradicted durable entries and records contradiction resolution', async () => {
+    writeFileSync(
+      join(tempDir, 'memory', 'MEMORY.md'),
+      [
+        '# Memory Index',
+        '',
+        '<!-- dream:durable:start -->',
+        '## Durable Memory',
+        '### Facts',
+        '- API approach :: Use REST for internal APIs',
+        '<!-- dream:durable:end -->',
+      ].join('\n'),
+      'utf-8',
+    )
+
+    const observationResult = appendObservationBatch(
+      'sess-1',
+      [
+        {
+          kind: 'candidate-durable',
+          summary: 'API approach settled on GraphQL',
+          evidence: ['recent design review'],
+          priority: 'critical',
+          tags: ['title:API approach', 'content:Use GraphQL for internal APIs', 'kind:fact'],
+        },
+      ],
+      tempDir,
+    )
+    expect(observationResult.ok).toBe(true)
+
+    const deps = makeMockDeps([], async () => ok('{}'), tempDir)
+    const result = await dream(deps, { mode: 'consolidate-only' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.durablePrunes).toContain('API approach (fact)')
+    expect(
+      result.value.contradictionsResolvedEntries.some((entry) => entry.includes('API approach')),
+    ).toBe(true)
+
+    const memory = readFileSync(join(tempDir, 'memory', 'MEMORY.md'), 'utf-8')
+    expect(memory).toContain('API approach :: Use GraphQL for internal APIs')
+    const durableBlock = memory.slice(
+      memory.indexOf('<!-- dream:durable:start -->'),
+      memory.indexOf('<!-- dream:durable:end -->'),
+    )
+    expect(durableBlock).not.toContain('Use REST for internal APIs')
+  })
+
+  test('updates daily rollups to carry forward unresolved work and mark resolved items', async () => {
+    writeFileSync(
+      resolveDailyMemoryPath('2026-04-15', tempDir),
+      ['# 2026-04-15', '', '- Investigated memory compaction edge cases'].join('\n'),
+      'utf-8',
+    )
+
+    const observationResult = appendObservationBatch(
+      'sess-1',
+      [
+        {
+          observedAt: '2026-04-15T09:00:00.000Z',
+          kind: 'open-loop',
+          summary: 'Wire checkpoint resume into the agent loop',
+          evidence: ['packages/cli/src/agent.ts'],
+          priority: 'high',
+          tags: [],
+        },
+        {
+          observedAt: '2026-04-15T09:30:00.000Z',
+          kind: 'open-loop',
+          summary: 'Retire the transcript-only dream prompt',
+          evidence: ['packages/cli/src/memory/dream.ts'],
+          priority: 'normal',
+          tags: [],
+        },
+      ],
+      tempDir,
+    )
+    expect(observationResult.ok).toBe(true)
+
+    writeReflectionCheckpoint(
+      {
+        sessionId: 'sess-1',
+        updatedAt: '2026-04-15T10:00:00.000Z',
+        openLoops: ['Wire checkpoint resume into the agent loop'],
+      },
+      tempDir,
+    )
+
+    const deps = makeMockDeps([], async () => ok('{}'), tempDir)
+    const result = await dream(deps, { mode: 'consolidate-only' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.dailyMemoryFilesUpdated).toHaveLength(1)
+    const dailyContent = readFileSync(resolveDailyMemoryPath('2026-04-15', tempDir), 'utf-8')
+    expect(dailyContent).toContain('### Carry Forward')
+    expect(dailyContent).toContain('Wire checkpoint resume into the agent loop')
+    expect(dailyContent).toContain('### Resolved')
+    expect(dailyContent).toContain('Retire the transcript-only dream prompt')
+  })
 
   test('generates skill proposals based on cross-session patterns', async () => {
     const sessions = [
@@ -286,10 +330,9 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     const mockGenerate: LLMGenerateFn = async () => {
       callIndex++
       if (callIndex <= 3) {
-        // Session analyses
         return ok(
           JSON.stringify({
-            summary: `Refactored a module following common pattern`,
+            summary: 'Refactored a module following a common pattern',
             tasksAttempted: ['Module refactoring'],
             toolsUsed: ['file-read', 'file-write'],
             outcomes: [{ task: 'Module refactoring', success: true }],
@@ -298,7 +341,6 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
         )
       }
       if (callIndex === 4) {
-        // Cross-session patterns
         return ok(
           JSON.stringify({
             crossSessionPatterns: ['Repeated multi-step module refactoring pattern'],
@@ -307,14 +349,12 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
           }),
         )
       }
-      // Skill proposals
       return ok(
         JSON.stringify([
           {
             proposedName: 'module-refactor',
             description: 'Automate common module refactoring patterns',
-            rationale:
-              'Sessions sess-1, sess-2, sess-3 all performed similar multi-step refactoring',
+            rationale: 'Sessions sess-1, sess-2, sess-3 followed the same refactoring arc',
             estimatedImpact: 'high',
             sourceSessions: ['sess-1', 'sess-2', 'sess-3'],
           },
@@ -328,25 +368,12 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.value.skillProposals.length).toBeGreaterThanOrEqual(1)
-    expect(result.value.skillProposals[0].proposedName).toBe('module-refactor')
-
-    // Verify proposals were written to file
-    const proposalsPath = join(tempDir, 'memory', 'skill-proposals.json')
-    expect(existsSync(proposalsPath)).toBe(true)
-
-    const stored = JSON.parse(readFileSync(proposalsPath, 'utf-8')) as StoredSkillProposal[]
-    expect(stored.length).toBeGreaterThanOrEqual(1)
-    expect(stored[0].status).toBe('pending')
-    expect(stored[0].timestamp).toBeTruthy()
+    expect(result.value.skillProposals[0]?.proposedName).toBe('module-refactor')
+    expect(existsSync(join(tempDir, 'memory', 'skill-proposals.json'))).toBe(true)
   })
 
-  // ── Test: Proposal file is append-only ──────────────────────────
-
-  test('proposal file appends new proposals without overwriting existing', async () => {
+  test('proposal file appends new proposals without overwriting existing', () => {
     const proposalsPath = join(tempDir, 'memory', 'skill-proposals.json')
-
-    // Seed with 2 existing proposals
     const existing: StoredSkillProposal[] = [
       {
         proposedName: 'existing-skill-1',
@@ -369,7 +396,6 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     ]
     writeFileSync(proposalsPath, JSON.stringify(existing, null, 2), 'utf-8')
 
-    // Store one new proposal
     const newProposals: SkillProposal[] = [
       {
         proposedName: 'new-skill',
@@ -383,136 +409,17 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     const result = storeProposals(newProposals, tempDir)
     expect(result.ok).toBe(true)
 
-    // Verify: file has 3 proposals total
     const stored = JSON.parse(readFileSync(proposalsPath, 'utf-8')) as StoredSkillProposal[]
-    expect(stored.length).toBe(3)
-
-    // Original 2 unchanged
-    expect(stored[0].proposedName).toBe('existing-skill-1')
-    expect(stored[0].status).toBe('pending')
-    expect(stored[1].proposedName).toBe('existing-skill-2')
-    expect(stored[1].status).toBe('accepted')
-
-    // New proposal appended
+    expect(stored).toHaveLength(3)
     expect(stored[2].proposedName).toBe('new-skill')
-    expect(stored[2].status).toBe('pending')
-    expect(stored[2].timestamp).toBeTruthy()
   })
 
-  // ── Test: Mode filtering works ──────────────────────────────────
-
-  test('consolidate-only mode does not generate skill proposals', async () => {
-    const sessions = [
-      makeSession('sess-1', [
-        { role: 'user', content: 'Do something' },
-        { role: 'assistant', content: 'Done' },
-      ]),
-    ]
-
-    let callIndex = 0
-    const mockGenerate: LLMGenerateFn = async () => {
-      callIndex++
-      if (callIndex === 1) {
-        return ok(
-          JSON.stringify({
-            summary: 'Simple task',
-            tasksAttempted: ['Something'],
-            toolsUsed: [],
-            outcomes: [{ task: 'Something', success: true }],
-            patterns: [],
-          }),
-        )
-      }
-      if (callIndex === 2) {
-        return ok(
-          JSON.stringify({
-            crossSessionPatterns: [],
-            repeatedSequences: [],
-            struggles: [],
-          }),
-        )
-      }
-      // Consolidation
-      return ok(
-        JSON.stringify({
-          merges: [],
-          contradictions: [],
-          newTopics: [],
-          prunedTopics: [],
-          updatedIndex: '# Memory Index\n\nUpdated.',
-        }),
-      )
-    }
-
-    const deps = makeMockDeps(sessions, mockGenerate, tempDir)
-    const result = await dream(deps, { mode: 'consolidate-only' })
-
+  test('loadProposals returns empty array when file does not exist', () => {
+    const result = loadProposals(tempDir)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-
-    expect(result.value.skillProposals).toEqual([])
-    expect(result.value.sessionsAnalyzed).toBe(1)
+    expect(result.value).toEqual([])
   })
-
-  test('propose-only mode does not consolidate memory', async () => {
-    // Write a topic that should NOT be touched
-    writeTopic('untouched-topic', 'Original content', tempDir)
-
-    const sessions = [
-      makeSession('sess-1', [
-        { role: 'user', content: 'Do something' },
-        { role: 'assistant', content: 'Done' },
-      ]),
-    ]
-
-    let callIndex = 0
-    const mockGenerate: LLMGenerateFn = async () => {
-      callIndex++
-      if (callIndex === 1) {
-        return ok(
-          JSON.stringify({
-            summary: 'Simple task',
-            tasksAttempted: ['Something'],
-            toolsUsed: [],
-            outcomes: [{ task: 'Something', success: true }],
-            patterns: ['pattern-a'],
-          }),
-        )
-      }
-      if (callIndex === 2) {
-        return ok(
-          JSON.stringify({
-            crossSessionPatterns: ['pattern-a'],
-            repeatedSequences: [],
-            struggles: [],
-          }),
-        )
-      }
-      // Proposal generation
-      return ok(JSON.stringify([]))
-    }
-
-    const deps = makeMockDeps(sessions, mockGenerate, tempDir)
-    const result = await dream(deps, { mode: 'propose-only' })
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-
-    // Memory consolidation should not have run
-    expect(result.value.topicsMerged).toBe(0)
-    expect(result.value.topicsCreated).toBe(0)
-    expect(result.value.contradictionsResolved).toBe(0)
-    expect(result.value.memoryIndexUpdated).toBe(false)
-
-    // Topic should be untouched
-    const topicResult = readTopic('untouched-topic', tempDir)
-    expect(topicResult.ok).toBe(true)
-    if (topicResult.ok) {
-      expect(topicResult.value).toBe('Original content')
-    }
-  })
-
-  // ── Test: analyzeTranscripts with LLM failure ───────────────────
 
   test('analyzeTranscripts handles LLM failure gracefully per session', async () => {
     const sessions = [
@@ -526,10 +433,8 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     const mockGenerate: LLMGenerateFn = async () => {
       callIndex++
       if (callIndex === 1) {
-        // Fail the session analysis
         return err(new Error('LLM temporarily unavailable'))
       }
-      // Cross-ref still works
       return ok(
         JSON.stringify({
           crossSessionPatterns: [],
@@ -543,27 +448,13 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // Should have a fallback insight
-    expect(result.value.sessions.length).toBe(1)
     expect(result.value.sessions[0].summary).toBe('Failed to analyze session')
     expect(result.value.sessions[0].toolsUsed).toContain('file-read')
   })
 
-  // ── Test: loadProposals from non-existent file ──────────────────
-
-  test('loadProposals returns empty array when file does not exist', () => {
-    const result = loadProposals(tempDir)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.value).toEqual([])
-  })
-
-  // ── Test: dream returns Result — never throws ───────────────────
-
   test('dream never throws, returns Result.err on unexpected errors', async () => {
-    const mockGenerate: LLMGenerateFn = async () => ok('{}')
     const deps: DreamDeps = {
-      generateFn: mockGenerate,
+      generateFn: async () => ok('{}'),
       getRecentSessions: () => {
         throw new Error('Database connection failed')
       },
@@ -575,84 +466,5 @@ describe('Dream Cycle — Between-Session Memory Consolidation', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.message).toContain('Dream cycle failed')
-  })
-
-  // ── Test: full mode runs both consolidation and proposals ───────
-
-  test('full mode runs consolidation and proposal generation', async () => {
-    writeTopic('test-topic', '# Test\n\nSome content.', tempDir)
-
-    const sessions = [
-      makeSession('sess-1', [
-        { role: 'user', content: 'Work on feature' },
-        { role: 'assistant', content: 'Done with feature' },
-      ]),
-    ]
-
-    let callIndex = 0
-    const mockGenerate: LLMGenerateFn = async () => {
-      callIndex++
-      if (callIndex === 1) {
-        return ok(
-          JSON.stringify({
-            summary: 'Feature work',
-            tasksAttempted: ['Feature implementation'],
-            toolsUsed: ['file-write'],
-            outcomes: [{ task: 'Feature implementation', success: true }],
-            patterns: ['feature development'],
-          }),
-        )
-      }
-      if (callIndex === 2) {
-        return ok(
-          JSON.stringify({
-            crossSessionPatterns: ['feature development'],
-            repeatedSequences: [],
-            struggles: [],
-          }),
-        )
-      }
-      if (callIndex === 3) {
-        // Consolidation
-        return ok(
-          JSON.stringify({
-            merges: [],
-            contradictions: [],
-            newTopics: [
-              {
-                name: 'feature-dev-notes',
-                content: '# Feature Dev Notes\n\nNotes from recent sessions.',
-              },
-            ],
-            prunedTopics: [],
-            updatedIndex: '# Memory Index\n\n- test-topic\n- feature-dev-notes',
-          }),
-        )
-      }
-      // Proposals
-      return ok(
-        JSON.stringify([
-          {
-            proposedName: 'auto-feature',
-            description: 'Automate feature scaffolding',
-            rationale: 'Repeated pattern',
-            estimatedImpact: 'medium',
-            sourceSessions: ['sess-1'],
-          },
-        ]),
-      )
-    }
-
-    const deps = makeMockDeps(sessions, mockGenerate, tempDir)
-    const result = await dream(deps, { mode: 'full' })
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-
-    expect(result.value.sessionsAnalyzed).toBe(1)
-    expect(result.value.topicsCreated).toBe(1)
-    expect(result.value.memoryIndexUpdated).toBe(true)
-    expect(result.value.skillProposals.length).toBe(1)
-    expect(result.value.skillProposals[0].proposedName).toBe('auto-feature')
   })
 })

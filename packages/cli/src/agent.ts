@@ -10,17 +10,22 @@
  */
 
 import type { LanguageModel } from 'ai'
+import { loadConfig, type OuroborosConfig } from '@src/config'
 import { streamResponse } from '@src/llm/streaming'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
-import type { LLMMessage, ToolCall, StreamChunk, LLMToolSpec } from '@src/llm/types'
-import type { ToolRegistry } from '@src/tools/registry'
-import { getMemoryIndex } from '@src/memory/index'
+import type { LLMMessage, ToolCall, StreamChunk, LLMToolSpec, FinishReason } from '@src/llm/types'
+import { loadLayeredMemory, type LayeredMemorySections } from '@src/memory/loaders'
+import { reflectCheckpoint, readCheckpoint } from '@src/memory/checkpoints'
+import { appendObservationBatch, type NewObservationInput } from '@src/memory/observations'
 import { getAgentsMdInstructions } from '@src/agents-md'
 import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
 import type { RSIEvent } from '@src/rsi/types'
+import type { ReflectionCheckpoint } from '@src/rsi/types'
+import { appendEntry, type NewEvolutionEntry } from '@src/rsi/evolution-log'
 import type { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { ModeManager } from '@src/modes/manager'
 import type { Plan } from '@src/modes/plan/types'
+import type { ToolRegistry } from '@src/tools/registry'
 
 // ── Event types ──────────────────────────────────────────────────────
 
@@ -63,10 +68,18 @@ export interface AgentOptions {
   onEvent?: AgentEventHandler
   /** Optional override for system prompt building (for testing) */
   systemPromptBuilder?: (options: BuildSystemPromptOptions) => string
-  /** Optional override for memory fetching (for testing) */
+  /** Optional legacy override for durable memory fetching (for testing) */
   memoryProvider?: () => string
+  /** Optional override for structured memory loading (for testing) */
+  memoryContextProvider?: () => LayeredMemorySections
   /** Optional override for skill catalog fetching (for testing) */
   skillCatalogProvider?: () => SkillCatalogEntry[]
+  /** Parsed configuration used for layered memory budgets */
+  config?: OuroborosConfig
+  /** Base path used for filesystem-backed memory loading */
+  basePath?: string
+  /** Active session whose checkpoint should be loaded into prompt memory */
+  sessionId?: string
   /** RSI orchestrator instance (initialized lazily, only if RSI is enabled) */
   rsiOrchestrator?: RSIOrchestrator
   /** Mode manager for behavioral overlays (plan mode, etc.) */
@@ -88,6 +101,218 @@ export interface AgentRunOptions {
   responseStyle?: 'default' | 'desktop-readable'
 }
 
+export type ContextBudgetThreshold = 'within-budget' | 'warn' | 'flush' | 'compact'
+
+export interface ContextUsageEstimate {
+  systemPromptTokens: number
+  durableMemoryTokens: number
+  checkpointMemoryTokens: number
+  workingMemoryTokens: number
+  liveConversationTokens: number
+  toolResultTokens: number
+  estimatedTotalTokens: number
+  contextWindowTokens: number | null
+  usageRatio: number | null
+  threshold: ContextBudgetThreshold
+}
+
+function estimateTextTokens(text: string): number {
+  const normalized = text.trim()
+  if (normalized.length === 0) {
+    return 0
+  }
+
+  return Math.ceil(normalized.length / 4)
+}
+
+function serializeUnknown(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function summarizeText(text: string, maxLength = 160): string {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+function checkpointToObservationInputs(checkpoint: ReflectionCheckpoint): NewObservationInput[] {
+  const inputs: NewObservationInput[] = []
+
+  if (checkpoint.goal.trim().length > 0) {
+    inputs.push({
+      kind: 'goal',
+      summary: checkpoint.goal,
+      evidence: [checkpoint.goal],
+      priority: 'high',
+      tags: ['context-manager', 'checkpoint-seed'],
+    })
+  }
+
+  for (const constraint of checkpoint.constraints) {
+    inputs.push({
+      kind: 'constraint',
+      summary: constraint,
+      evidence: [constraint],
+      priority: 'high',
+      tags: ['context-manager', 'checkpoint-seed'],
+    })
+  }
+
+  for (const decision of checkpoint.decisionsMade) {
+    inputs.push({
+      kind: 'decision',
+      summary: decision,
+      evidence: [decision],
+      priority: 'normal',
+      tags: ['context-manager', 'checkpoint-seed'],
+    })
+  }
+
+  for (const file of checkpoint.filesInPlay) {
+    inputs.push({
+      kind: 'artifact',
+      summary: file,
+      evidence: [file],
+      priority: 'normal',
+      tags: ['context-manager', 'checkpoint-seed', `file:${file}`],
+    })
+  }
+
+  for (const completed of checkpoint.completedWork) {
+    inputs.push({
+      kind: 'progress',
+      summary: completed,
+      evidence: [completed],
+      priority: 'normal',
+      tags: ['context-manager', 'checkpoint-seed', 'completed'],
+    })
+  }
+
+  for (const openLoop of checkpoint.openLoops) {
+    inputs.push({
+      kind: 'open-loop',
+      summary: openLoop,
+      evidence: [openLoop],
+      priority: 'normal',
+      tags: ['context-manager', 'checkpoint-seed'],
+    })
+  }
+
+  for (const step of checkpoint.currentPlan) {
+    inputs.push({
+      kind: 'progress',
+      summary: step,
+      evidence: [step],
+      priority: 'normal',
+      tags: ['context-manager', 'checkpoint-seed', 'plan'],
+    })
+  }
+
+  if (checkpoint.nextBestStep.trim().length > 0) {
+    inputs.push({
+      kind: 'progress',
+      summary: checkpoint.nextBestStep,
+      evidence: [checkpoint.nextBestStep],
+      priority: 'high',
+      tags: ['context-manager', 'checkpoint-seed', 'next-step'],
+    })
+  }
+
+  return inputs
+}
+
+function estimateConversationTokens(messages: LLMMessage[]): { live: number; toolResults: number } {
+  let live = 0
+  let toolResults = 0
+
+  for (const message of messages) {
+    if (message.role === 'tool') {
+      toolResults += estimateTextTokens(
+        message.content
+          .map(
+            (result) =>
+              `${result.toolName}:${result.toolCallId}:${summarizeText(serializeUnknown(result.result), 400)}`,
+          )
+          .join('\n'),
+      )
+      continue
+    }
+
+    let text = message.content
+    if (message.role === 'assistant' && message.toolCalls && message.toolCalls.length > 0) {
+      const toolCallText = message.toolCalls
+        .map((toolCall) => `${toolCall.toolName}:${serializeUnknown(toolCall.input)}`)
+        .join('\n')
+      text = [message.content, toolCallText].filter((value) => value.length > 0).join('\n')
+    }
+
+    live += estimateTextTokens(text)
+  }
+
+  return { live, toolResults }
+}
+
+export function estimateContextUsage(options: {
+  systemPrompt: string
+  memorySections: LayeredMemorySections
+  conversationHistory: LLMMessage[]
+  contextWindowTokens?: number
+  warnRatio?: number
+  flushRatio?: number
+  compactRatio?: number
+}): ContextUsageEstimate {
+  const durableMemoryTokens = estimateTextTokens(options.memorySections.durableMemory ?? '')
+  const checkpointMemoryTokens = estimateTextTokens(options.memorySections.checkpointMemory ?? '')
+  const workingMemoryTokens = estimateTextTokens(options.memorySections.workingMemory ?? '')
+  const allMemoryTokens = durableMemoryTokens + checkpointMemoryTokens + workingMemoryTokens
+  const rawSystemTokens = estimateTextTokens(options.systemPrompt)
+  const systemPromptTokens = Math.max(rawSystemTokens - allMemoryTokens, 0)
+  const conversationTokens = estimateConversationTokens(options.conversationHistory)
+  const estimatedTotalTokens =
+    systemPromptTokens + allMemoryTokens + conversationTokens.live + conversationTokens.toolResults
+
+  const contextWindowTokens =
+    options.contextWindowTokens && options.contextWindowTokens > 0
+      ? options.contextWindowTokens
+      : null
+  const usageRatio = contextWindowTokens ? estimatedTotalTokens / contextWindowTokens : null
+
+  let threshold: ContextBudgetThreshold = 'within-budget'
+  if (usageRatio !== null) {
+    if (usageRatio >= (options.compactRatio ?? 0.9)) {
+      threshold = 'compact'
+    } else if (usageRatio >= (options.flushRatio ?? 0.8)) {
+      threshold = 'flush'
+    } else if (usageRatio >= (options.warnRatio ?? 0.7)) {
+      threshold = 'warn'
+    }
+  }
+
+  return {
+    systemPromptTokens,
+    durableMemoryTokens,
+    checkpointMemoryTokens,
+    workingMemoryTokens,
+    liveConversationTokens: conversationTokens.live,
+    toolResultTokens: conversationTokens.toolResults,
+    estimatedTotalTokens,
+    contextWindowTokens,
+    usageRatio,
+    threshold,
+  }
+}
+
 // ── Agent class ──────────────────────────────────────────────────────
 
 export class Agent {
@@ -96,13 +321,21 @@ export class Agent {
   private maxIterations: number
   private onEvent: AgentEventHandler
   private systemPromptBuilder: (options: BuildSystemPromptOptions) => string
-  private memoryProvider: () => string
+  private memoryProvider: (() => string) | null
+  private memoryContextProvider: (() => LayeredMemorySections) | null
   private skillCatalogProvider: () => SkillCatalogEntry[]
+  private config: OuroborosConfig
+  private basePath: string | undefined
+  private sessionId: string | undefined
   private rsiOrchestrator: RSIOrchestrator | null
   private modeManager: ModeManager | null
 
   /** Conversation history persisted across run() calls within a session. */
   private conversationHistory: LLMMessage[] = []
+  /** Number of history entries already captured into structured observations. */
+  private observedHistoryLength = 0
+  /** History length at which the checkpoint was last refreshed by the context manager. */
+  private checkpointedHistoryLength = 0
 
   constructor(options: AgentOptions) {
     this.model = options.model
@@ -110,13 +343,48 @@ export class Agent {
     this.maxIterations = options.maxIterations ?? 50
     this.onEvent = options.onEvent ?? (() => {})
     this.systemPromptBuilder = options.systemPromptBuilder ?? buildSystemPrompt
-    this.memoryProvider =
-      options.memoryProvider ??
-      (() => {
-        const result = getMemoryIndex()
-        return result.ok ? result.value : ''
-      })
+    this.memoryProvider = options.memoryProvider ?? null
+    this.memoryContextProvider = options.memoryContextProvider ?? null
     this.skillCatalogProvider = options.skillCatalogProvider ?? getSkillCatalog
+    this.basePath = options.basePath
+    this.sessionId = options.sessionId
+    this.config =
+      options.config ??
+      (() => {
+        const result = loadConfig(options.basePath)
+        return result.ok
+          ? result.value
+          : ({
+              model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+              permissions: {
+                tier0: true,
+                tier1: true,
+                tier2: true,
+                tier3: false,
+                tier4: false,
+              },
+              skillDirectories: ['skills/core', 'skills/generated'],
+              memory: {
+                consolidationSchedule: 'session-end',
+                warnRatio: 0.7,
+                flushRatio: 0.8,
+                compactRatio: 0.9,
+                tailMessageCount: 12,
+                dailyLoadDays: 2,
+                durableMemoryBudgetTokens: 1500,
+                checkpointBudgetTokens: 1200,
+                workingMemoryBudgetTokens: 1000,
+              },
+              rsi: {
+                noveltyThreshold: 0.7,
+                autoReflect: true,
+                observeEveryTurns: 1,
+                checkpointEveryTurns: 6,
+                durablePromotionThreshold: 0.8,
+                crystallizeFromRepeatedPatternsOnly: true,
+              },
+            } satisfies OuroborosConfig)
+      })()
     this.rsiOrchestrator = options.rsiOrchestrator ?? null
     this.modeManager = options.modeManager ?? null
   }
@@ -139,12 +407,14 @@ export class Agent {
 
     let iterations = 0
     let finalText = ''
+    let lengthRecoveryAttempted = false
 
     while (iterations < this.maxIterations) {
       iterations++
 
-      // Build system prompt with current state
-      const systemPrompt = this.buildCurrentSystemPrompt(options)
+      // Build system prompt with current state, observing/compacting if needed first.
+      const context = this.prepareContextForCall(options)
+      const systemPrompt = context.systemPrompt
 
       // Build tool definitions for the LLM
       const toolDefs = this.buildToolDefinitions()
@@ -181,9 +451,83 @@ export class Agent {
         continue
       }
 
+      if (turnResult.finishReason === 'length') {
+        if (!lengthRecoveryAttempted) {
+          lengthRecoveryAttempted = true
+          this.performEmergencyRecovery(turnResult.text)
+          continue
+        }
+
+        const error = new Error(
+          'LLM output reached the context window limit after one recovery attempt',
+        )
+        if (this.sessionId) {
+          this.logAndEmitRSIEvent(
+            {
+              type: 'rsi-length-recovery-failed',
+              sessionId: this.sessionId,
+              partialResponseLength: turnResult.text.length,
+              metrics: {
+                repeatedWorkDetected: false,
+              },
+            },
+            {
+              type: 'length-recovery-failed',
+              summary: `Length recovery failed for ${this.sessionId}`,
+              details: {
+                sessionId: this.sessionId,
+                partialResponseLength: turnResult.text.length,
+                repeatedWorkDetected: false,
+              },
+              motivation:
+                'The model exhausted the context window again after one recovery attempt.',
+            },
+          )
+        }
+        this.emitEvent({ type: 'error', error, recoverable: false })
+        finalText = turnResult.text
+        this.emitEvent({
+          type: 'turn-complete',
+          text: finalText,
+          iterations,
+        })
+
+        return {
+          text: finalText,
+          iterations,
+          maxIterationsReached: false,
+        }
+      }
+
       // Accumulate text from the assistant
       const assistantText = turnResult.text
       const toolCalls = turnResult.toolCalls
+
+      if (lengthRecoveryAttempted && this.sessionId) {
+        this.logAndEmitRSIEvent(
+          {
+            type: 'rsi-length-recovery-succeeded',
+            sessionId: this.sessionId,
+            partialResponseLength: assistantText.length,
+            metrics: {
+              repeatedWorkDetected: false,
+            },
+          },
+          {
+            type: 'length-recovery-succeeded',
+            summary: `Length recovery succeeded for ${this.sessionId}`,
+            details: {
+              sessionId: this.sessionId,
+              partialResponseLength: assistantText.length,
+              repeatedWorkDetected: false,
+            },
+            motivation:
+              'The agent resumed successfully after rebuilding context from checkpoint state.',
+          },
+        )
+      }
+
+      lengthRecoveryAttempted = false
 
       if (toolCalls.length > 0) {
         // Assistant message with tool calls
@@ -268,6 +612,8 @@ export class Agent {
    */
   setConversationHistory(history: LLMMessage[]): void {
     this.conversationHistory = [...history]
+    this.observedHistoryLength = 0
+    this.checkpointedHistoryLength = 0
   }
 
   /**
@@ -275,6 +621,17 @@ export class Agent {
    */
   clearHistory(): void {
     this.conversationHistory = []
+    this.observedHistoryLength = 0
+    this.checkpointedHistoryLength = 0
+  }
+
+  /**
+   * Update the active session ID used for layered checkpoint loading.
+   */
+  setSessionId(sessionId: string | undefined): void {
+    this.sessionId = sessionId
+    this.observedHistoryLength = 0
+    this.checkpointedHistoryLength = 0
   }
 
   /**
@@ -319,9 +676,11 @@ export class Agent {
   /**
    * Build the system prompt with current tools, skills, and memory.
    */
-  private buildCurrentSystemPrompt(options: AgentRunOptions = {}): string {
+  private buildCurrentSystemPrompt(
+    options: AgentRunOptions = {},
+    memorySections = this.loadPromptMemory(),
+  ): string {
     const tools = this.toolRegistry.getTools()
-    const memory = this.memoryProvider()
     const agentsInstructions = getAgentsMdInstructions()
 
     // Map skill catalog entries to the format expected by buildSystemPrompt
@@ -337,11 +696,416 @@ export class Agent {
     return this.systemPromptBuilder({
       tools,
       skills,
-      memory,
+      memory: memorySections.durableMemory,
+      memorySections,
       agentsInstructions,
       responseStyle: options.responseStyle,
       modeOverlay,
     })
+  }
+
+  private prepareContextForCall(options: AgentRunOptions): {
+    systemPrompt: string
+    memorySections: LayeredMemorySections
+    usage: ContextUsageEstimate
+  } {
+    let memorySections = this.loadPromptMemory()
+    let systemPrompt = this.buildCurrentSystemPrompt(options, memorySections)
+    let usage = estimateContextUsage({
+      systemPrompt,
+      memorySections,
+      conversationHistory: this.conversationHistory,
+      contextWindowTokens: this.config.memory.contextWindowTokens,
+      warnRatio: this.config.memory.warnRatio,
+      flushRatio: this.config.memory.flushRatio,
+      compactRatio: this.config.memory.compactRatio,
+    })
+
+    if (usage.threshold === 'flush' || usage.threshold === 'compact') {
+      this.logAndEmitRSIEvent(
+        {
+          type: 'rsi-context-flushed',
+          sessionId: this.sessionId ?? 'unknown-session',
+          reason: usage.threshold,
+          unseenMessageCount: Math.max(
+            0,
+            this.conversationHistory.length - this.observedHistoryLength,
+          ),
+          metrics: {
+            usageRatio: usage.usageRatio,
+            estimatedTotalTokens: usage.estimatedTotalTokens,
+            contextWindowTokens: usage.contextWindowTokens,
+            threshold: usage.threshold,
+          },
+        },
+        this.sessionId
+          ? {
+              type: 'context-flushed',
+              summary: `Context budget reached ${usage.threshold} threshold for ${this.sessionId}`,
+              details: {
+                sessionId: this.sessionId,
+                usageRatio: usage.usageRatio,
+                estimatedTotalTokens: usage.estimatedTotalTokens,
+                contextWindowTokens: usage.contextWindowTokens,
+                threshold: usage.threshold,
+                unseenMessageCount: Math.max(
+                  0,
+                  this.conversationHistory.length - this.observedHistoryLength,
+                ),
+              },
+              motivation: 'Pre-compaction flush preserves active working state before trimming.',
+            }
+          : null,
+      )
+
+      const refreshSucceeded = this.captureObservationsAndRefreshCheckpoint(usage.threshold)
+
+      if (refreshSucceeded && usage.threshold === 'compact') {
+        this.compactConversationHistory('compact')
+      }
+
+      memorySections = this.loadPromptMemory()
+      systemPrompt = this.buildCurrentSystemPrompt(options, memorySections)
+      usage = estimateContextUsage({
+        systemPrompt,
+        memorySections,
+        conversationHistory: this.conversationHistory,
+        contextWindowTokens: this.config.memory.contextWindowTokens,
+        warnRatio: this.config.memory.warnRatio,
+        flushRatio: this.config.memory.flushRatio,
+        compactRatio: this.config.memory.compactRatio,
+      })
+    }
+
+    return { systemPrompt, memorySections, usage }
+  }
+
+  private loadPromptMemory(): LayeredMemorySections {
+    if (this.memoryContextProvider) {
+      return this.memoryContextProvider()
+    }
+
+    if (this.memoryProvider) {
+      return { durableMemory: this.memoryProvider() }
+    }
+
+    const result = loadLayeredMemory({
+      basePath: this.basePath,
+      sessionId: this.sessionId,
+      config: this.config.memory,
+    })
+
+    return result.ok ? result.value : {}
+  }
+
+  private captureObservationsAndRefreshCheckpoint(
+    reason: 'flush' | 'compact' | 'length-recovery' = 'flush',
+    partialAssistantText?: string,
+  ): boolean {
+    if (!this.sessionId) {
+      return false
+    }
+
+    const unseenMessages = this.conversationHistory.slice(this.observedHistoryLength)
+    if (unseenMessages.length === 0 && !partialAssistantText) {
+      if (this.checkpointedHistoryLength !== this.conversationHistory.length) {
+        const refreshResult = reflectCheckpoint(this.sessionId, { basePath: this.basePath })
+        if (!refreshResult.ok) {
+          this.emitEvent({ type: 'error', error: refreshResult.error, recoverable: true })
+          return false
+        }
+        this.checkpointedHistoryLength = this.conversationHistory.length
+      }
+      return true
+    }
+
+    const existingCheckpoint = readCheckpoint(this.sessionId, this.basePath)
+    const inputs = this.buildObservationInputs(
+      unseenMessages,
+      existingCheckpoint.ok ? existingCheckpoint.value : null,
+      partialAssistantText,
+    )
+
+    if (inputs.length > 0) {
+      const appendResult = appendObservationBatch(this.sessionId, inputs, this.basePath)
+      if (!appendResult.ok) {
+        this.emitEvent({ type: 'error', error: appendResult.error, recoverable: true })
+        return false
+      } else {
+        this.logAndEmitRSIEvent(
+          {
+            type: 'rsi-observation-recorded',
+            sessionId: this.sessionId,
+            reason:
+              this.observedHistoryLength === 0 && existingCheckpoint ? 'checkpoint-seed' : reason,
+            observationIds: appendResult.value.map((record) => record.id),
+            observationKinds: appendResult.value.map((record) => record.kind),
+            observationCount: appendResult.value.length,
+          },
+          {
+            type: 'observation-recorded',
+            summary: `Recorded ${appendResult.value.length} structured observations for ${this.sessionId}`,
+            details: {
+              sessionId: this.sessionId,
+              observationCount: appendResult.value.length,
+              observationKinds: appendResult.value.map((record) => record.kind),
+              sourceObservationIds: appendResult.value.map((record) => record.id),
+              metadata: {
+                reason:
+                  this.observedHistoryLength === 0 && existingCheckpoint
+                    ? 'checkpoint-seed'
+                    : reason,
+              },
+            },
+            motivation: 'Observations capture session state before reflection and compaction.',
+          },
+        )
+      }
+    }
+
+    const reflectionResult = reflectCheckpoint(this.sessionId, { basePath: this.basePath })
+    if (!reflectionResult.ok) {
+      this.emitEvent({ type: 'error', error: reflectionResult.error, recoverable: true })
+      return false
+    }
+
+    this.logAndEmitRSIEvent(
+      {
+        type: 'rsi-checkpoint-written',
+        sessionId: this.sessionId,
+        reason,
+        updatedAt: reflectionResult.value.updatedAt,
+        openLoopCount: reflectionResult.value.openLoops.length,
+        durableCandidateCount: reflectionResult.value.durableMemoryCandidates.length,
+        skillCandidateCount: reflectionResult.value.skillCandidates.length,
+      },
+      {
+        type: 'checkpoint-written',
+        summary: `Updated reflection checkpoint for ${this.sessionId}`,
+        details: {
+          sessionId: this.sessionId,
+          checkpointUpdatedAt: reflectionResult.value.updatedAt,
+          openLoopCount: reflectionResult.value.openLoops.length,
+          durableCandidateCount: reflectionResult.value.durableMemoryCandidates.length,
+          skillCandidateCount: reflectionResult.value.skillCandidates.length,
+          metadata: {
+            reason,
+          },
+        },
+        motivation: 'Checkpoints preserve the active plan, constraints, and open loops.',
+      },
+    )
+
+    this.observedHistoryLength = this.conversationHistory.length
+    this.checkpointedHistoryLength = this.conversationHistory.length
+    return true
+  }
+
+  private buildObservationInputs(
+    messages: LLMMessage[],
+    existingCheckpoint: ReflectionCheckpoint | null,
+    partialAssistantText?: string,
+  ): NewObservationInput[] {
+    const inputs: NewObservationInput[] =
+      this.observedHistoryLength === 0 && existingCheckpoint
+        ? checkpointToObservationInputs(existingCheckpoint)
+        : []
+    let shouldCaptureGoal = !existingCheckpoint || existingCheckpoint.goal.trim().length === 0
+    let pendingOpenLoopIds: string[] = []
+
+    for (const message of messages) {
+      if (message.role === 'user') {
+        const summary = summarizeText(message.content)
+        if (shouldCaptureGoal && summary.length > 0) {
+          inputs.push({
+            kind: 'goal',
+            summary,
+            evidence: [message.content],
+            priority: 'high',
+            tags: ['context-manager', 'latest-goal'],
+          })
+          shouldCaptureGoal = false
+        }
+
+        const openLoopId = crypto.randomUUID()
+        inputs.push({
+          id: openLoopId,
+          kind: 'open-loop',
+          summary,
+          evidence: [message.content],
+          priority: 'normal',
+          tags: ['context-manager', 'user-turn'],
+        })
+        pendingOpenLoopIds.push(openLoopId)
+        continue
+      }
+
+      if (message.role === 'assistant') {
+        const summary = summarizeText(message.content)
+        if (summary.length > 0) {
+          const supersedes = pendingOpenLoopIds.length > 0 ? [...pendingOpenLoopIds] : undefined
+          inputs.push({
+            kind: 'progress',
+            summary,
+            evidence: [message.content],
+            priority: 'normal',
+            tags: ['context-manager', 'completed'],
+            supersedes,
+          })
+          pendingOpenLoopIds = []
+        }
+        continue
+      }
+
+      if (message.role === 'tool') {
+        for (const result of message.content) {
+          const renderedResult = summarizeText(serializeUnknown(result.result), 320)
+          const supersedes = pendingOpenLoopIds.length > 0 ? [...pendingOpenLoopIds] : undefined
+          inputs.push({
+            kind: 'artifact',
+            summary: `${result.toolName} result captured`,
+            evidence: [renderedResult],
+            priority: 'normal',
+            tags: ['context-manager', `tool:${result.toolName}`],
+            supersedes,
+          })
+          pendingOpenLoopIds = []
+        }
+      }
+    }
+
+    if (partialAssistantText && partialAssistantText.trim().length > 0) {
+      const supersedes = pendingOpenLoopIds.length > 0 ? [...pendingOpenLoopIds] : undefined
+      inputs.push({
+        kind: 'progress',
+        summary: summarizeText(partialAssistantText),
+        evidence: [partialAssistantText],
+        priority: 'high',
+        tags: ['context-manager', 'partial-response', 'completed'],
+        supersedes,
+      })
+      pendingOpenLoopIds = []
+    }
+
+    return inputs
+  }
+
+  private compactConversationHistory(reason: 'compact' | 'length-recovery'): void {
+    const tailCount = Math.max(1, this.config.memory.tailMessageCount)
+    if (this.conversationHistory.length <= tailCount) {
+      return
+    }
+
+    let compactedHistory = this.conversationHistory.slice(-tailCount)
+    const lastUserIndex = compactedHistory.map((message) => message.role).lastIndexOf('user')
+    if (lastUserIndex > 0) {
+      compactedHistory = compactedHistory.slice(lastUserIndex)
+    }
+
+    const droppedMessageCount = Math.max(
+      0,
+      this.conversationHistory.length - compactedHistory.length,
+    )
+    this.conversationHistory = compactedHistory
+    this.observedHistoryLength = this.conversationHistory.length
+    this.checkpointedHistoryLength = this.conversationHistory.length
+
+    if (!this.sessionId) {
+      return
+    }
+
+    this.logAndEmitRSIEvent(
+      {
+        type: 'rsi-history-compacted',
+        sessionId: this.sessionId,
+        reason,
+        metrics: {
+          droppedMessageCount,
+          retainedMessageCount: compactedHistory.length,
+          tailMessageCount: tailCount,
+        },
+      },
+      {
+        type: 'history-compacted',
+        summary: `Compacted conversation history for ${this.sessionId}`,
+        details: {
+          sessionId: this.sessionId,
+          droppedMessageCount,
+          retainedMessageCount: compactedHistory.length,
+          tailMessageCount: tailCount,
+          metadata: {
+            reason,
+          },
+        },
+        motivation: 'Compaction trims low-value raw history once checkpoint state is externalized.',
+      },
+    )
+  }
+
+  private performEmergencyRecovery(partialAssistantText: string): void {
+    if (this.sessionId) {
+      const currentUsage = estimateContextUsage({
+        systemPrompt: this.buildCurrentSystemPrompt({}, this.loadPromptMemory()),
+        memorySections: this.loadPromptMemory(),
+        conversationHistory: this.conversationHistory,
+        contextWindowTokens: this.config.memory.contextWindowTokens,
+        warnRatio: this.config.memory.warnRatio,
+        flushRatio: this.config.memory.flushRatio,
+        compactRatio: this.config.memory.compactRatio,
+      })
+
+      this.logAndEmitRSIEvent(
+        {
+          type: 'rsi-context-flushed',
+          sessionId: this.sessionId,
+          reason: 'length-recovery',
+          unseenMessageCount: Math.max(
+            0,
+            this.conversationHistory.length - this.observedHistoryLength,
+          ),
+          metrics: {
+            usageRatio: currentUsage.usageRatio,
+            estimatedTotalTokens: currentUsage.estimatedTotalTokens,
+            contextWindowTokens: currentUsage.contextWindowTokens,
+            threshold: currentUsage.threshold,
+          },
+        },
+        {
+          type: 'context-flushed',
+          summary: `Emergency context flush triggered for ${this.sessionId} after a length stop`,
+          details: {
+            sessionId: this.sessionId,
+            usageRatio: currentUsage.usageRatio,
+            estimatedTotalTokens: currentUsage.estimatedTotalTokens,
+            contextWindowTokens: currentUsage.contextWindowTokens,
+            threshold: currentUsage.threshold,
+            unseenMessageCount: Math.max(
+              0,
+              this.conversationHistory.length - this.observedHistoryLength,
+            ),
+            partialResponseLength: partialAssistantText.length,
+            metadata: {
+              reason: 'length-recovery',
+            },
+          },
+          motivation: 'Emergency flush preserves partial work before length-recovery compaction.',
+        },
+      )
+    }
+
+    this.captureObservationsAndRefreshCheckpoint('length-recovery', partialAssistantText)
+    this.compactConversationHistory('length-recovery')
+  }
+
+  private logAndEmitRSIEvent(event: RSIEvent, entry: NewEvolutionEntry | null = null): void {
+    if (entry) {
+      const appendResult = appendEntry(entry, this.basePath)
+      if (!appendResult.ok) {
+        this.emitEvent({ type: 'error', error: appendResult.error, recoverable: true })
+      }
+    }
+
+    this.emitEvent(event)
   }
 
   /**
@@ -372,12 +1136,16 @@ export class Agent {
    * Process a stream of chunks, accumulating text and collecting tool calls.
    * Emits events for text deltas and tool call starts.
    */
-  private async processStream(
-    stream: AsyncIterable<StreamChunk>,
-  ): Promise<{ text: string; toolCalls: ToolCall[]; error: Error | null }> {
+  private async processStream(stream: AsyncIterable<StreamChunk>): Promise<{
+    text: string
+    toolCalls: ToolCall[]
+    error: Error | null
+    finishReason: FinishReason
+  }> {
     let text = ''
     const toolCalls: ToolCall[] = []
     let streamError: Error | null = null
+    let finishReason: FinishReason = 'unknown'
 
     for await (const chunk of stream) {
       switch (chunk.type) {
@@ -405,7 +1173,7 @@ export class Agent {
           break
 
         case 'finish':
-          // Finish event — we use it implicitly (loop ends)
+          finishReason = chunk.finishReason
           break
 
         // Ignore tool-call-streaming-start, tool-call-delta (progressive streaming)
@@ -414,7 +1182,7 @@ export class Agent {
       }
     }
 
-    return { text, toolCalls, error: streamError }
+    return { text, toolCalls, error: streamError, finishReason }
   }
 
   /**

@@ -19,6 +19,7 @@ import type { LLMMessage } from '@src/llm/types'
 import { saveConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import type { SessionSummary, SessionWithMessages, TranscriptStore } from '@src/memory/transcripts'
+import { getEntries, getStats } from '@src/rsi/evolution-log'
 import { listSkills, getSkillInfo, activateSkill } from '@src/tools/skill-manager'
 import { JSON_RPC_ERRORS, makeNotification } from './types'
 import { writeMessage } from './transport'
@@ -118,6 +119,52 @@ export function bridgeAgentEvent(event: AgentEvent): void {
         makeNotification('agent/error', {
           message: event.error.message,
           recoverable: event.recoverable,
+        }),
+      )
+      break
+    case 'rsi-reflection':
+      writeMessage(
+        makeNotification('rsi/reflection', {
+          description: event.reflection.reasoning,
+        }),
+      )
+      break
+    case 'rsi-crystallization':
+      writeMessage(
+        makeNotification('rsi/crystallization', {
+          outcome: event.result.outcome,
+          skillName: event.result.skillName,
+          description: event.result.reflection?.reasoning,
+        }),
+      )
+      break
+    case 'rsi-dream':
+      writeMessage(
+        makeNotification('rsi/dream', {
+          message: `Promoted ${event.result.durablePromotions.length} durable items, pruned ${event.result.durablePrunes.length}.`,
+        }),
+      )
+      break
+    case 'rsi-observation-recorded':
+    case 'rsi-checkpoint-written':
+    case 'rsi-context-flushed':
+    case 'rsi-history-compacted':
+    case 'rsi-length-recovery-succeeded':
+    case 'rsi-length-recovery-failed':
+    case 'rsi-durable-memory-promoted':
+    case 'rsi-durable-memory-pruned':
+    case 'rsi-skill-proposed-from-observations':
+      writeMessage(
+        makeNotification('rsi/runtime', {
+          eventType: event.type,
+          payload: event,
+        }),
+      )
+      break
+    case 'rsi-error':
+      writeMessage(
+        makeNotification('rsi/error', {
+          message: event.error.message,
         }),
       )
       break
@@ -246,7 +293,9 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
     ctx.setCurrentSessionId(id)
     try {
-      ctx.getAgent().setConversationHistory(toConversationHistory(result.value))
+      const agent = ctx.getAgent()
+      agent.setSessionId(id)
+      agent.setConversationHistory(toConversationHistory(result.value))
     } catch {
       /* agent not yet created — session will hydrate on first run */
     }
@@ -257,7 +306,9 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   handlers.set('session/new', async () => {
     // Clear agent conversation history for a fresh session
     try {
-      ctx.getAgent().clearHistory()
+      const agent = ctx.getAgent()
+      agent.setSessionId(undefined)
+      agent.clearHistory()
     } catch {
       /* agent not yet created — nothing to clear */
     }
@@ -265,6 +316,11 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
     ctx.setCurrentSessionId(result.value)
+    try {
+      ctx.getAgent().setSessionId(result.value)
+    } catch {
+      /* agent not yet created — session will hydrate on first run */
+    }
     return { sessionId: result.value }
   })
 
@@ -279,7 +335,9 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     if (ctx.currentSessionId === id) {
       ctx.setCurrentSessionId(null)
       try {
-        ctx.getAgent().clearHistory()
+        const agent = ctx.getAgent()
+        agent.setSessionId(undefined)
+        agent.clearHistory()
       } catch {
         /* agent not yet created — nothing to clear */
       }
@@ -541,14 +599,30 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
   // ── evolution/* ──────────────────────────────────────────────────
 
-  handlers.set('evolution/list', async () => {
-    // Evolution log not yet implemented — stub
-    return { entries: [], message: 'Evolution log not yet available' }
+  handlers.set('evolution/list', async (params) => {
+    const limit = typeof params.limit === 'number' ? params.limit : undefined
+    const result = getEntries({ limit }, ctx.configDir)
+    if (!result.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    }
+
+    return {
+      entries: result.value.map((entry) => ({
+        id: entry.id,
+        timestamp: entry.timestamp,
+        type: entry.type,
+        description: entry.summary,
+      })),
+    }
   })
 
   handlers.set('evolution/stats', async () => {
-    // Evolution log not yet implemented — stub
-    return { stats: {}, message: 'Evolution log not yet available' }
+    const result = getStats(ctx.configDir)
+    if (!result.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    }
+
+    return { stats: result.value }
   })
 
   // ── approval/* ───────────────────────────────────────────────────

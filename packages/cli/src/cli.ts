@@ -234,6 +234,8 @@ async function runMain(): Promise<void> {
     model: providerResult.value,
     toolRegistry: registry,
     onEvent: eventProxy,
+    config,
+    basePath: resolveConfigDir(opts.config),
     rsiOrchestrator,
     modeManager,
   })

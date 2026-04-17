@@ -141,6 +141,29 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('project-architecture: Overall system design')
     expect(prompt).toContain('user-preferences: Known user preferences')
     expect(prompt).toContain('2026-04-01: Initial setup and configuration')
+    expect(prompt).toContain('### Durable Memory')
+  })
+
+  test('layered memory sections are rendered in stable order', () => {
+    const prompt = buildSystemPrompt({
+      memorySections: {
+        durableMemory: '## Durable Facts\n- Use Bun',
+        checkpointMemory:
+          '# Reflection Checkpoint\n\n## Constraints\n- Keep checkpoint state\n\n## Next Best Step\nWrite tests',
+        workingMemory: '## 2026-04-15\n\n- Fresh working notes',
+      },
+    })
+
+    const durableIdx = prompt.indexOf('### Durable Memory')
+    const checkpointIdx = prompt.indexOf('### Checkpoint Memory')
+    const workingIdx = prompt.indexOf('### Working Memory')
+
+    expect(prompt).toContain('## Memory Context')
+    expect(durableIdx).toBeGreaterThan(-1)
+    expect(checkpointIdx).toBeGreaterThan(-1)
+    expect(workingIdx).toBeGreaterThan(-1)
+    expect(durableIdx).toBeLessThan(checkpointIdx)
+    expect(checkpointIdx).toBeLessThan(workingIdx)
   })
 
   test('AGENTS.md instructions are injected', () => {
@@ -174,6 +197,21 @@ describe('buildSystemPrompt', () => {
     // Skills and Memory sections are absent
     expect(prompt).not.toContain('## Skills')
     expect(prompt).not.toContain('## Memory Context')
+  })
+
+  test('empty memory subsections are omitted while populated ones remain', () => {
+    const prompt = buildSystemPrompt({
+      memorySections: {
+        durableMemory: '## Durable Facts\n- Keep this',
+        checkpointMemory: '   \n',
+        workingMemory: '',
+      },
+    })
+
+    expect(prompt).toContain('## Memory Context')
+    expect(prompt).toContain('### Durable Memory')
+    expect(prompt).not.toContain('### Checkpoint Memory')
+    expect(prompt).not.toContain('### Working Memory')
   })
 
   test('undefined skills and memory are omitted', () => {
@@ -211,7 +249,16 @@ describe('buildSystemPrompt', () => {
 
     const memory = '## Known Projects\n- ouroboros: this project'
 
-    const prompt = buildSystemPrompt({ tools, skills, memory })
+    const prompt = buildSystemPrompt({
+      tools,
+      skills,
+      memorySections: {
+        durableMemory: memory,
+        checkpointMemory:
+          '# Reflection Checkpoint\n\n## Constraints\n- Keep state\n\n## Next Best Step\nContinue',
+        workingMemory: '## 2026-04-15\n\n- Recent notes',
+      },
+    })
 
     // All sections present
     expect(prompt).toContain('You are Ouroboros')
@@ -221,6 +268,8 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('summarize')
     expect(prompt).toContain('## Memory Context')
     expect(prompt).toContain('## Known Projects')
+    expect(prompt).toContain('### Checkpoint Memory')
+    expect(prompt).toContain('### Working Memory')
   })
 
   test('prompt is a plain string with no provider-specific formatting', () => {
