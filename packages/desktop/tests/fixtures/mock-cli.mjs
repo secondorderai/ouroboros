@@ -265,6 +265,29 @@ async function handleRequest(request) {
         },
       ])
       return
+    case 'mode/getState':
+      writeResult(request.id, runtime.modeState)
+      return
+    case 'mode/enter': {
+      const modeId = typeof request.params?.mode === 'string' ? request.params.mode : 'plan'
+      runtime.modeState = {
+        status: 'active',
+        modeId,
+        enteredAt: new Date().toISOString(),
+      }
+      writeResult(request.id, { displayName: toModeDisplayName(modeId) })
+      return
+    }
+    case 'mode/exit': {
+      const modeId =
+        runtime.modeState.status === 'active' ? runtime.modeState.modeId : 'plan'
+      runtime.modeState = { status: 'inactive' }
+      writeResult(request.id, { displayName: toModeDisplayName(modeId) })
+      return
+    }
+    case 'mode/getPlan':
+      writeResult(request.id, runtime.plan)
+      return
     case 'agent/run': {
       const runSpec = scenario.agentRuns?.[agentRunIndex] ?? scenario.defaultAgentRun ?? {
         response: {
@@ -317,6 +340,8 @@ function createRuntimeState(currentScenario) {
       ...(currentScenario.evolutionStats ?? {}),
     },
     sessions: [...(currentScenario.sessions ?? [])],
+    modeState: structuredClone(currentScenario.modeState ?? { status: 'inactive' }),
+    plan: currentScenario.plan ? structuredClone(currentScenario.plan) : null,
     sessionCounter: currentScenario.sessionCounter ?? currentScenario.sessions?.length ?? 0,
     auth: {
       connected: currentScenario.authStatus?.connected ?? false,
@@ -326,6 +351,15 @@ function createRuntimeState(currentScenario) {
       models: currentScenario.authStatus?.models ?? ['gpt-5.4', 'gpt-5.4-mini'],
     },
   }
+}
+
+function toModeDisplayName(modeId) {
+  if (modeId === 'plan') return 'Plan'
+  return modeId
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 }
 
 function getAuthStatus(runtime) {

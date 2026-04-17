@@ -25,6 +25,8 @@ export interface LaunchScenario {
   evolutionEntries?: Array<Record<string, unknown>>
   evolutionStats?: Record<string, unknown>
   sessions?: Array<Record<string, unknown>>
+  modeState?: { status: 'inactive' } | { status: 'active'; modeId: string; enteredAt: string }
+  plan?: Record<string, unknown> | null
   methodErrors?: Record<string, { message: string; code?: number }>
   startupNotifications?: Array<{ delayMs?: number; method: string; params?: Record<string, unknown> }>
   agentRuns?: Array<{

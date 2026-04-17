@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
+import { getModeDisplayName, useModeStore } from '../stores/modeStore'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -22,7 +23,9 @@ interface InputBarProps {
 export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const [text, setText] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<string[]>([])
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const modeMenuRef = useRef<HTMLDivElement>(null)
 
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const sendMessage = useConversationStore((s) => s.sendMessage)
@@ -30,8 +33,16 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const workspace = useConversationStore((s) => s.workspace)
   const modelName = useConversationStore((s) => s.modelName)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
+  const modeState = useModeStore((s) => s.modeState)
+  const modeBusy = useModeStore((s) => s.isHydrating || s.isMutating)
+  const modeError = useModeStore((s) => s.error)
+  const enterMode = useModeStore((s) => s.enterMode)
+  const exitMode = useModeStore((s) => s.exitMode)
+  const clearModeError = useModeStore((s) => s.clearError)
 
   const isEmpty = text.trim().length === 0 && attachedFiles.length === 0
+  const activeModeLabel =
+    modeState.status === 'active' ? getModeDisplayName(modeState.modeId) : null
 
   // ---- Auto-resize textarea ------------------------------------------------
 
@@ -122,6 +133,21 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     }
   }, [setWorkspace])
 
+  const handleModeChipClick = useCallback(() => {
+    clearModeError()
+    setModeMenuOpen((open) => !open)
+  }, [clearModeError])
+
+  const handleEnterPlanMode = useCallback(async () => {
+    await enterMode('plan')
+    setModeMenuOpen(false)
+  }, [enterMode])
+
+  const handleExitMode = useCallback(async () => {
+    await exitMode()
+    setModeMenuOpen(false)
+  }, [exitMode])
+
   // ---- Handle file drops from parent (via props) ---------------------------
 
   const addDroppedFiles = useCallback((files: string[]) => {
@@ -136,6 +162,42 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       delete (window as unknown as Record<string, unknown>).__inputBarAddFiles
     }
   }, [addDroppedFiles])
+
+  useEffect(() => {
+    if (!modeMenuOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!modeMenuRef.current?.contains(event.target as Node)) {
+        setModeMenuOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setModeMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [modeMenuOpen])
+
+  useEffect(() => {
+    if (modeState.status === 'active') {
+      setModeMenuOpen(false)
+    }
+  }, [modeState.status])
+
+  const modeButtonLabel = useMemo(() => {
+    if (modeBusy) return 'Mode: updating…'
+    if (activeModeLabel) return `${activeModeLabel} mode active`
+    return 'Open mode picker'
+  }, [activeModeLabel, modeBusy])
 
   // ---- Render --------------------------------------------------------------
 
@@ -210,21 +272,73 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 
       {/* Bottom meta row: workspace indicator + model badge */}
       <div style={styles.metaRow}>
-        <button
-          style={styles.workspaceButton}
-          onClick={handleWorkspaceClick}
-          title={workspace ?? 'Set workspace'}
-          aria-label="Change workspace"
-        >
-          <FolderIcon />
-          <span style={styles.workspacePath}>
-            {workspace ? truncatePath(workspace) : 'No workspace'}
-          </span>
-        </button>
+        <div style={styles.metaLeft}>
+          <div style={styles.modeArea} ref={modeMenuRef}>
+            {modeState.status === 'active' ? (
+              <div style={styles.activeModeChip} aria-label={modeButtonLabel}>
+                <span style={styles.activeModeLabel}>{activeModeLabel}</span>
+                <button
+                  style={styles.modeDismissButton}
+                  onClick={() => void handleExitMode()}
+                  aria-label={`Exit ${activeModeLabel} mode`}
+                  title={`Exit ${activeModeLabel} mode`}
+                  disabled={modeBusy}
+                >
+                  <XIcon />
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  style={styles.modeButton}
+                  onClick={handleModeChipClick}
+                  aria-label={modeButtonLabel}
+                  aria-expanded={modeMenuOpen}
+                  title="Switch mode"
+                  disabled={modeBusy}
+                >
+                  <ModeIcon />
+                  <span style={styles.modeButtonText}>Mode</span>
+                  <ChevronIcon open={modeMenuOpen} />
+                </button>
+                {modeMenuOpen && (
+                  <div style={styles.modeMenu} role="menu" aria-label="Mode picker">
+                    <button
+                      style={styles.modeMenuItem}
+                      onClick={() => void handleEnterPlanMode()}
+                      role="menuitem"
+                      disabled={modeBusy}
+                    >
+                      <span style={styles.modeMenuTitle}>Plan</span>
+                      <span style={styles.modeMenuDescription}>
+                        Start in a planning workflow before implementation.
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
-        {modelName && (
-          <span style={styles.modelBadge}>{modelName}</span>
-        )}
+          <button
+            style={styles.workspaceButton}
+            onClick={handleWorkspaceClick}
+            title={workspace ?? 'Set workspace'}
+            aria-label="Change workspace"
+          >
+            <FolderIcon />
+            <span style={styles.workspacePath}>
+              {workspace ? truncatePath(workspace) : 'No workspace'}
+            </span>
+          </button>
+        </div>
+
+        <div style={styles.metaRight}>
+          {modeError && <span style={styles.modeErrorText}>{modeError}</span>}
+          {modelName && (
+            <span style={styles.modelBadge}>{modelName}</span>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -393,6 +507,47 @@ function XIcon(): React.ReactElement {
   )
 }
 
+function ModeIcon(): React.ReactElement {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" />
+      <path d="M12 12l8-4.5" />
+      <path d="M12 12v9" />
+      <path d="M12 12L4 7.5" />
+    </svg>
+  )
+}
+
+function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform 0.15s ease',
+      }}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
@@ -509,6 +664,109 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     padding: '4px 4px 0',
     minHeight: 24,
+    gap: 12,
+  },
+  metaLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  metaRight: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    minWidth: 0,
+    flexShrink: 0,
+  },
+  modeArea: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  modeButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    border: '1px solid var(--border-light)',
+    backgroundColor: 'var(--bg-secondary)',
+    color: 'var(--text-secondary)',
+    fontSize: 11,
+    fontWeight: 600,
+    fontFamily: 'var(--font-sans)',
+    padding: '3px 8px',
+    borderRadius: 999,
+    cursor: 'pointer',
+    minHeight: 24,
+  },
+  modeButtonText: {
+    lineHeight: 1,
+  },
+  activeModeChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    minHeight: 24,
+    padding: '3px 4px 3px 9px',
+    borderRadius: 999,
+    backgroundColor: 'var(--accent-amber-bg)',
+    border: '1px solid color-mix(in srgb, var(--accent-amber) 24%, transparent)',
+    color: 'var(--accent-amber)',
+  },
+  activeModeLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    lineHeight: 1,
+  },
+  modeDismissButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 18,
+    height: 18,
+    border: 'none',
+    borderRadius: 999,
+    backgroundColor: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  modeMenu: {
+    position: 'absolute',
+    left: 0,
+    bottom: 'calc(100% + 8px)',
+    width: 240,
+    borderRadius: 14,
+    border: '1px solid var(--border-light)',
+    backgroundColor: 'var(--bg-primary)',
+    boxShadow: 'var(--shadow-lg)',
+    padding: 8,
+    zIndex: 20,
+  },
+  modeMenuItem: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 4,
+    padding: '10px 12px',
+    border: 'none',
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+    color: 'var(--text-primary)',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  modeMenuTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  modeMenuDescription: {
+    fontSize: 11,
+    lineHeight: 1.4,
+    color: 'var(--text-tertiary)',
   },
   workspaceButton: {
     display: 'flex',
@@ -523,8 +781,17 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '2px 4px',
     borderRadius: 'var(--radius-micro)',
     maxWidth: 220,
+    minWidth: 0,
   },
   workspacePath: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  modeErrorText: {
+    fontSize: 11,
+    color: 'var(--accent-red)',
+    maxWidth: 220,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
