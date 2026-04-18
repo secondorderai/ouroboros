@@ -6,6 +6,8 @@
  * throws an error (caught by the dispatcher).
  */
 
+import { readdirSync } from 'node:fs'
+import { extname } from 'node:path'
 import type { Agent, AgentEvent } from '@src/agent'
 import type { ModeManager } from '@src/modes/manager'
 import type { ModeId } from '@src/modes/types'
@@ -15,12 +17,16 @@ import {
   OPENAI_CHATGPT_PROVIDER,
 } from '@src/auth/openai-chatgpt'
 import type { OuroborosConfig } from '@src/config'
+import { loadConfig, resolveConfigDir } from '@src/config'
 import type { LLMMessage } from '@src/llm/types'
 import { saveConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
+import { readCheckpoint } from '@src/memory/checkpoints'
+import { resolveCheckpointsDir } from '@src/memory/paths'
 import type { SessionSummary, SessionWithMessages, TranscriptStore } from '@src/memory/transcripts'
 import { getEntries, getStats } from '@src/rsi/evolution-log'
-import { listSkills, getSkillInfo, activateSkill } from '@src/tools/skill-manager'
+import type { ReflectionCheckpoint } from '@src/rsi/types'
+import { discoverSkills, listSkills, getSkillInfo, activateSkill } from '@src/tools/skill-manager'
 import { JSON_RPC_ERRORS, makeNotification } from './types'
 import { writeMessage } from './transport'
 
@@ -40,6 +46,7 @@ export interface HandlerContext {
   currentSessionId: string | null
   setCurrentSessionId: (sessionId: string | null) => void
   setConfig: (config: OuroborosConfig) => void
+  setConfigDir?: (configDir: string) => void
   authManager: OpenAIChatGPTAuthManager
   modeManager: ModeManager
 }
@@ -64,6 +71,16 @@ export class HandlerError extends Error {
  */
 export function bridgeAgentEvent(event: AgentEvent): void {
   switch (event.type) {
+    case 'context-usage':
+      writeMessage(
+        makeNotification('agent/contextUsage', {
+          estimatedTotalTokens: event.estimatedTotalTokens,
+          contextWindowTokens: event.contextWindowTokens,
+          usageRatio: event.usageRatio,
+          threshold: event.threshold,
+        }),
+      )
+      break
     case 'text':
       writeMessage(makeNotification('agent/text', { text: event.text }))
       break
@@ -182,6 +199,19 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   const validClients = new Set(['desktop', 'cli'])
   const validResponseStyles = new Set(['default', 'desktop-readable'])
   const validAuthMethods = new Set(OPENAI_CHATGPT_AUTH_METHODS)
+
+  const refreshSkills = () => {
+    discoverSkills(ctx.config.skillDirectories, ctx.configDir)
+  }
+  const toDesktopSkillInfo = (skill: ReturnType<typeof listSkills>[number]) => ({
+    name: skill.name,
+    description: skill.description,
+    version:
+      typeof skill.frontmatter.metadata?.version === 'string'
+        ? skill.frontmatter.metadata.version
+        : '1.0',
+    enabled: skill.status === 'core',
+  })
 
   // ── agent/* ──────────────────────────────────────────────────────
 
@@ -564,11 +594,13 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   // ── skills/* ─────────────────────────────────────────────────────
 
   handlers.set('skills/list', async () => {
-    const skills = listSkills()
+    refreshSkills()
+    const skills = listSkills().map(toDesktopSkillInfo)
     return { skills }
   })
 
   handlers.set('skills/get', async (params) => {
+    refreshSkills()
     const name = params.name
     if (typeof name !== 'string') {
       throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.name is required')
@@ -580,7 +612,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     // Also try to load full instructions
     const activation = activateSkill(name)
     return {
-      ...info.value,
+      ...toDesktopSkillInfo(info.value),
       instructions: activation.ok ? activation.value.instructions : null,
     }
   })
@@ -595,6 +627,32 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   handlers.set('rsi/status', async () => {
     // RSI orchestrator not yet implemented — stub
     return { status: 'idle', message: 'RSI orchestrator not yet available' }
+  })
+
+  handlers.set('rsi/history', async (params) => {
+    const limit = typeof params.limit === 'number' ? params.limit : undefined
+    const checkpoints = listCheckpointSummaries(ctx.configDir, limit)
+    if (!checkpoints.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, checkpoints.error.message)
+    }
+
+    return { entries: checkpoints.value }
+  })
+
+  handlers.set('rsi/checkpoint', async (params) => {
+    const sessionId = params.sessionId
+    if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.sessionId is required')
+    }
+
+    const checkpointResult = readCheckpoint(sessionId, ctx.configDir)
+    if (!checkpointResult.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, checkpointResult.error.message)
+    }
+
+    return {
+      checkpoint: checkpointResult.value ? toDesktopCheckpoint(checkpointResult.value) : null,
+    }
   })
 
   // ── evolution/* ──────────────────────────────────────────────────
@@ -612,6 +670,9 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         timestamp: entry.timestamp,
         type: entry.type,
         description: entry.summary,
+        sessionId: entry.details.sessionId,
+        skillName: entry.details.skillName,
+        details: Object.keys(entry.details).length > 0 ? entry.details : undefined,
       })),
     }
   })
@@ -677,9 +738,22 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.directory is required')
     }
     try {
+      const resolvedDir = resolveConfigDir(dir)
+      const configResult = loadConfig(resolvedDir)
+      if (!configResult.ok) {
+        throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, configResult.error.message)
+      }
+
       process.chdir(dir)
+      ctx.setConfig(configResult.value)
+      ctx.setConfigDir?.(resolvedDir)
+      refreshSkills()
+
       return { directory: process.cwd() }
     } catch (e) {
+      if (e instanceof HandlerError) {
+        throw e
+      }
       const message = e instanceof Error ? e.message : String(e)
       throw new HandlerError(
         JSON_RPC_ERRORS.INTERNAL_ERROR.code,
@@ -760,6 +834,75 @@ function toSentenceCase(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) return ''
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+}
+
+function listCheckpointSummaries(basePath: string, limit?: number) {
+  try {
+    const checkpointsDir = resolveCheckpointsDir(basePath)
+    const files = readdirSync(checkpointsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && extname(entry.name) === '.md')
+      .map((entry) => entry.name.slice(0, -3))
+
+    const checkpoints = files
+      .map((sessionId) => {
+        const checkpointResult = readCheckpoint(sessionId, basePath)
+        if (!checkpointResult.ok || checkpointResult.value == null) {
+          return null
+        }
+
+        return {
+          sessionId: checkpointResult.value.sessionId,
+          updatedAt: checkpointResult.value.updatedAt,
+          goal: checkpointResult.value.goal,
+          nextBestStep: checkpointResult.value.nextBestStep,
+          openLoopCount: checkpointResult.value.openLoops.length,
+          durableCandidateCount: checkpointResult.value.durableMemoryCandidates.length,
+          skillCandidateCount: checkpointResult.value.skillCandidates.length,
+        }
+      })
+      .filter((checkpoint): checkpoint is NonNullable<typeof checkpoint> => checkpoint != null)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+
+    return {
+      ok: true as const,
+      value: limit !== undefined && limit >= 0 ? checkpoints.slice(0, limit) : checkpoints,
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error && 'code' in error && error.code === 'ENOENT'
+        ? 'Checkpoint directory not found'
+        : error instanceof Error
+          ? error.message
+          : String(error)
+
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      typeof error.code === 'string' &&
+      error.code === 'ENOENT'
+    ) {
+      return { ok: true as const, value: [] }
+    }
+
+    return { ok: false as const, error: new Error(`Failed to list checkpoints: ${message}`) }
+  }
+}
+
+function toDesktopCheckpoint(checkpoint: ReflectionCheckpoint) {
+  return {
+    sessionId: checkpoint.sessionId,
+    updatedAt: checkpoint.updatedAt,
+    goal: checkpoint.goal,
+    currentPlan: checkpoint.currentPlan,
+    constraints: checkpoint.constraints,
+    decisionsMade: checkpoint.decisionsMade,
+    filesInPlay: checkpoint.filesInPlay,
+    completedWork: checkpoint.completedWork,
+    openLoops: checkpoint.openLoops,
+    nextBestStep: checkpoint.nextBestStep,
+    durableMemoryCandidates: checkpoint.durableMemoryCandidates,
+    skillCandidates: checkpoint.skillCandidates,
+  }
 }
 
 function finalizeSessionTitle(input: string): string {

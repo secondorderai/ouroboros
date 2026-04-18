@@ -39,9 +39,10 @@ export interface JsonRpcServerOptions {
  * It never throws — all errors are returned as JSON-RPC error responses.
  */
 export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise<void> {
-  const { config: initialConfig, configDir } = options
+  const { config: initialConfig, configDir: initialConfigDir } = options
 
   let config = initialConfig
+  let configDir = initialConfigDir
 
   // Create tool registry
   const registry = await createRegistry()
@@ -129,6 +130,11 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       config = newConfig
       ctx.config = newConfig
       // Reset agent so it picks up the new config on next use
+      agent = null
+    },
+    setConfigDir: (newConfigDir) => {
+      configDir = newConfigDir
+      ctx.configDir = newConfigDir
       agent = null
     },
     authManager: new OpenAIChatGPTAuthManager(),

@@ -7,6 +7,7 @@ import type { ToolDefinition } from '@src/tools/types'
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 import { TranscriptStore } from '@src/memory/transcripts'
+import { writeCheckpoint } from '@src/memory/checkpoints'
 import { configSchema, type OuroborosConfig } from '@src/config'
 import { OpenAIChatGPTAuthManager } from '@src/auth/openai-chatgpt'
 import {
@@ -22,6 +23,7 @@ import { ModeManager } from '@src/modes/manager'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import type { ReflectionCheckpoint } from '@src/rsi/types'
 
 // ── Test Helpers ────────────────────────────────────────────────────
 
@@ -134,6 +136,7 @@ function createTestContext(overrides?: {
 
   let currentRunAbort: AbortController | null = null
   let currentSessionId: string | null = null
+  let currentConfigDir = configDir
 
   const agent = new Agent(
     makeAgentOptions(model, registry, {
@@ -145,7 +148,7 @@ function createTestContext(overrides?: {
   const ctx: HandlerContext = {
     getAgent: () => agent,
     config,
-    configDir,
+    configDir: currentConfigDir,
     transcriptStore,
     authManager: overrides?.authManager ?? new OpenAIChatGPTAuthManager(),
     currentRunAbort,
@@ -160,6 +163,10 @@ function createTestContext(overrides?: {
     },
     setConfig: (newConfig) => {
       ctx.config = newConfig
+    },
+    setConfigDir: (newConfigDir) => {
+      currentConfigDir = newConfigDir
+      ctx.configDir = newConfigDir
     },
     modeManager: overrides?.modeManager ?? new ModeManager(),
   }
@@ -257,6 +264,33 @@ describe('JSON-RPC', () => {
     })
   })
 
+  describe('event bridge', () => {
+    test('bridges context usage events into JSON-RPC notifications', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent({
+          type: 'context-usage',
+          estimatedTotalTokens: 12_345,
+          contextWindowTokens: 200_000,
+          usageRatio: 0.061725,
+          threshold: 'within-budget',
+        })
+      })
+
+      expect(parseNdjson(output)).toEqual([
+        {
+          jsonrpc: '2.0',
+          method: 'agent/contextUsage',
+          params: {
+            estimatedTotalTokens: 12_345,
+            contextWindowTokens: 200_000,
+            usageRatio: 0.061725,
+            threshold: 'within-budget',
+          },
+        },
+      ])
+    })
+  })
+
   // -------------------------------------------------------------------
   // Test: Basic request/response round-trip
   // -------------------------------------------------------------------
@@ -275,6 +309,125 @@ describe('JSON-RPC', () => {
       expect((ctx.getAgent() as unknown as { sessionId?: string }).sessionId).toBe(result.sessionId)
 
       ctx.transcriptStore.close()
+    })
+  })
+
+  describe('RSI history handlers', () => {
+    test('rsi/history returns checkpoint summaries newest first', async () => {
+      const configDir = join(tmpdir(), `ouroboros-jsonrpc-rsi-${crypto.randomUUID()}`)
+      mkdirSync(configDir, { recursive: true })
+      const ctx = createTestContext({ configDir })
+      const handlers = createHandlers(ctx)
+
+      const older: ReflectionCheckpoint = {
+        sessionId: 'session-older',
+        updatedAt: '2026-04-17T09:00:00.000Z',
+        goal: 'Review architecture',
+        currentPlan: ['Inspect CLI'],
+        constraints: [],
+        decisionsMade: [],
+        filesInPlay: [],
+        completedWork: ['Read handlers'],
+        openLoops: ['Summarize findings'],
+        nextBestStep: 'Write summary',
+        durableMemoryCandidates: [],
+        skillCandidates: [],
+      }
+
+      const newer: ReflectionCheckpoint = {
+        sessionId: 'session-newer',
+        updatedAt: '2026-04-18T09:00:00.000Z',
+        goal: 'Improve RSI drawer',
+        currentPlan: ['Design history browser'],
+        constraints: ['Stay in drawer'],
+        decisionsMade: [],
+        filesInPlay: ['packages/desktop/src/renderer/components/RSIDrawer.tsx'],
+        completedWork: [],
+        openLoops: ['Add history view', 'Add detail pane'],
+        nextBestStep: 'Wire checkpoint RPC',
+        durableMemoryCandidates: [
+          {
+            title: 'UI preference',
+            summary: 'Use drawer',
+            content: 'Use drawer',
+            kind: 'preference',
+            confidence: 0.8,
+            observedAt: '2026-04-18T08:00:00.000Z',
+            tags: [],
+            evidence: ['user asked for drawer browser'],
+          },
+        ],
+        skillCandidates: [
+          {
+            name: 'rsi-browser',
+            summary: 'Build history browser UIs',
+            trigger: 'Adding RSI history',
+            workflow: ['Define protocol', 'Render timeline'],
+            confidence: 0.7,
+            sourceObservationIds: ['obs-1'],
+            sourceSessionIds: ['session-newer'],
+          },
+        ],
+      }
+
+      expect(writeCheckpoint(older, configDir).ok).toBe(true)
+      expect(writeCheckpoint(newer, configDir).ok).toBe(true)
+
+      const result = (await handlers.get('rsi/history')!({ limit: 10 })) as {
+        entries: Array<{ sessionId: string; updatedAt: string; openLoopCount: number }>
+      }
+
+      expect(result.entries).toHaveLength(2)
+      expect(result.entries[0]).toEqual(
+        expect.objectContaining({
+          sessionId: 'session-newer',
+          updatedAt: '2026-04-18T09:00:00.000Z',
+          openLoopCount: 2,
+        }),
+      )
+      expect(result.entries[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'session-older',
+          updatedAt: '2026-04-17T09:00:00.000Z',
+          openLoopCount: 1,
+        }),
+      )
+
+      ctx.transcriptStore.close()
+      rmSync(configDir, { recursive: true, force: true })
+    })
+
+    test('rsi/checkpoint returns the stored checkpoint detail', async () => {
+      const configDir = join(tmpdir(), `ouroboros-jsonrpc-rsi-detail-${crypto.randomUUID()}`)
+      mkdirSync(configDir, { recursive: true })
+      const ctx = createTestContext({ configDir })
+      const handlers = createHandlers(ctx)
+
+      const checkpoint: ReflectionCheckpoint = {
+        sessionId: 'session-detail',
+        updatedAt: '2026-04-18T11:00:00.000Z',
+        goal: 'Ship reflection browser',
+        currentPlan: ['Add protocol', 'Add hook'],
+        constraints: ['Keep design system'],
+        decisionsMade: ['Use drawer tabs'],
+        filesInPlay: ['packages/desktop/src/shared/protocol.ts'],
+        completedWork: ['Added RSI history RPC'],
+        openLoops: ['Add tests'],
+        nextBestStep: 'Render detail pane',
+        durableMemoryCandidates: [],
+        skillCandidates: [],
+      }
+
+      expect(writeCheckpoint(checkpoint, configDir).ok).toBe(true)
+
+      const result = (await handlers.get('rsi/checkpoint')!({
+        sessionId: 'session-detail',
+      })) as { checkpoint: ReflectionCheckpoint | null }
+
+      expect(result.checkpoint).toEqual(checkpoint)
+
+      ctx.transcriptStore.close()
+      rmSync(configDir, { recursive: true, force: true })
     })
   })
 
@@ -848,12 +1001,27 @@ describe('JSON-RPC', () => {
   describe('skills operations', () => {
     test('skills/list returns skill array', async () => {
       const ctx = createTestContext()
+      const skillDir = join(ctx.configDir, 'skills', 'generated', 'test-skill')
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: test-skill
+description: A generated test skill
+---
+
+# Test Skill
+`,
+      )
       const handlers = createHandlers(ctx)
 
       const result = (await handlers.get('skills/list')!({})) as {
-        skills: unknown[]
+        skills: Array<{ name: string; version: string; enabled: boolean }>
       }
       expect(result.skills).toBeInstanceOf(Array)
+      expect(result.skills).toContainEqual(
+        expect.objectContaining({ name: 'test-skill', version: '1.0', enabled: false }),
+      )
 
       ctx.transcriptStore.close()
     })
@@ -933,6 +1101,47 @@ describe('JSON-RPC', () => {
       expect(result.stats.totalEntries).toBe(2)
       expect(result.stats.successfulResumesAfterCompaction).toBe(1)
       expect(result.stats.compactionsPerSession).toEqual({ 'session-1': 1 })
+      expect(result.stats.sessionsAnalyzed).toBe(1)
+      expect(result.stats.successRate).toBe(1)
+
+      ctx.transcriptStore.close()
+    })
+
+    test('evolution/stats falls back to reflection activity when session ids are absent', async () => {
+      const ctx = createTestContext()
+      writeFileSync(
+        join(ctx.configDir, 'evolution.log.json'),
+        JSON.stringify(
+          [
+            {
+              id: 'entry-2',
+              timestamp: '2025-04-17T00:00:00.000Z',
+              type: 'skill-promoted',
+              summary: 'Promoted generated skill',
+              details: { skillName: 'test-skill' },
+              motivation: 'Promoted after passing tests',
+            },
+            {
+              id: 'entry-1',
+              timestamp: '2025-04-16T00:00:00.000Z',
+              type: 'memory-updated',
+              summary: 'Reflected on task',
+              details: {},
+              motivation: 'Novel pattern identified',
+            },
+          ],
+          null,
+          2,
+        ),
+        'utf-8',
+      )
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('evolution/stats')!({})) as {
+        stats: Record<string, unknown>
+      }
+      expect(result.stats.sessionsAnalyzed).toBe(2)
+      expect(result.stats.successRate).toBe(1)
 
       ctx.transcriptStore.close()
     })
