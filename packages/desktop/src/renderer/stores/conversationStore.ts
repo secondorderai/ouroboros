@@ -87,7 +87,7 @@ export interface ConversationState {
   setCurrentSessionId: (id: string | null) => void
 
   /** Load a session's messages into the chat. */
-  loadSession: (id: string, messages: SessionMessage[]) => void
+  loadSession: (id: string, messages: SessionMessage[], workspacePath?: string | null) => void
 
   /** Create a new session and make it active. */
   createNewSession: (sessionId: string) => void
@@ -461,7 +461,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({ currentSessionId: id })
   },
 
-  loadSession(id: string, sessionMessages: SessionMessage[]) {
+  loadSession(id: string, sessionMessages: SessionMessage[], workspacePath?: string | null) {
     const messages: Message[] = sessionMessages.map((m, i) => ({
       id: makeId(m.role === 'user' ? 'user' : 'agent', i + 1),
       role: m.role === 'user' ? ('user' as const) : ('agent' as const),
@@ -478,6 +478,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       nextId: messages.length + 1,
       currentSessionId: id,
       contextUsage: null,
+      ...(workspacePath ? { workspace: workspacePath } : {}),
     })
   },
 

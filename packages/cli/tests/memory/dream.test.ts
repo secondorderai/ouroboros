@@ -44,6 +44,7 @@ function makeSession(
     startedAt: new Date().toISOString(),
     endedAt: new Date().toISOString(),
     summary: null,
+    workspacePath: null,
     messages: messages.map((m, i) => ({
       id: `msg-${id}-${i}`,
       sessionId: id,

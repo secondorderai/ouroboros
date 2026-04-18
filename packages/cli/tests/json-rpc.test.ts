@@ -925,10 +925,12 @@ describe('JSON-RPC', () => {
       })) as {
         id: string
         createdAt: string
+        workspacePath: string | null
         messages: Array<{ role: string; content: string; timestamp: string }>
       }
       expect(loadResult.id).toBe(newResult.sessionId)
       expect(typeof loadResult.createdAt).toBe('string')
+      expect(loadResult.workspacePath).toBe(process.cwd())
       expect(loadResult.messages).toBeInstanceOf(Array)
       expect(loadResult.messages).toEqual([
         expect.objectContaining({

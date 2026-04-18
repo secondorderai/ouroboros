@@ -30,6 +30,7 @@ export interface Session {
   startedAt: string
   endedAt: string | null
   summary: string | null
+  workspacePath: string | null
 }
 
 export interface SessionWithMessages extends Session {
@@ -42,6 +43,7 @@ export interface SessionSummary {
   endedAt: string | null
   summary: string | null
   messageCount: number
+  workspacePath: string | null
 }
 
 export interface SearchResult {
@@ -68,7 +70,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   started_at TEXT NOT NULL,
   ended_at TEXT,
-  summary TEXT
+  summary TEXT,
+  workspace_path TEXT
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -93,6 +96,7 @@ interface SessionRow {
   started_at: string
   ended_at: string | null
   summary: string | null
+  workspace_path?: string | null
 }
 
 interface MessageRow {
@@ -121,6 +125,7 @@ interface SessionSummaryRow {
   ended_at: string | null
   summary: string | null
   message_count: number
+  workspace_path?: string | null
 }
 
 /**
@@ -153,20 +158,48 @@ export class TranscriptStore {
     this.db.run('PRAGMA journal_mode = WAL')
     this.db.run('PRAGMA foreign_keys = ON')
     this.db.run(SCHEMA_SQL)
+    this.migrateSchema()
+  }
+
+  private migrateSchema(): void {
+    const columns = this.db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
+    if (!columns.some((column) => column.name === 'workspace_path')) {
+      this.db.run('ALTER TABLE sessions ADD COLUMN workspace_path TEXT')
+    }
   }
 
   /**
    * Create a new session and return its ID.
    */
-  createSession(): Result<string> {
+  createSession(workspacePath?: string | null): Result<string> {
     try {
       const id = crypto.randomUUID()
       const startedAt = new Date().toISOString()
-      this.db.prepare('INSERT INTO sessions (id, started_at) VALUES (?, ?)').run(id, startedAt)
+      this.db
+        .prepare('INSERT INTO sessions (id, started_at, workspace_path) VALUES (?, ?, ?)')
+        .run(id, startedAt, workspacePath ?? null)
       return ok(id)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       return err(new Error(`Failed to create session: ${message}`))
+    }
+  }
+
+  /**
+   * Update the workspace path associated with a session.
+   */
+  updateSessionWorkspace(sessionId: string, workspacePath: string | null): Result<void> {
+    try {
+      const result = this.db
+        .prepare('UPDATE sessions SET workspace_path = ? WHERE id = ?')
+        .run(workspacePath, sessionId)
+      if (result.changes === 0) {
+        return err(new Error(`Session "${sessionId}" not found`))
+      }
+      return ok(undefined)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      return err(new Error(`Failed to update session workspace: ${message}`))
     }
   }
 
@@ -241,6 +274,7 @@ export class TranscriptStore {
         startedAt: session.started_at,
         endedAt: session.ended_at,
         summary: session.summary,
+        workspacePath: session.workspace_path ?? null,
         messages,
       })
     } catch (e) {
@@ -291,7 +325,7 @@ export class TranscriptStore {
     try {
       const rows = this.db
         .prepare(
-          `SELECT s.id, s.started_at, s.ended_at, s.summary,
+          `SELECT s.id, s.started_at, s.ended_at, s.summary, s.workspace_path,
                   (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
            FROM sessions s
            ORDER BY s.started_at DESC, s.rowid DESC
@@ -305,6 +339,7 @@ export class TranscriptStore {
         endedAt: row.ended_at,
         summary: row.summary,
         messageCount: row.message_count,
+        workspacePath: row.workspace_path ?? null,
       }))
 
       return ok(sessions)

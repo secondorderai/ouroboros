@@ -165,7 +165,7 @@ export function Sidebar({
           id: sessionId,
         })) as SessionData
         if (result?.messages) {
-          loadSession(sessionId, result.messages)
+          loadSession(sessionId, result.messages, result.workspacePath)
         } else {
           // No messages, just set the session as active
           setCurrentSessionId(sessionId)

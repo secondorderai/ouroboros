@@ -46,6 +46,32 @@ describe('Layer 3 — Session Transcripts', () => {
     expect(result.value).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 
+  test('sessions persist workspace path metadata', () => {
+    const workspace = join(tempDir, 'workspace')
+    const createResult = store.createSession(workspace)
+    expect(createResult.ok).toBe(true)
+    if (!createResult.ok) return
+
+    const getResult = store.getSession(createResult.value)
+    expect(getResult.ok).toBe(true)
+    if (!getResult.ok) return
+    expect(getResult.value.workspacePath).toBe(workspace)
+
+    const updatedWorkspace = join(tempDir, 'other-workspace')
+    const updateResult = store.updateSessionWorkspace(createResult.value, updatedWorkspace)
+    expect(updateResult.ok).toBe(true)
+
+    const updatedResult = store.getSession(createResult.value)
+    expect(updatedResult.ok).toBe(true)
+    if (!updatedResult.ok) return
+    expect(updatedResult.value.workspacePath).toBe(updatedWorkspace)
+
+    const recentResult = store.getRecentSessions(10)
+    expect(recentResult.ok).toBe(true)
+    if (!recentResult.ok) return
+    expect(recentResult.value[0].workspacePath).toBe(updatedWorkspace)
+  })
+
   test('session transcript storage: create, add messages, end, retrieve', () => {
     // Create session
     const createResult = store.createSession()

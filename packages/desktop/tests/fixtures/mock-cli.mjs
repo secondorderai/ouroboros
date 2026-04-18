@@ -204,6 +204,7 @@ async function handleRequest(request) {
       writeResult(request.id, {
         id: session.id,
         createdAt: session.createdAt,
+        workspacePath: session.workspacePath ?? runtime.workspace,
         messages: session.messages,
       })
       return

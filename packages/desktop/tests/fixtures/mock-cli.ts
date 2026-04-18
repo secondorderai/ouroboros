@@ -38,6 +38,7 @@ interface MockSession {
   createdAt: string
   lastActive: string
   title?: string
+  workspacePath?: string | null
   messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>
 }
 
@@ -269,6 +270,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
       writeResult(request.id, {
         id: session.id,
         createdAt: session.createdAt,
+        workspacePath: session.workspacePath ?? runtime.workspace,
         messages: session.messages,
       })
       return

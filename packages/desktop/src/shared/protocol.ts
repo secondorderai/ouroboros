@@ -294,6 +294,7 @@ export interface SessionInfo {
   lastActive: string
   messageCount: number
   title?: string
+  workspacePath?: string | null
 }
 export interface SessionListResult {
   sessions: SessionInfo[]
@@ -306,6 +307,7 @@ export interface SessionMessage {
 export interface SessionData {
   id: string
   createdAt: string
+  workspacePath?: string | null
   messages: SessionMessage[]
 }
 export interface SessionNewResult {

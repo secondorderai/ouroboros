@@ -342,7 +342,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     } catch {
       /* agent not yet created — nothing to clear */
     }
-    const result = ctx.transcriptStore.createSession()
+    const result = ctx.transcriptStore.createSession(process.cwd())
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
     ctx.setCurrentSessionId(result.value)
@@ -749,6 +749,16 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       ctx.setConfigDir?.(resolvedDir)
       refreshSkills()
 
+      if (ctx.currentSessionId) {
+        const updateResult = ctx.transcriptStore.updateSessionWorkspace(
+          ctx.currentSessionId,
+          process.cwd(),
+        )
+        if (!updateResult.ok) {
+          throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, updateResult.error.message)
+        }
+      }
+
       return { directory: process.cwd() }
     } catch (e) {
       if (e instanceof HandlerError) {
@@ -775,6 +785,7 @@ function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: Transcri
         lastActive: summary.endedAt ?? summary.startedAt,
         messageCount: 0,
         title: summary.summary ?? undefined,
+        workspacePath: summary.workspacePath,
       },
     }
   }
@@ -793,6 +804,7 @@ function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: Transcri
         sessionResult.value.messages.at(-1)?.createdAt ?? summary.endedAt ?? summary.startedAt,
       messageCount: summary.messageCount,
       title: getSessionTitle(sessionResult.value) ?? summary.summary ?? undefined,
+      workspacePath: summary.workspacePath,
     },
   }
 }
@@ -801,6 +813,7 @@ function toDesktopSessionData(session: SessionWithMessages) {
   return {
     id: session.id,
     createdAt: session.startedAt,
+    workspacePath: session.workspacePath,
     messages: session.messages
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .map((message) => ({
