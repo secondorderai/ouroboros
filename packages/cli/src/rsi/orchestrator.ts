@@ -27,7 +27,7 @@ import {
 } from './crystallize'
 import { appendEntry } from './evolution-log'
 import { dream, type DreamResult, type DreamOptions, type DreamDeps } from '@src/memory/dream'
-import { getSkillCatalog } from '@src/tools/skill-manager'
+import { discoverSkills, getSkillCatalog } from '@src/tools/skill-manager'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -111,6 +111,7 @@ export class RSIOrchestrator {
    */
   async triggerReflection(taskSummary: string): Promise<Result<ReflectionRecord>> {
     try {
+      discoverSkills(this.config.skillDirectories, this.basePath)
       const existingSkills = getSkillCatalog()
       const result = await reflect(taskSummary, existingSkills, this.llm)
 
@@ -148,6 +149,7 @@ export class RSIOrchestrator {
     transcript?: string,
   ): Promise<Result<CrystallizationResult>> {
     try {
+      discoverSkills(this.config.skillDirectories, this.basePath)
       const existingSkills = getSkillCatalog()
       const cwd = this.basePath ?? process.cwd()
 

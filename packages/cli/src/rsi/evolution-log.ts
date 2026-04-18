@@ -356,12 +356,44 @@ export function getStats(basePath?: string): Result<EvolutionStats> {
     const skillProposalsFromObservations = byType['skill-proposed-from-observations']
     const durablePromotions = byType['durable-memory-promoted']
     const durablePrunes = byType['durable-memory-pruned']
-    const sessionsAnalyzed = new Set(
-      entries.map((entry) => entry.details.sessionId).filter((value): value is string => !!value),
-    ).size
-    const successDenominator = successfulResumesAfterCompaction + byType['length-recovery-failed']
+    const analyzedSessionIds = new Set<string>()
+    const analyzedEntryTypes = new Set<EvolutionEntryType>([
+      'memory-updated',
+      'skill-created',
+      'skill-promoted',
+      'skill-failed',
+      'skill-proposed-from-observations',
+    ])
+    let analyzedEntryCount = 0
+
+    for (const entry of entries) {
+      if (entry.details.sessionId) {
+        analyzedSessionIds.add(entry.details.sessionId)
+      }
+
+      if (Array.isArray(entry.details.sourceSessionIds)) {
+        for (const sessionId of entry.details.sourceSessionIds) {
+          if (typeof sessionId === 'string' && sessionId.trim().length > 0) {
+            analyzedSessionIds.add(sessionId)
+          }
+        }
+      }
+
+      if (analyzedEntryTypes.has(entry.type)) {
+        analyzedEntryCount++
+      }
+    }
+
+    const sessionsAnalyzed =
+      analyzedSessionIds.size > 0 ? analyzedSessionIds.size : analyzedEntryCount
+    const crystallizationAttempts = byType['skill-promoted'] + byType['skill-failed']
+    const recoveryAttempts = successfulResumesAfterCompaction + byType['length-recovery-failed']
     const successRate =
-      successDenominator > 0 ? successfulResumesAfterCompaction / successDenominator : 0
+      crystallizationAttempts > 0
+        ? byType['skill-promoted'] / crystallizationAttempts
+        : recoveryAttempts > 0
+          ? successfulResumesAfterCompaction / recoveryAttempts
+          : 0
 
     return ok({
       totalEntries: entries.length,
