@@ -13,5 +13,8 @@
     "test:all": "bun run --filter @ouroboros/cli test:all",
     "lint": "bun run --filter '*' lint",
     "ts-check": "bun run --filter '*' ts-check"
+  },
+  "dependencies": {
+    "mermaid": "^11.14.0"
   }
 }

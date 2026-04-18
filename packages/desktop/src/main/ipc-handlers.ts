@@ -145,6 +145,9 @@ function registerNotificationForwarding(ctx: IpcHandlerContext): void {
     'rsi/dream',
     'rsi/error',
     'rsi/runtime',
+    'mode/entered',
+    'mode/exited',
+    'mode/planSubmitted',
   ]
 
   for (const method of notificationMethods) {

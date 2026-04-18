@@ -9,23 +9,22 @@
  * (CLI, JSON-RPC, etc.) subscribe to for rendering.
  */
 
-import type { LanguageModel } from 'ai'
-import { loadConfig, type OuroborosConfig } from '@src/config'
-import { streamResponse } from '@src/llm/streaming'
-import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
-import type { LLMMessage, ToolCall, StreamChunk, LLMToolSpec, FinishReason } from '@src/llm/types'
-import { loadLayeredMemory, type LayeredMemorySections } from '@src/memory/loaders'
-import { reflectCheckpoint, readCheckpoint } from '@src/memory/checkpoints'
-import { appendObservationBatch, type NewObservationInput } from '@src/memory/observations'
 import { getAgentsMdInstructions } from '@src/agents-md'
-import { discoverSkills, getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
-import type { RSIEvent } from '@src/rsi/types'
-import type { ReflectionCheckpoint } from '@src/rsi/types'
-import { appendEntry, type NewEvolutionEntry } from '@src/rsi/evolution-log'
-import type { RSIOrchestrator } from '@src/rsi/orchestrator'
+import { loadConfig, type OuroborosConfig } from '@src/config'
+import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
+import { streamResponse } from '@src/llm/streaming'
+import type { FinishReason, LLMMessage, LLMToolSpec, StreamChunk, ToolCall } from '@src/llm/types'
+import { readCheckpoint, reflectCheckpoint } from '@src/memory/checkpoints'
+import { loadLayeredMemory, type LayeredMemorySections } from '@src/memory/loaders'
+import { appendObservationBatch, type NewObservationInput } from '@src/memory/observations'
 import type { ModeManager } from '@src/modes/manager'
 import type { Plan } from '@src/modes/plan/types'
+import { appendEntry, type NewEvolutionEntry } from '@src/rsi/evolution-log'
+import type { RSIOrchestrator } from '@src/rsi/orchestrator'
+import type { ReflectionCheckpoint, RSIEvent } from '@src/rsi/types'
 import type { ToolRegistry } from '@src/tools/registry'
+import { discoverSkills, getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
+import type { LanguageModel } from 'ai'
 
 // ── Event types ──────────────────────────────────────────────────────
 
@@ -347,7 +346,7 @@ export class Agent {
   constructor(options: AgentOptions) {
     this.model = options.model
     this.toolRegistry = options.toolRegistry
-    this.maxIterations = options.maxIterations ?? 50
+    this.maxIterations = options.maxIterations ?? 1000
     this.onEvent = options.onEvent ?? (() => {})
     this.systemPromptBuilder = options.systemPromptBuilder ?? buildSystemPrompt
     this.memoryProvider = options.memoryProvider ?? null

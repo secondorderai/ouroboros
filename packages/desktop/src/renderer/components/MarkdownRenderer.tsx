@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import type { Components } from 'react-markdown'
+import { MermaidRenderer } from './MermaidRenderer'
 
 // ---------------------------------------------------------------------------
 // Code block with copy button
@@ -38,14 +39,14 @@ function CodeBlock({ className, children }: CodeBlockProps): React.ReactElement 
   }, [codeText])
 
   return (
-    <div className="code-block-wrapper">
-      <div className="code-block-header">
-        <span className="code-block-lang">{language || 'text'}</span>
+    <div className='code-block-wrapper'>
+      <div className='code-block-header'>
+        <span className='code-block-lang'>{language || 'text'}</span>
         <button
           className={`code-block-copy${copied ? ' copied' : ''}`}
           onClick={handleCopy}
-          title="Copy code"
-          aria-label="Copy code to clipboard"
+          title='Copy code'
+          aria-label='Copy code to clipboard'
         >
           {copied ? (
             <>
@@ -81,17 +82,24 @@ function CodeComponent({
   className,
   children,
   node: _node,
+  isStreaming = false,
   ...rest
 }: {
   className?: string
   children?: React.ReactNode
   node?: unknown
+  isStreaming?: boolean
   [key: string]: unknown
 }): React.ReactElement {
   // If className contains "language-*" it's a fenced code block
   const isBlock = /language-/.test(className ?? '')
 
   if (isBlock) {
+    const isMermaid = /language-mermaid/.test(className ?? '')
+    if (isMermaid) {
+      return <MermaidRenderer content={extractText(children)} isStreaming={isStreaming} />
+    }
+
     return <CodeBlock className={className}>{children}</CodeBlock>
   }
 
@@ -140,11 +148,11 @@ function LinkComponent({
         window.electronAPI.openExternal(href)
       }
     },
-    [href]
+    [href],
   )
 
   return (
-    <a href={href} onClick={handleClick} rel="noopener noreferrer" {...rest}>
+    <a href={href} onClick={handleClick} rel='noopener noreferrer' {...rest}>
       {children}
     </a>
   )
@@ -163,12 +171,6 @@ function isSafeExternalHref(href: string): boolean {
 // Custom components map
 // ---------------------------------------------------------------------------
 
-const markdownComponents: Components = {
-  code: CodeComponent as Components['code'],
-  pre: PreComponent as Components['pre'],
-  a: LinkComponent as Components['a'],
-}
-
 // ---------------------------------------------------------------------------
 // MarkdownRenderer
 // ---------------------------------------------------------------------------
@@ -176,6 +178,7 @@ const markdownComponents: Components = {
 interface MarkdownRendererProps {
   content: string
   trailingContent?: React.ReactNode
+  isStreaming?: boolean
 }
 
 interface TrailingPosition {
@@ -189,7 +192,7 @@ interface TrailingPosition {
  * CSS styles from markdown.css apply.
  */
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(
-  ({ content, trailingContent }) => {
+  ({ content, trailingContent, isStreaming = false }) => {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const [trailingPosition, setTrailingPosition] = useState<TrailingPosition | null>(null)
 
@@ -208,9 +211,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(
       updatePosition()
 
       const resizeObserver =
-        typeof ResizeObserver !== 'undefined'
-          ? new ResizeObserver(() => updatePosition())
-          : null
+        typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => updatePosition()) : null
 
       resizeObserver?.observe(container)
       window.addEventListener('resize', updatePosition)
@@ -222,17 +223,23 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(
     }, [content, trailingContent])
 
     return (
-      <div className="markdown-body" ref={containerRef}>
+      <div className='markdown-body' ref={containerRef}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight]}
-          components={markdownComponents}
+          components={{
+            code: ((props) => (
+              <CodeComponent {...props} isStreaming={isStreaming} />
+            )) as Components['code'],
+            pre: PreComponent as Components['pre'],
+            a: LinkComponent as Components['a'],
+          }}
         >
           {content}
         </ReactMarkdown>
         {trailingContent && trailingPosition && (
           <span
-            className="markdown-trailing-overlay"
+            className='markdown-trailing-overlay'
             style={{
               left: `${trailingPosition.left}px`,
               top: `${trailingPosition.top}px`,
@@ -243,7 +250,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(
         )}
       </div>
     )
-  }
+  },
 )
 
 MarkdownRenderer.displayName = 'MarkdownRenderer'
@@ -288,9 +295,7 @@ function measureTrailingPosition(container: HTMLElement): TrailingPosition | nul
 function findLastTextNode(root: HTMLElement): Text | null {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      return node.textContent?.trim()
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_REJECT
+      return node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
     },
   })
 
@@ -312,17 +317,17 @@ function findLastTextNode(root: HTMLElement): Text | null {
 function CopyIcon(): React.ReactElement {
   return (
     <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='14'
+      height='14'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      <rect x='9' y='9' width='13' height='13' rx='2' ry='2' />
+      <path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' />
     </svg>
   )
 }
@@ -330,16 +335,16 @@ function CopyIcon(): React.ReactElement {
 function CheckIcon(): React.ReactElement {
   return (
     <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='14'
+      height='14'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <polyline points="20 6 9 17 4 12" />
+      <polyline points='20 6 9 17 4 12' />
     </svg>
   )
 }

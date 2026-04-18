@@ -281,7 +281,7 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
               <span>{progressMessage}</span>
             </div>
             {text.length > 0 && (
-              <MarkdownRenderer content={text} trailingContent={<StreamingCursor />} />
+              <MarkdownRenderer content={text} trailingContent={<StreamingCursor />} isStreaming />
             )}
           </div>
           {visibleToolCalls.length > 0 && (
