@@ -1,4 +1,5 @@
 import React from 'react'
+import { OuroborosMark } from './OuroborosMark'
 
 export type SerpentState = 'idle' | 'active' | 'flash'
 
@@ -20,31 +21,31 @@ const CLASS_MAP: Record<SerpentState, string> = {
 }
 
 export function SerpentIcon({ state, onClick }: SerpentIconProps): React.ReactElement {
+  const color = state === 'flash'
+    ? 'var(--accent-slate-blue, #3E5F8A)'
+    : state === 'active'
+      ? 'var(--accent-slate-blue-highlight, #89A7D1)'
+      : 'var(--text-secondary)'
+
   return (
     <button
-      style={styles.button}
+      style={{
+        ...styles.button,
+        ...(state === 'active' ? styles.buttonActive : {}),
+        ...(state === 'flash' ? styles.buttonFlash : {}),
+      }}
       className={`no-drag ${CLASS_MAP[state]}`}
       onClick={onClick}
       title={TOOLTIP_MAP[state]}
       aria-label={`RSI status: ${TOOLTIP_MAP[state]}`}
     >
-      <svg
-        width="24"
-        height="24"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {/* Ouroboros / infinity serpent symbol */}
-        <path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4-1.8 4-4 4-4-1.8-4-4z" />
-        <path d="M12 8c2.8-2 6-1 7 1.5s0 5.5-2.5 6.5" />
-        <path d="M12 16c-2.8 2-6 1-7-1.5s0-5.5 2.5-6.5" />
-        {/* Serpent head detail — small arrow/fang at the bite point */}
-        <path d="M16.5 16l1-1.5M16.5 16l1.5 0.5" />
-      </svg>
+      <OuroborosMark
+        size={24}
+        color={color}
+        eyeColor="var(--bg-chat)"
+        tileColor="var(--bg-chat)"
+        borderColor="var(--border-light)"
+      />
     </button>
   )
 }
@@ -61,5 +62,12 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-standard)',
     cursor: 'pointer',
     padding: 2
+  },
+  buttonActive: {
+    background: 'var(--accent-slate-blue-background, rgba(62,95,138,0.10))'
+  },
+  buttonFlash: {
+    background: 'var(--accent-slate-blue-background, rgba(62,95,138,0.10))',
+    boxShadow: '0 0 0 1px rgba(62,95,138,0.18) inset'
   }
 }

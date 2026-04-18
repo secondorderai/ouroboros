@@ -32,6 +32,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const cancelRun = useConversationStore((s) => s.cancelRun)
   const workspace = useConversationStore((s) => s.workspace)
   const modelName = useConversationStore((s) => s.modelName)
+  const contextUsage = useConversationStore((s) => s.contextUsage)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
   const modeState = useModeStore((s) => s.modeState)
   const modeBusy = useModeStore((s) => s.isHydrating || s.isMutating)
@@ -199,6 +200,35 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     return 'Open mode picker'
   }, [activeModeLabel, modeBusy])
 
+  const contextUsageDisplay = useMemo(() => {
+    if (!contextUsage) return null
+
+    const tokenDisplay = `${formatTokenCount(contextUsage.estimatedTotalTokens)} / ${
+      contextUsage.contextWindowTokens !== null
+        ? formatTokenCount(contextUsage.contextWindowTokens)
+        : 'unknown'
+    }`
+    const percentDisplay =
+      contextUsage.usageRatio !== null
+        ? `${(contextUsage.usageRatio * 100).toFixed(contextUsage.usageRatio >= 0.1 ? 0 : 1)}%`
+        : null
+
+    const title =
+      contextUsage.contextWindowTokens !== null
+        ? `${contextUsage.estimatedTotalTokens.toLocaleString()} of ${contextUsage.contextWindowTokens.toLocaleString()} context tokens in use${
+            percentDisplay ? ` (${percentDisplay})` : ''
+          }`
+        : `${contextUsage.estimatedTotalTokens.toLocaleString()} estimated context tokens in use${
+            percentDisplay ? ` (${percentDisplay})` : ''
+          }`
+
+    return {
+      label: percentDisplay ? `${tokenDisplay} · ${percentDisplay}` : tokenDisplay,
+      title,
+      threshold: contextUsage.threshold,
+    }
+  }, [contextUsage])
+
   // ---- Render --------------------------------------------------------------
 
   const containerBorderStyle = isDragOver
@@ -335,6 +365,22 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 
         <div style={styles.metaRight}>
           {modeError && <span style={styles.modeErrorText}>{modeError}</span>}
+          {contextUsageDisplay && (
+            <span
+              style={{
+                ...styles.contextBadge,
+                ...(contextUsageDisplay.threshold === 'warn'
+                  ? styles.contextBadgeWarn
+                  : contextUsageDisplay.threshold === 'flush' ||
+                      contextUsageDisplay.threshold === 'compact'
+                    ? styles.contextBadgeCritical
+                    : undefined),
+              }}
+              title={contextUsageDisplay.title}
+            >
+              {contextUsageDisplay.label}
+            </span>
+          )}
           {modelName && (
             <span style={styles.modelBadge}>{modelName}</span>
           )}
@@ -370,6 +416,13 @@ function mergeUniquePaths(existingPaths: string[], nextPaths: string[]): string[
   }
 
   return merged
+}
+
+function formatTokenCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
+  if (value >= 10_000) return `${Math.round(value / 1_000)}k`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return value.toString()
 }
 
 // ---------------------------------------------------------------------------
@@ -808,5 +861,28 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-tertiary)',
     letterSpacing: '0.02em',
     whiteSpace: 'nowrap',
+  },
+  contextBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 8px',
+    backgroundColor: 'color-mix(in srgb, var(--accent-blue) 8%, var(--bg-secondary))',
+    border: '1px solid color-mix(in srgb, var(--accent-blue) 18%, var(--border-light))',
+    borderRadius: 'var(--radius-standard)',
+    fontSize: 10,
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--text-secondary)',
+    letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+  },
+  contextBadgeWarn: {
+    backgroundColor: 'var(--accent-amber-bg)',
+    border: '1px solid color-mix(in srgb, var(--accent-amber) 24%, transparent)',
+    color: 'var(--accent-amber)',
+  },
+  contextBadgeCritical: {
+    backgroundColor: 'color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary))',
+    border: '1px solid color-mix(in srgb, var(--accent-red) 28%, transparent)',
+    color: 'var(--accent-red)',
   },
 }

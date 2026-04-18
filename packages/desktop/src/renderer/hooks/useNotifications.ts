@@ -14,10 +14,11 @@ import type {
  */
 export function useNotifications(): void {
   useEffect(() => {
-    const api = window.ouroboros;
+    const api = window.ouroboros
     if (!api) return;
 
     const {
+      handleContextUsage,
       handleAgentText,
       handleToolCallStart,
       handleToolCallEnd,
@@ -30,20 +31,23 @@ export function useNotifications(): void {
     })
 
     const unsubs = [
+      api.onNotification('agent/contextUsage', (params) => {
+        handleContextUsage(params)
+      }),
       api.onNotification('agent/text', (params) => {
-        handleAgentText(params);
+        handleAgentText(params)
       }),
       api.onNotification('agent/toolCallStart', (params) => {
-        handleToolCallStart(params);
+        handleToolCallStart(params)
       }),
       api.onNotification('agent/toolCallEnd', (params) => {
-        handleToolCallEnd(params);
+        handleToolCallEnd(params)
       }),
       api.onNotification('agent/turnComplete', (params) => {
-        handleTurnComplete(params);
+        handleTurnComplete(params)
       }),
       api.onNotification('agent/error', (params) => {
-        handleAgentError(params);
+        handleAgentError(params)
       }),
       api.onNotification('approval/request', (params: ApprovalRequestNotification) => {
         addApproval(toPendingApproval(params))
@@ -51,7 +55,7 @@ export function useNotifications(): void {
     ];
 
     return () => {
-      unsubs.forEach((unsub) => unsub());
-    };
-  }, []);
+      unsubs.forEach((unsub) => unsub())
+    }
+  }, [])
 }

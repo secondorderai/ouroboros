@@ -10,6 +10,7 @@ import { RSIDrawer } from './components/RSIDrawer'
 import { ApprovalToastContainer } from './components/ApprovalToastContainer'
 import { ApprovalQueue } from './components/ApprovalQueue'
 import { UpdateBanner } from './components/UpdateBanner'
+import { OuroborosMark } from './components/OuroborosMark'
 import { useTheme } from './hooks/useTheme'
 import { useNotifications } from './hooks/useNotifications'
 import { useModeSync } from './hooks/useModeSync'
@@ -92,21 +93,27 @@ export function App(): React.ReactElement {
   const setModelName = useConversationStore((s) => s.setModelName)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
 
-  const handleOnboardingComplete = useCallback((welcomeMessage: string, _template: number) => {
-    localStorage.setItem(ONBOARDING_DONE_KEY, 'true')
-    setShowOnboarding(false)
+  const handleOnboardingComplete = useCallback(
+    (welcomeMessage: string, _template: number) => {
+      localStorage.setItem(ONBOARDING_DONE_KEY, 'true')
+      setShowOnboarding(false)
 
-    // Re-fetch config to pick up the model name set during onboarding
-    window.ouroboros?.rpc('config/get', {}).then((result) => {
-      const config = result as { model?: { name?: string } }
-      if (config?.model?.name) setModelName(config.model.name)
-    }).catch(() => {})
+      // Re-fetch config to pick up the model name set during onboarding
+      window.ouroboros
+        ?.rpc('config/get', {})
+        .then((result) => {
+          const config = result as { model?: { name?: string } }
+          if (config?.model?.name) setModelName(config.model.name)
+        })
+        .catch(() => {})
 
-    // Add welcome message as a system message
-    if (welcomeMessage) {
-      useConversationStore.getState().handleTurnComplete({ text: welcomeMessage })
-    }
-  }, [setModelName])
+      // Add welcome message as a system message
+      if (welcomeMessage) {
+        useConversationStore.getState().handleTurnComplete({ text: welcomeMessage })
+      }
+    },
+    [setModelName],
+  )
 
   // Persist sidebar state
   useEffect(() => {
@@ -248,8 +255,9 @@ export function App(): React.ReactElement {
 
     if (paths.length > 0) {
       // Forward to InputBar via the global callback
-      const addFiles = (window as unknown as Record<string, unknown>)
-        .__inputBarAddFiles as ((files: string[]) => void) | undefined
+      const addFiles = (window as unknown as Record<string, unknown>).__inputBarAddFiles as
+        | ((files: string[]) => void)
+        | undefined
       if (addFiles) {
         addFiles(paths)
       }
@@ -347,17 +355,24 @@ export function App(): React.ReactElement {
         onSetTheme={setTheme}
         initialSection={settingsSection}
       />
-      <ApprovalQueue
-        isOpen={approvalQueueOpen}
-        onClose={() => setApprovalQueueOpen(false)}
-      />
+      <ApprovalQueue isOpen={approvalQueueOpen} onClose={() => setApprovalQueueOpen(false)} />
       <RSIDrawer
         isOpen={rsi.drawerOpen}
         onClose={rsi.closeDrawer}
+        activeTab={rsi.activeTab}
+        onTabChange={rsi.setActiveTab}
+        historyFilter={rsi.historyFilter}
+        onHistoryFilterChange={rsi.setHistoryFilter}
+        selectedHistoryItemId={rsi.selectedHistoryItemId}
+        onSelectHistoryItem={rsi.selectHistoryItem}
+        selectedHistoryItem={rsi.selectedHistoryItem}
+        selectedCheckpoint={rsi.selectedCheckpoint}
         stats={rsi.stats}
-        activities={rsi.activities}
+        activities={rsi.overviewActivities}
+        historyEntries={rsi.visibleHistoryEntries}
         skills={rsi.skills}
         loading={rsi.loading}
+        historyDetailLoading={rsi.historyDetailLoading}
         dreamRunning={rsi.dreamRunning}
         onRunDream={rsi.runDream}
       />
@@ -367,20 +382,14 @@ export function App(): React.ReactElement {
 
 function OuroborosLogo(): React.ReactElement {
   return (
-    <svg
-      width="48"
-      height="48"
-      viewBox="0 0 48 48"
-      fill="none"
-      stroke="var(--text-tertiary)"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="24" cy="24" r="16" />
-      <path d="M 32 16 A 12 12 0 0 1 36 24" />
-      <path d="M 36 24 L 33 22 M 36 24 L 34 27" />
-    </svg>
+    <OuroborosMark
+      size={64}
+      color='var(--text-secondary)'
+      eyeColor='var(--bg-chat)'
+      tileColor='var(--bg-chat)'
+      borderColor='var(--border-light)'
+      shadow={true}
+    />
   )
 }
 

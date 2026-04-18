@@ -4,6 +4,7 @@ import type {
   ToolCallState,
   CompletedToolCall,
   AgentTextParams,
+  AgentContextUsageParams,
   AgentToolCallStartParams,
   AgentToolCallEndParams,
   AgentTurnCompleteParams,
@@ -47,6 +48,9 @@ export interface ConversationState {
   /** Current model name. */
   modelName: string | null
 
+  /** Current estimated context usage for the active conversation. */
+  contextUsage: AgentContextUsageParams | null
+
   // -- Actions ---------------------------------------------------------------
 
   /** User sends a message. Adds the message to the list and marks agent as running. */
@@ -57,6 +61,9 @@ export interface ConversationState {
 
   /** Handle an incoming `agent/text` notification. */
   handleAgentText: (params: AgentTextParams) => void
+
+  /** Handle an incoming `agent/contextUsage` notification. */
+  handleContextUsage: (params: AgentContextUsageParams) => void
 
   /** Handle an incoming `agent/toolCallStart` notification. */
   handleToolCallStart: (params: AgentToolCallStartParams) => void
@@ -235,6 +242,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   sessions: [],
   workspace: null,
   modelName: null,
+  contextUsage: null,
 
   // ---- Actions -------------------------------------------------------------
 
@@ -256,6 +264,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 1,
+      contextUsage: null,
     })
 
     // Fire-and-forget RPC call to start the agent run.
@@ -298,6 +307,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 1,
+      contextUsage: null,
     })
 
     window.ouroboros?.rpc('agent/cancel', {}).catch((err) => {
@@ -309,6 +319,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((state) => ({
       streamingText: (state.streamingText ?? '') + normalizeTextContent(params.text),
     }))
+  },
+
+  handleContextUsage(params: AgentContextUsageParams) {
+    set({ contextUsage: params })
   },
 
   handleToolCallStart(params: AgentToolCallStartParams) {
@@ -422,6 +436,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 2,
+      contextUsage: null,
     })
   },
 
@@ -434,6 +449,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       isAgentRunning: false,
       nextId: 1,
       currentSessionId: null,
+      contextUsage: null,
     })
   },
 
@@ -461,6 +477,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       isAgentRunning: false,
       nextId: messages.length + 1,
       currentSessionId: id,
+      contextUsage: null,
     })
   },
 
@@ -483,6 +500,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       nextId: 1,
       currentSessionId: sessionId,
       sessions: [newSession, ...state.sessions],
+      contextUsage: null,
     })
   },
 
@@ -500,6 +518,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       updates.isAgentRunning = false
       updates.nextId = 1
       updates.currentSessionId = null
+      updates.contextUsage = null
     }
 
     set(updates as ConversationState)
