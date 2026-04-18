@@ -101,6 +101,13 @@ export interface AgentTextParams {
   text: string
 }
 
+export interface AgentContextUsageParams {
+  estimatedTotalTokens: number
+  contextWindowTokens: number | null
+  usageRatio: number | null
+  threshold: 'within-budget' | 'warn' | 'flush' | 'compact'
+}
+
 export interface AgentToolCallStartParams {
   toolCallId: string
   toolName: string
@@ -249,6 +256,12 @@ export interface SkillsGetParams {
 }
 export type RsiDreamParams = Record<string, never>
 export type RsiStatusParams = Record<string, never>
+export interface RsiHistoryParams {
+  limit?: number
+}
+export interface RsiCheckpointParams {
+  sessionId: string
+}
 export interface EvolutionListParams {
   limit?: number
 }
@@ -376,11 +389,70 @@ export interface RsiStatusResult {
   message: string
 }
 
+export interface RSIDurableMemoryCandidate {
+  title: string
+  summary: string
+  content: string
+  kind: 'fact' | 'preference' | 'constraint' | 'workflow'
+  confidence: number
+  observedAt: string
+  tags: string[]
+  evidence: string[]
+}
+
+export interface RSISkillCandidate {
+  name: string
+  summary: string
+  trigger: string
+  workflow: string[]
+  confidence: number
+  sourceObservationIds: string[]
+  sourceSessionIds: string[]
+}
+
+export interface RSICheckpointDetail {
+  sessionId: string
+  updatedAt: string
+  goal: string
+  currentPlan: string[]
+  constraints: string[]
+  decisionsMade: string[]
+  filesInPlay: string[]
+  completedWork: string[]
+  openLoops: string[]
+  nextBestStep: string
+  durableMemoryCandidates: RSIDurableMemoryCandidate[]
+  skillCandidates: RSISkillCandidate[]
+}
+
+export interface RSIHistorySummary {
+  sessionId: string
+  updatedAt: string
+  goal: string
+  nextBestStep: string
+  openLoopCount: number
+  durableCandidateCount: number
+  skillCandidateCount: number
+}
+
+export interface RsiHistoryResult {
+  entries: RSIHistorySummary[]
+  message?: string
+}
+
+export interface RsiCheckpointResult {
+  checkpoint: RSICheckpointDetail | null
+  message?: string
+}
+
 export interface EvolutionEntry {
   id: string
   timestamp: string
   type: string
   description: string
+  sessionId?: string
+  skillName?: string
+  details?: Record<string, unknown>
 }
 export interface EvolutionListResult {
   entries: EvolutionEntry[]
@@ -478,6 +550,8 @@ export interface RpcMethodMap {
   'skills/get': { params: SkillsGetParams; result: SkillsGetResult }
   'rsi/dream': { params: RsiDreamParams; result: RsiDreamResult }
   'rsi/status': { params: RsiStatusParams; result: RsiStatusResult }
+  'rsi/history': { params: RsiHistoryParams; result: RsiHistoryResult }
+  'rsi/checkpoint': { params: RsiCheckpointParams; result: RsiCheckpointResult }
   'evolution/list': { params: EvolutionListParams; result: EvolutionListResult }
   'evolution/stats': { params: EvolutionStatsParams; result: EvolutionStatsResult }
   'approval/list': { params: ApprovalListParams; result: ApprovalListResult }
@@ -496,6 +570,7 @@ export type RpcMethod = keyof RpcMethodMap
 export interface AgentTextNotification {
   text: string
 }
+export interface AgentContextUsageNotification extends AgentContextUsageParams {}
 export interface AgentToolCallStartNotification {
   toolCallId: string
   toolName: string
@@ -570,6 +645,7 @@ export interface ModePlanSubmittedNotification {
 }
 
 export interface NotificationMap {
+  'agent/contextUsage': AgentContextUsageNotification
   'agent/text': AgentTextNotification
   'agent/toolCallStart': AgentToolCallStartNotification
   'agent/toolCallEnd': AgentToolCallEndNotification
