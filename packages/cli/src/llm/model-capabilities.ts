@@ -165,20 +165,37 @@ const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
  * @param _provider — Optional provider hint for future disambiguation
  */
 export function getContextWindowTokens(modelName: string, _provider?: string): number | null {
+  const candidateNames = Array.from(
+    new Set([modelName, ...extractNamespacedModelVariants(modelName)]),
+  )
+
   // 1. Exact match
-  const exact = MODEL_CAPABILITIES[modelName]
-  if (exact) return exact.contextWindowTokens
+  for (const candidate of candidateNames) {
+    const exact = MODEL_CAPABILITIES[candidate]
+    if (exact) return exact.contextWindowTokens
+  }
 
   // 2. Prefix match — find the longest matching key
   let best: ModelCapability | null = null
   let bestKeyLen = 0
 
-  for (const [key, cap] of Object.entries(MODEL_CAPABILITIES)) {
-    if (modelName.startsWith(key) && key.length > bestKeyLen) {
-      best = cap
-      bestKeyLen = key.length
+  for (const candidate of candidateNames) {
+    for (const [key, cap] of Object.entries(MODEL_CAPABILITIES)) {
+      if (candidate.startsWith(key) && key.length > bestKeyLen) {
+        best = cap
+        bestKeyLen = key.length
+      }
     }
   }
 
   return best ? best.contextWindowTokens : null
+}
+
+function extractNamespacedModelVariants(modelName: string): string[] {
+  const slashIndex = modelName.indexOf('/')
+  if (slashIndex === -1 || slashIndex === modelName.length - 1) {
+    return []
+  }
+
+  return [modelName.slice(slashIndex + 1)]
 }

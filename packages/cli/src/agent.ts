@@ -18,7 +18,7 @@ import { loadLayeredMemory, type LayeredMemorySections } from '@src/memory/loade
 import { reflectCheckpoint, readCheckpoint } from '@src/memory/checkpoints'
 import { appendObservationBatch, type NewObservationInput } from '@src/memory/observations'
 import { getAgentsMdInstructions } from '@src/agents-md'
-import { getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
+import { discoverSkills, getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
 import type { RSIEvent } from '@src/rsi/types'
 import type { ReflectionCheckpoint } from '@src/rsi/types'
 import { appendEntry, type NewEvolutionEntry } from '@src/rsi/evolution-log'
@@ -32,6 +32,13 @@ import type { ToolRegistry } from '@src/tools/registry'
 /** Events emitted during the agent loop. */
 export type AgentEvent =
   | { type: 'text'; text: string }
+  | {
+      type: 'context-usage'
+      estimatedTotalTokens: number
+      contextWindowTokens: number | null
+      usageRatio: number | null
+      threshold: ContextBudgetThreshold
+    }
   | {
       type: 'tool-call-start'
       toolCallId: string
@@ -416,6 +423,7 @@ export class Agent {
       // Build system prompt with current state, observing/compacting if needed first.
       const context = this.prepareContextForCall(options)
       const systemPrompt = context.systemPrompt
+      this.emitContextUsage(context.usage)
 
       // Build tool definitions for the LLM
       const toolDefs = this.buildToolDefinitions()
@@ -560,6 +568,7 @@ export class Agent {
       }
 
       finalText = assistantText
+      this.emitContextUsage(this.appendAssistantTextToUsage(context.usage, assistantText))
 
       this.emitEvent({
         type: 'turn-complete',
@@ -684,6 +693,8 @@ export class Agent {
     const tools = this.toolRegistry.getTools()
     const agentsInstructions = getAgentsMdInstructions()
 
+    discoverSkills(this.config.skillDirectories, this.basePath)
+
     // Map skill catalog entries to the format expected by buildSystemPrompt
     const skillCatalog = this.skillCatalogProvider()
     const skills = skillCatalog.map((s) => ({
@@ -779,6 +790,45 @@ export class Agent {
     }
 
     return { systemPrompt, memorySections, usage }
+  }
+
+  private emitContextUsage(usage: ContextUsageEstimate): void {
+    this.emitEvent({
+      type: 'context-usage',
+      estimatedTotalTokens: usage.estimatedTotalTokens,
+      contextWindowTokens: usage.contextWindowTokens,
+      usageRatio: usage.usageRatio,
+      threshold: usage.threshold,
+    })
+  }
+
+  private appendAssistantTextToUsage(
+    usage: ContextUsageEstimate,
+    assistantText: string,
+  ): ContextUsageEstimate {
+    const assistantTokens = estimateTextTokens(assistantText)
+    const liveConversationTokens = usage.liveConversationTokens + assistantTokens
+    const estimatedTotalTokens = usage.estimatedTotalTokens + assistantTokens
+    const usageRatio =
+      usage.contextWindowTokens && usage.contextWindowTokens > 0
+        ? estimatedTotalTokens / usage.contextWindowTokens
+        : null
+
+    return {
+      ...usage,
+      liveConversationTokens,
+      estimatedTotalTokens,
+      usageRatio,
+      threshold: this.getContextBudgetThreshold(usageRatio),
+    }
+  }
+
+  private getContextBudgetThreshold(usageRatio: number | null): ContextBudgetThreshold {
+    if (usageRatio === null) return 'within-budget'
+    if (usageRatio >= this.config.memory.compactRatio) return 'compact'
+    if (usageRatio >= this.config.memory.flushRatio) return 'flush'
+    if (usageRatio >= this.config.memory.warnRatio) return 'warn'
+    return 'within-budget'
   }
 
   private loadPromptMemory(): LayeredMemorySections {

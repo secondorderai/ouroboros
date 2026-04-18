@@ -26,6 +26,14 @@ describe('getContextWindowTokens', () => {
     expect(getContextWindowTokens('o1-mini-2024-09-12')).toBe(128_000)
   })
 
+  test('exact match for provider-prefixed model ids', () => {
+    expect(getContextWindowTokens('qwen/qwen3.6-plus')).toBe(1_000_000)
+  })
+
+  test('prefix match for provider-prefixed model ids', () => {
+    expect(getContextWindowTokens('openai/gpt-4o-2024-05-13')).toBe(128_000)
+  })
+
   test('returns null for unknown model', () => {
     expect(getContextWindowTokens('unknown-model-xyz')).toBeNull()
   })
