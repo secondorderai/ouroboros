@@ -129,6 +129,7 @@ function registerDialogHandlers(): void {
 
 function registerNotificationForwarding(ctx: IpcHandlerContext): void {
   const notificationMethods: NotificationMethod[] = [
+    'agent/contextUsage',
     'agent/text',
     'agent/toolCallStart',
     'agent/toolCallEnd',

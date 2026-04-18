@@ -12,6 +12,7 @@ files:
 afterSign: scripts/notarize.cjs
 
 mac:
+  icon: icon.icns
   category: public.app-category.developer-tools
   target:
     - target: dmg
@@ -22,6 +23,7 @@ mac:
   artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 
 win:
+  icon: icon.png
   target:
     - target: nsis
     - target: zip
@@ -33,6 +35,7 @@ nsis:
   allowToChangeInstallationDirectory: true
 
 linux:
+  icon: icon.png
   target:
     - target: AppImage
       arch: [x64]

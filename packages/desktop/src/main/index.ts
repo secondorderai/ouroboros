@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Menu, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, Menu, shell } from 'electron'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import { appendFileSync, mkdirSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import Store from 'electron-store'
 import { createWindowOptions, saveBounds, restoreMaximized } from './window'
 import { CLIProcessManager } from './cli-process'
@@ -51,6 +51,9 @@ if (!gotTheLock) {
     cliProcess = initialized.cliProcess
     rpcClient = initialized.rpcClient
     writeTestLog('cli initialized')
+
+    applyDockIcon()
+    writeTestLog('dock icon applied')
 
     createWindow()
     writeTestLog('window created')
@@ -154,9 +157,11 @@ async function performHealthCheck(
 
 function createWindow(): void {
   const options = createWindowOptions()
+  const iconPath = getAppIconPath()
 
   mainWindow = new BrowserWindow({
     ...options,
+    ...(iconPath && process.platform !== 'darwin' ? { icon: iconPath } : {}),
     webPreferences: {
       ...options.webPreferences,
       preload: join(__dirname, '../preload/preload.cjs')
@@ -242,6 +247,26 @@ function createWindow(): void {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+function getAppIconPath(): string | null {
+  const candidatePaths = app.isPackaged
+    ? [join(process.resourcesPath, 'icon.png')]
+    : [join(__dirname, '../../resources/icon.png')]
+
+  return candidatePaths.find((path) => existsSync(path)) ?? null
+}
+
+function applyDockIcon(): void {
+  if (process.platform !== 'darwin') return
+
+  const iconPath = getAppIconPath()
+  if (!iconPath) return
+
+  const icon = nativeImage.createFromPath(iconPath)
+  if (!icon.isEmpty()) {
+    app.dock.setIcon(icon)
   }
 }
 
