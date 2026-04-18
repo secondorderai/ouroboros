@@ -182,9 +182,8 @@ async function handleRequest(request) {
       writeResult(request.id, { ok: true })
       return
     case 'workspace/set':
-      runtime.workspace = typeof request.params?.directory === 'string'
-        ? request.params.directory
-        : runtime.workspace
+      runtime.workspace =
+        typeof request.params?.directory === 'string' ? request.params.directory : runtime.workspace
       writeResult(request.id, { directory: runtime.workspace })
       return
     case 'session/list':
@@ -255,6 +254,14 @@ async function handleRequest(request) {
     case 'rsi/status':
       writeResult(request.id, { status: 'idle', message: 'No active RSI job' })
       return
+    case 'rsi/history':
+      writeResult(request.id, { entries: runtime.rsiHistoryEntries })
+      return
+    case 'rsi/checkpoint': {
+      const sessionId = String(request.params?.sessionId ?? '')
+      writeResult(request.id, { checkpoint: runtime.rsiCheckpoints[sessionId] ?? null })
+      return
+    }
     case 'rsi/dream':
       writeResult(request.id, { status: 'ok', message: 'Dreamed successfully' })
       scheduleNotifications([
@@ -279,8 +286,7 @@ async function handleRequest(request) {
       return
     }
     case 'mode/exit': {
-      const modeId =
-        runtime.modeState.status === 'active' ? runtime.modeState.modeId : 'plan'
+      const modeId = runtime.modeState.status === 'active' ? runtime.modeState.modeId : 'plan'
       runtime.modeState = { status: 'inactive' }
       writeResult(request.id, { displayName: toModeDisplayName(modeId) })
       return
@@ -289,27 +295,31 @@ async function handleRequest(request) {
       writeResult(request.id, runtime.plan)
       return
     case 'agent/run': {
-      const runSpec = scenario.agentRuns?.[agentRunIndex] ?? scenario.defaultAgentRun ?? {
-        response: {
+      const runSpec = scenario.agentRuns?.[agentRunIndex] ??
+        scenario.defaultAgentRun ?? {
+          response: {
+            text: 'Mock final answer',
+            iterations: 1,
+            maxIterationsReached: false,
+          },
+          notifications: [
+            { delayMs: 10, method: 'agent/text', params: { text: 'Mock final answer' } },
+            {
+              delayMs: 20,
+              method: 'agent/turnComplete',
+              params: { text: 'Mock final answer', iterations: 1 },
+            },
+          ],
+        }
+      agentRunIndex += 1
+      writeResult(
+        request.id,
+        runSpec.response ?? {
           text: 'Mock final answer',
           iterations: 1,
           maxIterationsReached: false,
         },
-        notifications: [
-          { delayMs: 10, method: 'agent/text', params: { text: 'Mock final answer' } },
-          {
-            delayMs: 20,
-            method: 'agent/turnComplete',
-            params: { text: 'Mock final answer', iterations: 1 },
-          },
-        ],
-      }
-      agentRunIndex += 1
-      writeResult(request.id, runSpec.response ?? {
-        text: 'Mock final answer',
-        iterations: 1,
-        maxIterationsReached: false,
-      })
+      )
       scheduleNotifications(runSpec.notifications ?? [])
       return
     }
@@ -339,6 +349,8 @@ function createRuntimeState(currentScenario) {
       successRate: 0.75,
       ...(currentScenario.evolutionStats ?? {}),
     },
+    rsiHistoryEntries: [...(currentScenario.rsiHistoryEntries ?? [])],
+    rsiCheckpoints: { ...(currentScenario.rsiCheckpoints ?? {}) },
     sessions: [...(currentScenario.sessions ?? [])],
     modeState: structuredClone(currentScenario.modeState ?? { status: 'inactive' }),
     plan: currentScenario.plan ? structuredClone(currentScenario.plan) : null,
@@ -418,7 +430,8 @@ function writeResponse(message) {
 }
 
 function loadScenario() {
-  const scenarioPath = process.env.OUROBOROS_TEST_SCENARIO_PATH ?? join(testRuntimeDir, 'scenario.json')
+  const scenarioPath =
+    process.env.OUROBOROS_TEST_SCENARIO_PATH ?? join(testRuntimeDir, 'scenario.json')
   if (!scenarioPath) return {}
   try {
     return JSON.parse(readFileSync(scenarioPath, 'utf8'))

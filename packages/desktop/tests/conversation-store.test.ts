@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  useConversationStore,
   normalizeTextContent,
   normalizeToolName,
 } from '../src/renderer/stores/conversationStore'
@@ -23,5 +24,38 @@ describe('conversation store normalization', () => {
     expect(normalizeToolName('web-search')).toBe('web-search')
     expect(normalizeToolName({ name: 'web-search' })).toBe('web-search')
     expect(normalizeToolName({ toolName: 'bash' })).toBe('bash')
+  })
+
+  test('stores and clears context usage across session changes', () => {
+    useConversationStore.setState({
+      messages: [],
+      streamingText: null,
+      activeToolCalls: new Map(),
+      pendingToolCalls: [],
+      isAgentRunning: false,
+      nextId: 1,
+      currentSessionId: null,
+      sessions: [],
+      workspace: null,
+      modelName: null,
+      contextUsage: null,
+    })
+
+    useConversationStore.getState().handleContextUsage({
+      estimatedTotalTokens: 12_345,
+      contextWindowTokens: 200_000,
+      usageRatio: 0.061725,
+      threshold: 'within-budget',
+    })
+
+    expect(useConversationStore.getState().contextUsage).toEqual({
+      estimatedTotalTokens: 12_345,
+      contextWindowTokens: 200_000,
+      usageRatio: 0.061725,
+      threshold: 'within-budget',
+    })
+
+    useConversationStore.getState().createNewSession('session-1')
+    expect(useConversationStore.getState().contextUsage).toBeNull()
   })
 })

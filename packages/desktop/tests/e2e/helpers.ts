@@ -1,4 +1,10 @@
-import { expect, _electron as electron, type ElectronApplication, type Page, type TestInfo } from '@playwright/test'
+import {
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+  type TestInfo,
+} from '@playwright/test'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -24,11 +30,17 @@ export interface LaunchScenario {
   skills?: Array<Record<string, unknown>>
   evolutionEntries?: Array<Record<string, unknown>>
   evolutionStats?: Record<string, unknown>
+  rsiHistoryEntries?: Array<Record<string, unknown>>
+  rsiCheckpoints?: Record<string, Record<string, unknown>>
   sessions?: Array<Record<string, unknown>>
   modeState?: { status: 'inactive' } | { status: 'active'; modeId: string; enteredAt: string }
   plan?: Record<string, unknown> | null
   methodErrors?: Record<string, { message: string; code?: number }>
-  startupNotifications?: Array<{ delayMs?: number; method: string; params?: Record<string, unknown> }>
+  startupNotifications?: Array<{
+    delayMs?: number
+    method: string
+    params?: Record<string, unknown>
+  }>
   agentRuns?: Array<{
     response?: Record<string, unknown>
     notifications?: Array<{ delayMs?: number; method: string; params?: Record<string, unknown> }>
@@ -37,11 +49,18 @@ export interface LaunchScenario {
     response?: Record<string, unknown>
     notifications?: Array<{ delayMs?: number; method: string; params?: Record<string, unknown> }>
   }
-  launchBehavior?: Record<string, {
-    exitAfterMs?: number
-    stderrLines?: string[]
-    startupNotifications?: Array<{ delayMs?: number; method: string; params?: Record<string, unknown> }>
-  }>
+  launchBehavior?: Record<
+    string,
+    {
+      exitAfterMs?: number
+      stderrLines?: string[]
+      startupNotifications?: Array<{
+        delayMs?: number
+        method: string
+        params?: Record<string, unknown>
+      }>
+    }
+  >
 }
 
 export interface LaunchOptions {
@@ -82,14 +101,8 @@ export async function launchTestApp(
 
   await mkdir(testUserDataDir, { recursive: true })
   await writeFile(testScenarioPath, JSON.stringify(options.scenario ?? {}, null, 2))
-  await writeFile(
-    testDialogResponsesPath,
-    JSON.stringify(options.dialogResponses ?? [], null, 2),
-  )
-  await writeFile(
-    testUpdateDownloadedPath,
-    options.updateDownloadedVersion ?? '',
-  )
+  await writeFile(testDialogResponsesPath, JSON.stringify(options.dialogResponses ?? [], null, 2))
+  await writeFile(testUpdateDownloadedPath, options.updateDownloadedVersion ?? '')
 
   const app = await electron.launch({
     args: [mainPath],
@@ -106,7 +119,9 @@ export async function launchTestApp(
       OUROBOROS_TEST_BOOT_LOG_PATH: testBootLogPath,
       OUROBOROS_TEST_UPDATE_DOWNLOADED_PATH: testUpdateDownloadedPath,
       OUROBOROS_TEST_UPDATE_DOWNLOADED_DELAY_MS:
-        options.updateDownloadedDelayMs != null ? String(options.updateDownloadedDelayMs) : undefined,
+        options.updateDownloadedDelayMs != null
+          ? String(options.updateDownloadedDelayMs)
+          : undefined,
       OUROBOROS_TEST_USER_DATA_DIR: testUserDataDir,
       ...(options.env ?? {}),
     },
@@ -142,7 +157,11 @@ export async function completeOnboarding(
     apiKey?: string
     provider?: 'anthropic' | 'openai' | 'openai-chatgpt' | 'openai-compatible'
     workspace?: string
-    templateName?: 'Help me with a project' | 'Explore this codebase' | 'General assistant' | 'Let the agent evolve'
+    templateName?:
+      | 'Help me with a project'
+      | 'Explore this codebase'
+      | 'General assistant'
+      | 'Let the agent evolve'
   } = {},
 ): Promise<void> {
   const apiKey = options.apiKey ?? 'sk-test-key'
@@ -194,11 +213,13 @@ export async function setRpcOverride(
 ): Promise<void> {
   await page.evaluate(
     async ({ currentMethod, currentOverride }) => {
-      const bridge = (window as typeof window & {
-        __ouroborosTest: {
-          setRpcOverride: (method: string, override: TestRpcOverride | null) => Promise<void>
+      const bridge = (
+        window as typeof window & {
+          __ouroborosTest: {
+            setRpcOverride: (method: string, override: TestRpcOverride | null) => Promise<void>
+          }
         }
-      }).__ouroborosTest
+      ).__ouroborosTest
       await bridge.setRpcOverride(currentMethod, currentOverride)
     },
     { currentMethod: method, currentOverride: override },
@@ -207,9 +228,11 @@ export async function setRpcOverride(
 
 export async function clearRpcOverrides(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    const bridge = (window as typeof window & {
-      __ouroborosTest: { clearRpcOverrides: () => Promise<void> }
-    }).__ouroborosTest
+    const bridge = (
+      window as typeof window & {
+        __ouroborosTest: { clearRpcOverrides: () => Promise<void> }
+      }
+    ).__ouroborosTest
     await bridge.clearRpcOverrides()
   })
 }
@@ -221,11 +244,13 @@ export async function emitNotification(
 ): Promise<void> {
   await page.evaluate(
     async ({ currentMethod, currentParams }) => {
-      const bridge = (window as typeof window & {
-        __ouroborosTest: {
-          emitNotification: (method: string, params?: unknown) => Promise<void>
+      const bridge = (
+        window as typeof window & {
+          __ouroborosTest: {
+            emitNotification: (method: string, params?: unknown) => Promise<void>
+          }
         }
-      }).__ouroborosTest
+      ).__ouroborosTest
       await bridge.emitNotification(currentMethod, currentParams)
     },
     { currentMethod: method, currentParams: params },
@@ -234,27 +259,33 @@ export async function emitNotification(
 
 export async function emitUpdateDownloaded(page: Page, version: string): Promise<void> {
   await page.evaluate(async (currentVersion) => {
-    const bridge = (window as typeof window & {
-      __ouroborosTest: { emitUpdateDownloaded: (version: string) => Promise<void> }
-    }).__ouroborosTest
+    const bridge = (
+      window as typeof window & {
+        __ouroborosTest: { emitUpdateDownloaded: (version: string) => Promise<void> }
+      }
+    ).__ouroborosTest
     await bridge.emitUpdateDownloaded(currentVersion)
   }, version)
 }
 
 export async function resetInstallUpdateCount(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    const bridge = (window as typeof window & {
-      __ouroborosTest: { resetInstallUpdateCount: () => Promise<void> }
-    }).__ouroborosTest
+    const bridge = (
+      window as typeof window & {
+        __ouroborosTest: { resetInstallUpdateCount: () => Promise<void> }
+      }
+    ).__ouroborosTest
     await bridge.resetInstallUpdateCount()
   })
 }
 
 export async function getInstallUpdateCount(page: Page): Promise<number> {
   return page.evaluate(async () => {
-    const bridge = (window as typeof window & {
-      __ouroborosTest: { getInstallUpdateCount: () => Promise<number> }
-    }).__ouroborosTest
+    const bridge = (
+      window as typeof window & {
+        __ouroborosTest: { getInstallUpdateCount: () => Promise<number> }
+      }
+    ).__ouroborosTest
     return bridge.getInstallUpdateCount()
   })
 }
