@@ -239,8 +239,13 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
     const body = expandedBodyRef.current
 
     const updateScale = () => {
-      const widthRatio = body.clientWidth / svgDimensions.width
-      const heightRatio = body.clientHeight / svgDimensions.height
+      const cs = getComputedStyle(body)
+      const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+      const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+      const availWidth = Math.max(body.clientWidth - padX, 1)
+      const availHeight = Math.max(body.clientHeight - padY, 1)
+      const widthRatio = availWidth / svgDimensions.width
+      const heightRatio = availHeight / svgDimensions.height
       const nextScale = Math.min(Math.max(Math.min(widthRatio, heightRatio), 0.35), 2.75)
       const resolvedScale = Number.isFinite(nextScale) ? nextScale : 1
       setFitScale(resolvedScale)
@@ -424,9 +429,8 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
                       style={
                         svgDimensions
                           ? {
-                              width: `${svgDimensions.width}px`,
-                              height: `${svgDimensions.height}px`,
-                              transform: `scale(${expandedScale})`,
+                              width: `${svgDimensions.width * expandedScale}px`,
+                              height: `${svgDimensions.height * expandedScale}px`,
                             }
                           : undefined
                       }
