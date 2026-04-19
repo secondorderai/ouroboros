@@ -7,11 +7,20 @@
  */
 
 import { ipcMain, dialog, type BrowserWindow, type OpenDialogOptions } from 'electron'
-import { readFileSync } from 'node:fs'
+import { basename, extname } from 'node:path'
+import { readFileSync, statSync } from 'node:fs'
 import type Store from 'electron-store'
 import type { RpcClient } from './rpc-client'
 import type { CLIProcessManager } from './cli-process'
-import { IPC_CHANNELS, type CLIStatus, type NotificationMethod, type Theme } from '../shared/protocol'
+import {
+  IPC_CHANNELS,
+  type CLIStatus,
+  type ImageAttachment,
+  type ImageAttachmentValidationResult,
+  type NotificationMethod,
+  type SupportedImageMediaType,
+  type Theme,
+} from '../shared/protocol'
 import { TEST_DIALOG_RESPONSES_PATH } from './test-paths'
 
 const TEST_IPC_CHANNELS = {
@@ -36,6 +45,13 @@ interface TestRpcOverride {
 const rpcOverrides = new Map<string, TestRpcOverride>()
 let dialogResponsesQueue: Array<string | string[] | null> | null = null
 let installUpdateCount = 0
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+const IMAGE_MEDIA_TYPES: Record<string, SupportedImageMediaType> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+}
 
 export interface IpcHandlerContext {
   rpcClient: RpcClient
@@ -47,6 +63,7 @@ export interface IpcHandlerContext {
 export function registerIpcHandlers(ctx: IpcHandlerContext): void {
   registerRpcHandler(ctx)
   registerDialogHandlers()
+  registerImageAttachmentHandlers()
   registerNotificationForwarding(ctx)
   registerCLIStatusForwarding(ctx)
   if (process.env.NODE_ENV === 'test') {
@@ -109,22 +126,88 @@ function getApiKeyEnv(apiKeys: Record<string, string>): Record<string, string> {
 }
 
 function registerDialogHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.SHOW_OPEN_DIALOG, async (_event, options: OpenDialogOptions) => {
+    const override = consumeDialogResponse()
+    if (override !== undefined) {
+      return override
+    }
+    const result = await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return null
+    // Return all paths when multiSelections is requested, single path otherwise
+    if (options.properties?.includes('multiSelections')) {
+      return result.filePaths
+    }
+    return result.filePaths[0]
+  })
+}
+
+function registerImageAttachmentHandlers(): void {
   ipcMain.handle(
-    IPC_CHANNELS.SHOW_OPEN_DIALOG,
-    async (_event, options: OpenDialogOptions) => {
-      const override = consumeDialogResponse()
-      if (override !== undefined) {
-        return override
+    IPC_CHANNELS.VALIDATE_IMAGE_ATTACHMENTS,
+    async (_event, paths: unknown): Promise<ImageAttachmentValidationResult> => {
+      if (!Array.isArray(paths)) {
+        return {
+          accepted: [],
+          rejected: [{ path: '', reason: 'Image attachment paths must be an array' }],
+        }
       }
-      const result = await dialog.showOpenDialog(options)
-      if (result.canceled || result.filePaths.length === 0) return null
-      // Return all paths when multiSelections is requested, single path otherwise
-      if (options.properties?.includes('multiSelections')) {
-        return result.filePaths
+
+      const accepted: ImageAttachment[] = []
+      const rejected: ImageAttachmentValidationResult['rejected'] = []
+      const seen = new Set<string>()
+
+      for (const path of paths) {
+        if (typeof path !== 'string' || path.trim().length === 0) {
+          rejected.push({ path: String(path ?? ''), reason: 'Path must be a non-empty string' })
+          continue
+        }
+        if (seen.has(path)) continue
+        seen.add(path)
+
+        const result = readImageAttachment(path)
+        if ('reason' in result) {
+          rejected.push(result)
+        } else {
+          accepted.push(result)
+        }
       }
-      return result.filePaths[0]
+
+      return { accepted, rejected }
     },
   )
+}
+
+function readImageAttachment(path: string): ImageAttachment | { path: string; reason: string } {
+  const mediaType = mediaTypeForPath(path)
+  if (!mediaType) {
+    return { path, reason: 'Supported image formats are JPG, PNG, and WebP' }
+  }
+
+  try {
+    const stats = statSync(path)
+    if (!stats.isFile()) {
+      return { path, reason: 'Path is not a file' }
+    }
+    if (stats.size > MAX_IMAGE_BYTES) {
+      return { path, reason: 'Image is larger than 20 MB' }
+    }
+
+    const data = readFileSync(path)
+    return {
+      path,
+      name: basename(path),
+      mediaType,
+      sizeBytes: stats.size,
+      previewDataUrl: `data:${mediaType};base64,${data.toString('base64')}`,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { path, reason: `Could not read image: ${message}` }
+  }
+}
+
+function mediaTypeForPath(path: string): SupportedImageMediaType | null {
+  return IMAGE_MEDIA_TYPES[extname(path).toLowerCase()] ?? null
 }
 
 function registerNotificationForwarding(ctx: IpcHandlerContext): void {
@@ -171,24 +254,30 @@ function registerCLIStatusForwarding(ctx: IpcHandlerContext): void {
 }
 
 function registerTestHandlers(ctx: IpcHandlerContext): void {
-  ipcMain.handle(TEST_IPC_CHANNELS.SET_RPC_OVERRIDE, (_event, method: string, override: TestRpcOverride | null) => {
-    if (override == null) {
-      rpcOverrides.delete(method)
-    } else {
-      rpcOverrides.set(method, override)
-    }
-  })
+  ipcMain.handle(
+    TEST_IPC_CHANNELS.SET_RPC_OVERRIDE,
+    (_event, method: string, override: TestRpcOverride | null) => {
+      if (override == null) {
+        rpcOverrides.delete(method)
+      } else {
+        rpcOverrides.set(method, override)
+      }
+    },
+  )
 
   ipcMain.handle(TEST_IPC_CHANNELS.CLEAR_RPC_OVERRIDES, () => {
     rpcOverrides.clear()
   })
 
-  ipcMain.handle(TEST_IPC_CHANNELS.EMIT_NOTIFICATION, (_event, method: string, params?: unknown) => {
-    const win = ctx.getMainWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.CLI_NOTIFICATION, method, params)
-    }
-  })
+  ipcMain.handle(
+    TEST_IPC_CHANNELS.EMIT_NOTIFICATION,
+    (_event, method: string, params?: unknown) => {
+      const win = ctx.getMainWindow()
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.CLI_NOTIFICATION, method, params)
+      }
+    },
+  )
 
   ipcMain.handle(TEST_IPC_CHANNELS.EMIT_CLI_STATUS, (_event, status: CLIStatus) => {
     const win = ctx.getMainWindow()

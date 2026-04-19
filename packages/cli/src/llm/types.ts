@@ -9,9 +9,46 @@
  */
 export type LLMMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: LLMUserContent }
   | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
   | { role: 'tool'; content: ToolResult[] }
+
+export type LLMUserContent = string | LLMUserContentPart[]
+
+export type LLMUserContentPart = LLMTextPart | LLMFilePart
+
+export interface LLMTextPart {
+  type: 'text'
+  text: string
+}
+
+export interface LLMFilePart {
+  type: 'file'
+  data: Uint8Array
+  mediaType: string
+  filename?: string
+  path?: string
+  sizeBytes?: number
+}
+
+export interface ImageAttachment {
+  path: string
+  name: string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
+  sizeBytes: number
+}
+
+export function llmUserContentToText(content: LLMUserContent): string {
+  if (typeof content === 'string') return content
+
+  return content
+    .map((part) => {
+      if (part.type === 'text') return part.text
+      return `[Image: ${part.filename ?? part.mediaType}]`
+    })
+    .filter(Boolean)
+    .join('\n')
+}
 
 /**
  * A tool call returned by the LLM.

@@ -34,13 +34,17 @@ const electronAPI: ElectronAPI = {
       callback(theme)
     }
     ipcRenderer.on('theme:nativeChanged', handler)
-    return () => { ipcRenderer.removeListener('theme:nativeChanged', handler) }
+    return () => {
+      ipcRenderer.removeListener('theme:nativeChanged', handler)
+    }
   },
   getPlatform: () => ipcRenderer.invoke('platform:get'),
   toggleSidebar: (callback: () => void) => {
     const handler = () => callback()
     ipcRenderer.on('sidebar:toggle', handler)
-    return () => { ipcRenderer.removeListener('sidebar:toggle', handler) }
+    return () => {
+      ipcRenderer.removeListener('sidebar:toggle', handler)
+    }
   },
   openExternal: (url: string) => {
     ipcRenderer.send('shell:openExternal', url)
@@ -51,7 +55,9 @@ const electronAPI: ElectronAPI = {
       callback(version)
     }
     ipcRenderer.on('update:downloaded', handler)
-    return () => { ipcRenderer.removeListener('update:downloaded', handler) }
+    return () => {
+      ipcRenderer.removeListener('update:downloaded', handler)
+    }
   },
   installUpdate: () => {
     ipcRenderer.send('update:install')
@@ -85,11 +91,19 @@ const ouroborosAPI: OuroborosAPI = {
       if (method === channel) callback(params as NotificationMap[M])
     }
     ipcRenderer.on(IPC_CHANNELS.CLI_NOTIFICATION, handler)
-    return () => { ipcRenderer.removeListener(IPC_CHANNELS.CLI_NOTIFICATION, handler) }
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.CLI_NOTIFICATION, handler)
+    }
   },
 
   showOpenDialog: async (options: OpenDialogOptions) => {
-    return ipcRenderer.invoke(IPC_CHANNELS.SHOW_OPEN_DIALOG, options) as Promise<string | string[] | null>
+    return ipcRenderer.invoke(IPC_CHANNELS.SHOW_OPEN_DIALOG, options) as Promise<
+      string | string[] | null
+    >
+  },
+
+  validateImageAttachments: async (paths: string[]) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_IMAGE_ATTACHMENTS, paths)
   },
 
   onCLIStatus: (callback: (status: CLIStatus) => void) => {
@@ -97,7 +111,9 @@ const ouroborosAPI: OuroborosAPI = {
       callback(status)
     }
     ipcRenderer.on(IPC_CHANNELS.CLI_STATUS, handler)
-    return () => { ipcRenderer.removeListener(IPC_CHANNELS.CLI_STATUS, handler) }
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.CLI_STATUS, handler)
+    }
   },
 }
 
@@ -119,7 +135,6 @@ if (process.env.NODE_ENV === 'test') {
       ipcRenderer.invoke(TEST_IPC_CHANNELS.EMIT_UPDATE_DOWNLOADED, version),
     getInstallUpdateCount: () =>
       ipcRenderer.invoke(TEST_IPC_CHANNELS.GET_INSTALL_UPDATE_COUNT) as Promise<number>,
-    resetInstallUpdateCount: () =>
-      ipcRenderer.invoke(TEST_IPC_CHANNELS.RESET_INSTALL_UPDATE_COUNT),
+    resetInstallUpdateCount: () => ipcRenderer.invoke(TEST_IPC_CHANNELS.RESET_INSTALL_UPDATE_COUNT),
   })
 }

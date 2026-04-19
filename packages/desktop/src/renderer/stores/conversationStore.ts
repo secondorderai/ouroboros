@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   Message,
+  ImageAttachment,
   ToolCallState,
   CompletedToolCall,
   AgentTextParams,
@@ -57,7 +58,7 @@ export interface ConversationState {
   // -- Actions ---------------------------------------------------------------
 
   /** User sends a message. Adds the message to the list and marks agent as running. */
-  sendMessage: (text: string, files?: string[]) => void
+  sendMessage: (text: string, files?: string[], images?: ImageAttachment[]) => void
 
   /** Cancel the current agent run. */
   cancelRun: () => void
@@ -230,6 +231,77 @@ export function normalizeToolName(value: unknown): string {
   return fallback || 'unknown'
 }
 
+function stripImagePreviewData(image: ImageAttachment): ImageAttachment {
+  const { previewDataUrl: _previewDataUrl, ...metadata } = image
+  return metadata
+}
+
+type StoreSet = (
+  partial: Partial<ConversationState> | ((state: ConversationState) => Partial<ConversationState>),
+) => void
+
+type StoreGet = () => ConversationState
+
+/**
+ * Re-read image bytes off disk so messages loaded from a persisted session can
+ * render their previews again — the transcript only stores path/metadata.
+ */
+function hydrateLoadedImagePreviews(
+  sessionId: string,
+  messages: Message[],
+  set: StoreSet,
+  get: StoreGet,
+): void {
+  const paths = Array.from(
+    new Set(
+      messages.flatMap((m) =>
+        (m.imageAttachments ?? []).filter((img) => !img.previewDataUrl).map((img) => img.path),
+      ),
+    ),
+  )
+  if (paths.length === 0) return
+  const api = typeof window !== 'undefined' ? window.ouroboros : undefined
+  if (!api?.validateImageAttachments) return
+
+  api
+    .validateImageAttachments(paths)
+    .then((result) => {
+      if (result.accepted.length === 0) return
+      const previewByPath = new Map(
+        result.accepted
+          .filter((img): img is ImageAttachment & { previewDataUrl: string } =>
+            Boolean(img.previewDataUrl),
+          )
+          .map((img) => [img.path, img.previewDataUrl]),
+      )
+      if (previewByPath.size === 0) return
+      if (get().currentSessionId !== sessionId) return
+
+      set((state) => {
+        if (state.currentSessionId !== sessionId) return state
+        let anyChanged = false
+        const next = state.messages.map((msg) => {
+          if (!msg.imageAttachments?.length) return msg
+          let changed = false
+          const hydrated = msg.imageAttachments.map((img) => {
+            if (img.previewDataUrl) return img
+            const preview = previewByPath.get(img.path)
+            if (!preview) return img
+            changed = true
+            return { ...img, previewDataUrl: preview }
+          })
+          if (!changed) return msg
+          anyChanged = true
+          return { ...msg, imageAttachments: hydrated }
+        })
+        return anyChanged ? { messages: next } : state
+      })
+    })
+    .catch((err) => {
+      console.error('validateImageAttachments (session load) failed:', err)
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -250,7 +322,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   // ---- Actions -------------------------------------------------------------
 
-  sendMessage(text: string, files?: string[]) {
+  sendMessage(text: string, files?: string[], images?: ImageAttachment[]) {
     const state = get()
     const runSessionId = state.currentSessionId
     const id = makeId('user', state.nextId)
@@ -260,6 +332,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       text,
       timestamp: new Date().toISOString(),
       files,
+      imageAttachments: images,
     }
 
     set({
@@ -291,6 +364,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       ?.rpc('agent/run', {
         message: text,
         files,
+        images: images?.map(stripImagePreviewData),
         client: 'desktop',
         responseStyle: 'desktop-readable',
       })
@@ -592,6 +666,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       role: m.role === 'user' ? ('user' as const) : ('agent' as const),
       text: normalizeTextContent(m.content),
       timestamp: m.timestamp,
+      imageAttachments: m.imageAttachments,
+      ...(m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0
+        ? { toolCalls: m.toolCalls }
+        : {}),
     }))
 
     set({
@@ -605,6 +683,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       contextUsage: null,
       ...(workspacePath ? { workspace: workspacePath } : {}),
     })
+
+    hydrateLoadedImagePreviews(id, messages, set, get)
   },
 
   createNewSession(sessionId: string) {

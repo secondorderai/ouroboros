@@ -37,6 +37,8 @@ export interface OuroborosAPI {
   ): () => void
   /** Show a native open-file dialog. Returns string[] when multiSelections, string otherwise, or null if cancelled. */
   showOpenDialog(options: OpenDialogOptions): Promise<string | string[] | null>
+  /** Validate local image paths and return safe metadata plus renderer preview data. */
+  validateImageAttachments(paths: string[]): Promise<ImageAttachmentValidationResult>
   /** Subscribe to CLI status changes. Returns an unsubscribe function. */
   onCLIStatus(callback: (status: CLIStatus) => void): () => void
 }
@@ -63,6 +65,26 @@ declare global {
 
 export type MessageRole = 'user' | 'agent' | 'system' | 'error'
 
+export type SupportedImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp'
+
+export interface ImageAttachment {
+  path: string
+  name: string
+  mediaType: SupportedImageMediaType
+  sizeBytes: number
+  previewDataUrl?: string
+}
+
+export interface RejectedImageAttachment {
+  path: string
+  reason: string
+}
+
+export interface ImageAttachmentValidationResult {
+  accepted: ImageAttachment[]
+  rejected: RejectedImageAttachment[]
+}
+
 export interface Message {
   id: string
   role: MessageRole
@@ -71,6 +93,8 @@ export interface Message {
   timestamp: string
   /** Attached file paths (user messages only). */
   files?: string[]
+  /** Attached image metadata and optional local preview data (user messages only). */
+  imageAttachments?: ImageAttachment[]
   /** Completed tool calls that appeared during this agent turn. */
   toolCalls?: CompletedToolCall[]
 }
@@ -205,6 +229,7 @@ export type AgentStopReason = 'completed' | 'max_steps' | 'error'
 export interface AgentRunParams {
   message: string
   files?: string[]
+  images?: ImageAttachment[]
   client?: AgentClient
   responseStyle?: AgentResponseStyle
   maxSteps?: number
@@ -312,6 +337,9 @@ export interface SessionMessage {
   role: 'user' | 'assistant'
   content: string
   timestamp: string
+  imageAttachments?: ImageAttachment[]
+  /** Tool calls made during this assistant turn (assistant role only). */
+  toolCalls?: CompletedToolCall[]
 }
 export interface SessionData {
   id: string
@@ -621,13 +649,9 @@ export const RPC_METHOD_NAMES = [
 ] as const satisfies readonly RpcMethod[]
 
 /** Compile-time check that `RPC_METHOD_NAMES` covers every key of `RpcMethodMap`. */
-type _RpcMethodCoverageCheck =
-  Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]> extends never
-    ? true
-    : [
-        'Missing RPC method in RPC_METHOD_NAMES:',
-        Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]>,
-      ]
+type _RpcMethodCoverageCheck = Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]> extends never
+  ? true
+  : ['Missing RPC method in RPC_METHOD_NAMES:', Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]>]
 const _rpcCoverage: _RpcMethodCoverageCheck = true
 void _rpcCoverage
 
@@ -771,13 +795,15 @@ export const NOTIFICATION_METHOD_NAMES = [
 ] as const satisfies readonly NotificationMethod[]
 
 /** Compile-time check that `NOTIFICATION_METHOD_NAMES` covers every key of `NotificationMap`. */
-type _NotificationCoverageCheck =
-  Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]> extends never
-    ? true
-    : [
-        'Missing notification method in NOTIFICATION_METHOD_NAMES:',
-        Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]>,
-      ]
+type _NotificationCoverageCheck = Exclude<
+  NotificationMethod,
+  (typeof NOTIFICATION_METHOD_NAMES)[number]
+> extends never
+  ? true
+  : [
+      'Missing notification method in NOTIFICATION_METHOD_NAMES:',
+      Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]>,
+    ]
 const _notificationCoverage: _NotificationCoverageCheck = true
 void _notificationCoverage
 
@@ -788,4 +814,5 @@ export const IPC_CHANNELS = {
   CLI_NOTIFICATION: 'ouroboros:cli-notification',
   CLI_STATUS: 'ouroboros:cli-status',
   SHOW_OPEN_DIALOG: 'ouroboros:show-open-dialog',
+  VALIDATE_IMAGE_ATTACHMENTS: 'ouroboros:validate-image-attachments',
 } as const

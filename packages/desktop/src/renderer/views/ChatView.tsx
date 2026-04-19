@@ -314,8 +314,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <button
             style={processingBannerStopStyle}
             onClick={cancelRun}
-            title='Stop agent'
-            aria-label='Stop agent'
+            title='Stop session run'
+            aria-label='Stop session run'
           >
             Stop
           </button>

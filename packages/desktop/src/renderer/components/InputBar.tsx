@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ImageAttachment, RejectedImageAttachment } from '../../shared/protocol'
 import { useConversationStore } from '../stores/conversationStore'
 import { getModeDisplayName, useModeStore } from '../stores/modeStore'
 
@@ -10,6 +11,17 @@ const LINE_HEIGHT = 24 // 15px font * 1.6 line-height
 const MAX_LINES = 5
 const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES
 const MIN_HEIGHT = LINE_HEIGHT
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp'])
+const POTENTIAL_IMAGE_EXTENSIONS = new Set([
+  ...IMAGE_EXTENSIONS,
+  'gif',
+  'bmp',
+  'tif',
+  'tiff',
+  'avif',
+  'heic',
+  'heif',
+])
 
 // ---------------------------------------------------------------------------
 // InputBar
@@ -23,6 +35,8 @@ interface InputBarProps {
 export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const [text, setText] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<string[]>([])
+  const [attachedImages, setAttachedImages] = useState<ImageAttachment[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modeMenuRef = useRef<HTMLDivElement>(null)
@@ -41,7 +55,8 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const exitMode = useModeStore((s) => s.exitMode)
   const clearModeError = useModeStore((s) => s.clearError)
 
-  const isEmpty = text.trim().length === 0 && attachedFiles.length === 0
+  const isEmpty =
+    text.trim().length === 0 && attachedFiles.length === 0 && attachedImages.length === 0
   const activeModeLabel =
     modeState.status === 'active' ? getModeDisplayName(modeState.modeId) : null
 
@@ -71,16 +86,22 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const handleSend = useCallback(() => {
     if (isEmpty || isAgentRunning) return
     const trimmed = text.trim()
-    if (!trimmed && attachedFiles.length === 0) return
-    sendMessage(trimmed, attachedFiles.length > 0 ? attachedFiles : undefined)
+    if (!trimmed && attachedFiles.length === 0 && attachedImages.length === 0) return
+    sendMessage(
+      trimmed,
+      attachedFiles.length > 0 ? attachedFiles : undefined,
+      attachedImages.length > 0 ? attachedImages : undefined,
+    )
     setText('')
     setAttachedFiles([])
+    setAttachedImages([])
+    setAttachmentError(null)
     // Reset textarea height and re-focus
     if (textareaRef.current) {
       textareaRef.current.style.height = `${MIN_HEIGHT}px`
       textareaRef.current.focus()
     }
-  }, [text, attachedFiles, isEmpty, isAgentRunning, sendMessage])
+  }, [text, attachedFiles, attachedImages, isEmpty, isAgentRunning, sendMessage])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -96,6 +117,27 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     cancelRun()
   }, [cancelRun])
 
+  const addAttachmentPaths = useCallback(async (paths: string[]) => {
+    const api = window.ouroboros
+    if (!api || paths.length === 0) return
+
+    const imageCandidatePaths = paths.filter(isPotentialImagePath)
+    const regularFilePaths = paths.filter((path) => !isPotentialImagePath(path))
+
+    if (regularFilePaths.length > 0) {
+      setAttachedFiles((prev) => mergeUniquePaths(prev, regularFilePaths))
+    }
+
+    if (imageCandidatePaths.length === 0) {
+      setAttachmentError(null)
+      return
+    }
+
+    const result = await api.validateImageAttachments(imageCandidatePaths)
+    setAttachedImages((prev) => mergeUniqueImages(prev, result.accepted))
+    setAttachmentError(formatAttachmentError(result.rejected))
+  }, [])
+
   const handleAttach = useCallback(async () => {
     const api = window.ouroboros
     if (!api) return
@@ -104,16 +146,16 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       properties: ['openFile', 'multiSelections'],
     })
     if (result) {
-      setAttachedFiles((prev) => {
-        // result can be a single path; normalize
-        const paths = Array.isArray(result) ? result : [result]
-        return mergeUniquePaths(prev, paths)
-      })
+      await addAttachmentPaths(Array.isArray(result) ? result : [result])
     }
-  }, [])
+  }, [addAttachmentPaths])
 
   const removeFile = useCallback((filePath: string) => {
     setAttachedFiles((prev) => prev.filter((f) => f !== filePath))
+  }, [])
+
+  const removeImage = useCallback((filePath: string) => {
+    setAttachedImages((prev) => prev.filter((image) => image.path !== filePath))
   }, [])
 
   const handleWorkspaceClick = useCallback(async () => {
@@ -151,9 +193,12 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 
   // ---- Handle file drops from parent (via props) ---------------------------
 
-  const addDroppedFiles = useCallback((files: string[]) => {
-    setAttachedFiles((prev) => mergeUniquePaths(prev, files))
-  }, [])
+  const addDroppedFiles = useCallback(
+    (files: string[]) => {
+      void addAttachmentPaths(files)
+    },
+    [addAttachmentPaths],
+  )
 
   // Expose addDroppedFiles via a ref on the component
   // We use a stable ref attached to window for the parent to call
@@ -236,15 +281,19 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     : '1px solid var(--border-light)'
 
   return (
-    <div style={styles.container} className="no-select">
+    <div style={styles.container} className='no-select'>
       {/* File chips */}
-      {attachedFiles.length > 0 && (
+      {(attachedImages.length > 0 || attachedFiles.length > 0) && (
         <div style={styles.fileChips}>
+          {attachedImages.map((image) => (
+            <ImageChip key={image.path} image={image} onRemove={removeImage} />
+          ))}
           {attachedFiles.map((filePath) => (
             <FileChip key={filePath} filePath={filePath} onRemove={removeFile} />
           ))}
         </div>
       )}
+      {attachmentError && <div style={styles.attachmentError}>{attachmentError}</div>}
 
       {/* Input area */}
       <div
@@ -256,8 +305,8 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
         <button
           style={styles.attachButton}
           onClick={handleAttach}
-          title="Attach files"
-          aria-label="Attach files"
+          title='Attach files'
+          aria-label='Attach files'
         >
           <AttachIcon />
         </button>
@@ -268,8 +317,8 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Message Ouroboros..."
-          aria-label="Message input"
+          placeholder='Message Ouroboros...'
+          aria-label='Message input'
           rows={1}
           disabled={false}
         />
@@ -278,8 +327,8 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
           <button
             style={{ ...styles.sendButton, ...styles.stopButton }}
             onClick={handleStop}
-            title="Stop agent"
-            aria-label="Stop agent"
+            title='Stop agent'
+            aria-label='Stop agent'
           >
             <StopIcon />
           </button>
@@ -292,8 +341,8 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
             }}
             onClick={handleSend}
             disabled={isEmpty}
-            title="Send message"
-            aria-label="Send message"
+            title='Send message'
+            aria-label='Send message'
           >
             <SendIcon />
           </button>
@@ -324,7 +373,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
                   onClick={handleModeChipClick}
                   aria-label={modeButtonLabel}
                   aria-expanded={modeMenuOpen}
-                  title="Switch mode"
+                  title='Switch mode'
                   disabled={modeBusy}
                 >
                   <ModeIcon />
@@ -332,11 +381,11 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
                   <ChevronIcon open={modeMenuOpen} />
                 </button>
                 {modeMenuOpen && (
-                  <div style={styles.modeMenu} role="menu" aria-label="Mode picker">
+                  <div style={styles.modeMenu} role='menu' aria-label='Mode picker'>
                     <button
                       style={styles.modeMenuItem}
                       onClick={() => void handleEnterPlanMode()}
-                      role="menuitem"
+                      role='menuitem'
                       disabled={modeBusy}
                     >
                       <span style={styles.modeMenuTitle}>Plan</span>
@@ -354,7 +403,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
             style={styles.workspaceButton}
             onClick={handleWorkspaceClick}
             title={workspace ?? 'Set workspace'}
-            aria-label="Change workspace"
+            aria-label='Change workspace'
           >
             <FolderIcon />
             <span style={styles.workspacePath}>
@@ -381,9 +430,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
               {contextUsageDisplay.label}
             </span>
           )}
-          {modelName && (
-            <span style={styles.modelBadge}>{modelName}</span>
-          )}
+          {modelName && <span style={styles.modelBadge}>{modelName}</span>}
         </div>
       </div>
     </div>
@@ -418,6 +465,33 @@ function mergeUniquePaths(existingPaths: string[], nextPaths: string[]): string[
   return merged
 }
 
+function mergeUniqueImages(
+  existingImages: ImageAttachment[],
+  nextImages: ImageAttachment[],
+): ImageAttachment[] {
+  const seen = new Set(existingImages.map((image) => image.path))
+  const merged = [...existingImages]
+
+  for (const image of nextImages) {
+    if (seen.has(image.path)) continue
+    seen.add(image.path)
+    merged.push(image)
+  }
+
+  return merged
+}
+
+function isPotentialImagePath(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase()
+  return ext ? POTENTIAL_IMAGE_EXTENSIONS.has(ext) : false
+}
+
+function formatAttachmentError(rejected: RejectedImageAttachment[]): string | null {
+  if (rejected.length === 0) return null
+  const names = rejected.map((item) => item.path.split('/').pop() ?? item.path).join(', ')
+  return `Could not attach ${names}. Supported image formats are JPG, PNG, and WebP.`
+}
+
 function formatTokenCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
   if (value >= 10_000) return `${Math.round(value / 1_000)}k`
@@ -428,6 +502,34 @@ function formatTokenCount(value: number): string {
 // ---------------------------------------------------------------------------
 // FileChip
 // ---------------------------------------------------------------------------
+
+function ImageChip({
+  image,
+  onRemove,
+}: {
+  image: ImageAttachment
+  onRemove: (path: string) => void
+}): React.ReactElement {
+  return (
+    <span style={styles.imageChip}>
+      {image.previewDataUrl ? (
+        <img src={image.previewDataUrl} alt='' style={styles.imageChipPreview} />
+      ) : (
+        <ImageIcon />
+      )}
+      <span style={styles.fileChipName} title={image.path}>
+        {image.name}
+      </span>
+      <button
+        style={styles.fileChipRemove}
+        onClick={() => onRemove(image.path)}
+        aria-label={`Remove ${image.name}`}
+      >
+        <XIcon />
+      </button>
+    </span>
+  )
+}
 
 function FileChip({
   filePath,
@@ -461,31 +563,25 @@ function FileChip({
 function SendIcon(): React.ReactElement {
   return (
     <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <line x1="22" y1="2" x2="11" y2="13" />
-      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      <line x1='22' y1='2' x2='11' y2='13' />
+      <polygon points='22 2 15 22 11 13 2 9 22 2' />
     </svg>
   )
 }
 
 function StopIcon(): React.ReactElement {
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      stroke="none"
-    >
-      <rect x="4" y="4" width="16" height="16" rx="2" />
+    <svg width='14' height='14' viewBox='0 0 24 24' fill='currentColor' stroke='none'>
+      <rect x='4' y='4' width='16' height='16' rx='2' />
     </svg>
   )
 }
@@ -493,16 +589,16 @@ function StopIcon(): React.ReactElement {
 function AttachIcon(): React.ReactElement {
   return (
     <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+      <path d='M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48' />
     </svg>
   )
 }
@@ -510,16 +606,16 @@ function AttachIcon(): React.ReactElement {
 function FolderIcon(): React.ReactElement {
   return (
     <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='12'
+      height='12'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+      <path d='M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z' />
     </svg>
   )
 }
@@ -527,17 +623,36 @@ function FolderIcon(): React.ReactElement {
 function FileIcon(): React.ReactElement {
   return (
     <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='12'
+      height='12'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.5'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
+      <path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z' />
+      <polyline points='14 2 14 8 20 8' />
+    </svg>
+  )
+}
+
+function ImageIcon(): React.ReactElement {
+  return (
+    <svg
+      width='12'
+      height='12'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.5'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <rect x='3' y='3' width='18' height='18' rx='2' />
+      <circle cx='8.5' cy='8.5' r='1.5' />
+      <path d='M21 15l-5-5L5 21' />
     </svg>
   )
 }
@@ -545,17 +660,17 @@ function FileIcon(): React.ReactElement {
 function XIcon(): React.ReactElement {
   return (
     <svg
-      width="10"
-      height="10"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='10'
+      height='10'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2.5'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1='18' y1='6' x2='6' y2='18' />
+      <line x1='6' y1='6' x2='18' y2='18' />
     </svg>
   )
 }
@@ -563,19 +678,19 @@ function XIcon(): React.ReactElement {
 function ModeIcon(): React.ReactElement {
   return (
     <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='12'
+      height='12'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" />
-      <path d="M12 12l8-4.5" />
-      <path d="M12 12v9" />
-      <path d="M12 12L4 7.5" />
+      <path d='M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z' />
+      <path d='M12 12l8-4.5' />
+      <path d='M12 12v9' />
+      <path d='M12 12L4 7.5' />
     </svg>
   )
 }
@@ -583,20 +698,20 @@ function ModeIcon(): React.ReactElement {
 function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
   return (
     <svg
-      width="10"
-      height="10"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='10'
+      height='10'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2.5'
+      strokeLinecap='round'
+      strokeLinejoin='round'
       style={{
         transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
         transition: 'transform 0.15s ease',
       }}
     >
-      <polyline points="6 9 12 15 18 9" />
+      <polyline points='6 9 12 15 18 9' />
     </svg>
   )
 }
@@ -630,6 +745,31 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: 'var(--text-secondary)',
     maxWidth: 200,
+  },
+  imageChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '3px 8px 3px 4px',
+    backgroundColor: 'var(--bg-secondary)',
+    border: '1px solid var(--border-light)',
+    borderRadius: 'var(--radius-standard)',
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    maxWidth: 220,
+  },
+  imageChipPreview: {
+    width: 22,
+    height: 22,
+    objectFit: 'cover',
+    borderRadius: 4,
+    border: '1px solid var(--border-light)',
+    flexShrink: 0,
+  },
+  attachmentError: {
+    color: 'var(--accent-red)',
+    fontSize: 12,
+    padding: '0 4px 8px',
   },
   fileChipName: {
     overflow: 'hidden',
