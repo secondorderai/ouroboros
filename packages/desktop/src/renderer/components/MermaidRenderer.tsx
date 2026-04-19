@@ -1,75 +1,39 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import mermaid from 'mermaid'
+import { buildMermaidThemeVariables, readChromeTokens } from './mermaid-theme'
 
 // ---------------------------------------------------------------------------
-// Theme palettes passed into Mermaid's config
-// ---------------------------------------------------------------------------
-
-interface MermaidThemeVars {
-  background: string
-  primaryColor: string
-  primaryTextColor: string
-  primaryBorderColor: string
-  lineColor: string
-  secondaryColor: string
-  tertiaryColor: string
-  fontSize: string
-  fontFamily: string
-}
-
-const LIGHT_THEME: MermaidThemeVars = {
-  background: 'transparent',
-  primaryColor: '#F8FAFC',
-  primaryTextColor: '#0E1116',
-  primaryBorderColor: '#94A3B8',
-  lineColor: '#64748B',
-  secondaryColor: '#ECEEF0',
-  tertiaryColor: '#F5F6F7',
-  fontSize: '13px',
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif',
-}
-
-const DARK_THEME: MermaidThemeVars = {
-  background: 'transparent',
-  primaryColor: '#1E293B',
-  primaryTextColor: '#E2E8F0',
-  primaryBorderColor: '#475569',
-  lineColor: '#94A3B8',
-  secondaryColor: '#171C22',
-  tertiaryColor: '#0F1317',
-  fontSize: '13px',
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif',
-}
-
-// ---------------------------------------------------------------------------
-// Global Mermaid initialisation — track last theme to re-init on switch
+// Global Mermaid initialisation — re-init when theme key changes.
 // ---------------------------------------------------------------------------
 
 let currentTheme: 'light' | 'dark' | null = null
 
 function ensureInit(theme: 'light' | 'dark') {
   if (currentTheme === theme) return
+  const tokens = readChromeTokens(theme)
   mermaid.initialize({
     startOnLoad: false,
     theme: 'base',
-    themeVariables: theme === 'dark' ? DARK_THEME : LIGHT_THEME,
+    themeVariables: buildMermaidThemeVariables(theme, tokens),
     securityLevel: 'loose',
     logLevel: 'error',
     flowchart: {
       htmlLabels: true,
       curve: 'basis',
-      padding: 20,
-      nodeSpacing: 20,
-      rankSpacing: 30,
+      padding: 28,
+      nodeSpacing: 40,
+      rankSpacing: 56,
       wrappingWidth: 200,
+      subGraphTitleMargin: { top: 12, bottom: 14 },
     },
     sequence: {
       diagramMarginX: 30,
-      diagramMarginY: 20,
-      actorMargin: 40,
-      messageMargin: 50,
+      diagramMarginY: 24,
+      actorMargin: 48,
+      messageMargin: 44,
       mirrorActors: false,
+      boxMargin: 12,
     },
     gantt: {
       leftPadding: 80,
@@ -94,16 +58,47 @@ function hashContent(str: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// SVG cache — keyed by content hash, survives across renders in session
+// SVG cache — keyed by `${theme}:${contentHash}` so light/dark toggles stay
+// in sync with the active palette.
 // ---------------------------------------------------------------------------
 
 const svgCache = new Map<string, string>()
+
+function cacheKey(theme: 'light' | 'dark', sourceHash: string): string {
+  return `${theme}:${sourceHash}`
+}
 
 // ---------------------------------------------------------------------------
 // Debounce delay (ms) — wait for streaming to pause before rendering
 // ---------------------------------------------------------------------------
 
 const RENDER_DEBOUNCE_MS = 300
+
+// ---------------------------------------------------------------------------
+// Theme subscription — watches `data-theme` on <html> so diagrams re-render
+// when the app toggles light/dark.
+// ---------------------------------------------------------------------------
+
+function readActiveTheme(): 'light' | 'dark' {
+  if (typeof document === 'undefined') return 'light'
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'
+}
+
+function useActiveTheme(): 'light' | 'dark' {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => readActiveTheme())
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+    const root = document.documentElement
+    const observer = new MutationObserver(() => {
+      setTheme(readActiveTheme())
+    })
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+
+  return theme
+}
 
 // ---------------------------------------------------------------------------
 // MermaidRenderer component
@@ -118,11 +113,13 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   content,
   isStreaming = false,
 }) => {
+  const theme = useActiveTheme()
   const contentHash = hashContent(content)
+  const cacheId = cacheKey(theme, contentHash)
   const expandedBodyRef = useRef<HTMLDivElement | null>(null)
 
   // Check cache on mount so already-rendered diagrams appear instantly
-  const [svg, setSvg] = useState<string>(() => svgCache.get(contentHash) || '')
+  const [svg, setSvg] = useState<string>(() => svgCache.get(cacheId) || '')
   const [error, setError] = useState<string>('')
   const [isExpanded, setIsExpanded] = useState(false)
   const [fitScale, setFitScale] = useState(1)
@@ -136,46 +133,46 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   // Keep a stable ref to the current content to avoid stale closures
   contentRef.current = content
 
-  const renderDiagram = useCallback(async (source: string, streamingAttempt = false) => {
-    try {
-      const root = document.documentElement
-      const theme = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'
-      ensureInit(theme)
+  const renderDiagram = useCallback(
+    async (source: string, activeTheme: 'light' | 'dark', streamingAttempt = false) => {
+      try {
+        ensureInit(activeTheme)
 
-      const id = hashContent(source)
+        const id = hashContent(source)
+        const key = cacheKey(activeTheme, id)
 
-      // Already cached — nothing to do
-      if (svgCache.has(id)) return
+        if (svgCache.has(key)) return
 
-      await mermaid.parse(source, { suppressErrors: false })
+        await mermaid.parse(source, { suppressErrors: false })
 
-      const { svg: rendered } = await mermaid.render(id, source)
-      const normalized = normalizeRenderedSvg(rendered)
-      svgCache.set(id, normalized)
+        const { svg: rendered } = await mermaid.render(id, source)
+        const normalized = normalizeRenderedSvg(rendered)
+        svgCache.set(key, normalized)
 
-      // Only update state if the source is still current (debounce guard)
-      if (contentRef.current === source) {
-        setSvg(normalized)
-        setError('')
-      }
-    } catch (err) {
-      if (contentRef.current === source) {
-        const msg = err instanceof Error ? err.message : 'Unknown rendering error'
-
-        // Streamed Mermaid blocks are frequently incomplete for a short period
-        // while the assistant is still emitting the fenced code block. Treat
-        // parse failures during that phase as transient and keep the last good
-        // SVG on screen instead of flashing an error box.
-        if (streamingAttempt) {
+        if (contentRef.current === source) {
+          setSvg(normalized)
           setError('')
-          return
         }
+      } catch (err) {
+        if (contentRef.current === source) {
+          const msg = err instanceof Error ? err.message : 'Unknown rendering error'
 
-        setError(msg)
-        setSvg('')
+          // Streamed Mermaid blocks are frequently incomplete for a short period
+          // while the assistant is still emitting the fenced code block. Treat
+          // parse failures during that phase as transient and keep the last good
+          // SVG on screen instead of flashing an error box.
+          if (streamingAttempt) {
+            setError('')
+            return
+          }
+
+          setError(msg)
+          setSvg('')
+        }
       }
-    }
-  }, [])
+    },
+    [],
+  )
 
   useEffect(() => {
     if (!content.trim()) return
@@ -187,21 +184,25 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
     }
 
     const id = hashContent(content)
+    const key = cacheKey(theme, id)
 
     // Cache hit — renderDiagram will early-return (cache guard above)
     // so skip the debounce entirely. Zero delay, zero flash.
-    if (svgCache.has(id)) {
-      const cached = svgCache.get(id)!
-      // Only update if the cached SVG differs — avoids unnecessary re-renders
+    if (svgCache.has(key)) {
+      const cached = svgCache.get(key)!
       setSvg((prev) => (prev === cached ? prev : cached))
       setError('')
       return
     }
 
-    // Cache miss — debounce to batch streaming updates
+    // Theme just changed and this source hasn't been rendered under it yet —
+    // drop the stale SVG so we don't leave the old palette on screen while the
+    // new render is in flight.
+    setSvg('')
+
     debounceTimerRef.current = setTimeout(
       () => {
-        renderDiagram(content, isStreaming)
+        renderDiagram(content, theme, isStreaming)
       },
       isStreaming ? 900 : RENDER_DEBOUNCE_MS,
     )
@@ -212,7 +213,7 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
         debounceTimerRef.current = null
       }
     }
-  }, [content, isStreaming, renderDiagram])
+  }, [content, isStreaming, renderDiagram, theme])
 
   useEffect(() => {
     if (!isExpanded) return
@@ -309,8 +310,13 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
       <div className='mermaid-diagram'>
         <div className='mermaid-diagram__toolbar'>
           <div className='mermaid-diagram__meta'>
-            <span className='mermaid-diagram__badge'>Mermaid</span>
-            <span className='mermaid-diagram__caption'>Interactive diagram preview</span>
+            <div className='mermaid-diagram__meta-row'>
+              <span className='mermaid-diagram__badge'>Mermaid</span>
+              <span className='mermaid-diagram__title'>Diagram preview</span>
+            </div>
+            <span className='mermaid-diagram__caption'>
+              Click the preview to inspect at full size.
+            </span>
           </div>
           <button
             type='button'
@@ -336,11 +342,6 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
           aria-label='Open full-size diagram'
         >
           <div className='mermaid-diagram__svg-shell' dangerouslySetInnerHTML={{ __html: svg }} />
-        </div>
-        <div className='mermaid-diagram__footer'>
-          <span className='mermaid-diagram__footer-text'>
-            Click the preview to inspect the diagram in a larger, scrollable viewer.
-          </span>
         </div>
       </div>
 
