@@ -70,6 +70,27 @@ function relativeTime(dateStr: string): string {
   return `${diffWeeks}w ago`
 }
 
+function getProcessingLabel(toolName?: string): string {
+  switch (toolName) {
+    case 'bash':
+      return 'Running command'
+    case 'file-read':
+      return 'Reading files'
+    case 'file-write':
+      return 'Creating files'
+    case 'file-edit':
+      return 'Editing files'
+    case 'web-fetch':
+      return 'Fetching page'
+    case 'web-search':
+      return 'Searching web'
+    case 'self-test':
+      return 'Running tests'
+    default:
+      return 'Working'
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
@@ -160,6 +181,7 @@ export function Sidebar({
       if (sessionId === currentSessionId) return
       const api = window.ouroboros
       if (!api) return
+      setCurrentSessionId(sessionId)
       try {
         const result = (await api.rpc('session/load', {
           id: sessionId,
@@ -397,6 +419,8 @@ function SessionItem({
 }): React.ReactElement {
   const title = session.title || 'New conversation'
   const lineClamp = width >= 460 ? 4 : width >= 360 ? 3 : 2
+  const isProcessing = session.runStatus === 'running'
+  const hasError = session.runStatus === 'error'
 
   return (
     <button
@@ -410,17 +434,39 @@ function SessionItem({
       aria-label={`Session: ${title}`}
       aria-current={isActive ? 'true' : undefined}
     >
-      <div
-        style={{
-          ...styles.sessionTitle,
-          WebkitLineClamp: lineClamp,
-          maxHeight: `${lineClamp * 1.3}em`,
-        }}
-      >
-        {title}
+      <div style={styles.sessionTitleRow}>
+        <div
+          style={{
+            ...styles.sessionTitle,
+            WebkitLineClamp: lineClamp,
+            maxHeight: `${lineClamp * 1.3}em`,
+          }}
+        >
+          {title}
+        </div>
+        {isProcessing && (
+          <span
+            style={styles.sessionProcessingDot}
+            className='session-processing-dot'
+            title='Session is still processing'
+            aria-label='Session is still processing'
+          />
+        )}
       </div>
       <div style={styles.sessionMeta}>
-        <span style={styles.sessionTime}>{relativeTime(session.lastActive)}</span>
+        <span
+          style={{
+            ...styles.sessionTime,
+            ...(isProcessing ? styles.sessionProcessingText : {}),
+            ...(hasError ? styles.sessionErrorText : {}),
+          }}
+        >
+          {isProcessing
+            ? getProcessingLabel(session.activeToolName)
+            : hasError
+              ? 'Needs attention'
+              : relativeTime(session.lastActive)}
+        </span>
         {session.messageCount > 0 && (
           <span style={styles.sessionBadge}>{session.messageCount}</span>
         )}
@@ -569,6 +615,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-sans)',
     transition: 'background-color 0.1s ease',
   },
+  sessionTitleRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    minWidth: 0,
+  },
   sessionTitle: {
     fontSize: 13,
     fontWeight: 500,
@@ -578,6 +630,8 @@ const styles: Record<string, React.CSSProperties> = {
     WebkitBoxOrient: 'vertical',
     lineHeight: 1.3,
     wordBreak: 'break-word',
+    flex: 1,
+    minWidth: 0,
   },
   sessionMeta: {
     display: 'flex',
@@ -587,6 +641,24 @@ const styles: Record<string, React.CSSProperties> = {
   sessionTime: {
     fontSize: 11,
     color: 'var(--text-tertiary)',
+  },
+  sessionProcessingText: {
+    color: 'var(--accent-amber)',
+    fontWeight: 600,
+  },
+  sessionErrorText: {
+    color: 'var(--accent-red)',
+    fontWeight: 600,
+  },
+  sessionProcessingDot: {
+    width: 8,
+    height: 8,
+    marginTop: 5,
+    borderRadius: '50%',
+    backgroundColor: 'var(--accent-amber)',
+    boxShadow: '0 0 0 3px var(--accent-amber-bg)',
+    flexShrink: 0,
+    animation: 'ob-pulse 1.2s ease-in-out infinite',
   },
   sessionBadge: {
     display: 'inline-flex',

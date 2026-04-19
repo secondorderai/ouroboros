@@ -97,6 +97,7 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
           response: {
             text: 'Repository summary ready.',
             iterations: 1,
+            stopReason: 'completed',
             maxIterationsReached: false,
           },
           notifications: [
@@ -176,6 +177,7 @@ test('cancel flow preserves partial text and lets the user recover', async ({}, 
           response: {
             text: 'Cancelled run',
             iterations: 1,
+            stopReason: 'completed',
             maxIterationsReached: false,
           },
           notifications: [
@@ -234,6 +236,7 @@ test('sessions, command palette, approvals queue, and RSI drawer all work throug
           response: {
             text: 'Fresh session complete',
             iterations: 1,
+            stopReason: 'completed',
             maxIterationsReached: false,
           },
           notifications: [
@@ -354,6 +357,7 @@ test('desktop surfaces RSI compaction activity and preserves long-session contin
           response: {
             text: 'Recovered context and continued the task.',
             iterations: 2,
+            stopReason: 'completed',
             maxIterationsReached: false,
           },
           notifications: [

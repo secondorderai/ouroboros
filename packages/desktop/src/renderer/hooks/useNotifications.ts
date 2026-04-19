@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useConversationStore } from '../stores/conversationStore';
 import { addApproval, loadApprovals, toPendingApproval } from '../stores/approvalStore'
+import { addAskUserRequest, clearAskUserRequests } from '../stores/askUserStore'
 import type {
   ApprovalRequestNotification,
 } from '../../shared/protocol';
@@ -51,6 +52,14 @@ export function useNotifications(): void {
       }),
       api.onNotification('approval/request', (params: ApprovalRequestNotification) => {
         addApproval(toPendingApproval(params))
+      }),
+      api.onNotification('askUser/request', (params) => {
+        addAskUserRequest(params)
+      }),
+      api.onCLIStatus((status) => {
+        if (status === 'error' || status === 'restarting') {
+          clearAskUserRequests()
+        }
       }),
     ];
 

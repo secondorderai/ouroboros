@@ -33,6 +33,9 @@ export interface ConversationState {
   /** Whether the agent is currently executing a turn. */
   isAgentRunning: boolean
 
+  /** Session currently owning the active agent run, if any. */
+  activeRunSessionId: string | null
+
   /** ID counter for generating unique message IDs. */
   nextId: number
 
@@ -237,6 +240,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   activeToolCalls: new Map(),
   pendingToolCalls: [],
   isAgentRunning: false,
+  activeRunSessionId: null,
   nextId: 1,
   currentSessionId: null,
   sessions: [],
@@ -248,6 +252,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   sendMessage(text: string, files?: string[]) {
     const state = get()
+    const runSessionId = state.currentSessionId
     const id = makeId('user', state.nextId)
     const userMessage: Message = {
       id,
@@ -260,11 +265,24 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       messages: [...state.messages, userMessage],
       isAgentRunning: true,
+      activeRunSessionId: runSessionId,
       streamingText: '',
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 1,
       contextUsage: null,
+      sessions: runSessionId
+        ? state.sessions.map((s) =>
+            s.id === runSessionId
+              ? {
+                  ...s,
+                  runStatus: 'running' as const,
+                  activeToolName: undefined,
+                  lastActive: new Date().toISOString(),
+                }
+              : s,
+          )
+        : state.sessions,
     })
 
     // Fire-and-forget RPC call to start the agent run.
@@ -303,11 +321,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       messages,
       isAgentRunning: false,
+      activeRunSessionId: null,
       streamingText: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 1,
       contextUsage: null,
+      sessions: state.activeRunSessionId
+        ? state.sessions.map((s) =>
+            s.id === state.activeRunSessionId
+              ? { ...s, runStatus: 'idle' as const, activeToolName: undefined }
+              : s,
+          )
+        : state.sessions,
     })
 
     window.ouroboros?.rpc('agent/cancel', {}).catch((err) => {
@@ -316,25 +342,44 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   handleAgentText(params: AgentTextParams) {
+    const state = get()
+    if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
+      return
+    }
     set((state) => ({
       streamingText: (state.streamingText ?? '') + normalizeTextContent(params.text),
     }))
   },
 
   handleContextUsage(params: AgentContextUsageParams) {
+    const state = get()
+    if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
+      return
+    }
     set({ contextUsage: params })
   },
 
   handleToolCallStart(params: AgentToolCallStartParams) {
     set((state) => {
+      const toolName = normalizeToolName(params.toolName)
       const next = new Map(state.activeToolCalls)
       next.set(params.toolCallId, {
         id: params.toolCallId,
-        toolName: normalizeToolName(params.toolName),
+        toolName,
         input: params.input,
         status: 'running',
       })
-      return { activeToolCalls: next }
+      const sessions = state.activeRunSessionId
+        ? state.sessions.map((s) =>
+            s.id === state.activeRunSessionId
+              ? { ...s, runStatus: 'running' as const, activeToolName: toolName }
+              : s,
+          )
+        : state.sessions
+      if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
+        return { sessions }
+      }
+      return { activeToolCalls: next, sessions }
     })
   },
 
@@ -354,15 +399,49 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         error: params.isError ? normalizeTextContent(params.result) : undefined,
       }
 
+      const sessions = state.activeRunSessionId
+        ? state.sessions.map((s) =>
+            s.id === state.activeRunSessionId ? { ...s, activeToolName: undefined } : s,
+          )
+        : state.sessions
+
+      if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
+        return { sessions }
+      }
+
       return {
         activeToolCalls: next,
         pendingToolCalls: [...state.pendingToolCalls, completed],
+        sessions,
       }
     })
   },
 
   handleTurnComplete(params: AgentTurnCompleteParams) {
     const state = get()
+    const completedSessionId = state.activeRunSessionId
+    if (completedSessionId && state.currentSessionId !== completedSessionId) {
+      set({
+        isAgentRunning: false,
+        activeRunSessionId: null,
+        streamingText: null,
+        activeToolCalls: new Map(),
+        pendingToolCalls: [],
+        contextUsage: null,
+        sessions: state.sessions.map((s) =>
+          s.id === completedSessionId
+            ? {
+                ...s,
+                runStatus: 'idle' as const,
+                activeToolName: undefined,
+                lastActive: new Date().toISOString(),
+              }
+            : s,
+        ),
+      })
+      return
+    }
+
     const agentMessage: Message = {
       id: makeId('agent', state.nextId),
       role: 'agent',
@@ -391,6 +470,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           title,
           messageCount: newMessages.length,
           lastActive: new Date().toISOString(),
+          runStatus: 'idle',
+          activeToolName: undefined,
         }
       })
     }
@@ -399,6 +480,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       messages: newMessages,
       streamingText: null,
       isAgentRunning: false,
+      activeRunSessionId: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 1,
@@ -408,6 +490,24 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   handleAgentError(params: AgentErrorParams) {
     const state = get()
+    const failedSessionId = state.activeRunSessionId
+    if (failedSessionId && state.currentSessionId !== failedSessionId) {
+      set({
+        isAgentRunning: false,
+        activeRunSessionId: null,
+        streamingText: null,
+        activeToolCalls: new Map(),
+        pendingToolCalls: [],
+        contextUsage: null,
+        sessions: state.sessions.map((s) =>
+          s.id === failedSessionId
+            ? { ...s, runStatus: 'error' as const, activeToolName: undefined }
+            : s,
+        ),
+      })
+      return
+    }
+
     const errorMessage: Message = {
       id: makeId('error', state.nextId),
       role: 'error',
@@ -433,10 +533,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       messages,
       streamingText: null,
       isAgentRunning: false,
+      activeRunSessionId: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       nextId: state.nextId + 2,
       contextUsage: null,
+      sessions: failedSessionId
+        ? state.sessions.map((s) =>
+            s.id === failedSessionId
+              ? { ...s, runStatus: 'error' as const, activeToolName: undefined }
+              : s,
+          )
+        : state.sessions,
     })
   },
 
@@ -447,6 +555,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       isAgentRunning: false,
+      activeRunSessionId: null,
       nextId: 1,
       currentSessionId: null,
       contextUsage: null,
@@ -454,7 +563,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   setSessions(sessions: SessionInfo[]) {
-    set({ sessions })
+    set((state) => ({
+      sessions: sessions.map((session) => {
+        const existing = state.sessions.find((s) => s.id === session.id)
+        if (existing?.runStatus === 'running' || state.activeRunSessionId === session.id) {
+          return {
+            ...session,
+            runStatus: 'running',
+            activeToolName: existing?.activeToolName,
+          }
+        }
+        if (existing?.runStatus === 'error') {
+          return { ...session, runStatus: 'error' }
+        }
+        return session
+      }),
+    }))
   },
 
   setCurrentSessionId(id: string | null) {
@@ -462,6 +586,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   loadSession(id: string, sessionMessages: SessionMessage[], workspacePath?: string | null) {
+    const state = get()
     const messages: Message[] = sessionMessages.map((m, i) => ({
       id: makeId(m.role === 'user' ? 'user' : 'agent', i + 1),
       role: m.role === 'user' ? ('user' as const) : ('agent' as const),
@@ -474,7 +599,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingText: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
-      isAgentRunning: false,
+      isAgentRunning: state.activeRunSessionId === id,
       nextId: messages.length + 1,
       currentSessionId: id,
       contextUsage: null,
@@ -498,6 +623,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       isAgentRunning: false,
+      activeRunSessionId: state.activeRunSessionId,
       nextId: 1,
       currentSessionId: sessionId,
       sessions: [newSession, ...state.sessions],
@@ -510,6 +636,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const newSessions = state.sessions.filter((s) => s.id !== id)
     const updates: Partial<ConversationState> = { sessions: newSessions }
 
+    if (state.activeRunSessionId === id) {
+      updates.activeRunSessionId = null
+      updates.isAgentRunning = false
+      updates.streamingText = null
+      updates.activeToolCalls = new Map()
+      updates.pendingToolCalls = []
+      updates.contextUsage = null
+    }
+
     // If we're deleting the active session, clear the chat
     if (state.currentSessionId === id) {
       updates.messages = []
@@ -517,6 +652,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       updates.activeToolCalls = new Map()
       updates.pendingToolCalls = []
       updates.isAgentRunning = false
+      updates.activeRunSessionId = null
       updates.nextId = 1
       updates.currentSessionId = null
       updates.contextUsage = null

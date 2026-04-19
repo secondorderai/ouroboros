@@ -134,6 +134,8 @@ function getToolProgressLabel(toolName: string): string {
       return 'Dreaming on it'
     case 'evolution':
       return 'Logging evolution'
+    case 'ask-user':
+      return 'Waiting for your answer'
     default:
       return 'Working on your request'
   }

@@ -234,6 +234,9 @@ async function handleRequest(request) {
       runtime.approvals = runtime.approvals.filter((entry) => entry.id !== request.params?.id)
       writeResult(request.id, { status: 'ok' })
       return
+    case 'askUser/respond':
+      writeResult(request.id, { ok: true })
+      return
     case 'skills/list':
       writeResult(request.id, { skills: runtime.skills })
       return
@@ -301,6 +304,7 @@ async function handleRequest(request) {
           response: {
             text: 'Mock final answer',
             iterations: 1,
+            stopReason: 'completed',
             maxIterationsReached: false,
           },
           notifications: [
@@ -318,6 +322,7 @@ async function handleRequest(request) {
         runSpec.response ?? {
           text: 'Mock final answer',
           iterations: 1,
+          stopReason: 'completed',
           maxIterationsReached: false,
         },
       )

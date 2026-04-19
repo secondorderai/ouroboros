@@ -9,6 +9,7 @@ import { SettingsOverlay } from './views/SettingsOverlay'
 import { RSIDrawer } from './components/RSIDrawer'
 import { ApprovalToastContainer } from './components/ApprovalToastContainer'
 import { ApprovalQueue } from './components/ApprovalQueue'
+import { AskUserDialog } from './components/AskUserDialog'
 import { UpdateBanner } from './components/UpdateBanner'
 import { OuroborosMark } from './components/OuroborosMark'
 import { useTheme } from './hooks/useTheme'
@@ -341,6 +342,7 @@ export function App(): React.ReactElement {
 
       {/* Overlays & modals */}
       <ApprovalToastContainer />
+      <AskUserDialog />
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}

@@ -49,6 +49,131 @@ test('onboarding renders and preload bridges are available', async ({}, testInfo
   })
 })
 
+test('onboarding provider and model selection are single choice', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await clearClientState(launched.page)
+
+  const providerGroup = launched.page.getByRole('radiogroup', { name: 'AI provider' })
+  const accentBorder = 'rgb(62, 95, 138)'
+  const unselectedBorder = 'rgb(220, 225, 231)'
+  await expect(providerGroup.getByRole('radio', { checked: true })).toHaveCount(1)
+  await expect(launched.page.getByRole('radio', { name: 'Anthropic' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+
+  await launched.page.getByRole('radio', { name: 'OpenAI API' }).click()
+  await expect(providerGroup.getByRole('radio', { checked: true })).toHaveCount(1)
+  await expect(launched.page.getByRole('radio', { name: 'OpenAI API' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await expect(launched.page.getByRole('radio', { name: 'Anthropic' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  )
+  await expect(launched.page.getByRole('radio', { name: 'OpenAI API' })).toHaveCSS(
+    'border-top-color',
+    accentBorder,
+  )
+  await expect(launched.page.getByRole('radio', { name: 'Anthropic' })).toHaveCSS(
+    'border-top-color',
+    unselectedBorder,
+  )
+
+  await launched.page.getByRole('radio', { name: 'OpenAI-compatible' }).click()
+  await expect(providerGroup.getByRole('radio', { checked: true })).toHaveCount(1)
+  await expect(launched.page.getByRole('radio', { name: 'OpenAI-compatible' })).toHaveCSS(
+    'border-top-color',
+    accentBorder,
+  )
+  await expect(launched.page.getByRole('radio', { name: 'OpenAI API' })).toHaveCSS(
+    'border-top-color',
+    unselectedBorder,
+  )
+
+  await launched.page.getByRole('radio', { name: 'OpenAI API' }).click()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'config/testConnection', {
+    ok: true,
+    result: { success: true, models: ['o4-mini', 'o3'] },
+  })
+
+  await launched.page.getByPlaceholder('sk-...').fill('sk-test-key')
+  await launched.page.getByRole('button', { name: 'Test Connection' }).click()
+  await expect(launched.page.getByLabel('Model')).toHaveValue('o4-mini')
+})
+
+test('onboarding provider cards do not retain selected-looking borders after switching', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await clearClientState(launched.page)
+
+  const providers = ['Anthropic', 'OpenAI API', 'ChatGPT Subscription', 'OpenAI-compatible']
+  const accentBorder = 'rgb(62, 95, 138)'
+  const unselectedBorder = 'rgb(220, 225, 231)'
+  const nativeButtonBorder = 'rgb(0, 0, 0)'
+
+  for (const selectedProvider of providers) {
+    await launched.page.getByRole('radio', { name: selectedProvider }).click()
+
+    for (const provider of providers) {
+      const providerCard = launched.page.getByRole('radio', { name: provider })
+      const expectedBorder = provider === selectedProvider ? accentBorder : unselectedBorder
+
+      await expect(providerCard).toHaveCSS('border-top-color', expectedBorder)
+      await expect(providerCard).not.toHaveCSS('border-top-color', nativeButtonBorder)
+    }
+  }
+})
+
+test('onboarding captures OpenAI-compatible base URL and persists it', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await clearClientState(launched.page)
+
+  await expect(launched.page.getByLabel('API Base URL')).toHaveCount(0)
+
+  await launched.page.getByRole('radio', { name: 'OpenAI-compatible' }).click()
+  await expect(launched.page.getByLabel('API Base URL')).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: 'Test Connection' })).toBeDisabled()
+
+  await launched.page.getByPlaceholder('sk-...').fill('sk-compatible-key')
+  await expect(launched.page.getByRole('button', { name: 'Test Connection' })).toBeDisabled()
+
+  await launched.page.getByLabel('API Base URL').fill('http://localhost:11434/v1')
+  await launched.page.getByLabel('Model').fill('llama3.2')
+  await launched.page.getByRole('button', { name: 'Test Connection' }).click()
+  await expect(launched.page.getByText('Connected')).toBeVisible()
+
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"baseUrl":"http://localhost:11434/v1"')
+
+  await launched.page.getByRole('button', { name: 'Next' }).click()
+  await launched.page.getByRole('button', { name: "I'll set this up later" }).click()
+  await launched.page.getByText('Help me with a project').click()
+  await launched.page.getByRole('button', { name: 'Get Started' }).click()
+
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"path":"model.baseUrl","value":"http://localhost:11434/v1"')
+})
+
+test('onboarding creates a session for the first chat history entry', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await clearClientState(launched.page)
+
+  await completeOnboarding(launched.page, {
+    templateName: 'Help me with a project',
+  })
+
+  await expect(launched.page.getByLabel('Message input')).toBeVisible()
+  await expect(launched.page.getByText('New conversation')).toBeVisible()
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"method":"session/new"')
+})
+
 test('approval notifications populate the UI and failed responses keep the approval visible', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()
@@ -74,6 +199,86 @@ test('approval notifications populate the UI and failed responses keep the appro
 
   await expect(launched.page.getByText('CLI restarting')).toBeVisible()
   await expect(launched.page.getByText('Approve this desktop patch')).toBeVisible()
+})
+
+test('ask-user notification opens modal and submits selected option', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: '',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Ask me a question')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await emitNotification(launched.page, 'agent/toolCallStart', {
+    toolCallId: 'ask-tool-1',
+    toolName: 'ask-user',
+    input: { question: 'Choose a release channel', options: ['Stable', 'Beta'] },
+  })
+  await emitNotification(launched.page, 'askUser/request', {
+    id: 'ask-user-1',
+    question: 'Choose a release channel',
+    options: ['Stable', 'Beta'],
+    createdAt: new Date().toISOString(),
+  })
+
+  await expect(launched.page.getByRole('dialog', { name: 'Input Needed' })).toBeVisible()
+  await expect(launched.page.getByText('Choose a release channel')).toBeVisible()
+  await expect(launched.page.getByRole('radio', { name: 'Stable' })).toBeVisible()
+  await expect(launched.page.getByLabel('Custom response')).toBeVisible()
+  await expect(
+    launched.page.getByRole('button', { name: /Waiting for your answer/ }),
+  ).toBeVisible()
+
+  await launched.page.getByRole('radio', { name: 'Beta' }).click()
+  await launched.page.getByRole('button', { name: 'Submit' }).click()
+
+  await expect(launched.page.getByRole('dialog', { name: 'Input Needed' })).toHaveCount(0)
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"method":"askUser/respond"')
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"response":"Beta"')
+})
+
+test('ask-user modal submits custom text and keeps failed responses visible', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'askUser/respond', {
+    ok: false,
+    error: { name: 'Error', message: 'CLI restarting' },
+  })
+
+  await emitNotification(launched.page, 'askUser/request', {
+    id: 'ask-user-custom',
+    question: 'How should this be handled?',
+    options: ['Skip', 'Retry'],
+    createdAt: new Date().toISOString(),
+  })
+
+  await launched.page.getByLabel('Custom response').fill('Wait for deployment')
+  await launched.page.getByRole('button', { name: 'Submit' }).click()
+
+  await expect(launched.page.getByText('CLI restarting')).toBeVisible()
+  await expect(launched.page.getByRole('dialog', { name: 'Input Needed' })).toBeVisible()
+  await expect(launched.page.getByLabel('Custom response')).toHaveValue('Wait for deployment')
+
+  await setRpcOverride(launched.page, 'askUser/respond', null)
+  await launched.page.getByRole('button', { name: 'Submit' }).click()
+
+  await expect(launched.page.getByRole('dialog', { name: 'Input Needed' })).toHaveCount(0)
 })
 
 test('onboarding stays open when required setup fails', async ({}, testInfo) => {
@@ -156,6 +361,7 @@ test('agent notifications finalize chat output and completed tool calls', async 
     result: {
       text: 'Final answer',
       iterations: 1,
+      stopReason: 'completed',
       maxIterationsReached: false,
     },
   })
@@ -184,6 +390,62 @@ test('agent notifications finalize chat output and completed tool calls', async 
   await expect(launched.page.getByText('Searched web')).toBeVisible()
 })
 
+test('running sessions show sidebar and chat processing indicators', async ({}, testInfo) => {
+  const now = new Date().toISOString()
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      sessions: [
+        {
+          id: 'session-processing',
+          createdAt: now,
+          lastActive: now,
+          title: 'Long running desktop task',
+          messages: [],
+        },
+      ],
+    },
+  })
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Done',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByRole('button', { name: /Session: Long running desktop task/ }).click()
+  await launched.page.getByLabel('Message input').fill('Run a long desktop task')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByLabel('Session is still processing')).toBeVisible()
+  await expect(launched.page.getByText('Working', { exact: true })).toBeVisible()
+  await expect(
+    launched.page.getByText('Ouroboros is still working in this session'),
+  ).toBeVisible()
+
+  await emitNotification(launched.page, 'agent/toolCallStart', {
+    toolCallId: 'tool-processing-1',
+    toolName: 'bash',
+    input: { command: 'bun test' },
+  })
+
+  await expect(launched.page.getByText('Running command')).toBeVisible()
+  await expect(launched.page.getByText('Running a command', { exact: true })).toBeVisible()
+
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Done',
+    iterations: 1,
+  })
+
+  await expect(launched.page.getByLabel('Session is still processing')).toHaveCount(0)
+  await expect(launched.page.getByText('Done')).toBeVisible()
+})
+
 test('completed tool chip stays expanded and does not flash the jump button', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()
@@ -194,6 +456,7 @@ test('completed tool chip stays expanded and does not flash the jump button', as
     result: {
       text: 'Done',
       iterations: 1,
+      stopReason: 'completed',
       maxIterationsReached: false,
     },
   })
@@ -252,6 +515,7 @@ test('desktop chat uses readable assistant layout and desktop-specific response 
         response: {
           text: markdownResponse,
           iterations: 1,
+          stopReason: 'completed',
           maxIterationsReached: false,
         },
         notifications: [
@@ -363,6 +627,7 @@ test('streaming assistant text renders markdown before turn completion', async (
     result: {
       text: markdownResponse,
       iterations: 1,
+      stopReason: 'completed',
       maxIterationsReached: false,
     },
   })
@@ -405,6 +670,7 @@ test('streaming cursor stays attached to the last rendered line', async ({}, tes
     result: {
       text: markdownResponse,
       iterations: 1,
+      stopReason: 'completed',
       maxIterationsReached: false,
     },
   })

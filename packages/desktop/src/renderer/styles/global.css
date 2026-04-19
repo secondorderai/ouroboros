@@ -94,3 +94,16 @@ body * {
     opacity: 0;
   }
 }
+
+@keyframes ob-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

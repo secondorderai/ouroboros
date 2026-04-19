@@ -140,6 +140,7 @@ function registerNotificationForwarding(ctx: IpcHandlerContext): void {
     'memory/updated',
     'skill/activated',
     'approval/request',
+    'askUser/request',
     'rsi/reflection',
     'rsi/crystallization',
     'rsi/dream',

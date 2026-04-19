@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback } from 'react'
-import type { AIProvider } from '../../shared/protocol'
+import type { AIProvider, SessionNewResult } from '../../shared/protocol'
 import { StepConnectAI } from './onboarding/StepConnectAI'
 import { StepWorkspace } from './onboarding/StepWorkspace'
 import { StepTemplate } from './onboarding/StepTemplate'
@@ -56,6 +56,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
   // Step 1 state
   const [provider, setProvider] = useState<AIProvider>('anthropic')
   const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('claude-opus-4-20250514')
 
   // Step 2 state
@@ -89,12 +90,20 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     try {
       await window.ouroboros.rpc('config/set', { path: 'model.provider', value: provider })
       await window.ouroboros.rpc('config/set', { path: 'model.name', value: model })
+      if (provider === 'openai-compatible') {
+        await window.ouroboros.rpc('config/set', { path: 'model.baseUrl', value: baseUrl })
+      }
       if (provider !== 'openai-chatgpt') {
         await window.ouroboros.rpc('config/setApiKey', { provider, apiKey })
       }
 
       if (workspace) {
         await window.ouroboros.rpc('workspace/set', { directory: workspace })
+      }
+
+      const sessionResult = (await window.ouroboros.rpc('session/new', {})) as SessionNewResult
+      if (sessionResult?.sessionId) {
+        useConversationStore.getState().createNewSession(sessionResult.sessionId)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to complete onboarding setup'
@@ -124,7 +133,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         })
       }
     }
-  }, [provider, apiKey, model, workspace, template, onComplete, finishing])
+  }, [provider, apiKey, baseUrl, model, workspace, template, onComplete, finishing])
 
   // ── Step indicator ──────────────────────────────────────
 
@@ -149,9 +158,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         <StepConnectAI
           provider={provider}
           apiKey={apiKey}
+          baseUrl={baseUrl}
           model={model}
           onProviderChange={setProvider}
           onApiKeyChange={setApiKey}
+          onBaseUrlChange={setBaseUrl}
           onModelChange={setModel}
           onNext={goNext}
         />

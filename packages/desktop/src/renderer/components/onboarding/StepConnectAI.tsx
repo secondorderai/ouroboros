@@ -5,33 +5,50 @@
  * model selector (after success), and help link.
  */
 
-import React, { useState, useCallback, useEffect } from 'react'
-import type {
-  AIProvider,
-  AuthStatusResult,
-  ConnectionTestResult,
-} from '../../../shared/protocol'
+import React, { useCallback, useEffect, useState } from 'react'
+import type { AIProvider, AuthStatusResult, ConnectionTestResult } from '../../../shared/protocol'
 
 // ── Provider card SVG icons ─────────────────────────────────
 
 const AnthropicIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="M12 2L2 19h6l4-8 4 8h6L12 2z" />
+  <svg
+    width='24'
+    height='24'
+    viewBox='0 0 24 24'
+    fill='none'
+    stroke='currentColor'
+    strokeWidth='1.5'
+  >
+    <path d='M12 2L2 19h6l4-8 4 8h6L12 2z' />
   </svg>
 )
 
 const OpenAIIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <circle cx="12" cy="12" r="9" />
-    <path d="M8 12h8M12 8v8" />
-    <circle cx="12" cy="12" r="3" />
+  <svg
+    width='24'
+    height='24'
+    viewBox='0 0 24 24'
+    fill='none'
+    stroke='currentColor'
+    strokeWidth='1.5'
+  >
+    <circle cx='12' cy='12' r='9' />
+    <path d='M8 12h8M12 8v8' />
+    <circle cx='12' cy='12' r='3' />
   </svg>
 )
 
 const GenericAIIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <rect x="3" y="3" width="18" height="18" rx="3" />
-    <path d="M8 12h8M12 8v8" />
+  <svg
+    width='24'
+    height='24'
+    viewBox='0 0 24 24'
+    fill='none'
+    stroke='currentColor'
+    strokeWidth='1.5'
+  >
+    <rect x='3' y='3' width='18' height='18' rx='3' />
+    <path d='M8 12h8M12 8v8' />
   </svg>
 )
 
@@ -56,6 +73,7 @@ const styles = {
     marginBottom: '20px',
   } as React.CSSProperties,
   providerCard: {
+    appearance: 'none',
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
@@ -67,11 +85,13 @@ const styles = {
     cursor: 'pointer',
     transition: 'border-color 200ms ease, background 200ms ease',
     fontSize: '13px',
+    fontFamily: 'var(--font-sans)',
     fontWeight: 600,
     color: 'var(--text-primary)',
+    textAlign: 'center',
   } as React.CSSProperties,
   providerCardSelected: {
-    borderColor: 'var(--accent-primary)',
+    border: '2px solid var(--accent-primary)',
     background: 'var(--accent-muted)',
   } as React.CSSProperties,
   inputGroup: {
@@ -190,7 +210,7 @@ const PROVIDER_HELP_URLS: Record<AIProvider, string> = {
 }
 
 const DEFAULT_MODELS: Record<AIProvider, string> = {
-  anthropic: 'claude-opus-4-20250514',
+  anthropic: 'claude-opus-4-7',
   openai: 'gpt-5.4',
   'openai-compatible': 'gpt-5.4',
   'openai-chatgpt': 'gpt-5.4',
@@ -201,9 +221,11 @@ const DEFAULT_MODELS: Record<AIProvider, string> = {
 interface StepConnectAIProps {
   provider: AIProvider
   apiKey: string
+  baseUrl: string
   model: string
   onProviderChange: (provider: AIProvider) => void
   onApiKeyChange: (key: string) => void
+  onBaseUrlChange: (baseUrl: string) => void
   onModelChange: (model: string) => void
   onNext: () => void
 }
@@ -211,9 +233,11 @@ interface StepConnectAIProps {
 export const StepConnectAI: React.FC<StepConnectAIProps> = ({
   provider,
   apiKey,
+  baseUrl,
   model,
   onProviderChange,
   onApiKeyChange,
+  onBaseUrlChange,
   onModelChange,
   onNext,
 }) => {
@@ -224,21 +248,45 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
   const [inputFocused, setInputFocused] = useState(false)
 
   const isChatGPTProvider = provider === 'openai-chatgpt'
-  const canTest = isChatGPTProvider ? !testing : apiKey.trim().length > 0
+  const isOpenAICompatibleProvider = provider === 'openai-compatible'
+  const hasRequiredApiConfig =
+    apiKey.trim().length > 0 &&
+    (!isOpenAICompatibleProvider || baseUrl.trim().length > 0)
+  const canTest = isChatGPTProvider ? !testing : hasRequiredApiConfig
   const canProceed = isChatGPTProvider
     ? authStatus?.connected === true && model.trim().length > 0
-    : apiKey.trim().length > 0 && testResult?.success === true
+    : hasRequiredApiConfig && testResult?.success === true && model.trim().length > 0
+
+  const applyAvailableModels = useCallback(
+    (models: string[]) => {
+      setAvailableModels(models)
+      if (models.length > 0 && !models.includes(model)) {
+        onModelChange(models[0])
+      }
+    },
+    [model, onModelChange],
+  )
+
+  const handleProviderChange = useCallback(
+    (nextProvider: AIProvider) => {
+      if (nextProvider === provider) return
+
+      onProviderChange(nextProvider)
+      onModelChange(DEFAULT_MODELS[nextProvider])
+      setTestResult(null)
+      setAvailableModels([])
+      setAuthStatus(null)
+    },
+    [onModelChange, onProviderChange, provider],
+  )
 
   const syncChatGPTStatus = useCallback(async () => {
     const status = await window.ouroboros.rpc('auth/getStatus', {
       provider: 'openai-chatgpt',
     })
     setAuthStatus(status)
-    setAvailableModels(status.models)
-    if (!model && status.models.length > 0) {
-      onModelChange(status.models[0])
-    }
-  }, [model, onModelChange])
+    applyAvailableModels(status.models)
+  }, [applyAvailableModels])
 
   useEffect(() => {
     if (!isChatGPTProvider) {
@@ -264,15 +312,12 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
       const result: ConnectionTestResult = await window.ouroboros.rpc('config/testConnection', {
         provider,
         apiKey,
+        ...(isOpenAICompatibleProvider ? { baseUrl } : {}),
       })
 
       setTestResult(result)
       if (result.success && result.models && result.models.length > 0) {
-        setAvailableModels(result.models)
-        // Auto-select first model if none selected
-        if (!model) {
-          onModelChange(result.models[0])
-        }
+        applyAvailableModels(result.models)
       }
     } catch (err) {
       setTestResult({
@@ -282,7 +327,7 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
     } finally {
       setTesting(false)
     }
-  }, [canTest, testing, provider, apiKey, model, onModelChange])
+  }, [apiKey, applyAvailableModels, baseUrl, canTest, isOpenAICompatibleProvider, provider, testing])
 
   const handleChatGPTLogin = useCallback(async () => {
     if (testing) return
@@ -304,13 +349,10 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
           flowId: flow.flowId,
         })
         setAuthStatus(poll)
-        setAvailableModels(poll.models)
+        applyAvailableModels(poll.models)
 
         if (!poll.pending) {
           if (poll.success) {
-            if (!model && poll.models.length > 0) {
-              onModelChange(poll.models[0])
-            }
             setTestResult({ success: true, models: poll.models })
           } else {
             setTestResult({
@@ -330,7 +372,7 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
       setTesting(false)
       void syncChatGPTStatus().catch(() => {})
     }
-  }, [model, onModelChange, syncChatGPTStatus, testing])
+  }, [applyAvailableModels, syncChatGPTStatus, testing])
 
   const handleHelpClick = useCallback(() => {
     const url = PROVIDER_HELP_URLS[provider]
@@ -354,56 +396,66 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
       </p>
 
       {/* Provider selector */}
-      <div style={styles.providerGrid}>
+      <div style={styles.providerGrid} role='radiogroup' aria-label='AI provider'>
         {providers.map((p) => (
-          <div
+          <button
             key={p.id}
+            type='button'
             style={{
               ...styles.providerCard,
               ...(provider === p.id ? styles.providerCardSelected : {}),
             }}
-            onClick={() => {
-              onProviderChange(p.id)
-              onModelChange(DEFAULT_MODELS[p.id])
-              setTestResult(null)
-              setAvailableModels([])
-            }}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                onProviderChange(p.id)
-                onModelChange(DEFAULT_MODELS[p.id])
-                setTestResult(null)
-                setAvailableModels([])
-              }
-            }}
-            aria-pressed={provider === p.id}
+            onClick={() => handleProviderChange(p.id)}
+            role='radio'
+            aria-checked={provider === p.id}
           >
             {p.icon}
             {p.label}
-          </div>
+          </button>
         ))}
       </div>
 
       {!isChatGPTProvider && (
         <div style={styles.inputGroup}>
-          <label style={styles.label}>API Key</label>
+          <label style={styles.label} htmlFor='onboarding-api-key'>
+            API Key
+          </label>
           <input
-            type="password"
+            id='onboarding-api-key'
+            type='password'
             value={apiKey}
             onChange={(e) => {
               onApiKeyChange(e.target.value)
               setTestResult(null)
             }}
-            placeholder="sk-..."
+            placeholder='sk-...'
             style={{
               ...styles.input,
               ...(inputFocused ? styles.inputFocused : {}),
             }}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
-            autoComplete="off"
+            autoComplete='off'
+          />
+        </div>
+      )}
+
+      {isOpenAICompatibleProvider && (
+        <div style={styles.inputGroup}>
+          <label style={styles.label} htmlFor='onboarding-base-url'>
+            API Base URL
+          </label>
+          <input
+            id='onboarding-base-url'
+            type='url'
+            value={baseUrl}
+            onChange={(e) => {
+              onBaseUrlChange(e.target.value)
+              setTestResult(null)
+            }}
+            placeholder='http://localhost:11434/v1'
+            style={styles.input}
+            autoComplete='off'
           />
         </div>
       )}
@@ -442,16 +494,19 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
                   ? `Connected (${authStatus.accountId})`
                   : 'Connected'
                 : 'Connected'
-              : testResult.error ?? 'Failed'}
+              : (testResult.error ?? 'Failed')}
           </span>
         )}
       </div>
 
       {/* Model input */}
       <div style={styles.inputGroup}>
-        <label style={styles.label}>Model</label>
+        <label style={styles.label} htmlFor='onboarding-model'>
+          Model
+        </label>
         {isChatGPTProvider ? (
           <select
+            id='onboarding-model'
             value={model}
             onChange={(e) => onModelChange(e.target.value)}
             style={styles.select}
@@ -466,12 +521,13 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
           </select>
         ) : (
           <input
-            type="text"
+            id='onboarding-model'
+            type='text'
             value={model}
             onChange={(e) => onModelChange(e.target.value)}
             placeholder={DEFAULT_MODELS[provider]}
             style={styles.input}
-            autoComplete="off"
+            autoComplete='off'
           />
         )}
       </div>
@@ -480,7 +536,7 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
       <span
         style={styles.helpLink}
         onClick={handleHelpClick}
-        role="link"
+        role='link'
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter') handleHelpClick()

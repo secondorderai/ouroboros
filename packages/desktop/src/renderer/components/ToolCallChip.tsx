@@ -151,6 +151,13 @@ const TimelineIcon = () => (
   </svg>
 )
 
+/** Message-circle icon — for ask-user */
+const MessageCircleIcon = () => (
+  <svg viewBox="0 0 24 24">
+    <path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 8.7 8.7 0 0 1-3.8-.9L3 21l1.8-5A8.1 8.1 0 0 1 4 11.5a8.5 8.5 0 0 1 17 0z" />
+  </svg>
+)
+
 /** Wrench icon — fallback for unknown tools */
 const WrenchIcon = () => (
   <svg viewBox="0 0 24 24">
@@ -189,6 +196,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   'skill-gen': { label: 'Generating skill...', icon: <WandIcon /> },
   dream: { label: 'Dreaming...', icon: <MoonIcon /> },
   evolution: { label: 'Logging evolution', icon: <TimelineIcon /> },
+  'ask-user': { label: 'Waiting for your answer', icon: <MessageCircleIcon /> },
 }
 
 function getToolMeta(toolName: string): ToolMeta {
@@ -272,6 +280,8 @@ function getInputDisplay(
       return { type: 'text', content: String(input.url ?? '') }
     case 'web-search':
       return { type: 'text', content: String(input.query ?? '') }
+    case 'ask-user':
+      return { type: 'text', content: String(input.question ?? '') }
     default:
       return { type: 'code', content: JSON.stringify(input, null, 2) }
   }

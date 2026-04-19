@@ -37,6 +37,7 @@ describe('RpcClient', () => {
         result: {
           text: 'Completed after a delayed response',
           iterations: 1,
+          stopReason: 'completed',
           maxIterationsReached: false,
         },
       }),
@@ -45,6 +46,7 @@ describe('RpcClient', () => {
     await expect(runPromise).resolves.toEqual({
       text: 'Completed after a delayed response',
       iterations: 1,
+      stopReason: 'completed',
       maxIterationsReached: false,
     })
     expect(client.pendingCount).toBe(0)
