@@ -104,6 +104,14 @@ Use Mermaid (fenced with \`\`\`mermaid) for all diagrams. It renders client-side
 Guidelines:
 - Keep diagrams focused — break complex ones into two smaller diagrams rather than one sprawling graph.
 - Use short, readable node labels.
+- Use semantic grouping primitives so the desktop client can make diagrams easier to scan:
+  - Flowcharts and architecture diagrams: use \`subgraph\` blocks for related concepts.
+  - Sequence diagrams: name each participant clearly and keep messages short.
+  - State diagrams: use composite states for grouped lifecycle phases.
+  - ER diagrams: keep entity names concise and relationships explicit.
+  - Gantt/timeline diagrams: use meaningful sections or periods.
+  - Mind maps: use stable top-level branches for major themes.
+- Use explicit \`classDef\` or \`style\` only when a semantic category needs a specific visual treatment; otherwise rely on the desktop renderer's automatic theme-aware coloring.
 - Place the diagram near the related explanation, not buried at the end of a response.
 - If a diagram would not add clarity beyond a short paragraph, skip it — diagrams complement prose, they don't replace it.`
 

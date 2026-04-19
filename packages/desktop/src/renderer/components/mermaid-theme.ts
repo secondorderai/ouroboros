@@ -31,6 +31,15 @@ export const DARK_PALETTE: PaletteEntry[] = [
   { fill: 'rgba(110, 231, 183, 0.22)', border: '#6EE7B7', label: '#DFF7EB' },
 ]
 
+export function getMermaidPalette(theme: 'light' | 'dark'): PaletteEntry[] {
+  return theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE
+}
+
+export function getMermaidPaletteEntry(theme: 'light' | 'dark', index: number): PaletteEntry {
+  const palette = getMermaidPalette(theme)
+  return palette[((index % palette.length) + palette.length) % palette.length]
+}
+
 export interface MermaidChromeTokens {
   textPrimary: string
   textSecondary: string
@@ -94,7 +103,7 @@ export function buildMermaidThemeVariables(
   theme: 'light' | 'dark',
   tokens: MermaidChromeTokens = fallbackTokensFor(theme),
 ): Record<string, string> {
-  const palette = theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE
+  const palette = getMermaidPalette(theme)
   const primary = palette[0]
   const secondary = palette[1]
   const tertiary = palette[2]
@@ -134,13 +143,106 @@ export function buildMermaidThemeVariables(
     noteBorderColor: secondary.border,
     activationBorderColor: tertiary.border,
     activationBkgColor: tertiary.fill,
+    sequenceNumberColor: tokens.textSecondary,
+    loopTextColor: tokens.textPrimary,
+    sectionBkgColor: primary.fill,
+    altSectionBkgColor: secondary.fill,
+    sectionBkgColor2: tertiary.fill,
+    excludeBkgColor: tokens.bgSecondary,
+    taskBorderColor: primary.border,
+    taskBkgColor: primary.fill,
+    activeTaskBorderColor: secondary.border,
+    activeTaskBkgColor: secondary.fill,
+    doneTaskBorderColor: palette[7].border,
+    doneTaskBkgColor: palette[7].fill,
+    critBorderColor: palette[5].border,
+    critBkgColor: palette[5].fill,
+    gridColor: tokens.borderLight,
+    todayLineColor: palette[5].border,
+    vertLineColor: tokens.borderLight,
+    taskTextColor: tokens.textPrimary,
+    taskTextOutsideColor: tokens.textSecondary,
+    taskTextLightColor: tokens.textPrimary,
+    taskTextDarkColor: tokens.textPrimary,
+    taskTextClickableColor: tokens.accentPrimary,
+    personBorder: secondary.border,
+    personBkg: secondary.fill,
+    rowOdd: tokens.bgChat,
+    rowEven: tokens.bgSecondary,
+    transitionColor: tokens.borderMedium,
+    transitionLabelColor: tokens.textPrimary,
+    stateLabelColor: tokens.textPrimary,
+    stateBkg: primary.fill,
+    labelBackgroundColor: tokens.bgChat,
+    compositeBackground: secondary.fill,
+    compositeTitleBackground: tertiary.fill,
+    compositeBorder: secondary.border,
+    altBackground: tokens.bgSecondary,
+    specialStateColor: palette[4].border,
+    classText: tokens.textPrimary,
+    archEdgeColor: tokens.borderMedium,
+    archEdgeArrowColor: tokens.borderMedium,
+    archEdgeWidth: '1.8',
+    archGroupBorderColor: tokens.borderMedium,
+    archGroupBorderWidth: '1.4',
+    quadrant1Fill: palette[0].fill,
+    quadrant2Fill: palette[1].fill,
+    quadrant3Fill: palette[2].fill,
+    quadrant4Fill: palette[4].fill,
+    quadrant1TextFill: palette[0].label,
+    quadrant2TextFill: palette[1].label,
+    quadrant3TextFill: palette[2].label,
+    quadrant4TextFill: palette[4].label,
+    quadrantPointFill: tokens.accentPrimary,
+    quadrantPointTextFill: tokens.textPrimary,
+    quadrantXAxisTextFill: tokens.textSecondary,
+    quadrantYAxisTextFill: tokens.textSecondary,
+    quadrantInternalBorderStrokeFill: tokens.borderLight,
+    quadrantExternalBorderStrokeFill: tokens.borderMedium,
+    quadrantTitleFill: tokens.textPrimary,
+    requirementBackground: primary.fill,
+    requirementBorderColor: primary.border,
+    requirementBorderSize: '1.4',
+    requirementTextColor: primary.label,
+    relationColor: tokens.borderMedium,
+    relationLabelBackground: tokens.bgChat,
+    relationLabelColor: tokens.textPrimary,
+    branchLabelColor: tokens.textPrimary,
+    tagLabelColor: tokens.textPrimary,
+    tagLabelBackground: secondary.fill,
+    tagLabelBorder: secondary.border,
+    commitLabelColor: tokens.textPrimary,
+    commitLabelBackground: tokens.bgChat,
   }
 
   palette.forEach((entry, index) => {
     vars[`cScale${index}`] = entry.fill
     vars[`cScalePeer${index}`] = entry.border
     vars[`cScaleLabel${index}`] = entry.label
+    vars[`fillType${index}`] = entry.fill
+    vars[`git${index}`] = entry.border
+    vars[`gitInv${index}`] = entry.label
+    vars[`gitBranchLabel${index}`] = entry.label
   })
+
+  for (let index = 1; index <= 12; index++) {
+    const entry = palette[(index - 1) % palette.length]
+    vars[`pie${index}`] = entry.border
+  }
+
+  for (let index = 1; index <= 8; index++) {
+    vars[`venn${index}`] = palette[(index - 1) % palette.length].fill
+  }
+
+  vars.pieTitleTextColor = tokens.textPrimary
+  vars.pieSectionTextColor = tokens.textPrimary
+  vars.pieLegendTextColor = tokens.textSecondary
+  vars.pieStrokeColor = tokens.bgChat
+  vars.pieStrokeWidth = '2px'
+  vars.pieOuterStrokeWidth = '1px'
+  vars.pieOuterStrokeColor = tokens.borderMedium
+  vars.vennTitleTextColor = tokens.textPrimary
+  vars.vennSetTextColor = tokens.textPrimary
 
   return vars
 }

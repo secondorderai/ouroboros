@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import mermaid from 'mermaid'
+import { enhanceMermaidSvg } from './mermaid-enhancer'
 import { buildMermaidThemeVariables, readChromeTokens } from './mermaid-theme'
 
 // ---------------------------------------------------------------------------
@@ -146,7 +147,8 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
         await mermaid.parse(source, { suppressErrors: false })
 
         const { svg: rendered } = await mermaid.render(id, source)
-        const normalized = normalizeRenderedSvg(rendered)
+        const enhanced = enhanceMermaidSvg(rendered, source, activeTheme)
+        const normalized = normalizeRenderedSvg(enhanced)
         svgCache.set(key, normalized)
 
         if (contentRef.current === source) {

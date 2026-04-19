@@ -3,9 +3,15 @@ import {
   buildMermaidThemeVariables,
   DARK_FALLBACK_TOKENS,
   DARK_PALETTE,
+  getMermaidPaletteEntry,
   LIGHT_FALLBACK_TOKENS,
   LIGHT_PALETTE,
 } from '../src/renderer/components/mermaid-theme'
+import {
+  detectMermaidDiagramType,
+  enhanceMermaidSvg,
+  hasAuthorMermaidStyling,
+} from '../src/renderer/components/mermaid-enhancer'
 
 describe('buildMermaidThemeVariables', () => {
   test('emits the full palette as distinct cScale entries for light theme', () => {
@@ -66,5 +72,47 @@ describe('buildMermaidThemeVariables', () => {
     expect(vars.signalColor).toBeDefined()
     expect(vars.noteBkgColor).toBeDefined()
     expect(vars.activationBkgColor).toBeDefined()
+  })
+
+  test('populates common non-flowchart diagram tokens', () => {
+    const vars = buildMermaidThemeVariables('light', LIGHT_FALLBACK_TOKENS)
+    expect(vars.pie1).toBe(LIGHT_PALETTE[0].border)
+    expect(vars.pie8).toBe(LIGHT_PALETTE[7].border)
+    expect(vars.sectionBkgColor).toBe(LIGHT_PALETTE[0].fill)
+    expect(vars.stateBkg).toBe(LIGHT_PALETTE[0].fill)
+    expect(vars.classText).toBe(LIGHT_FALLBACK_TOKENS.textPrimary)
+    expect(vars.git0).toBe(LIGHT_PALETTE[0].border)
+    expect(vars.gitBranchLabel7).toBe(LIGHT_PALETTE[7].label)
+  })
+
+  test('palette accessor wraps indexes and follows theme', () => {
+    expect(getMermaidPaletteEntry('light', 0)).toEqual(LIGHT_PALETTE[0])
+    expect(getMermaidPaletteEntry('light', LIGHT_PALETTE.length)).toEqual(LIGHT_PALETTE[0])
+    expect(getMermaidPaletteEntry('dark', 1)).toEqual(DARK_PALETTE[1])
+  })
+})
+
+describe('mermaid svg enhancement helpers', () => {
+  test('detects common mermaid diagram families from source', () => {
+    expect(detectMermaidDiagramType('graph TD\nA --> B')).toBe('flowchart')
+    expect(detectMermaidDiagramType('sequenceDiagram\nA->>B: hello')).toBe('sequence')
+    expect(detectMermaidDiagramType('stateDiagram-v2\n[*] --> Ready')).toBe('state')
+    expect(detectMermaidDiagramType('classDiagram\nclass User')).toBe('class')
+    expect(detectMermaidDiagramType('erDiagram\nUSER ||--o{ ORDER : places')).toBe('er')
+    expect(detectMermaidDiagramType('gantt\ndateFormat YYYY-MM-DD')).toBe('gantt')
+    expect(detectMermaidDiagramType('mindmap\n  root')).toBe('mindmap')
+    expect(detectMermaidDiagramType('pie title Share')).toBe('chart')
+    expect(detectMermaidDiagramType('not mermaid')).toBe('unknown')
+  })
+
+  test('detects author-provided mermaid styling that should not be overwritten', () => {
+    expect(hasAuthorMermaidStyling('graph TD\nclassDef hot fill:#f00\nA:::hot')).toBe(true)
+    expect(hasAuthorMermaidStyling('graph TD\nstyle A fill:#f00')).toBe(true)
+    expect(hasAuthorMermaidStyling('graph TD\nA --> B')).toBe(false)
+  })
+
+  test('fails open without browser svg parser globals', () => {
+    const svg = '<svg><g class="node"><rect x="0" y="0" width="10" height="10"/></g></svg>'
+    expect(enhanceMermaidSvg(svg, 'graph TD\nA --> B', 'light')).toBe(svg)
   })
 })

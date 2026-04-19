@@ -590,16 +590,15 @@
   border-radius: var(--radius-comfortable);
   border: 1px solid color-mix(in srgb, var(--border-light) 76%, transparent 24%);
   background:
-    radial-gradient(
-      circle at top,
-      color-mix(in srgb, var(--accent-muted) 46%, transparent 54%),
-      transparent 45%
-    ),
+    radial-gradient(color-mix(in srgb, var(--border-light) 26%, transparent 74%) 1px, transparent 1px),
     linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bg-chat) 88%, transparent 12%) 0%,
+      135deg,
+      color-mix(in srgb, var(--bg-chat) 92%, transparent 8%) 0%,
       var(--bg-secondary) 100%
     );
+  background-size:
+    18px 18px,
+    auto;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
@@ -684,10 +683,23 @@
 .markdown-body .mermaid-diagram :where(svg .cluster rect) {
   rx: 16px;
   ry: 16px;
+  filter: drop-shadow(0 10px 22px rgba(15, 23, 42, 0.08));
 }
 
 .markdown-body .mermaid-diagram :where(svg .edgePath path, svg .flowchart-link) {
   stroke-width: 1.8px;
+}
+
+.markdown-body .mermaid-diagram :where(svg[data-ou-enhanced='true'] .node rect, svg[data-ou-enhanced='true'] .node polygon, svg[data-ou-enhanced='true'] .node circle, svg[data-ou-enhanced='true'] .node ellipse) {
+  filter: drop-shadow(0 7px 16px rgba(15, 23, 42, 0.12));
+}
+
+.markdown-body .mermaid-diagram :where(svg[data-ou-diagram-type='sequence'] .actor, svg[data-ou-diagram-type='sequence'] [class*='activation']) {
+  filter: drop-shadow(0 5px 12px rgba(15, 23, 42, 0.1));
+}
+
+.markdown-body .mermaid-diagram :where(svg[data-ou-diagram-type='gantt'] .section, svg[data-ou-diagram-type='timeline'] rect, svg[data-ou-diagram-type='journey'] rect) {
+  shape-rendering: geometricPrecision;
 }
 
 /* Error state */
@@ -866,16 +878,15 @@
   overflow: auto;
   padding: 20px;
   background:
-    radial-gradient(
-      circle at top,
-      color-mix(in srgb, var(--accent-muted) 36%, transparent 64%),
-      transparent 42%
-    ),
+    radial-gradient(color-mix(in srgb, var(--border-light) 22%, transparent 78%) 1px, transparent 1px),
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--bg-primary) 88%, var(--bg-chat) 12%) 0%,
       var(--bg-primary) 100%
     );
+  background-size:
+    20px 20px,
+    auto;
 }
 
 .mermaid-lightbox__canvas {
