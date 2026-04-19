@@ -92,7 +92,8 @@ function registerRpcHandler(ctx: IpcHandlerContext): void {
 
         const result = await ctx.rpcClient.send(method, params)
 
-        // Persist API keys to electron-store so they survive restarts
+        // Keep the legacy electron-store copy for existing UI state only. The CLI
+        // persists API keys to .ouroboros and reloads that file on respawn.
         if (method === 'config/setApiKey' && params) {
           const provider = params.provider as string
           const apiKey = params.apiKey as string
@@ -100,8 +101,6 @@ function registerRpcHandler(ctx: IpcHandlerContext): void {
             const apiKeys = ctx.store.get('apiKeys', {})
             apiKeys[provider] = apiKey
             ctx.store.set('apiKeys', apiKeys)
-            // Update env vars for future CLI respawns
-            ctx.cliProcess.setExtraEnv({ ...getApiKeyEnv(apiKeys) })
           }
         }
 
@@ -113,16 +112,6 @@ function registerRpcHandler(ctx: IpcHandlerContext): void {
       }
     },
   )
-}
-
-function getApiKeyEnv(apiKeys: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {}
-  if (apiKeys.anthropic) env.ANTHROPIC_API_KEY = apiKeys.anthropic
-  if (apiKeys.openai) env.OPENAI_API_KEY = apiKeys.openai
-  if (apiKeys['openai-compatible']) {
-    env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = apiKeys['openai-compatible']
-  }
-  return env
 }
 
 function registerDialogHandlers(): void {

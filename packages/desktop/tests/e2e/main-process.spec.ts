@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 import type { LaunchedApp } from './helpers'
 import { completeOnboarding, launchTestApp } from './helpers'
 
@@ -41,6 +42,21 @@ test('renderer can observe CLI ready status and round-trip a JSON-RPC request th
       provider: 'anthropic',
     },
   })
+})
+
+test('main process does not inject stale stored API keys into CLI environment', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    userDataConfig: {
+      apiKeys: {
+        'openai-compatible': 'stale-key-from-electron-store',
+      },
+    },
+  })
+
+  await expect.poll(async () => launched!.app.evaluate(({ app }) => app.getName())).toBe('Ouroboros')
+
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  expect(log).toContain('"hasOpenAICompatibleApiKey":false')
 })
 
 test('the main process reports restarting when the CLI crashes and recovers on the next spawn', async ({}, testInfo) => {

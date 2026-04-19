@@ -69,6 +69,7 @@ export interface LaunchOptions {
   updateDownloadedVersion?: string
   updateDownloadedDelayMs?: number
   env?: Record<string, string | undefined>
+  userDataConfig?: Record<string, unknown>
 }
 
 export interface LaunchedApp {
@@ -100,6 +101,12 @@ export async function launchTestApp(
   const testUserDataDir = path.join(runtimeDir, 'user-data')
 
   await mkdir(testUserDataDir, { recursive: true })
+  if (options.userDataConfig) {
+    await writeFile(
+      path.join(testUserDataDir, 'config.json'),
+      JSON.stringify(options.userDataConfig, null, 2),
+    )
+  }
   await writeFile(testScenarioPath, JSON.stringify(options.scenario ?? {}, null, 2))
   await writeFile(testDialogResponsesPath, JSON.stringify(options.dialogResponses ?? [], null, 2))
   await writeFile(testUpdateDownloadedPath, options.updateDownloadedVersion ?? '')

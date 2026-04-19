@@ -111,6 +111,14 @@ const defaultConfig = {
 const scenario = loadScenario()
 const statePath = process.env.OUROBOROS_TEST_STATE_PATH
 const logPath = process.env.OUROBOROS_TEST_MOCK_LOG_PATH
+logLine(
+  'env',
+  JSON.stringify({
+    hasAnthropicApiKey: Boolean(process.env.ANTHROPIC_API_KEY),
+    hasOpenAIApiKey: Boolean(process.env.OPENAI_API_KEY),
+    hasOpenAICompatibleApiKey: Boolean(process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY),
+  }),
+)
 const persistedState = loadState()
 persistedState.launchCount += 1
 saveState(persistedState)

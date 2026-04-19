@@ -114,17 +114,6 @@ app.on('before-quit', async (event) => {
 
 // ── CLI Process & RPC Initialization ───────────────────────────────
 
-function getStoredApiKeyEnv(): Record<string, string> {
-  const apiKeys = store.get('apiKeys', {})
-  const env: Record<string, string> = {}
-  if (apiKeys.anthropic) env.ANTHROPIC_API_KEY = apiKeys.anthropic
-  if (apiKeys.openai) env.OPENAI_API_KEY = apiKeys.openai
-  if (apiKeys['openai-compatible']) {
-    env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = apiKeys['openai-compatible']
-  }
-  return env
-}
-
 function initializeCLI(): { cliProcess: CLIProcessManager; rpcClient: RpcClient } {
   const client = new RpcClient()
 
@@ -132,7 +121,6 @@ function initializeCLI(): { cliProcess: CLIProcessManager; rpcClient: RpcClient 
     onStdoutLine: (line) => client.handleLine(line),
     onStderrLine: (line) => writeTestLog(`[cli-stderr] ${line}`),
     onStatusChange: (status) => writeTestLog(`[cli-status] ${status}`),
-    extraEnv: getStoredApiKeyEnv(),
   })
 
   client.attach(cli)
