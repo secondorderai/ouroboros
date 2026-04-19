@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Ouroboros pre-push guardrail.
+#
+# Runs lint, typecheck, and the CLI test suite before every `git push` so
+# regressions are caught locally instead of on CI. Desktop E2E is skipped
+# here (too slow for every push); CI runs it.
+#
+# To bypass in an emergency: `git push --no-verify` (not recommended).
+
+set -e
+
+bun run lint
+bun run ts-check
+bun run test:cli

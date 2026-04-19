@@ -10,9 +10,17 @@
     "dev": "cd packages/cli && bun run dev",
     "build": "bun run --filter @ouroboros/cli build",
     "test": "bun run --filter @ouroboros/cli test",
-    "test:all": "bun run --filter @ouroboros/cli test:all",
+    "test:cli": "bun run --filter @ouroboros/cli test",
+    "test:cli:live": "bun run --filter @ouroboros/cli test:live",
+    "test:desktop": "bun run --filter @ouroboros/desktop test:e2e",
+    "test:all": "bun run test:cli && bun run test:desktop",
     "lint": "bun run --filter '*' lint",
-    "ts-check": "bun run --filter '*' ts-check"
+    "ts-check": "bun run --filter '*' ts-check",
+    "verify": "bun run lint && bun run ts-check && bun run test:all",
+    "prepare": "husky || true"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
   },
   "dependencies": {
     "mermaid": "^11.14.0"
