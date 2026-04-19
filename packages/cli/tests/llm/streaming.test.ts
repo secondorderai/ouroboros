@@ -673,6 +673,33 @@ describe('toModelMsgs', () => {
     expect(result[0]).toEqual({ role: 'user', content: 'Hello' })
   })
 
+  test('converts user message with multiple image file parts', () => {
+    const firstImage = new Uint8Array([1, 2, 3])
+    const secondImage = new Uint8Array([4, 5, 6])
+    const msgs: LLMMessage[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Compare these screens' },
+          { type: 'file', data: firstImage, mediaType: 'image/png', filename: 'a.png' },
+          { type: 'file', data: secondImage, mediaType: 'image/webp', filename: 'b.webp' },
+        ],
+      },
+    ]
+
+    const result = toModelMsgs(msgs)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Compare these screens' },
+        { type: 'file', data: firstImage, mediaType: 'image/png', filename: 'a.png' },
+        { type: 'file', data: secondImage, mediaType: 'image/webp', filename: 'b.webp' },
+      ],
+    })
+  })
+
   test('converts assistant message without toolCalls', () => {
     const msgs: LLMMessage[] = [{ role: 'assistant', content: 'Hi there' }]
     const result = toModelMsgs(msgs)

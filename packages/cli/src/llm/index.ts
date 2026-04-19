@@ -11,6 +11,11 @@ export { streamResponse, generateResponse, toModelMsgs } from './streaming'
 export { buildSystemPrompt, type BuildSystemPromptOptions, type SkillEntry } from './prompt'
 export type {
   LLMMessage,
+  LLMUserContent,
+  LLMUserContentPart,
+  LLMTextPart,
+  LLMFilePart,
+  ImageAttachment,
   ToolCall,
   ToolResult,
   StreamChunk,
@@ -21,3 +26,4 @@ export type {
   LLMCallOptions,
   LLMToolSpec,
 } from './types'
+export { llmUserContentToText } from './types'

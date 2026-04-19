@@ -22,6 +22,7 @@ import { Agent } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import type { ToolDefinition } from '@src/tools/types'
 import { TranscriptStore } from '@src/memory/transcripts'
+import { llmUserContentToText } from '@src/llm/types'
 import * as fileWriteTool from '@src/tools/file-write'
 import * as fileReadTool from '@src/tools/file-read'
 import { existsSync, readFileSync } from 'node:fs'
@@ -151,7 +152,7 @@ describe('E2E Smoke Test', () => {
       // Store the full conversation in the transcript
       for (const msg of history) {
         if (msg.role === 'user') {
-          store.addMessage(sessionId, { role: 'user', content: msg.content })
+          store.addMessage(sessionId, { role: 'user', content: llmUserContentToText(msg.content) })
         } else if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
           // Assistant message with tool calls
           const toolCallText = msg.toolCalls

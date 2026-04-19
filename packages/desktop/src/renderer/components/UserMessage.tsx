@@ -10,7 +10,7 @@ const wrapperStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'flex-end',
   padding: '0 16px',
-};
+}
 
 const bubbleStyle: React.CSSProperties = {
   maxWidth: '80%',
@@ -42,6 +42,38 @@ const fileChipStyle: React.CSSProperties = {
   marginRight: 6,
 }
 
+const imageGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
+  gap: 8,
+  marginTop: 10,
+  maxWidth: 360,
+}
+
+const imageAttachmentStyle: React.CSSProperties = {
+  border: '1px solid var(--border-light)',
+  borderRadius: 6,
+  overflow: 'hidden',
+  background: 'var(--bg-secondary)',
+}
+
+const imagePreviewStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  aspectRatio: '4 / 3',
+  objectFit: 'cover',
+}
+
+const imageNameStyle: React.CSSProperties = {
+  display: 'block',
+  padding: '4px 6px',
+  color: 'var(--text-secondary)',
+  fontSize: 11,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -64,6 +96,20 @@ export const UserMessage: React.FC<UserMessageProps> = ({ message }) => (
             <span key={i} style={fileChipStyle}>
               {file.split('/').pop()}
             </span>
+          ))}
+        </div>
+      )}
+      {message.imageAttachments && message.imageAttachments.length > 0 && (
+        <div style={imageGridStyle}>
+          {message.imageAttachments.map((image) => (
+            <div key={image.path} style={imageAttachmentStyle}>
+              {image.previewDataUrl ? (
+                <img src={image.previewDataUrl} alt={image.name} style={imagePreviewStyle} />
+              ) : null}
+              <span style={imageNameStyle} title={image.path}>
+                {image.name}
+              </span>
+            </div>
           ))}
         </div>
       )}

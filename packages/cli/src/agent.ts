@@ -13,7 +13,16 @@ import { getAgentsMdInstructions } from '@src/agents-md'
 import { loadConfig, type OuroborosConfig } from '@src/config'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
 import { streamResponse } from '@src/llm/streaming'
-import type { FinishReason, LLMMessage, LLMToolSpec, StreamChunk, ToolCall } from '@src/llm/types'
+import {
+  llmUserContentToText,
+  type FinishReason,
+  type LLMFilePart,
+  type LLMMessage,
+  type LLMToolSpec,
+  type LLMUserContent,
+  type StreamChunk,
+  type ToolCall,
+} from '@src/llm/types'
 import { readCheckpoint, reflectCheckpoint } from '@src/memory/checkpoints'
 import { loadLayeredMemory, type LayeredMemorySections } from '@src/memory/loaders'
 import { appendObservationBatch, type NewObservationInput } from '@src/memory/observations'
@@ -114,6 +123,7 @@ export interface AgentRunOptions {
   responseStyle?: 'default' | 'desktop-readable'
   maxSteps?: number
   runProfile?: AgentRunProfile
+  images?: LLMFilePart[]
 }
 
 export type ContextBudgetThreshold = 'within-budget' | 'warn' | 'flush' | 'compact'
@@ -159,6 +169,17 @@ function summarizeText(text: string, maxLength = 160): string {
   }
 
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+function createUserContent(text: string, images?: LLMFilePart[]): LLMUserContent {
+  if (!images || images.length === 0) return text
+
+  const parts: LLMUserContent = []
+  if (text.trim().length > 0) {
+    parts.push({ type: 'text', text })
+  }
+  parts.push(...images)
+  return parts
 }
 
 function checkpointToObservationInputs(checkpoint: ReflectionCheckpoint): NewObservationInput[] {
@@ -264,7 +285,7 @@ function estimateConversationTokens(messages: LLMMessage[]): { live: number; too
       continue
     }
 
-    let text = message.content
+    let text = message.role === 'user' ? llmUserContentToText(message.content) : message.content
     if (message.role === 'assistant' && message.toolCalls && message.toolCalls.length > 0) {
       const toolCallText = message.toolCalls
         .map((toolCall) => `${toolCall.toolName}:${serializeUnknown(toolCall.input)}`)
@@ -427,7 +448,10 @@ export class Agent {
    */
   async run(userMessage: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
     // Append user message to conversation history
-    this.conversationHistory.push({ role: 'user', content: userMessage })
+    this.conversationHistory.push({
+      role: 'user',
+      content: createUserContent(userMessage, options.images),
+    })
 
     const maxSteps = this.resolveMaxSteps(options)
     let iterations = 0
@@ -1034,12 +1058,13 @@ export class Agent {
 
     for (const message of messages) {
       if (message.role === 'user') {
-        const summary = summarizeText(message.content)
+        const textContent = llmUserContentToText(message.content)
+        const summary = summarizeText(textContent)
         if (shouldCaptureGoal && summary.length > 0) {
           inputs.push({
             kind: 'goal',
             summary,
-            evidence: [message.content],
+            evidence: [textContent],
             priority: 'high',
             tags: ['context-manager', 'latest-goal'],
           })
@@ -1051,7 +1076,7 @@ export class Agent {
           id: openLoopId,
           kind: 'open-loop',
           summary,
-          evidence: [message.content],
+          evidence: [textContent],
           priority: 'normal',
           tags: ['context-manager', 'user-turn'],
         })

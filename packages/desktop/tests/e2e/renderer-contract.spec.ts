@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import type { LaunchedApp } from './helpers'
 import {
   clearClientState,
@@ -28,6 +30,32 @@ async function openMainApp(): Promise<void> {
   })
   await launched.page.reload()
   await expect(launched.page.getByLabel('Message input')).toBeVisible()
+}
+
+async function writeTestImageFiles(prefix: string): Promise<{
+  pngPath: string
+  jpgPath: string
+  webpPath: string
+  gifPath: string
+}> {
+  const dir = await mkdtemp(path.join(tmpdir(), prefix))
+  const pngPath = path.join(dir, 'diagram.png')
+  const jpgPath = path.join(dir, 'photo.jpg')
+  const webpPath = path.join(dir, 'mockup.webp')
+  const gifPath = path.join(dir, 'animation.gif')
+
+  await writeFile(
+    pngPath,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  )
+  await writeFile(jpgPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+  await writeFile(webpPath, Buffer.from('RIFF\x0c\x00\x00\x00WEBPVP8 \x00\x00\x00\x00', 'binary'))
+  await writeFile(gifPath, Buffer.from('GIF89a', 'binary'))
+
+  return { pngPath, jpgPath, webpPath, gifPath }
 }
 
 test('onboarding renders and preload bridges are available', async ({}, testInfo) => {
@@ -174,6 +202,120 @@ test('onboarding creates a session for the first chat history entry', async ({},
     .toContain('"method":"session/new"')
 })
 
+test('native attachment dialog adds multiple images, de-dupes, rejects unsupported images, and sends metadata', async ({}, testInfo) => {
+  const { pngPath, jpgPath, gifPath } = await writeTestImageFiles('ouroboros-images-dialog-')
+  launched = await launchTestApp(testInfo, {
+    dialogResponses: [[pngPath, jpgPath, pngPath, gifPath]],
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'Image context received.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          { delayMs: 10, method: 'agent/text', params: { text: 'Image context received.' } },
+          {
+            delayMs: 20,
+            method: 'agent/turnComplete',
+            params: { text: 'Image context received.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByRole('button', { name: 'Attach files' }).click()
+
+  await expect(launched.page.getByRole('button', { name: 'Remove diagram.png' })).toHaveCount(1)
+  await expect(launched.page.getByRole('button', { name: 'Remove photo.jpg' })).toHaveCount(1)
+  await expect(launched.page.getByText(/Could not attach animation\.gif/)).toBeVisible()
+
+  await launched.page.getByRole('button', { name: 'Remove photo.jpg' }).click()
+  await expect(launched.page.getByRole('button', { name: 'Remove photo.jpg' })).toHaveCount(0)
+
+  await launched.page.getByLabel('Message input').fill('Describe the attached image')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Image context received.')).toBeVisible()
+  const pngImage = launched.page.getByRole('img', { name: 'diagram.png' })
+  await expect(pngImage).toBeVisible()
+  // Guard against CSP regressions that block `data:` URLs in <img> src.
+  await expect
+    .poll(async () =>
+      pngImage.evaluate((el) => {
+        const img = el as HTMLImageElement
+        return img.complete && img.naturalWidth > 0
+      }),
+    )
+    .toBe(true)
+  await expect(launched.page.getByText('photo.jpg')).toHaveCount(0)
+
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"method":"agent/run"')
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  expect(log).toContain('"images"')
+  expect(log).toContain('"name":"diagram.png"')
+  expect(log).toContain('"mediaType":"image/png"')
+  expect(log).not.toContain('"name":"photo.jpg"')
+  expect(log).not.toContain('previewDataUrl')
+})
+
+test('dragged image paths use validation and image metadata in the agent run payload', async ({}, testInfo) => {
+  const { webpPath, gifPath } = await writeTestImageFiles('ouroboros-images-drop-')
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'Dropped image received.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          { delayMs: 10, method: 'agent/text', params: { text: 'Dropped image received.' } },
+          {
+            delayMs: 20,
+            method: 'agent/turnComplete',
+            params: { text: 'Dropped image received.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await launched.page.evaluate(
+    ([currentWebpPath, currentGifPath]) => {
+      const addFiles = (window as unknown as Record<string, unknown>).__inputBarAddFiles as
+        | ((files: string[]) => void)
+        | undefined
+      addFiles?.([currentWebpPath, currentGifPath, currentWebpPath])
+    },
+    [webpPath, gifPath],
+  )
+
+  await expect(launched.page.getByRole('button', { name: 'Remove mockup.webp' })).toHaveCount(1)
+  await expect(launched.page.getByText(/Could not attach animation\.gif/)).toBeVisible()
+
+  await launched.page.getByLabel('Message input').fill('Use the dropped image')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Dropped image received.')).toBeVisible()
+  await expect(launched.page.getByRole('img', { name: 'mockup.webp' })).toBeVisible()
+
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"name":"mockup.webp"')
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  expect(log).toContain('"mediaType":"image/webp"')
+  expect(log).not.toContain('animation.gif')
+  expect(log).not.toContain('previewDataUrl')
+})
+
 test('approval notifications populate the UI and failed responses keep the approval visible', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()
@@ -235,9 +377,7 @@ test('ask-user notification opens modal and submits selected option', async ({},
   await expect(launched.page.getByText('Choose a release channel')).toBeVisible()
   await expect(launched.page.getByRole('radio', { name: 'Stable' })).toBeVisible()
   await expect(launched.page.getByLabel('Custom response')).toBeVisible()
-  await expect(
-    launched.page.getByRole('button', { name: /Waiting for your answer/ }),
-  ).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: /Waiting for your answer/ })).toBeVisible()
 
   await launched.page.getByRole('radio', { name: 'Beta' }).click()
   await launched.page.getByRole('button', { name: 'Submit' }).click()
@@ -332,9 +472,8 @@ test('settings can switch to ChatGPT subscription and sign out cleanly', async (
   await openMainApp()
 
   await launched.page.evaluate((currentModKey) => {
-    const init = currentModKey === 'metaKey'
-      ? { key: ',', metaKey: true }
-      : { key: ',', ctrlKey: true }
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
     window.dispatchEvent(new KeyboardEvent('keydown', init))
   }, modKey)
 
@@ -349,6 +488,48 @@ test('settings can switch to ChatGPT subscription and sign out cleanly', async (
 
   await launched.page.getByRole('button', { name: 'Sign out' }).click()
   await expect(launched.page.getByText('Disconnected from ChatGPT subscription')).toBeVisible()
+})
+
+test('loaded session shows tool-call chips alongside assistant messages', async ({}, testInfo) => {
+  const historicalTimestamp = new Date(Date.now() - 60_000).toISOString()
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      sessions: [
+        {
+          id: 'session-with-tools',
+          createdAt: historicalTimestamp,
+          lastActive: historicalTimestamp,
+          title: 'Historical tool-using chat',
+          messages: [
+            {
+              role: 'user',
+              content: 'Search for ouroboros repo',
+              timestamp: historicalTimestamp,
+            },
+            {
+              role: 'assistant',
+              content: 'Found it in the results below.',
+              timestamp: historicalTimestamp,
+              toolCalls: [
+                {
+                  id: 'loaded-tool-1',
+                  toolName: 'web-search',
+                  input: { query: 'ouroboros repo' },
+                  output: { results: ['repo-link'] },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByRole('button', { name: /Session: Historical tool-using chat/ }).click()
+
+  await expect(launched.page.getByText('Found it in the results below.')).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: /Searched web/ })).toBeVisible()
 })
 
 test('agent notifications finalize chat output and completed tool calls', async ({}, testInfo) => {
@@ -424,9 +605,7 @@ test('running sessions show sidebar and chat processing indicators', async ({}, 
 
   await expect(launched.page.getByLabel('Session is still processing')).toBeVisible()
   await expect(launched.page.getByText('Working', { exact: true })).toBeVisible()
-  await expect(
-    launched.page.getByText('Ouroboros is still working in this session'),
-  ).toBeVisible()
+  await expect(launched.page.getByText('Ouroboros is still working in this session')).toBeVisible()
 
   await emitNotification(launched.page, 'agent/toolCallStart', {
     toolCallId: 'tool-processing-1',
@@ -562,7 +741,9 @@ test('desktop chat uses readable assistant layout and desktop-specific response 
 
   const layoutMetrics = await assistantMessage.evaluate((node) => {
     const markdownBody = node.querySelector('.markdown-body') as HTMLElement | null
-    const content = node.querySelector('[data-testid="agent-message-content"]') as HTMLElement | null
+    const content = node.querySelector(
+      '[data-testid="agent-message-content"]',
+    ) as HTMLElement | null
     const codeBlock = node.querySelector('.code-block-wrapper') as HTMLElement | null
 
     if (!markdownBody || !content || !codeBlock) {
@@ -587,13 +768,15 @@ test('desktop chat uses readable assistant layout and desktop-specific response 
       }
     })
 
-  const listSpacing = await launched.page.getByText('Keep the bullet count short.').evaluate((node) => {
-    const el = (node.closest('li') as HTMLElement | null) ?? (node as HTMLElement)
-    return {
-      tagName: el.tagName,
-      marginBottom: Number.parseFloat(getComputedStyle(el).marginBottom),
-    }
-  })
+  const listSpacing = await launched.page
+    .getByText('Keep the bullet count short.')
+    .evaluate((node) => {
+      const el = (node.closest('li') as HTMLElement | null) ?? (node as HTMLElement)
+      return {
+        tagName: el.tagName,
+        marginBottom: Number.parseFloat(getComputedStyle(el).marginBottom),
+      }
+    })
 
   expect(layoutMetrics.firstBlockTag).toBe('H2')
   expect(layoutMetrics.contentWidth).toBeLessThan(layoutMetrics.viewportWidth * 0.72)

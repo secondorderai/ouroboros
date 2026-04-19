@@ -34,7 +34,22 @@ export function toModelMsgs(messages: LLMMessage[]): ModelMessage[] {
       return { role: 'system' as const, content: msg.content }
     }
     if (msg.role === 'user') {
-      return { role: 'user' as const, content: msg.content }
+      if (typeof msg.content === 'string') {
+        return { role: 'user' as const, content: msg.content }
+      }
+      return {
+        role: 'user' as const,
+        content: msg.content.map((part) =>
+          part.type === 'text'
+            ? { type: 'text' as const, text: part.text }
+            : {
+                type: 'file' as const,
+                data: part.data,
+                mediaType: part.mediaType,
+                ...(part.filename ? { filename: part.filename } : {}),
+              },
+        ),
+      }
     }
     if (msg.role === 'tool') {
       return {

@@ -33,13 +33,27 @@ interface LaunchSpec {
   startupNotifications?: NotificationSpec[]
 }
 
+interface MockSessionMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+  imageAttachments?: Json[]
+  toolCalls?: Array<{
+    id: string
+    toolName: string
+    input?: unknown
+    output?: unknown
+    error?: string
+  }>
+}
+
 interface MockSession {
   id: string
   createdAt: string
   lastActive: string
   title?: string
   workspacePath?: string | null
-  messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>
+  messages: MockSessionMessage[]
 }
 
 interface MockScenario {

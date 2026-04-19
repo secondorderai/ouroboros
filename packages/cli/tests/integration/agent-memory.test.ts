@@ -16,6 +16,7 @@ import { readObservations } from '@src/memory/observations'
 import { readTopic } from '@src/memory/topics'
 import { createExecute as createMemoryExecute } from '@src/tools/memory'
 import { buildSystemPrompt } from '@src/llm/prompt'
+import { llmUserContentToText } from '@src/llm/types'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import { dirname, join } from 'node:path'
@@ -625,7 +626,7 @@ describe('Agent + Memory Integration', () => {
       const history = agent.getConversationHistory()
       for (const msg of history) {
         if (msg.role === 'user') {
-          store.addMessage(sessionId, { role: 'user', content: msg.content })
+          store.addMessage(sessionId, { role: 'user', content: llmUserContentToText(msg.content) })
         } else if (msg.role === 'assistant' && typeof msg.content === 'string') {
           store.addMessage(sessionId, { role: 'assistant', content: msg.content })
         }
@@ -685,7 +686,7 @@ describe('Agent + Memory Integration', () => {
       const history = agent.getConversationHistory()
       for (const msg of history) {
         if (msg.role === 'user') {
-          store.addMessage(sessionId, { role: 'user', content: msg.content })
+          store.addMessage(sessionId, { role: 'user', content: llmUserContentToText(msg.content) })
         } else if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
           for (const tc of msg.toolCalls) {
             store.addMessage(sessionId, {

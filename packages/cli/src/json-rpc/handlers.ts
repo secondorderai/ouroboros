@@ -6,8 +6,8 @@
  * throws an error (caught by the dispatcher).
  */
 
-import { readdirSync } from 'node:fs'
-import { extname } from 'node:path'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { basename, extname } from 'node:path'
 import type { Agent, AgentEvent } from '@src/agent'
 import type { ModeManager } from '@src/modes/manager'
 import type { ModeId } from '@src/modes/types'
@@ -18,7 +18,7 @@ import {
 } from '@src/auth/openai-chatgpt'
 import type { OuroborosConfig } from '@src/config'
 import { loadConfig, resolveConfigDir } from '@src/config'
-import type { LLMMessage } from '@src/llm/types'
+import type { LLMFilePart, LLMMessage } from '@src/llm/types'
 import { saveConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { readCheckpoint } from '@src/memory/checkpoints'
@@ -33,6 +33,15 @@ import { writeMessage } from './transport'
 // ── Types ────────────────────────────────────────────────────────────
 
 export type MethodHandler = (params: Record<string, unknown>) => Promise<unknown>
+
+type SupportedImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp'
+
+interface ImageAttachmentMetadata {
+  path: string
+  name: string
+  mediaType: SupportedImageMediaType
+  sizeBytes: number
+}
 
 export interface HandlerContext {
   /** Lazily creates the agent on first call. Throws if the provider can't be created (e.g. missing API key). */
@@ -65,6 +74,15 @@ export class HandlerError extends Error {
     super(message)
     this.name = 'HandlerError'
   }
+}
+
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+const SUPPORTED_IMAGE_MEDIA_TYPES = new Set<string>(['image/jpeg', 'image/png', 'image/webp'])
+const IMAGE_MEDIA_TYPES_BY_EXT: Record<string, SupportedImageMediaType> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
 }
 
 // ── Event-to-notification bridge ─────────────────────────────────────
@@ -253,6 +271,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         'params.maxSteps must be a positive integer when provided',
       )
     }
+    const images = validateAndReadImageAttachments(params.images)
 
     // Cancel any prior run
     if (ctx.currentRunAbort) {
@@ -274,6 +293,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
             : undefined,
         runProfile: client === 'desktop' ? 'desktop' : 'automation',
         maxSteps: maxSteps ?? ctx.maxStepsOverride,
+        images,
       })
       const sessionId = ctx.currentSessionId
       if (sessionId) {
@@ -852,29 +872,258 @@ function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: Transcri
   }
 }
 
+function validateAndReadImageAttachments(value: unknown): LLMFilePart[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) {
+    throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.images must be an array')
+  }
+
+  const images: LLMFilePart[] = []
+  for (const [index, item] of value.entries()) {
+    const metadata = parseIncomingImageAttachment(item, index)
+    const image = readImageFilePart(metadata, index)
+    if (image) images.push(image)
+  }
+  return images
+}
+
+function parseIncomingImageAttachment(value: unknown, index: number): ImageAttachmentMetadata {
+  if (value == null || typeof value !== 'object') {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.images[${index}] must be an object`,
+    )
+  }
+
+  const record = value as Record<string, unknown>
+  const path = record.path
+  const name = record.name
+  const mediaType = record.mediaType
+  const sizeBytes = record.sizeBytes
+
+  if (typeof path !== 'string' || path.trim().length === 0) {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.images[${index}].path must be a non-empty string`,
+    )
+  }
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.images[${index}].name must be a non-empty string`,
+    )
+  }
+  if (typeof mediaType !== 'string' || !SUPPORTED_IMAGE_MEDIA_TYPES.has(mediaType)) {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.images[${index}].mediaType must be image/jpeg, image/png, or image/webp`,
+    )
+  }
+  if (
+    typeof sizeBytes !== 'number' ||
+    !Number.isInteger(sizeBytes) ||
+    sizeBytes < 0 ||
+    sizeBytes > MAX_IMAGE_BYTES
+  ) {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.images[${index}].sizeBytes must be an integer up to 20 MB`,
+    )
+  }
+
+  const extMediaType = IMAGE_MEDIA_TYPES_BY_EXT[extname(path).toLowerCase()]
+  if (!extMediaType || extMediaType !== mediaType) {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.images[${index}] has an unsupported image file extension`,
+    )
+  }
+
+  return { path, name, mediaType: mediaType as SupportedImageMediaType, sizeBytes }
+}
+
+function readImageFilePart(
+  metadata: ImageAttachmentMetadata,
+  indexForErrors?: number,
+): LLMFilePart | null {
+  try {
+    const stats = statSync(metadata.path)
+    if (!stats.isFile()) {
+      if (indexForErrors === undefined) return null
+      throw new Error('path is not a file')
+    }
+    if (stats.size > MAX_IMAGE_BYTES) {
+      if (indexForErrors === undefined) return null
+      throw new Error('image is larger than 20 MB')
+    }
+    const extMediaType = IMAGE_MEDIA_TYPES_BY_EXT[extname(metadata.path).toLowerCase()]
+    if (!extMediaType || extMediaType !== metadata.mediaType) {
+      if (indexForErrors === undefined) return null
+      throw new Error('unsupported image file extension')
+    }
+
+    return {
+      type: 'file',
+      data: readFileSync(metadata.path),
+      mediaType: metadata.mediaType,
+      filename: metadata.name || basename(metadata.path),
+      path: metadata.path,
+      sizeBytes: stats.size,
+    }
+  } catch (error) {
+    if (indexForErrors === undefined) return null
+    const message = error instanceof Error ? error.message : String(error)
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.images[${indexForErrors}] could not be read: ${message}`,
+    )
+  }
+}
+
+function parseImageAttachmentMetadata(toolArgs: string | null): ImageAttachmentMetadata[] {
+  if (!toolArgs) return []
+  try {
+    const parsed = JSON.parse(toolArgs) as { imageAttachments?: unknown }
+    if (!Array.isArray(parsed.imageAttachments)) return []
+    return parsed.imageAttachments.filter(isImageAttachmentMetadata)
+  } catch {
+    return []
+  }
+}
+
+function isImageAttachmentMetadata(value: unknown): value is ImageAttachmentMetadata {
+  if (value == null || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.path === 'string' &&
+    typeof record.name === 'string' &&
+    typeof record.mediaType === 'string' &&
+    SUPPORTED_IMAGE_MEDIA_TYPES.has(record.mediaType) &&
+    typeof record.sizeBytes === 'number'
+  )
+}
+
+interface DesktopToolCall {
+  id: string
+  toolName: string
+  input?: unknown
+  output?: unknown
+  error?: string
+}
+
+interface DesktopSessionMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+  imageAttachments?: ImageAttachmentMetadata[]
+  toolCalls?: DesktopToolCall[]
+}
+
+function parseJsonOrRaw(value: string | null): unknown {
+  if (value == null) return undefined
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
 function toDesktopSessionData(session: SessionWithMessages) {
+  const messages: DesktopSessionMessage[] = []
+  let currentAssistant: DesktopSessionMessage | null = null
+  // FIFO queue of tool-calls awaiting a matching tool-result row.
+  let pendingByName: Map<string, DesktopToolCall[]> = new Map()
+
+  for (const row of session.messages) {
+    if (row.role === 'user') {
+      currentAssistant = null
+      pendingByName = new Map()
+      messages.push({
+        role: 'user',
+        content: row.content,
+        timestamp: row.createdAt,
+        imageAttachments: parseImageAttachmentMetadata(row.toolArgs),
+      })
+      continue
+    }
+
+    if (row.role === 'assistant') {
+      currentAssistant = {
+        role: 'assistant',
+        content: row.content,
+        timestamp: row.createdAt,
+      }
+      messages.push(currentAssistant)
+      continue
+    }
+
+    if (row.role === 'tool-call') {
+      if (!currentAssistant) {
+        currentAssistant = {
+          role: 'assistant',
+          content: '',
+          timestamp: row.createdAt,
+        }
+        messages.push(currentAssistant)
+      }
+      const toolCall: DesktopToolCall = {
+        id: row.id,
+        toolName: row.toolName ?? 'unknown',
+        input: parseJsonOrRaw(row.toolArgs),
+      }
+      currentAssistant.toolCalls = currentAssistant.toolCalls ?? []
+      currentAssistant.toolCalls.push(toolCall)
+
+      const key = toolCall.toolName
+      const queue = pendingByName.get(key) ?? []
+      queue.push(toolCall)
+      pendingByName.set(key, queue)
+      continue
+    }
+
+    if (row.role === 'tool-result') {
+      const key = row.toolName ?? 'unknown'
+      const queue = pendingByName.get(key)
+      const target = queue?.shift()
+      if (!target) continue
+      target.output = parseJsonOrRaw(row.content)
+      continue
+    }
+  }
+
   return {
     id: session.id,
     createdAt: session.startedAt,
     workspacePath: session.workspacePath,
-    messages: session.messages
-      .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .map((message) => ({
-        role: message.role,
-        content: message.content,
-        timestamp: message.createdAt,
-      })),
+    messages,
   }
 }
 
 function toConversationHistory(session: SessionWithMessages): LLMMessage[] {
   return session.messages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) =>
-      message.role === 'user'
-        ? { role: 'user' as const, content: message.content }
-        : { role: 'assistant' as const, content: message.content },
-    )
+    .map((message) => {
+      if (message.role === 'assistant') {
+        return { role: 'assistant' as const, content: message.content }
+      }
+
+      const images = parseImageAttachmentMetadata(message.toolArgs)
+        .map(readImageFilePart)
+        .filter((part): part is LLMFilePart => part != null)
+
+      return {
+        role: 'user' as const,
+        content:
+          images.length > 0
+            ? [
+                ...(message.content.trim().length > 0
+                  ? [{ type: 'text' as const, text: message.content }]
+                  : []),
+                ...images,
+              ]
+            : message.content,
+      }
+    })
 }
 
 function getSessionTitle(session: SessionWithMessages): string | undefined {
@@ -1023,9 +1272,11 @@ function persistConversationDelta(
 ) {
   for (const message of historyDelta) {
     if (message.role === 'user') {
+      const imageAttachments = extractImageAttachmentMetadata(message)
       const addResult = transcriptStore.addMessage(sessionId, {
         role: 'user',
-        content: message.content,
+        content: getUserTextForTranscript(message.content),
+        ...(imageAttachments.length > 0 ? { toolArgs: { imageAttachments } } : {}),
       })
       if (!addResult.ok) return addResult
       continue
@@ -1061,6 +1312,32 @@ function persistConversationDelta(
         })
         if (!addResult.ok) return addResult
       }
+    }
+
+    function extractImageAttachmentMetadata(message: Extract<LLMMessage, { role: 'user' }>) {
+      if (typeof message.content === 'string') return []
+
+      return message.content
+        .filter((part): part is LLMFilePart => part.type === 'file')
+        .map((part) => ({
+          path: part.path ?? '',
+          name: part.filename ?? (part.path ? basename(part.path) : 'image'),
+          mediaType: part.mediaType as SupportedImageMediaType,
+          sizeBytes: part.sizeBytes ?? part.data.byteLength,
+        }))
+        .filter(
+          (metadata) =>
+            metadata.path.length > 0 && SUPPORTED_IMAGE_MEDIA_TYPES.has(metadata.mediaType),
+        )
+    }
+
+    function getUserTextForTranscript(content: Extract<LLMMessage, { role: 'user' }>['content']) {
+      if (typeof content === 'string') return content
+      return content
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('\n')
+        .trim()
     }
   }
 

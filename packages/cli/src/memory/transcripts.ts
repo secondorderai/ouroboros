@@ -256,7 +256,7 @@ export class TranscriptStore {
       }
 
       const rows = this.db
-        .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC')
+        .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC')
         .all(sessionId) as MessageRow[]
 
       const messages: TranscriptMessage[] = rows.map((row) => ({

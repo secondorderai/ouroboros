@@ -1186,6 +1186,190 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('session/load reconstructs tool calls attached to assistant messages', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+
+      // Seed the transcript store directly with a persisted agent turn that
+      // includes both tool-call and tool-result rows — mimicking what
+      // `agent/run` writes during a live run.
+      const store = ctx.transcriptStore
+      store.addMessage(newResult.sessionId, { role: 'user', content: 'Read foo.ts' })
+      store.addMessage(newResult.sessionId, {
+        role: 'assistant',
+        content: 'Reading the file now',
+      })
+      store.addMessage(newResult.sessionId, {
+        role: 'tool-call',
+        content: 'file-read: {"path":"foo.ts"}',
+        toolName: 'file-read',
+        toolArgs: { path: 'foo.ts' },
+      })
+      store.addMessage(newResult.sessionId, {
+        role: 'tool-result',
+        content: JSON.stringify({ text: 'console.log(1)' }),
+        toolName: 'file-read',
+      })
+      store.addMessage(newResult.sessionId, {
+        role: 'assistant',
+        content: 'Here is the content.',
+      })
+
+      const loadResult = (await handlers.get('session/load')!({
+        id: newResult.sessionId,
+      })) as {
+        messages: Array<{
+          role: string
+          content: string
+          toolCalls?: Array<{ toolName: string; input?: unknown; output?: unknown }>
+        }>
+      }
+
+      expect(loadResult.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant'])
+      const firstAssistant = loadResult.messages[1]
+      expect(firstAssistant.content).toBe('Reading the file now')
+      expect(firstAssistant.toolCalls).toBeDefined()
+      expect(firstAssistant.toolCalls).toHaveLength(1)
+      expect(firstAssistant.toolCalls![0]).toMatchObject({
+        toolName: 'file-read',
+        input: { path: 'foo.ts' },
+        output: { text: 'console.log(1)' },
+      })
+
+      const secondAssistant = loadResult.messages[2]
+      expect(secondAssistant.content).toBe('Here is the content.')
+      expect(secondAssistant.toolCalls).toBeUndefined()
+
+      ctx.transcriptStore.close()
+    })
+
+    test('session/load attaches tool calls to synthetic assistant when no preceding text', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      const store = ctx.transcriptStore
+      store.addMessage(newResult.sessionId, { role: 'user', content: 'Run a command' })
+      // Assistant with only tool calls (no preceding text row).
+      store.addMessage(newResult.sessionId, {
+        role: 'tool-call',
+        content: 'bash: {"command":"ls"}',
+        toolName: 'bash',
+        toolArgs: { command: 'ls' },
+      })
+      store.addMessage(newResult.sessionId, {
+        role: 'tool-result',
+        content: JSON.stringify({ stdout: 'foo.ts\n' }),
+        toolName: 'bash',
+      })
+      store.addMessage(newResult.sessionId, {
+        role: 'assistant',
+        content: 'Done',
+      })
+
+      const loadResult = (await handlers.get('session/load')!({
+        id: newResult.sessionId,
+      })) as {
+        messages: Array<{
+          role: string
+          content: string
+          toolCalls?: Array<{ toolName: string; input?: unknown; output?: unknown }>
+        }>
+      }
+
+      expect(loadResult.messages).toHaveLength(3)
+      expect(loadResult.messages[1]).toMatchObject({
+        role: 'assistant',
+        content: '',
+      })
+      expect(loadResult.messages[1].toolCalls).toHaveLength(1)
+      expect(loadResult.messages[1].toolCalls![0]).toMatchObject({
+        toolName: 'bash',
+        input: { command: 'ls' },
+        output: { stdout: 'foo.ts\n' },
+      })
+      expect(loadResult.messages[2]).toMatchObject({
+        role: 'assistant',
+        content: 'Done',
+      })
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run validates images and persists image metadata only', async () => {
+      const tempDir = join(tmpdir(), `ouroboros-jsonrpc-images-${crypto.randomUUID()}`)
+      mkdirSync(tempDir, { recursive: true })
+      const imagePath = join(tempDir, 'screen.png')
+      writeFileSync(imagePath, new Uint8Array([137, 80, 78, 71]))
+
+      const ctx = createTestContext({ configDir: tempDir })
+      const handlers = createHandlers(ctx)
+
+      try {
+        const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+        await handlers.get('agent/run')!({
+          message: 'What changed here?',
+          images: [
+            {
+              path: imagePath,
+              name: 'screen.png',
+              mediaType: 'image/png',
+              sizeBytes: 4,
+            },
+          ],
+        })
+
+        const sessionResult = ctx.transcriptStore.getSession(newResult.sessionId)
+        expect(sessionResult.ok).toBe(true)
+        if (!sessionResult.ok) return
+
+        const userMessage = sessionResult.value.messages[0]
+        expect(userMessage.content).toBe('What changed here?')
+        expect(typeof userMessage.toolArgs).toBe('string')
+        expect(userMessage.toolArgs).toContain('screen.png')
+        expect(userMessage.toolArgs).not.toContain('previewDataUrl')
+        expect(userMessage.toolArgs).not.toContain('137,80,78,71')
+
+        const loaded = (await handlers.get('session/load')!({ id: newResult.sessionId })) as {
+          messages: Array<{ imageAttachments?: unknown }>
+        }
+        expect(loaded.messages[0].imageAttachments).toEqual([
+          {
+            path: imagePath,
+            name: 'screen.png',
+            mediaType: 'image/png',
+            sizeBytes: 4,
+          },
+        ])
+      } finally {
+        ctx.transcriptStore.close()
+        rmSync(tempDir, { recursive: true, force: true })
+      }
+    })
+
+    test('agent/run rejects invalid image attachments', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      await expect(
+        handlers.get('agent/run')!({
+          message: 'Use this image',
+          images: [
+            {
+              path: '/tmp/not-supported.gif',
+              name: 'not-supported.gif',
+              mediaType: 'image/gif',
+              sizeBytes: 10,
+            },
+          ],
+        }),
+      ).rejects.toThrow('mediaType must be image/jpeg, image/png, or image/webp')
+
+      ctx.transcriptStore.close()
+    })
+
     test('step-limit summary persists without internal limit instruction', async () => {
       const registry = new ToolRegistry()
       registry.register(makeTool('bash', () => ({ output: 'looping' })))

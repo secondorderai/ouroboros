@@ -145,13 +145,63 @@ This repository uses `AGENTS.md` as the canonical human instruction file.
 - `bun run --filter @ouroboros/cli test` — run CLI tests
 - `bun run --filter @ouroboros/desktop dev` — start desktop app in dev mode
 
+## Testing Policy
+
+Every new feature, improvement, or bug fix MUST ship with automated tests that
+would catch the regression if the change were reverted. This is non-negotiable —
+a change without a matching test is incomplete.
+
+- **CLI changes (`packages/cli/`)** — add a unit test and/or integration test:
+  - Unit tests live alongside the area under test in `packages/cli/tests/`
+    (e.g. `tests/tools/`, `tests/llm/`, `tests/memory/`).
+  - Integration tests that exercise multiple subsystems live in
+    `packages/cli/tests/integration/`.
+  - Use Bun's test runner (`bun test`).
+- **Desktop changes (`packages/desktop/`)** — add a new E2E test:
+  - E2E tests live in `packages/desktop/tests/e2e/` and run via Playwright.
+  - Cover the user-visible behavior that the change introduces or fixes.
+  - Pure logic outside the renderer may also warrant a unit test in
+    `packages/desktop/tests/` (e.g. `conversation-store.test.ts`).
+- **Shared changes (`packages/shared/`)** — add tests to whichever package
+  consumes the change; at minimum, cover behavior from the CLI side.
+- **Bug fixes** — the new test MUST fail against the un-fixed code and pass
+  after the fix. Write the failing test first.
+
+### Per-surface test checklist
+
+When adding or changing code, pick the row(s) that apply and ensure the
+listed test is new or updated:
+
+| Surface you changed                        | Test that MUST exist or be updated                                                |
+| ------------------------------------------ | --------------------------------------------------------------------------------- |
+| A CLI tool (`packages/cli/src/tools/`)     | Unit test in `packages/cli/tests/tools/`                                          |
+| Agent loop, LLM, memory, RSI               | Test in the matching subfolder of `packages/cli/tests/`                           |
+| New or renamed RPC method in `protocol.ts` | Update `RPC_METHOD_NAMES` in protocol.ts; `protocol-contract.test.ts` must pass   |
+| New notification type in `protocol.ts`     | Update `NOTIFICATION_METHOD_NAMES`; `protocol-contract.test.ts` must pass         |
+| JSON-RPC transport / server / dispatcher   | Extend `packages/cli/tests/integration/json-rpc-transport.test.ts`                |
+| Desktop main process / IPC handler         | E2E scenario in `main-process.spec.ts` or `real-flows.spec.ts`                    |
+| Desktop renderer UI                        | E2E scenario in `renderer-contract.spec.ts` or a new spec                         |
+| Zustand store logic                        | Unit test in `packages/desktop/tests/`                                            |
+| Bug fix                                    | A test that FAILS without the fix and PASSES with it                              |
+
 ## Workflow
 
-- After implementing a feature or fixing a bug, ALWAYS run the full verification
-  suite before reporting completion:
-  1. `cd packages/cli && bun run lint` — format check
-  2. `cd packages/cli && bun run ts-check` — CLI type check
-  3. `cd packages/desktop && bun run ts-check` — desktop type check
-  4. `cd packages/cli && bun run test:all` — all tests including live LLM tests
-- If any step fails, fix the issue and re-run from step 1.
-- Do not claim work is complete until all checks pass.
+- After implementing a feature or fixing a bug, run the full verification
+  suite from the repo root before reporting completion:
+
+  ```
+  bun run verify
+  ```
+
+  which runs lint, typecheck (CLI and desktop), CLI tests, and desktop E2E.
+  To run the live-LLM suite (manual, not in CI or pre-push):
+
+  ```
+  bun run test:cli:live
+  ```
+- A `pre-push` git hook (installed via `husky`) runs lint + typecheck + CLI
+  tests on every `git push`. This catches regressions before CI sees them.
+  Run `bun install` once to activate the hook.
+- If any step fails, fix the issue and re-run.
+- Do not claim work is complete until `bun run verify` passes AND the
+  appropriate test from the checklist above is in place.
