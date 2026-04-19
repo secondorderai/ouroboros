@@ -1014,4 +1014,109 @@ describe('Agent', () => {
       expect(opts.agentsInstructions).toContain('Follow repo rules.')
     })
   })
+
+  // -------------------------------------------------------------------
+  // Boundary tests: step-limit edge cases
+  // -------------------------------------------------------------------
+  describe('step-limit boundaries', () => {
+    /** A single turn that emits a tool call with no matching text. */
+    function oneToolCallTurn(): LanguageModelV3StreamPart[] {
+      return [
+        { type: 'tool-input-start', id: 'tc1', toolName: 'test_tool' },
+        { type: 'tool-input-delta', id: 'tc1', delta: '{"input":"x"}' },
+        { type: 'tool-input-end', id: 'tc1' },
+        {
+          type: 'tool-call',
+          toolCallId: 'tc1',
+          toolName: 'test_tool',
+          input: '{"input":"x"}',
+        },
+        {
+          type: 'finish',
+          finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+          usage: {
+            inputTokens: {
+              total: 5,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 1, text: undefined, reasoning: undefined },
+          },
+        },
+      ]
+    }
+
+    /** A turn that just says "done" and finishes. */
+    function simpleTextTurn(text: string): LanguageModelV3StreamPart[] {
+      return [
+        { type: 'text-start', id: `t-${text}` },
+        { type: 'text-delta', id: `t-${text}`, delta: text },
+        { type: 'text-end', id: `t-${text}` },
+        {
+          type: 'finish',
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: {
+            inputTokens: {
+              total: 5,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 2, text: undefined, reasoning: undefined },
+          },
+        },
+      ]
+    }
+
+    test('maxSteps=1 with a tool-calling model hits the step limit after one iteration', async () => {
+      registry.register(makeTool('test_tool'))
+      // Model wants to call a tool every turn — so it would loop forever if
+      // not for the step limit.
+      const model = createMockModel([oneToolCallTurn(), oneToolCallTurn(), oneToolCallTurn()])
+      const agent = new Agent(makeAgentOptions(model, registry))
+
+      const result = await agent.run('Do the thing', { maxSteps: 1 })
+
+      expect(result.iterations).toBe(1)
+      expect(result.stopReason).toBe('max_steps')
+      expect(result.maxIterationsReached).toBe(true)
+    })
+
+    test('maxSteps=0 is clamped to minimum of 1 (does not hang or zero out)', async () => {
+      registry.register(makeTool('test_tool'))
+      const model = createMockModel([oneToolCallTurn(), oneToolCallTurn()])
+      const agent = new Agent(makeAgentOptions(model, registry))
+
+      const result = await agent.run('Do the thing', { maxSteps: 0 })
+
+      // Clamped to 1 by resolveMaxSteps — behaves identically to maxSteps: 1.
+      expect(result.iterations).toBe(1)
+      expect(result.stopReason).toBe('max_steps')
+    })
+
+    test('maxSteps higher than needed stops at completion, not the ceiling', async () => {
+      const model = createMockModel([simpleTextTurn('done')])
+      const agent = new Agent(makeAgentOptions(model, registry))
+
+      const result = await agent.run('Say done', { maxSteps: 50 })
+
+      expect(result.iterations).toBe(1)
+      expect(result.stopReason).toBe('completed')
+      expect(result.maxIterationsReached).toBe(false)
+    })
+
+    test('two sequential runs on the same agent each track their own iteration count', async () => {
+      registry.register(makeTool('test_tool'))
+      const model = createMockModel([simpleTextTurn('first'), simpleTextTurn('second')])
+      const agent = new Agent(makeAgentOptions(model, registry))
+
+      const first = await agent.run('Hi', { maxSteps: 10 })
+      const second = await agent.run('Again', { maxSteps: 10 })
+
+      // Each run starts iteration count at 0 — not a cumulative counter.
+      expect(first.iterations).toBe(1)
+      expect(second.iterations).toBe(1)
+    })
+  })
 })
