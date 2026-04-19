@@ -580,6 +580,57 @@ export interface RpcMethodMap {
 
 export type RpcMethod = keyof RpcMethodMap
 
+/**
+ * Runtime list of every RPC method name. Kept in sync with `RpcMethodMap`
+ * by the compile-time assertions below. The CLI's `createHandlers()` must
+ * register a handler for each of these names — enforced by
+ * `protocol-contract.test.ts`.
+ */
+export const RPC_METHOD_NAMES = [
+  'agent/run',
+  'agent/cancel',
+  'session/list',
+  'session/load',
+  'session/new',
+  'session/delete',
+  'config/get',
+  'config/set',
+  'config/setApiKey',
+  'config/testConnection',
+  'auth/getStatus',
+  'auth/startLogin',
+  'auth/pollLogin',
+  'auth/cancelLogin',
+  'auth/logout',
+  'skills/list',
+  'skills/get',
+  'rsi/dream',
+  'rsi/status',
+  'rsi/history',
+  'rsi/checkpoint',
+  'evolution/list',
+  'evolution/stats',
+  'approval/list',
+  'approval/respond',
+  'askUser/respond',
+  'workspace/set',
+  'mode/getState',
+  'mode/enter',
+  'mode/exit',
+  'mode/getPlan',
+] as const satisfies readonly RpcMethod[]
+
+/** Compile-time check that `RPC_METHOD_NAMES` covers every key of `RpcMethodMap`. */
+type _RpcMethodCoverageCheck =
+  Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]> extends never
+    ? true
+    : [
+        'Missing RPC method in RPC_METHOD_NAMES:',
+        Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]>,
+      ]
+const _rpcCoverage: _RpcMethodCoverageCheck = true
+void _rpcCoverage
+
 // ── Notification Types ─────────────────────────────────────────────
 
 export interface AgentTextNotification {
@@ -689,6 +740,46 @@ export interface NotificationMap {
 }
 
 export type NotificationMethod = keyof NotificationMap
+
+/**
+ * Runtime list of every CLI-emitted notification method. The CLI must only
+ * emit notifications with names in this list — enforced by
+ * `protocol-contract.test.ts`, which greps the CLI source for every
+ * `makeNotification(...)` call site.
+ */
+export const NOTIFICATION_METHOD_NAMES = [
+  'agent/contextUsage',
+  'agent/text',
+  'agent/toolCallStart',
+  'agent/toolCallEnd',
+  'agent/turnComplete',
+  'agent/error',
+  'agent/thinking',
+  'agent/status',
+  'memory/updated',
+  'skill/activated',
+  'approval/request',
+  'askUser/request',
+  'rsi/reflection',
+  'rsi/crystallization',
+  'rsi/dream',
+  'rsi/error',
+  'rsi/runtime',
+  'mode/entered',
+  'mode/exited',
+  'mode/planSubmitted',
+] as const satisfies readonly NotificationMethod[]
+
+/** Compile-time check that `NOTIFICATION_METHOD_NAMES` covers every key of `NotificationMap`. */
+type _NotificationCoverageCheck =
+  Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]> extends never
+    ? true
+    : [
+        'Missing notification method in NOTIFICATION_METHOD_NAMES:',
+        Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]>,
+      ]
+const _notificationCoverage: _NotificationCoverageCheck = true
+void _notificationCoverage
 
 // ── IPC Channel Constants ──────────────────────────────────────────
 
