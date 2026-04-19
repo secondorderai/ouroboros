@@ -68,6 +68,7 @@ bun run build:win    # Windows installer
 | `--verbose`, `-v`          | Show tool call details                     |
 | `--no-stream`              | Wait for full response before printing     |
 | `--config <path>`          | Path to `.ouroboros` config file           |
+| `--max-steps <steps>`      | Override autonomous step limit             |
 
 ## Configuration
 
@@ -102,6 +103,14 @@ Discovery is workspace-aware:
     "tier4": false
   },
   "skillDirectories": ["skills/core", "skills/generated"],
+  "agent": {
+    "maxSteps": {
+      "interactive": 200,
+      "desktop": 200,
+      "singleShot": 50,
+      "automation": 100
+    }
+  },
   "memory": {
     "consolidationSchedule": "session-end"
   }

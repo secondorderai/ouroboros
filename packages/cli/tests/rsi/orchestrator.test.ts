@@ -44,6 +44,11 @@ function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
     model: { ...base.model, ...overrides?.model },
     permissions: { ...base.permissions, ...overrides?.permissions },
     skillDirectories: overrides?.skillDirectories ?? base.skillDirectories,
+    agent: {
+      ...base.agent,
+      ...overrides?.agent,
+      maxSteps: { ...base.agent.maxSteps, ...overrides?.agent?.maxSteps },
+    },
     memory: { ...base.memory, ...overrides?.memory },
     rsi: { ...base.rsi, ...overrides?.rsi },
   }

@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import {
+  DEFAULT_AGENT_CONFIG,
   DEFAULT_MEMORY_CONFIG,
   DEFAULT_RSI_CONFIG,
   loadConfig,
@@ -78,6 +79,9 @@ describe('loadConfig', () => {
     // Skill directories defaults
     expect(config.skillDirectories).toEqual(['skills/core', 'skills/generated'])
 
+    // Agent defaults
+    expect(config.agent.maxSteps).toEqual(DEFAULT_AGENT_CONFIG.maxSteps)
+
     // Memory defaults
     expect(config.memory.consolidationSchedule).toBe('session-end')
     // Auto-detected from default model claude-sonnet-4-20250514
@@ -104,6 +108,59 @@ describe('loadConfig', () => {
     expect(config.rsi.crystallizeFromRepeatedPatternsOnly).toBe(
       DEFAULT_RSI_CONFIG.crystallizeFromRepeatedPatternsOnly,
     )
+  })
+
+  test('loads partial agent maxSteps config with defaults for omitted profiles', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        agent: {
+          maxSteps: {
+            interactive: 300,
+            singleShot: 25,
+          },
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.agent.maxSteps).toEqual({
+      ...DEFAULT_AGENT_CONFIG.maxSteps,
+      interactive: 300,
+      singleShot: 25,
+    })
+  })
+
+  test('loads full agent maxSteps config', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        agent: {
+          maxSteps: {
+            interactive: 301,
+            desktop: 302,
+            singleShot: 303,
+            automation: 304,
+          },
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.agent.maxSteps).toEqual({
+      interactive: 301,
+      desktop: 302,
+      singleShot: 303,
+      automation: 304,
+    })
   })
 
   test('finds the nearest .ouroboros in an ancestor directory', () => {

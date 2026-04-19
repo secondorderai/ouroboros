@@ -3,6 +3,7 @@ import { Agent, type AgentEvent, type AgentOptions } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
 import { ok } from '@src/types'
+import { configSchema } from '@src/config'
 import type { ToolDefinition } from '@src/tools/types'
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
@@ -410,13 +411,14 @@ describe('Agent', () => {
   })
 
   // -------------------------------------------------------------------
-  // Test: Max iteration guard
+  // Test: Max step guard
   // -------------------------------------------------------------------
-  describe('max iteration guard', () => {
-    test('loop stops after max iterations and returns limit message', async () => {
+  describe('max step guard', () => {
+    test('loop stops after max steps and returns a handoff summary', async () => {
       registry.register(makeTool('bash', () => ({ output: 'looping' })))
 
       // Mock LLM that always responds with a tool call (infinite loop)
+      let callCount = 0
       const model = {
         specificationVersion: 'v3',
         provider: 'mock',
@@ -428,6 +430,38 @@ describe('Agent', () => {
         },
 
         doStream: async () => {
+          callCount++
+          if (callCount === 4) {
+            return {
+              stream: new ReadableStream<LanguageModelV3StreamPart>({
+                start(controller) {
+                  controller.enqueue({ type: 'text-start', id: 'summary' })
+                  controller.enqueue({
+                    type: 'text-delta',
+                    id: 'summary',
+                    delta: 'Summary: stopped after looping. Next step: continue if needed.',
+                  })
+                  controller.enqueue({ type: 'text-end', id: 'summary' })
+                  controller.enqueue({
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: 'stop' },
+                    usage: {
+                      inputTokens: {
+                        total: 10,
+                        noCache: undefined,
+                        cacheRead: undefined,
+                        cacheWrite: undefined,
+                      },
+                      outputTokens: { total: 5, text: undefined, reasoning: undefined },
+                    },
+                  })
+                  controller.close()
+                },
+              }),
+              warnings: [],
+            }
+          }
+
           const callId = `call_${Date.now()}_${Math.random()}`
           return {
             stream: new ReadableStream<LanguageModelV3StreamPart>({
@@ -472,17 +506,118 @@ describe('Agent', () => {
       const result = await agent.run('Do something')
 
       expect(result.maxIterationsReached).toBe(true)
+      expect(result.stopReason).toBe('max_steps')
       expect(result.iterations).toBe(3)
-      expect(result.text).toContain('maximum of 3 iterations')
-
-      // Should have emitted an error event about hitting the limit
-      const errorEvents = events.filter((e) => e.type === 'error')
-      const limitError = errorEvents.find((e) => e.type === 'error' && !e.recoverable)
-      expect(limitError).toBeDefined()
+      expect(result.text).toContain('Summary: stopped after looping')
 
       // Should have emitted a turn-complete event
       const turnComplete = events.find((e) => e.type === 'turn-complete')
       expect(turnComplete).toBeDefined()
+    })
+
+    test('uses profile-specific maxSteps from config', async () => {
+      registry.register(makeTool('bash', () => ({ output: 'looping' })))
+
+      async function runWithProfile(
+        profile: 'interactive' | 'desktop' | 'singleShot' | 'automation',
+      ) {
+        let callCount = 0
+        const model = {
+          specificationVersion: 'v3',
+          provider: 'mock',
+          modelId: 'mock-model',
+          supportedUrls: {},
+          doGenerate: async () => {
+            throw new Error('Not used')
+          },
+          doStream: async () => {
+            callCount++
+            const isSummaryCall = callCount > 4
+            const textId = isSummaryCall ? 'summary' : `tool-${callCount}`
+            return {
+              stream: new ReadableStream<LanguageModelV3StreamPart>({
+                start(controller) {
+                  if (isSummaryCall) {
+                    controller.enqueue({ type: 'text-start', id: textId })
+                    controller.enqueue({ type: 'text-delta', id: textId, delta: 'Limit summary.' })
+                    controller.enqueue({ type: 'text-end', id: textId })
+                    controller.enqueue({
+                      type: 'finish',
+                      finishReason: { unified: 'stop', raw: 'stop' },
+                      usage: {
+                        inputTokens: {
+                          total: 10,
+                          noCache: undefined,
+                          cacheRead: undefined,
+                          cacheWrite: undefined,
+                        },
+                        outputTokens: { total: 5, text: undefined, reasoning: undefined },
+                      },
+                    })
+                    controller.close()
+                    return
+                  }
+
+                  const callId = `call_${callCount}`
+                  controller.enqueue({ type: 'tool-input-start', id: callId, toolName: 'bash' })
+                  controller.enqueue({ type: 'tool-input-end', id: callId })
+                  controller.enqueue({
+                    type: 'tool-call',
+                    toolCallId: callId,
+                    toolName: 'bash',
+                    input: '{"input":"loop"}',
+                  })
+                  controller.enqueue({
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: {
+                      inputTokens: {
+                        total: 10,
+                        noCache: undefined,
+                        cacheRead: undefined,
+                        cacheWrite: undefined,
+                      },
+                      outputTokens: { total: 5, text: undefined, reasoning: undefined },
+                    },
+                  })
+                  controller.close()
+                },
+              }),
+              warnings: [],
+            }
+          },
+        } as LanguageModel
+
+        const config = configSchema.parse({
+          agent: {
+            maxSteps: {
+              interactive: 1,
+              desktop: 2,
+              singleShot: 3,
+              automation: 4,
+            },
+          },
+        })
+        const agent = new Agent(makeAgentOptions(model, registry, { config }))
+        return agent.run('Loop', { runProfile: profile })
+      }
+
+      await expect(runWithProfile('interactive')).resolves.toMatchObject({
+        iterations: 1,
+        stopReason: 'max_steps',
+      })
+      await expect(runWithProfile('desktop')).resolves.toMatchObject({
+        iterations: 2,
+        stopReason: 'max_steps',
+      })
+      await expect(runWithProfile('singleShot')).resolves.toMatchObject({
+        iterations: 3,
+        stopReason: 'max_steps',
+      })
+      await expect(runWithProfile('automation')).resolves.toMatchObject({
+        iterations: 4,
+        stopReason: 'max_steps',
+      })
     })
   })
 

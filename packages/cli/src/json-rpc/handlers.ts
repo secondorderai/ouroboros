@@ -40,6 +40,8 @@ export interface HandlerContext {
   config: OuroborosConfig
   configDir: string
   transcriptStore: TranscriptStore
+  /** Optional process-wide autonomous step limit override. */
+  maxStepsOverride?: number
   /** Set to the abort controller of the current agent run, or null. */
   currentRunAbort: AbortController | null
   setCurrentRunAbort: (abort: AbortController | null) => void
@@ -49,6 +51,7 @@ export interface HandlerContext {
   setConfigDir?: (configDir: string) => void
   authManager: OpenAIChatGPTAuthManager
   modeManager: ModeManager
+  respondToAskUser?: (id: string, response: string) => void
 }
 
 // ── Handler errors ───────────────────────────────────────────────────
@@ -240,6 +243,16 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         'params.responseStyle must be "default" or "desktop-readable" when provided',
       )
     }
+    const maxSteps = params.maxSteps
+    if (
+      maxSteps !== undefined &&
+      (typeof maxSteps !== 'number' || !Number.isInteger(maxSteps) || maxSteps <= 0)
+    ) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.maxSteps must be a positive integer when provided',
+      )
+    }
 
     // Cancel any prior run
     if (ctx.currentRunAbort) {
@@ -259,6 +272,8 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
           typeof responseStyle === 'string'
             ? (responseStyle as 'default' | 'desktop-readable')
             : undefined,
+        runProfile: client === 'desktop' ? 'desktop' : 'automation',
+        maxSteps: maxSteps ?? ctx.maxStepsOverride,
       })
       const sessionId = ctx.currentSessionId
       if (sessionId) {
@@ -274,6 +289,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       return {
         text: result.text,
         iterations: result.iterations,
+        stopReason: result.stopReason,
         maxIterationsReached: result.maxIterationsReached,
       }
     } finally {
@@ -288,6 +304,31 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       return { cancelled: true }
     }
     return { cancelled: false, message: 'No agent run in progress' }
+  })
+
+  handlers.set('askUser/respond', async (params) => {
+    const id = params.id
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.id is required')
+    }
+
+    const response = params.response
+    if (typeof response !== 'string' || response.trim().length === 0) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.response is required and must be a non-empty string',
+      )
+    }
+
+    if (!ctx.respondToAskUser) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'No ask-user prompt is currently pending',
+      )
+    }
+
+    ctx.respondToAskUser(id, response.trim())
+    return { ok: true }
   })
 
   // ── session/* ────────────────────────────────────────────────────
@@ -414,6 +455,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const provider =
       typeof params.provider === 'string' ? params.provider : ctx.config.model.provider
     const apiKey = typeof params.apiKey === 'string' ? params.apiKey : undefined
+    const baseUrl = typeof params.baseUrl === 'string' ? params.baseUrl : undefined
 
     if (provider === OPENAI_CHATGPT_PROVIDER) {
       const authResult = await ctx.authManager.testConnection()
@@ -438,6 +480,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         ...ctx.config.model,
         provider: provider as 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt',
         apiKey,
+        ...(baseUrl ? { baseUrl } : {}),
       })
       if (!providerResult.ok) {
         return { success: false, error: providerResult.error.message }

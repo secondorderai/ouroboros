@@ -200,12 +200,14 @@ export type AuthMethod = 'browser' | 'headless'
 
 export type AgentClient = 'desktop' | 'cli'
 export type AgentResponseStyle = 'default' | 'desktop-readable'
+export type AgentStopReason = 'completed' | 'max_steps' | 'error'
 
 export interface AgentRunParams {
   message: string
   files?: string[]
   client?: AgentClient
   responseStyle?: AgentResponseStyle
+  maxSteps?: number
 }
 export type AgentCancelParams = Record<string, never>
 export interface SessionListParams {
@@ -272,6 +274,10 @@ export interface ApprovalRespondParams {
   approved: boolean
   reason?: string
 }
+export interface AskUserRespondParams {
+  id: string
+  response: string
+}
 export interface WorkspaceSetParams {
   directory: string
 }
@@ -281,6 +287,7 @@ export interface WorkspaceSetParams {
 export interface AgentRunResult {
   text: string
   iterations: number
+  stopReason: AgentStopReason
   maxIterationsReached: boolean
 }
 export interface AgentCancelResult {
@@ -295,6 +302,8 @@ export interface SessionInfo {
   messageCount: number
   title?: string
   workspacePath?: string | null
+  runStatus?: 'idle' | 'running' | 'error'
+  activeToolName?: string
 }
 export interface SessionListResult {
   sessions: SessionInfo[]
@@ -480,6 +489,9 @@ export interface ApprovalRespondResult {
   status: string
   message?: string
 }
+export interface AskUserRespondResult {
+  ok: boolean
+}
 
 export interface WorkspaceSetResult {
   directory: string
@@ -558,6 +570,7 @@ export interface RpcMethodMap {
   'evolution/stats': { params: EvolutionStatsParams; result: EvolutionStatsResult }
   'approval/list': { params: ApprovalListParams; result: ApprovalListResult }
   'approval/respond': { params: ApprovalRespondParams; result: ApprovalRespondResult }
+  'askUser/respond': { params: AskUserRespondParams; result: AskUserRespondResult }
   'workspace/set': { params: WorkspaceSetParams; result: WorkspaceSetResult }
   'mode/getState': { params: ModeGetStateParams; result: ModeState }
   'mode/enter': { params: ModeEnterParams; result: ModeEnterResult }
@@ -614,6 +627,12 @@ export interface ApprovalRequestNotification {
   risk?: 'high' | 'medium' | 'low'
   diff?: string
 }
+export interface AskUserRequestNotification {
+  id: string
+  question: string
+  options: string[]
+  createdAt: string
+}
 export interface RsiReflectionNotification {
   description?: string
 }
@@ -658,6 +677,7 @@ export interface NotificationMap {
   'memory/updated': MemoryUpdatedNotification
   'skill/activated': SkillActivatedNotification
   'approval/request': ApprovalRequestNotification
+  'askUser/request': AskUserRequestNotification
   'rsi/reflection': RsiReflectionNotification
   'rsi/crystallization': RsiCrystallizationNotification
   'rsi/dream': RsiDreamNotification

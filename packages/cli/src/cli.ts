@@ -12,6 +12,7 @@
  *   --verbose / -v            Show tool call details
  *   --no-stream               Wait for full response before printing
  *   --config <path>           Path to directory containing .ouroboros config file
+ *   --max-steps <steps>       Override autonomous step limit for this process
  */
 
 import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'
@@ -50,6 +51,7 @@ program
   .option('-v, --verbose', 'Show tool call details (name, args, result)')
   .option('--no-stream', 'Wait for full response before printing')
   .option('--config <path>', 'Path to .ouroboros config file directory')
+  .option('--max-steps <steps>', 'Override autonomous step limit for this process')
   .option('-m, --message <prompt>', 'Process a single prompt and exit')
   .option('--debug-tools', 'Print registered tool names and exit')
   .option('--no-rsi', 'Disable all RSI (self-improvement) hooks')
@@ -127,6 +129,7 @@ async function runMain(): Promise<void> {
     verbose?: boolean
     stream: boolean
     config?: string
+    maxSteps?: string
     message?: string
     debugTools?: boolean
     rsi: boolean
@@ -142,6 +145,11 @@ async function runMain(): Promise<void> {
   }
 
   let config = configResult.value
+  const maxStepsOverride = parseMaxStepsFlag(opts.maxSteps)
+  if (maxStepsOverride instanceof Error) {
+    process.stderr.write(`${maxStepsOverride.message}\n`)
+    process.exit(1)
+  }
 
   // Apply --model override
   if (opts.model) {
@@ -165,7 +173,7 @@ async function runMain(): Promise<void> {
   // and manages its own Agent lifecycle.
   if (opts.jsonRpc === true) {
     const configDir = resolveConfigDir(opts.config)
-    await startJsonRpcServer({ config, configDir })
+    await startJsonRpcServer({ config, configDir, maxStepsOverride })
     // startJsonRpcServer runs indefinitely — this line is never reached.
     return
   }
@@ -250,10 +258,13 @@ async function runMain(): Promise<void> {
     const effectivePrompt = opts.plan ? `[User requests plan mode] ${prompt}` : prompt
 
     try {
-      const result = await agent.run(effectivePrompt)
+      const result = await agent.run(effectivePrompt, {
+        runProfile: 'singleShot',
+        maxSteps: maxStepsOverride,
+      })
       // Ensure output ends with a newline
       process.stdout.write('\n')
-      process.exit(result.maxIterationsReached ? 1 : 0)
+      process.exit(result.stopReason === 'max_steps' ? 1 : 0)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       process.stderr.write(`Fatal error: ${message}\n`)
@@ -272,6 +283,7 @@ async function runMain(): Promise<void> {
     await startRepl({
       agent,
       verbose,
+      maxSteps: maxStepsOverride,
       setEventHandler: (handler: AgentEventHandler) => {
         currentHandler = handler
       },
@@ -280,6 +292,19 @@ async function runMain(): Promise<void> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+function parseMaxStepsFlag(value: string | undefined): number | undefined | Error {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return new Error('--max-steps must be a positive integer')
+  }
+
+  return parsed
+}
 
 /**
  * Parse the --model flag value.

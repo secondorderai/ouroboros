@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { type Result, ok, err } from '@src/types'
 import { getContextWindowTokens } from '@src/llm/model-capabilities'
@@ -25,6 +25,15 @@ export const DEFAULT_RSI_CONFIG = {
   checkpointEveryTurns: 6,
   durablePromotionThreshold: 0.8,
   crystallizeFromRepeatedPatternsOnly: true,
+}
+
+export const DEFAULT_AGENT_CONFIG = {
+  maxSteps: {
+    interactive: 200,
+    desktop: 200,
+    singleShot: 50,
+    automation: 100,
+  },
 }
 
 /**
@@ -61,6 +70,39 @@ export const configSchema = z.object({
     .array(z.string())
     .default(['skills/core', 'skills/generated'])
     .describe('Directories to scan for Agent Skills'),
+
+  agent: z
+    .object({
+      maxSteps: z
+        .object({
+          interactive: z
+            .number()
+            .int()
+            .positive()
+            .default(DEFAULT_AGENT_CONFIG.maxSteps.interactive)
+            .describe('Maximum autonomous steps for interactive CLI chat'),
+          desktop: z
+            .number()
+            .int()
+            .positive()
+            .default(DEFAULT_AGENT_CONFIG.maxSteps.desktop)
+            .describe('Maximum autonomous steps for desktop chat'),
+          singleShot: z
+            .number()
+            .int()
+            .positive()
+            .default(DEFAULT_AGENT_CONFIG.maxSteps.singleShot)
+            .describe('Maximum autonomous steps for single-shot CLI prompts'),
+          automation: z
+            .number()
+            .int()
+            .positive()
+            .default(DEFAULT_AGENT_CONFIG.maxSteps.automation)
+            .describe('Maximum autonomous steps for automation/RPC runs'),
+        })
+        .default(DEFAULT_AGENT_CONFIG.maxSteps),
+    })
+    .default(DEFAULT_AGENT_CONFIG),
 
   memory: z
     .object({
@@ -254,8 +296,13 @@ export function resolveConfigDir(cwd?: string): string {
   let currentDir = startDir
 
   while (true) {
-    if (existsSync(resolve(currentDir, CONFIG_FILE_NAME))) {
-      return currentDir
+    const configPath = resolve(currentDir, CONFIG_FILE_NAME)
+    try {
+      if (statSync(configPath).isFile()) {
+        return currentDir
+      }
+    } catch {
+      // statSync throws if path doesn't exist — continue walking up
     }
 
     const parentDir = dirname(currentDir)
@@ -285,7 +332,7 @@ export function loadConfig(cwd?: string): Result<OuroborosConfig> {
 
   let fileConfig: Record<string, unknown> = {}
 
-  if (existsSync(configPath)) {
+  if (existsSync(configPath) && statSync(configPath).isFile()) {
     try {
       const raw = readFileSync(configPath, 'utf-8')
       fileConfig = JSON.parse(raw) as Record<string, unknown>

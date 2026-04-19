@@ -27,6 +27,8 @@ export interface ReplOptions {
   agent: Agent
   /** Show tool call details */
   verbose: boolean
+  /** Optional autonomous step limit override for this process */
+  maxSteps?: number
   /** Event handler installer — called with the current turn's handler */
   setEventHandler: (handler: (event: AgentEvent) => void) => void
 }
@@ -37,7 +39,7 @@ export interface ReplOptions {
  * This function does not return until the user exits (Ctrl+C twice or Ctrl+D).
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const { agent, verbose, setEventHandler } = options
+  const { agent, verbose, maxSteps, setEventHandler } = options
 
   const renderer = new Renderer({
     verbose,
@@ -180,7 +182,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
     })
 
     try {
-      await agent.run(effectiveInput)
+      await agent.run(effectiveInput, { runProfile: 'interactive', maxSteps })
     } catch (e) {
       if ((e as Error).name === 'AbortError') {
         // Cancelled by Ctrl+C — already handled in SIGINT handler

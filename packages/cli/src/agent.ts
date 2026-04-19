@@ -68,7 +68,9 @@ export interface AgentOptions {
   model: LanguageModel
   /** Tool registry with discovered tools */
   toolRegistry: ToolRegistry
-  /** Maximum iterations before stopping (default 50) */
+  /** Maximum autonomous steps before stopping. */
+  maxSteps?: number
+  /** @deprecated Use maxSteps. Kept for compatibility with existing callers. */
   maxIterations?: number
   /** Event handler callback */
   onEvent?: AgentEventHandler
@@ -97,14 +99,21 @@ export interface AgentOptions {
 export interface AgentRunResult {
   /** The final text response from the agent */
   text: string
-  /** Number of LLM iterations used */
+  /** Number of LLM steps used */
   iterations: number
-  /** Whether the max iteration limit was hit */
+  /** Why the run stopped */
+  stopReason: AgentStopReason
+  /** Whether the max step limit was hit */
   maxIterationsReached: boolean
 }
 
+export type AgentRunProfile = 'interactive' | 'desktop' | 'singleShot' | 'automation'
+export type AgentStopReason = 'completed' | 'max_steps' | 'error'
+
 export interface AgentRunOptions {
   responseStyle?: 'default' | 'desktop-readable'
+  maxSteps?: number
+  runProfile?: AgentRunProfile
 }
 
 export type ContextBudgetThreshold = 'within-budget' | 'warn' | 'flush' | 'compact'
@@ -324,7 +333,7 @@ export function estimateContextUsage(options: {
 export class Agent {
   private model: LanguageModel
   private toolRegistry: ToolRegistry
-  private maxIterations: number
+  private maxStepsOverride: number | undefined
   private onEvent: AgentEventHandler
   private systemPromptBuilder: (options: BuildSystemPromptOptions) => string
   private memoryProvider: (() => string) | null
@@ -346,7 +355,7 @@ export class Agent {
   constructor(options: AgentOptions) {
     this.model = options.model
     this.toolRegistry = options.toolRegistry
-    this.maxIterations = options.maxIterations ?? 1000
+    this.maxStepsOverride = options.maxSteps ?? options.maxIterations
     this.onEvent = options.onEvent ?? (() => {})
     this.systemPromptBuilder = options.systemPromptBuilder ?? buildSystemPrompt
     this.memoryProvider = options.memoryProvider ?? null
@@ -361,7 +370,7 @@ export class Agent {
         return result.ok
           ? result.value
           : ({
-              model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+              model: { provider: 'anthropic', name: 'claude-opus-4-7' },
               permissions: {
                 tier0: true,
                 tier1: true,
@@ -370,6 +379,14 @@ export class Agent {
                 tier4: false,
               },
               skillDirectories: ['skills/core', 'skills/generated'],
+              agent: {
+                maxSteps: {
+                  interactive: 200,
+                  desktop: 200,
+                  singleShot: 50,
+                  automation: 100,
+                },
+              },
               memory: {
                 consolidationSchedule: 'session-end',
                 contextWindowTokens: 200_000,
@@ -412,11 +429,12 @@ export class Agent {
     // Append user message to conversation history
     this.conversationHistory.push({ role: 'user', content: userMessage })
 
+    const maxSteps = this.resolveMaxSteps(options)
     let iterations = 0
     let finalText = ''
     let lengthRecoveryAttempted = false
 
-    while (iterations < this.maxIterations) {
+    while (iterations < maxSteps) {
       iterations++
 
       // Build system prompt with current state, observing/compacting if needed first.
@@ -503,6 +521,7 @@ export class Agent {
         return {
           text: finalText,
           iterations,
+          stopReason: 'error',
           maxIterationsReached: false,
         }
       }
@@ -585,17 +604,12 @@ export class Agent {
       return {
         text: finalText,
         iterations,
+        stopReason: 'completed',
         maxIterationsReached: false,
       }
     }
 
-    // Max iterations reached
-    const limitMessage = `[Agent stopped: reached maximum of ${this.maxIterations} iterations]`
-    this.emitEvent({
-      type: 'error',
-      error: new Error(limitMessage),
-      recoverable: false,
-    })
+    const limitMessage = await this.summarizeAfterStepLimit(maxSteps, iterations, options)
     this.emitEvent({
       type: 'turn-complete',
       text: limitMessage,
@@ -605,8 +619,63 @@ export class Agent {
     return {
       text: limitMessage,
       iterations,
+      stopReason: 'max_steps',
       maxIterationsReached: true,
     }
+  }
+
+  private resolveMaxSteps(options: AgentRunOptions): number {
+    const configuredProfile = options.runProfile ?? 'automation'
+    const configuredLimit = this.config.agent.maxSteps[configuredProfile]
+    return Math.max(1, options.maxSteps ?? this.maxStepsOverride ?? configuredLimit)
+  }
+
+  private async summarizeAfterStepLimit(
+    maxSteps: number,
+    iterations: number,
+    options: AgentRunOptions,
+  ): Promise<string> {
+    const fallback = this.buildStepLimitFallback(maxSteps, iterations)
+    const summaryInstruction =
+      `The autonomous step limit of ${maxSteps} steps has been reached. ` +
+      'Do not call tools. Respond with a concise handoff summary that includes: ' +
+      '1) what was completed, 2) the current state, and 3) recommended next steps to continue.'
+
+    const context = this.prepareContextForCall(options)
+    this.emitContextUsage(context.usage)
+
+    const streamResult = streamResponse(this.model, this.conversationHistory, {
+      system: `${context.systemPrompt}\n\n${summaryInstruction}`,
+    })
+
+    if (!streamResult.ok) {
+      this.emitEvent({ type: 'text', text: fallback })
+      this.conversationHistory.push({ role: 'assistant', content: fallback })
+      return fallback
+    }
+
+    const turnResult = await this.processStream(streamResult.value.stream)
+    if (turnResult.error) {
+      this.emitEvent({ type: 'text', text: fallback })
+      this.conversationHistory.push({ role: 'assistant', content: fallback })
+      return fallback
+    }
+
+    const summary = turnResult.text.trim().length > 0 ? turnResult.text : fallback
+    if (summary === fallback && turnResult.text.trim().length === 0) {
+      this.emitEvent({ type: 'text', text: fallback })
+    }
+
+    this.conversationHistory.push({ role: 'assistant', content: summary })
+    this.emitContextUsage(this.appendAssistantTextToUsage(context.usage, summary))
+    return summary
+  }
+
+  private buildStepLimitFallback(maxSteps: number, iterations: number): string {
+    return (
+      `[Agent stopped: reached maximum of ${maxSteps} autonomous steps after ${iterations} ` +
+      'steps. Send a follow-up message to continue from the current conversation state.]'
+    )
   }
 
   /**

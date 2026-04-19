@@ -19,17 +19,25 @@ import { setModeManager as setEnterModeModeManager } from '@src/modes/tools/ente
 import { setModeManager as setSubmitPlanModeManager } from '@src/modes/tools/submit-plan'
 import { setModeManager as setExitModeModeManager } from '@src/modes/tools/exit-mode'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
+import { setAskUserPromptHandler } from '@src/tools/ask-user'
 import { createRegistry } from '@src/tools/registry'
 import { resolve } from 'node:path'
 import { createHandlers, bridgeAgentEvent, HandlerError, type HandlerContext } from './handlers'
 import { writeMessage, debugLog, startLineReader } from './transport'
-import { isJsonRpcRequest, makeResponse, makeErrorResponse, JSON_RPC_ERRORS } from './types'
+import {
+  isJsonRpcRequest,
+  makeResponse,
+  makeErrorResponse,
+  makeNotification,
+  JSON_RPC_ERRORS,
+} from './types'
 
 // ── Server entry point ──────────────────────────────────────────────
 
 export interface JsonRpcServerOptions {
   config: OuroborosConfig
   configDir: string
+  maxStepsOverride?: number
 }
 
 /**
@@ -39,13 +47,33 @@ export interface JsonRpcServerOptions {
  * It never throws — all errors are returned as JSON-RPC error responses.
  */
 export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise<void> {
-  const { config: initialConfig, configDir: initialConfigDir } = options
+  const { config: initialConfig, configDir: initialConfigDir, maxStepsOverride } = options
 
   let config = initialConfig
   let configDir = initialConfigDir
+  let askUserCounter = 0
+  const pendingAskUserPrompts = new Map<string, (response: string) => void>()
 
   // Create tool registry
   const registry = await createRegistry()
+
+  setAskUserPromptHandler(async (args) => {
+    const id = `ask-user-${++askUserCounter}`
+    writeMessage(
+      makeNotification('askUser/request', {
+        id,
+        question: args.question,
+        options: args.options ?? [],
+        createdAt: new Date().toISOString(),
+      }),
+    )
+
+    return new Promise((resolvePrompt) => {
+      pendingAskUserPrompts.set(id, (response) => {
+        resolvePrompt({ ok: true, value: { response } })
+      })
+    })
+  })
 
   // Create transcript store
   const dbPath = resolve(configDir, '.ouroboros-transcripts.db')
@@ -116,6 +144,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     config,
     configDir,
     transcriptStore,
+    maxStepsOverride,
     currentRunAbort,
     setCurrentRunAbort: (abort) => {
       currentRunAbort = abort
@@ -139,6 +168,17 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     },
     authManager: new OpenAIChatGPTAuthManager(),
     modeManager,
+    respondToAskUser: (id, response) => {
+      const resolvePrompt = pendingAskUserPrompts.get(id)
+      if (!resolvePrompt) {
+        throw new HandlerError(
+          JSON_RPC_ERRORS.INVALID_PARAMS.code,
+          `Unknown ask-user prompt: ${id}`,
+        )
+      }
+      pendingAskUserPrompts.delete(id)
+      resolvePrompt(response)
+    },
   }
 
   // Build method handlers

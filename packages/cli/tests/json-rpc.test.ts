@@ -17,9 +17,15 @@ import {
   makeNotification,
   JSON_RPC_ERRORS,
 } from '@src/json-rpc/types'
-import { createHandlers, bridgeAgentEvent, type HandlerContext } from '@src/json-rpc/handlers'
+import {
+  createHandlers,
+  bridgeAgentEvent,
+  HandlerError,
+  type HandlerContext,
+} from '@src/json-rpc/handlers'
 import { writeMessage } from '@src/json-rpc/transport'
 import { ModeManager } from '@src/modes/manager'
+import { execute as executeAskUser, setAskUserPromptHandler } from '@src/tools/ask-user'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -141,6 +147,8 @@ function createTestContext(overrides?: {
   const agent = new Agent(
     makeAgentOptions(model, registry, {
       onEvent: bridgeAgentEvent,
+      config,
+      basePath: configDir,
       ...overrides?.agentOptions,
     }),
   )
@@ -554,6 +562,187 @@ describe('JSON-RPC', () => {
 
       ctx.transcriptStore.close()
     })
+
+    test('agent/run uses desktop maxSteps profile for desktop clients', async () => {
+      const registry = new ToolRegistry()
+      registry.register(makeTool('bash', () => ({ output: 'looping' })))
+      const config = configSchema.parse({
+        agent: {
+          maxSteps: {
+            interactive: 10,
+            desktop: 1,
+            singleShot: 10,
+            automation: 4,
+          },
+        },
+      })
+      const model = createMockModel([
+        [
+          { type: 'tool-input-start', id: 'call_1', toolName: 'bash' },
+          { type: 'tool-input-end', id: 'call_1' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call_1',
+            toolName: 'bash',
+            input: '{"input":"loop"}',
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'summary' },
+          { type: 'text-delta', id: 'summary', delta: 'Desktop limit summary.' },
+          { type: 'text-end', id: 'summary' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+      const ctx = createTestContext({ model, registry, config })
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('agent/run')!({
+        message: 'Loop',
+        client: 'desktop',
+      })) as Record<string, unknown>
+
+      expect(result).toMatchObject({
+        iterations: 1,
+        stopReason: 'max_steps',
+        maxIterationsReached: true,
+      })
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run maxSteps param overrides configured profile limit', async () => {
+      const registry = new ToolRegistry()
+      registry.register(makeTool('bash', () => ({ output: 'looping' })))
+      const config = configSchema.parse({
+        agent: {
+          maxSteps: {
+            interactive: 10,
+            desktop: 1,
+            singleShot: 10,
+            automation: 10,
+          },
+        },
+      })
+      const model = createMockModel([
+        [
+          { type: 'tool-input-start', id: 'call_1', toolName: 'bash' },
+          { type: 'tool-input-end', id: 'call_1' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call_1',
+            toolName: 'bash',
+            input: '{"input":"loop"}',
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'tool-input-start', id: 'call_2', toolName: 'bash' },
+          { type: 'tool-input-end', id: 'call_2' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call_2',
+            toolName: 'bash',
+            input: '{"input":"loop"}',
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'summary' },
+          { type: 'text-delta', id: 'summary', delta: 'Override limit summary.' },
+          { type: 'text-end', id: 'summary' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+      const ctx = createTestContext({ model, registry, config })
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('agent/run')!({
+        message: 'Loop',
+        client: 'desktop',
+        maxSteps: 2,
+      })) as Record<string, unknown>
+
+      expect(result).toMatchObject({
+        iterations: 2,
+        stopReason: 'max_steps',
+        maxIterationsReached: true,
+      })
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run rejects invalid maxSteps param', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      await expect(handlers.get('agent/run')!({ message: 'Loop', maxSteps: 0 })).rejects.toThrow(
+        'params.maxSteps must be a positive integer',
+      )
+
+      ctx.transcriptStore.close()
+    })
   })
 
   // -------------------------------------------------------------------
@@ -784,6 +973,31 @@ describe('JSON-RPC', () => {
 
       ctx.transcriptStore.close()
     })
+
+    test('config/testConnection uses supplied baseUrl for openai-compatible', async () => {
+      const config = makeTestConfig()
+      config.model.provider = 'openai-compatible'
+      config.model.name = 'llama3.2'
+
+      const ctx = createTestContext({ config })
+      const handlers = createHandlers(ctx)
+
+      const withoutBaseUrl = (await handlers.get('config/testConnection')!({
+        provider: 'openai-compatible',
+        apiKey: 'compatible-key',
+      })) as { success: boolean; error?: string }
+      expect(withoutBaseUrl.success).toBe(false)
+      expect(withoutBaseUrl.error).toContain('baseUrl')
+
+      const withBaseUrl = (await handlers.get('config/testConnection')!({
+        provider: 'openai-compatible',
+        apiKey: 'compatible-key',
+        baseUrl: 'http://localhost:11434/v1',
+      })) as { success: boolean; error?: string }
+      expect(withBaseUrl.success).toBe(true)
+
+      ctx.transcriptStore.close()
+    })
   })
 
   describe('auth operations', () => {
@@ -968,6 +1182,82 @@ describe('JSON-RPC', () => {
         'Persist this exchange',
         'Hello from agent',
       ])
+
+      ctx.transcriptStore.close()
+    })
+
+    test('step-limit summary persists without internal limit instruction', async () => {
+      const registry = new ToolRegistry()
+      registry.register(makeTool('bash', () => ({ output: 'looping' })))
+      const model = createMockModel([
+        [
+          { type: 'tool-input-start', id: 'call_1', toolName: 'bash' },
+          { type: 'tool-input-end', id: 'call_1' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call_1',
+            toolName: 'bash',
+            input: '{"input":"loop"}',
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'summary' },
+          { type: 'text-delta', id: 'summary', delta: 'Handoff summary.' },
+          { type: 'text-end', id: 'summary' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+      const ctx = createTestContext({
+        model,
+        registry,
+        agentOptions: { maxSteps: 1 },
+      })
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      await handlers.get('agent/run')!({ message: 'Persist this limited exchange' })
+
+      const sessionResult = ctx.transcriptStore.getSession(newResult.sessionId)
+      expect(sessionResult.ok).toBe(true)
+      if (!sessionResult.ok) return
+
+      expect(sessionResult.value.messages.map((message) => message.role)).toEqual([
+        'user',
+        'tool-call',
+        'tool-result',
+        'assistant',
+      ])
+      expect(
+        sessionResult.value.messages.some((message) =>
+          message.content.includes('autonomous step limit'),
+        ),
+      ).toBe(false)
+      expect(sessionResult.value.messages.at(-1)?.content).toBe('Handoff summary.')
 
       ctx.transcriptStore.close()
     })
@@ -1161,6 +1451,116 @@ description: A generated test skill
         approvals: unknown[]
       }
       expect(result.approvals).toEqual([])
+
+      ctx.transcriptStore.close()
+    })
+  })
+
+  describe('ask-user operations', () => {
+    afterEach(() => {
+      setAskUserPromptHandler(null)
+    })
+
+    test('ask-user JSON-RPC prompt handler emits request and waits for response', async () => {
+      let resolveResponse: ((response: string) => void) | null = null
+
+      setAskUserPromptHandler(async (args) => {
+        writeMessage(
+          makeNotification('askUser/request', {
+            id: 'ask-user-test-1',
+            question: args.question,
+            options: args.options ?? [],
+            createdAt: '2026-04-19T00:00:00.000Z',
+          }),
+        )
+
+        return new Promise((resolve) => {
+          resolveResponse = (response) => resolve(ok({ response }))
+        })
+      })
+
+      const output = await captureStdout(async () => {
+        const pending = executeAskUser({
+          question: 'Choose a direction',
+          options: ['North', 'South'],
+        })
+        await Promise.resolve()
+        resolveResponse?.('2')
+        const result = await pending
+        expect(result.ok).toBe(true)
+        if (result.ok) {
+          expect(result.value.response).toBe('South')
+        }
+      })
+
+      expect(parseNdjson(output)).toEqual([
+        {
+          jsonrpc: '2.0',
+          method: 'askUser/request',
+          params: {
+            id: 'ask-user-test-1',
+            question: 'Choose a direction',
+            options: ['North', 'South'],
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        },
+      ])
+    })
+
+    test('ask-user custom text response is preserved when options are provided', async () => {
+      setAskUserPromptHandler(async () => ok({ response: 'Something else' }))
+
+      const result = await executeAskUser({
+        question: 'Choose a direction',
+        options: ['North', 'South'],
+      })
+
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.response).toBe('Something else')
+      }
+    })
+
+    test('askUser/respond resolves pending prompt responses', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+      const responses: Array<{ id: string; response: string }> = []
+      ctx.respondToAskUser = (id, value) => {
+        responses.push({ id, response: value })
+      }
+
+      const result = (await handlers.get('askUser/respond')!({
+        id: 'ask-user-1',
+        response: 'Use the custom answer',
+      })) as { ok: boolean }
+
+      expect(result).toEqual({ ok: true })
+      expect(responses[0]).toEqual({ id: 'ask-user-1', response: 'Use the custom answer' })
+
+      ctx.transcriptStore.close()
+    })
+
+    test('askUser/respond rejects missing and unknown prompts', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      await expect(handlers.get('askUser/respond')!({ response: 'Answer' })).rejects.toThrow(
+        'params.id is required',
+      )
+      await expect(handlers.get('askUser/respond')!({ id: 'ask-user-1' })).rejects.toThrow(
+        'params.response is required',
+      )
+
+      ctx.respondToAskUser = (id) => {
+        throw new HandlerError(
+          JSON_RPC_ERRORS.INVALID_PARAMS.code,
+          `Unknown ask-user prompt: ${id}`,
+        )
+      }
+
+      await expect(
+        handlers.get('askUser/respond')!({ id: 'missing-prompt', response: 'Answer' }),
+      ).rejects.toThrow('Unknown ask-user prompt: missing-prompt')
 
       ctx.transcriptStore.close()
     })
