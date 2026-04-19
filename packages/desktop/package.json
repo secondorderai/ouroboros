@@ -7,10 +7,11 @@
   "license": "MIT",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "npm run build:cli && electron-vite dev",
+    "dev": "bun run build:cli && electron-vite dev",
     "build": "electron-vite build && electron-builder --config electron-builder.yml --dir",
     "build:vite": "electron-vite build",
     "preview": "electron-vite preview",
+    "start": "bun run build:cli && bun run build:vite && bun run preview",
     "build:cli": "bash scripts/build-cli.sh",
     "build:mac": "electron-vite build && electron-builder --config electron-builder.yml --mac",
     "build:win": "electron-vite build && electron-builder --config electron-builder.yml --win",
