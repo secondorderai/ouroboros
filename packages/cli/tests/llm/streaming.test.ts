@@ -260,6 +260,27 @@ describe('streamResponse', () => {
     expect(errorChunk.error.message).toContain('Authentication failed')
   })
 
+  test('classifies sign-in provider failures as authentication errors', async () => {
+    const model = createMockModel({
+      error: new Error('You need to sign in to use this model.'),
+    })
+
+    const result = streamResponse(model, testMessages)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of result.value.stream) {
+      chunks.push(chunk)
+    }
+
+    const errorChunk = chunks.find((c) => c.type === 'error')
+    expect(errorChunk).toBeDefined()
+    if (errorChunk?.type !== 'error') return
+    expect(errorChunk.error.message).toContain('Authentication failed')
+  })
+
   test('handles mid-stream errors as error chunks', async () => {
     // When the underlying ReadableStream errors, the AI SDK throws during iteration.
     // Our createChunkStream catches these and yields error chunks.

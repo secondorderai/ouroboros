@@ -141,6 +141,36 @@ export interface ContextUsageEstimate {
   threshold: ContextBudgetThreshold
 }
 
+function isRecoverableLLMError(error: Error): boolean {
+  const message = error.message.toLowerCase()
+  const name = error.name.toLowerCase()
+
+  if (
+    message.includes('api key') ||
+    message.includes('authentication') ||
+    message.includes('unauthorized') ||
+    message.includes('forbidden') ||
+    message.includes('401') ||
+    message.includes('403') ||
+    message.includes('sign in') ||
+    message.includes('subscription login') ||
+    name.includes('authenticationerror')
+  ) {
+    return false
+  }
+
+  return (
+    message.includes('econnrefused') ||
+    message.includes('enotfound') ||
+    message.includes('network') ||
+    message.includes('fetch failed') ||
+    message.includes('timeout') ||
+    message.includes('econnreset') ||
+    message.includes('connection reset') ||
+    name.includes('aborterror')
+  )
+}
+
 function estimateTextTokens(text: string): number {
   const normalized = text.trim()
   if (normalized.length === 0) {
@@ -476,9 +506,19 @@ export class Agent {
       })
 
       if (!streamResult.ok) {
-        // Setup error — emit and inject error into conversation for retry
+        // Setup error — retry only transient failures.
         const error = streamResult.error
-        this.emitEvent({ type: 'error', error, recoverable: true })
+        const recoverable = isRecoverableLLMError(error)
+        this.emitEvent({ type: 'error', error, recoverable })
+
+        if (!recoverable) {
+          return {
+            text: finalText,
+            iterations,
+            stopReason: 'error',
+            maxIterationsReached: false,
+          }
+        }
 
         this.conversationHistory.push({
           role: 'user',
@@ -491,8 +531,18 @@ export class Agent {
       const turnResult = await this.processStream(streamResult.value.stream)
 
       if (turnResult.error) {
-        // Stream error — inject into conversation and retry
-        this.emitEvent({ type: 'error', error: turnResult.error, recoverable: true })
+        // Stream error — retry only transient failures.
+        const recoverable = isRecoverableLLMError(turnResult.error)
+        this.emitEvent({ type: 'error', error: turnResult.error, recoverable })
+
+        if (!recoverable) {
+          return {
+            text: turnResult.text,
+            iterations,
+            stopReason: 'error',
+            maxIterationsReached: false,
+          }
+        }
 
         this.conversationHistory.push({
           role: 'user',

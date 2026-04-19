@@ -142,8 +142,11 @@ function classifyError(error: unknown): Error {
     if (
       msg.includes('api key') ||
       msg.includes('unauthorized') ||
+      msg.includes('forbidden') ||
       msg.includes('401') ||
+      msg.includes('403') ||
       msg.includes('authentication') ||
+      msg.includes('sign in') ||
       name.includes('authenticationerror')
     ) {
       return new Error(
@@ -190,8 +193,11 @@ function classifyError(error: unknown): Error {
     if (
       msg.includes('api key') ||
       msg.includes('unauthorized') ||
+      msg.includes('forbidden') ||
       msg.includes('401') ||
+      msg.includes('403') ||
       msg.includes('authentication') ||
+      msg.includes('sign in') ||
       name.includes('authenticationerror')
     ) {
       return new Error(

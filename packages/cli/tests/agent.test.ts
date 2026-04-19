@@ -761,6 +761,42 @@ describe('Agent', () => {
       expect(result.text).toBe('Full response after recovery.')
       expect(result.maxIterationsReached).toBe(false)
     })
+
+    test('agent does not retry authentication errors', async () => {
+      let callCount = 0
+      const model = {
+        specificationVersion: 'v3',
+        provider: 'mock',
+        modelId: 'mock-model',
+        supportedUrls: {},
+
+        doGenerate: async () => {
+          throw new Error('Not used')
+        },
+
+        doStream: async () => {
+          callCount++
+          throw new Error('You need to sign in to use this model.')
+        },
+      } as LanguageModel
+
+      const { events, handler } = collectEvents()
+      const agent = new Agent(makeAgentOptions(model, registry, { onEvent: handler }))
+
+      const result = await agent.run('Hello', { maxSteps: 5 })
+
+      expect(callCount).toBe(1)
+      expect(result.iterations).toBe(1)
+      expect(result.stopReason).toBe('error')
+      expect(result.maxIterationsReached).toBe(false)
+
+      const errorEvents = events.filter((e) => e.type === 'error')
+      expect(errorEvents).toHaveLength(1)
+      expect(errorEvents[0]).toMatchObject({
+        type: 'error',
+        recoverable: false,
+      })
+    })
   })
 
   // -------------------------------------------------------------------
