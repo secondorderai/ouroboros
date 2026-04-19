@@ -77,6 +77,26 @@ test('onboarding renders and preload bridges are available', async ({}, testInfo
   })
 })
 
+test('command palette supports empty search state and Escape close', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    window.dispatchEvent(
+      new KeyboardEvent(
+        'keydown',
+        currentModKey === 'metaKey' ? { key: 'k', metaKey: true } : { key: 'k', ctrlKey: true },
+      ),
+    )
+  }, modKey)
+  await expect(launched.page.getByRole('dialog', { name: 'Command palette' })).toBeVisible()
+  await launched.page.getByPlaceholder('Search actions...').fill('zzzz-no-action')
+  await expect(launched.page.getByText('No matching actions')).toBeVisible()
+
+  await launched.page.keyboard.press('Escape')
+  await expect(launched.page.getByRole('dialog', { name: 'Command palette' })).toBeHidden()
+})
+
 test('onboarding provider and model selection are single choice', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await clearClientState(launched.page)
