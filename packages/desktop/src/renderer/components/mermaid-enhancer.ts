@@ -120,6 +120,7 @@ export function enhanceMermaidSvg(
         case 'unknown':
           break
       }
+      normalizeDiagramStrokeWeights(root)
     }
 
     enhanceEdges(root, theme)
@@ -137,7 +138,7 @@ function enhanceFlowchart(root: Element, theme: 'light' | 'dark') {
     const entry = getMermaidPaletteEntry(theme, index)
     const shape = cluster.querySelector('rect, polygon, path')
     if (shape) {
-      applyShapePalette(shape, entry, { soft: true, strokeWidth: '1.8px' })
+      applyShapePalette(shape, entry, { soft: true, strokeWidth: '1px' })
     }
     applyTextPalette(cluster, entry)
     const box = readBox(shape)
@@ -169,21 +170,21 @@ function enhanceSequence(root: Element, theme: 'light' | 'dark') {
   actors.forEach((actor, index) => {
     const entry = getMermaidPaletteEntry(theme, index)
     selectAll(actor, 'rect, path, polygon').forEach((shape) =>
-      applyShapePalette(shape, entry, { soft: true, strokeWidth: '1.6px' }),
+      applyShapePalette(shape, entry, { soft: true, strokeWidth: '1px' }),
     )
     applyTextPalette(actor, entry)
   })
 
   selectAll(root, 'rect[class*="activation"], path[class*="activation"]').forEach((shape, index) => {
     const entry = getMermaidPaletteEntry(theme, index)
-    applyShapePalette(shape, entry, { soft: false, strokeWidth: '1.4px' })
+    applyShapePalette(shape, entry, { soft: false, strokeWidth: '1px' })
   })
 
   selectAll(root, 'rect[class*="loop"], rect[class*="note"], path[class*="note"]').forEach(
     (shape, index) => {
       applyShapePalette(shape, getMermaidPaletteEntry(theme, index + 1), {
         soft: true,
-        strokeWidth: '1.4px',
+        strokeWidth: '1px',
       })
     },
   )
@@ -214,7 +215,7 @@ function enhanceLaneDiagram(root: Element, theme: 'light' | 'dark') {
   laneShapes.forEach((shape, index) => {
     applyShapePalette(shape, getMermaidPaletteEntry(theme, index), {
       soft: index % 2 === 0,
-      strokeWidth: '1.4px',
+      strokeWidth: '1px',
     })
   })
 }
@@ -224,15 +225,26 @@ function enhanceEdges(root: Element, theme: 'light' | 'dark') {
   selectAll(root, EDGE_SELECTOR).forEach((shape) => {
     mergeStyle(shape, {
       stroke: edge.border,
-      'stroke-width': '1.8px',
+      'stroke-width': '1.25px',
     })
+  })
+}
+
+function normalizeDiagramStrokeWeights(root: Element) {
+  selectAll(root, 'rect, polygon, circle, ellipse, path').forEach((shape) => {
+    const stroke = shape.getAttribute('stroke')
+    const style = shape.getAttribute('style') ?? ''
+    if (stroke === 'none' || /(?:^|;)\s*stroke\s*:\s*none\b/i.test(style)) {
+      return
+    }
+    mergeStyle(shape, { 'stroke-width': '1px' })
   })
 }
 
 function applyNodePalette(group: Element, entry: PaletteEntry) {
   const shape = group.querySelector(NODE_SHAPE_SELECTOR)
   if (shape) {
-    applyShapePalette(shape, entry, { soft: false, strokeWidth: '1.6px' })
+    applyShapePalette(shape, entry, { soft: false, strokeWidth: '1px' })
   }
   applyTextPalette(group, entry)
 }

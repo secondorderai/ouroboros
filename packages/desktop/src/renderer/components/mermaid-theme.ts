@@ -1,7 +1,6 @@
-// Vivid editorial palette — 8 hues that cycle across subgraphs & node classes.
-// Saturation/luminance calibrated per theme so labels stay readable on top of
-// the tinted fills. Extracted from MermaidRenderer so it can be unit-tested
-// without pulling in the mermaid package.
+// Restrained documentation palette for Mermaid diagrams. Entries stay tonal so
+// Mermaid families that require scales still get variation without turning
+// diagrams into multi-hue illustrations.
 
 export interface PaletteEntry {
   fill: string
@@ -10,25 +9,25 @@ export interface PaletteEntry {
 }
 
 export const LIGHT_PALETTE: PaletteEntry[] = [
-  { fill: 'rgba(62, 95, 138, 0.14)', border: '#3E5F8A', label: '#1E2E44' },
-  { fill: 'rgba(14, 165, 164, 0.14)', border: '#0EA5A4', label: '#0B5E5D' },
-  { fill: 'rgba(124, 58, 237, 0.14)', border: '#7C3AED', label: '#3F1D7C' },
-  { fill: 'rgba(217, 70, 239, 0.14)', border: '#D946EF', label: '#7A1E87' },
-  { fill: 'rgba(245, 158, 11, 0.18)', border: '#F59E0B', label: '#7C4A05' },
-  { fill: 'rgba(239, 68, 68, 0.14)', border: '#EF4444', label: '#7F1D1D' },
-  { fill: 'rgba(8, 145, 178, 0.14)', border: '#0891B2', label: '#0A4F63' },
-  { fill: 'rgba(16, 185, 129, 0.14)', border: '#10B981', label: '#0A5A40' },
+  { fill: '#FFFFFF', border: '#9AA7B6', label: '#0E1116' },
+  { fill: '#F8FAFC', border: '#A9B4C1', label: '#1C2733' },
+  { fill: '#F3F6F9', border: '#B5BFCB', label: '#26313D' },
+  { fill: '#EEF2F6', border: '#8FA0B2', label: '#202B37' },
+  { fill: '#F5F8FB', border: '#6E8299', label: '#1E2E44' },
+  { fill: '#FAFBFC', border: '#C0C8D2', label: '#0E1116' },
+  { fill: '#F1F4F7', border: '#75869A', label: '#182333' },
+  { fill: '#F7F9FB', border: '#3E5F8A', label: '#1E2E44' },
 ]
 
 export const DARK_PALETTE: PaletteEntry[] = [
-  { fill: 'rgba(137, 167, 209, 0.22)', border: '#89A7D1', label: '#E6EEF9' },
-  { fill: 'rgba(94, 234, 212, 0.22)', border: '#5EEAD4', label: '#E0FBF6' },
-  { fill: 'rgba(196, 181, 253, 0.22)', border: '#C4B5FD', label: '#F1EDFE' },
-  { fill: 'rgba(240, 171, 252, 0.22)', border: '#F0ABFC', label: '#FBEAFF' },
-  { fill: 'rgba(252, 211, 77, 0.24)', border: '#FCD34D', label: '#FEF3C8' },
-  { fill: 'rgba(252, 165, 165, 0.24)', border: '#FCA5A5', label: '#FEE4E4' },
-  { fill: 'rgba(103, 232, 249, 0.22)', border: '#67E8F9', label: '#E0F8FC' },
-  { fill: 'rgba(110, 231, 183, 0.22)', border: '#6EE7B7', label: '#DFF7EB' },
+  { fill: '#11161C', border: '#526173', label: '#EEF2F6' },
+  { fill: '#151B22', border: '#5E6D7E', label: '#E5EBF2' },
+  { fill: '#182029', border: '#677789', label: '#E2E8F0' },
+  { fill: '#1A222B', border: '#748397', label: '#E8EDF4' },
+  { fill: '#121923', border: '#89A7D1', label: '#EEF4FB' },
+  { fill: '#10151B', border: '#3E4B5A', label: '#DDE5EE' },
+  { fill: '#171E26', border: '#7F8EA1', label: '#E6ECF3' },
+  { fill: '#131A21', border: '#6F89AA', label: '#EAF0F7' },
 ]
 
 export function getMermaidPalette(theme: 'light' | 'dark'): PaletteEntry[] {
@@ -125,7 +124,7 @@ export function buildMermaidThemeVariables(
     titleColor: tokens.textPrimary,
     nodeBorder: primary.border,
     edgeLabelBackground: tokens.bgChat,
-    clusterBkg: 'transparent',
+    clusterBkg: tokens.bgChat,
     clusterBorder: tokens.borderMedium,
     fontFamily: MERMAID_FONT_FAMILY,
     fontSize: MERMAID_FONT_SIZE_PX,
@@ -182,9 +181,9 @@ export function buildMermaidThemeVariables(
     classText: tokens.textPrimary,
     archEdgeColor: tokens.borderMedium,
     archEdgeArrowColor: tokens.borderMedium,
-    archEdgeWidth: '1.8',
+    archEdgeWidth: '1.25',
     archGroupBorderColor: tokens.borderMedium,
-    archGroupBorderWidth: '1.4',
+    archGroupBorderWidth: '1',
     quadrant1Fill: palette[0].fill,
     quadrant2Fill: palette[1].fill,
     quadrant3Fill: palette[2].fill,
@@ -202,7 +201,7 @@ export function buildMermaidThemeVariables(
     quadrantTitleFill: tokens.textPrimary,
     requirementBackground: primary.fill,
     requirementBorderColor: primary.border,
-    requirementBorderSize: '1.4',
+    requirementBorderSize: '1',
     requirementTextColor: primary.label,
     relationColor: tokens.borderMedium,
     relationLabelBackground: tokens.bgChat,
@@ -234,15 +233,21 @@ export function buildMermaidThemeVariables(
     vars[`venn${index}`] = palette[(index - 1) % palette.length].fill
   }
 
+  vars.pieTitleTextSize = '15px'
+  vars.pieSectionTextSize = '12px'
+  vars.pieLegendTextSize = '12px'
   vars.pieTitleTextColor = tokens.textPrimary
   vars.pieSectionTextColor = tokens.textPrimary
   vars.pieLegendTextColor = tokens.textSecondary
   vars.pieStrokeColor = tokens.bgChat
-  vars.pieStrokeWidth = '2px'
+  vars.pieStrokeWidth = '1px'
   vars.pieOuterStrokeWidth = '1px'
   vars.pieOuterStrokeColor = tokens.borderMedium
+  vars.pieOpacity = '0.88'
   vars.vennTitleTextColor = tokens.textPrimary
   vars.vennSetTextColor = tokens.textPrimary
+  vars.tagLabelFontSize = '12px'
+  vars.commitLabelFontSize = '12px'
 
   return vars
 }
