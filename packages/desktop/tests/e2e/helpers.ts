@@ -109,6 +109,7 @@ export async function launchTestApp(
     env: {
       ...process.env,
       NODE_ENV: 'test',
+      OUROBOROS_TEST_HIDE_WINDOW: process.env.OUROBOROS_TEST_HIDE_WINDOW ?? '1',
       OUROBOROS_TEST_RUNTIME_DIR: runtimeDir,
       OUROBOROS_TEST_SCENARIO_PATH: testScenarioPath,
       OUROBOROS_TEST_DIALOG_RESPONSES_PATH: testDialogResponsesPath,
@@ -155,6 +156,7 @@ export async function completeOnboarding(
   page: Page,
   options: {
     apiKey?: string
+    baseUrl?: string
     provider?: 'anthropic' | 'openai' | 'openai-chatgpt' | 'openai-compatible'
     workspace?: string
     templateName?:
@@ -165,6 +167,7 @@ export async function completeOnboarding(
   } = {},
 ): Promise<void> {
   const apiKey = options.apiKey ?? 'sk-test-key'
+  const baseUrl = options.baseUrl ?? 'http://localhost:11434/v1'
   const provider = options.provider ?? 'anthropic'
   const workspace = options.workspace
   const templateName = options.templateName ?? 'Help me with a project'
@@ -186,6 +189,9 @@ export async function completeOnboarding(
     await expect(page.getByText(/Connected/)).toBeVisible()
   } else {
     await page.getByPlaceholder('sk-...').fill(apiKey)
+    if (provider === 'openai-compatible') {
+      await page.getByLabel('API Base URL').fill(baseUrl)
+    }
     await page.getByRole('button', { name: 'Test Connection' }).click()
     await expect(page.getByText('Connected')).toBeVisible()
   }

@@ -9,6 +9,14 @@ test.afterEach(async () => {
   launched = null
 })
 
+test('main process exposes the Ouroboros app name in development launches', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+
+  await expect.poll(async () => {
+    return launched!.app.evaluate(({ app }) => app.getName())
+  }).toBe('Ouroboros')
+})
+
 test('renderer can observe CLI ready status and round-trip a JSON-RPC request through the main process', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
 

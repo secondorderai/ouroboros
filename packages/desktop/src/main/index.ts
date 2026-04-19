@@ -13,6 +13,13 @@ import { writeTestLog } from './test-logging'
 import { TEST_EXTERNAL_URL_LOG_PATH, TEST_USER_DATA_DIR } from './test-paths'
 import type { Theme } from '../shared/protocol'
 
+const APP_NAME = 'Ouroboros'
+
+app.setName(APP_NAME)
+
+const hideTestWindow =
+  process.env.NODE_ENV === 'test' && process.env.OUROBOROS_TEST_HIDE_WINDOW === '1'
+
 if (process.env.NODE_ENV === 'test') {
   app.setPath('userData', TEST_USER_DATA_DIR)
 }
@@ -176,6 +183,11 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    if (hideTestWindow) {
+      writeTestLog('window ready-to-show skipped because OUROBOROS_TEST_HIDE_WINDOW=1')
+      return
+    }
+
     mainWindow?.show()
   })
 
@@ -196,7 +208,7 @@ function createWindow(): void {
   const menu = Menu.buildFromTemplate([
     ...(isMac
       ? [{
-          label: app.name,
+          label: APP_NAME,
           submenu: [
             { role: 'about' as const },
             { type: 'separator' as const },

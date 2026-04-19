@@ -18,6 +18,13 @@ bun run test:e2e:real
 bun run test:e2e
 ```
 
+Electron windows are hidden by default during E2E runs so local tests do not steal focus or cover
+your workspace. To debug visually, run a specific test with:
+
+```bash
+OUROBOROS_TEST_HIDE_WINDOW=0 npx playwright test tests/e2e/renderer-contract.spec.ts -g "test name"
+```
+
 CDP smoke checks are separate because they need `curl`, `jq`, and `websocat` or `wscat`:
 
 ```bash
