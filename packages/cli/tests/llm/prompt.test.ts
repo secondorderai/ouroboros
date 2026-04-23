@@ -21,6 +21,9 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Act')
     expect(prompt).toContain('Observe')
     expect(prompt).toContain('Iterate')
+    expect(prompt).toContain(
+      'mention any contradictions or unresolved risks before treating the result as reliable',
+    )
 
     // Safety tiers
     expect(prompt).toContain('Tier 0')

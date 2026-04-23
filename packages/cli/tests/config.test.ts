@@ -1,8 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import {
+  BUILT_IN_AGENT_DEFINITIONS,
   DEFAULT_AGENT_CONFIG,
   DEFAULT_MEMORY_CONFIG,
   DEFAULT_RSI_CONFIG,
+  getSelectablePrimaryAgentDefinitions,
   loadConfig,
   resolveConfigDir,
   type OuroborosConfig,
@@ -81,6 +83,9 @@ describe('loadConfig', () => {
 
     // Agent defaults
     expect(config.agent.maxSteps).toEqual(DEFAULT_AGENT_CONFIG.maxSteps)
+    expect(config.agent.definitions.map((definition) => definition.id)).toEqual(
+      BUILT_IN_AGENT_DEFINITIONS.map((definition) => definition.id),
+    )
 
     // Memory defaults
     expect(config.memory.consolidationSchedule).toBe('session-end')
@@ -160,6 +165,240 @@ describe('loadConfig', () => {
       desktop: 302,
       singleShot: 303,
       automation: 304,
+    })
+  })
+
+  test('loads built-in agent definitions with expected modes and read-only permissions', () => {
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const definitions = new Map(
+      result.value.agent.definitions.map((definition) => [definition.id, definition]),
+    )
+
+    expect([...definitions.keys()]).toEqual(['default', 'explore', 'review', 'test', 'worker'])
+    expect(definitions.get('default')?.mode).toBe('primary')
+    expect(definitions.get('default')?.permissions?.canInvokeAgents).toEqual([
+      'explore',
+      'review',
+      'test',
+    ])
+    expect(definitions.get('explore')?.mode).toBe('all')
+    expect(definitions.get('review')?.mode).toBe('all')
+    expect(definitions.get('test')?.mode).toBe('subagent')
+    expect(definitions.get('worker')?.mode).toBe('subagent')
+    expect(definitions.get('explore')?.permissions).toEqual({
+      tier0: true,
+      tier1: false,
+      tier2: false,
+      tier3: false,
+      tier4: false,
+    })
+    expect(definitions.get('review')?.permissions).toEqual({
+      tier0: true,
+      tier1: false,
+      tier2: false,
+      tier3: false,
+      tier4: false,
+    })
+    expect(definitions.get('review')?.prompt).toContain('reviewFindings')
+    expect(definitions.get('review')?.prompt).toContain('Stay read-only')
+    expect(definitions.get('test')?.hidden).toBeUndefined()
+    expect(definitions.get('test')?.prompt).toContain('allowed test command')
+    expect(definitions.get('worker')?.hidden).toBe(true)
+    expect(result.value.agent.allowedTestCommands).toEqual([])
+  })
+
+  test('loads configured allowed test commands', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        agent: {
+          allowedTestCommands: ['bun test packages/cli/tests/tools/*.test.ts'],
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.agent.allowedTestCommands).toEqual([
+      'bun test packages/cli/tests/tools/*.test.ts',
+    ])
+  })
+
+  test('rejects invalid agent definitions with field-specific errors', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        agent: {
+          definitions: [
+            {
+              id: 'bad-mode',
+              description: 'Invalid mode definition',
+              mode: 'invalid',
+              prompt: 'Do invalid things.',
+            },
+          ],
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+
+    expect(result.error.message).toContain('Invalid .ouroboros configuration')
+    expect(result.error.message).toContain('agent.definitions.0.mode')
+  })
+
+  test('rejects malformed agent ids, missing prompts, and malformed permissions', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        agent: {
+          definitions: [
+            {
+              id: 'Bad Id',
+              description: 'Invalid id definition',
+              mode: 'primary',
+              prompt: 'This id should fail.',
+            },
+            {
+              id: 'missing-prompt',
+              description: 'Missing prompt definition',
+              mode: 'primary',
+            },
+            {
+              id: 'bad-permissions',
+              description: 'Malformed permissions definition',
+              mode: 'primary',
+              prompt: 'This permission shape should fail.',
+              permissions: { tier0: 'yes' },
+            },
+          ],
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+
+    expect(result.error.message).toContain('agent.definitions.0.id')
+    expect(result.error.message).toContain('agent.definitions.1.prompt')
+    expect(result.error.message).toContain('agent.definitions.2.permissions.tier0')
+  })
+
+  test('hidden agents are loaded but excluded from selectable primary definitions', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        agent: {
+          definitions: [
+            {
+              id: 'quiet-primary',
+              description: 'Hidden primary definition',
+              mode: 'primary',
+              prompt: 'Remain available in the registry but hidden from selection.',
+              hidden: true,
+            },
+            {
+              id: 'visible-all',
+              description: 'Visible all-mode definition',
+              mode: 'all',
+              prompt: 'Be selectable as a primary definition.',
+            },
+          ],
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(
+      result.value.agent.definitions.some((definition) => definition.id === 'quiet-primary'),
+    ).toBe(true)
+    expect(
+      getSelectablePrimaryAgentDefinitions(result.value).map((definition) => definition.id),
+    ).toEqual(['default', 'explore', 'review', 'visible-all'])
+  })
+
+  test('custom agent definitions extend and override built-ins by id with later entries winning', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        agent: {
+          definitions: [
+            {
+              id: 'explore',
+              description: 'Custom explore role',
+              mode: 'primary',
+              prompt: 'Use the custom explore prompt.',
+              model: 'custom-explore-model',
+              maxSteps: 12,
+              permissions: {
+                tier0: true,
+                tier1: false,
+                tier2: false,
+                tier3: false,
+                tier4: false,
+              },
+            },
+            {
+              id: 'triage',
+              description: 'Custom triage role',
+              mode: 'all',
+              prompt: 'Triage the request.',
+            },
+            {
+              id: 'triage',
+              description: 'Later triage role',
+              mode: 'primary',
+              prompt: 'Use the later triage definition.',
+              hidden: true,
+            },
+          ],
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const definitions = new Map(
+      result.value.agent.definitions.map((definition) => [definition.id, definition]),
+    )
+
+    expect([...definitions.keys()]).toEqual([
+      'default',
+      'explore',
+      'review',
+      'test',
+      'worker',
+      'triage',
+    ])
+    expect(definitions.get('explore')).toMatchObject({
+      description: 'Custom explore role',
+      prompt: 'Use the custom explore prompt.',
+      model: 'custom-explore-model',
+      maxSteps: 12,
+    })
+    expect(definitions.get('triage')).toMatchObject({
+      description: 'Later triage role',
+      mode: 'primary',
+      prompt: 'Use the later triage definition.',
+      hidden: true,
     })
   })
 

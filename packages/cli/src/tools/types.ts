@@ -1,5 +1,30 @@
 import { z } from 'zod'
 import type { Result } from '@src/types'
+import type { OuroborosConfig } from '@src/config'
+import type { BuildSystemPromptOptions } from '@src/llm/prompt'
+import type { TranscriptStore } from '@src/memory/transcripts'
+import type { LanguageModel } from 'ai'
+import type { ToolRegistry } from './registry'
+import type { SkillCatalogEntry } from './skill-manager'
+import type { AgentEvent } from '@src/agent'
+import type { PermissionLease } from '@src/permission-lease'
+import type { TaskGraphStore } from '@src/team/task-graph'
+
+export interface ToolExecutionContext {
+  model: LanguageModel
+  toolRegistry: ToolRegistry
+  config: OuroborosConfig
+  transcriptStore?: TranscriptStore
+  basePath?: string
+  sessionId?: string
+  agentId: string
+  permissionLease?: PermissionLease
+  taskGraphStore?: TaskGraphStore
+  systemPromptBuilder?: (options: BuildSystemPromptOptions) => string
+  memoryProvider?: () => string
+  skillCatalogProvider?: () => SkillCatalogEntry[]
+  emitEvent?: (event: AgentEvent) => void
+}
 
 /**
  * The base (type-erased) tool interface used by the registry to store
@@ -22,7 +47,7 @@ export interface ToolDefinition {
    * Must never throw — return a Result instead.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  execute: (args: any) => Promise<Result<unknown>>
+  execute: (args: any, context?: ToolExecutionContext) => Promise<Result<unknown>>
 }
 
 /**
@@ -36,6 +61,7 @@ export interface ToolDefinition {
  */
 export type TypedToolExecute<TSchema extends z.ZodType<any>, TResult> = (
   args: z.infer<TSchema>,
+  context?: ToolExecutionContext,
 ) => Promise<Result<TResult>>
 
 /**

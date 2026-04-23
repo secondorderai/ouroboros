@@ -97,6 +97,8 @@ export interface Message {
   imageAttachments?: ImageAttachment[]
   /** Completed tool calls that appeared during this agent turn. */
   toolCalls?: CompletedToolCall[]
+  /** Subagent activity that appeared during this agent turn. */
+  subagentRuns?: SubagentRun[]
 }
 
 export interface CompletedToolCall {
@@ -116,6 +118,88 @@ export interface ToolCallState {
   output?: unknown
   error?: string
   durationMs?: number
+}
+
+export type SubagentRunUiStatus = 'running' | 'completed' | 'failed'
+
+export interface SubagentEvidenceReference {
+  type: 'file' | 'command' | 'output'
+  label: string
+  path?: string
+  line?: number
+  endLine?: number
+}
+
+export type PermissionLeaseStatus = 'pending' | 'active' | 'denied'
+
+export interface PermissionLeaseDisplayDetails {
+  leaseId: string
+  agentRunId: string
+  requestedTools: string[]
+  requestedPaths: string[]
+  requestedBashCommands: string[]
+  expiresAt?: string
+  riskSummary: string
+  risk: 'high' | 'medium' | 'low'
+  createdAt: string
+  status: PermissionLeaseStatus
+  approvedAt?: string
+  denialReason?: string
+}
+
+export type WorkerDiffReviewStatus =
+  | 'awaiting-review'
+  | 'reviewed'
+  | 'approved'
+  | 'rejected'
+  | 'applied'
+  | 'blocked'
+
+export interface WorkerDiffTestResult {
+  command: string
+  exitCode: number
+  durationMs?: number
+  outputExcerpt?: string
+  status: 'passed' | 'failed'
+}
+
+export interface WorkerDiffDisplayDetails {
+  taskId: string
+  branchName?: string
+  worktreePath: string
+  changedFiles: string[]
+  diff: string
+  diffLineCount?: number
+  testResult?: WorkerDiffTestResult
+  unresolvedRisks: string[]
+  reviewStatus: WorkerDiffReviewStatus
+  approvalId?: string
+  action?: 'apply-patch'
+  description?: string
+  createdAt?: string
+  risk?: 'high' | 'medium' | 'low'
+  approvedAt?: string
+  denialReason?: string
+}
+
+export interface SubagentRun {
+  runId: string
+  parentSessionId?: string
+  childSessionId?: string
+  agentId: string
+  task: string
+  status: SubagentRunUiStatus
+  startedAt: string
+  updatedAt?: string
+  completedAt?: string
+  message?: string
+  summary?: string
+  evidenceCount: number
+  uncertaintyCount: number
+  evidence: SubagentEvidenceReference[]
+  permissionLeases?: PermissionLeaseDisplayDetails[]
+  workerDiff?: WorkerDiffDisplayDetails
+  failureMessage?: string
 }
 
 // ── Notification Payload Types (CLI -> Renderer) ──────────────────
@@ -245,6 +329,10 @@ export type SessionNewParams = Record<string, never>
 export interface SessionDeleteParams {
   id: string
 }
+export interface SessionRenameParams {
+  id: string
+  title: string
+}
 export type ConfigGetParams = Record<string, never>
 export interface ConfigSetParams {
   path: string
@@ -307,7 +395,139 @@ export interface WorkspaceSetParams {
   directory: string
 }
 
-// ── Response Types (19 methods) ────────────────────────────────────
+export type TaskGraphStatus = 'draft' | 'running' | 'paused' | 'failed' | 'cancelled' | 'completed'
+export type TaskNodeStatus =
+  | 'blocked'
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+export type TeamAgentStatus = 'active' | 'cancelled' | 'completed'
+
+export interface QualityGate {
+  id: string
+  description: string
+  required: boolean
+  status: 'pending' | 'passed' | 'failed'
+}
+
+export interface TaskNode {
+  id: string
+  title: string
+  description?: string
+  status: TaskNodeStatus
+  dependencies: string[]
+  assignedAgentId?: string
+  requiredArtifacts: string[]
+  qualityGates: QualityGate[]
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+  cancellationReason?: string
+}
+
+export interface TeamAgent {
+  id: string
+  status: TeamAgentStatus
+  activeTaskIds: string[]
+  updatedAt: string
+}
+
+export interface TeamMessage {
+  id: string
+  message: string
+  agentId?: string
+  taskId?: string
+  createdAt: string
+}
+
+export interface TaskGraph {
+  id: string
+  name: string
+  status: TaskGraphStatus
+  tasks: TaskNode[]
+  agents: TeamAgent[]
+  messages: TeamMessage[]
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  cancelledAt?: string
+  cancellationReason?: string
+}
+
+export interface TeamTaskInput {
+  id?: string
+  title: string
+  description?: string
+  dependencies?: string[]
+  assignedAgentId?: string
+  requiredArtifacts?: string[]
+  qualityGates?: Array<{
+    id?: string
+    description: string
+    required?: boolean
+    status?: 'pending' | 'passed' | 'failed'
+  }>
+}
+
+export interface TeamCreateParams {
+  name?: string
+  tasks?: TeamTaskInput[]
+}
+export type WorkflowTemplateName =
+  | 'parallel-investigation'
+  | 'pre-merge-red-team'
+  | 'architecture-decision'
+  | 'review-triad'
+export interface TeamCreateWorkflowParams {
+  template: WorkflowTemplateName
+  taskContext: string
+  name?: string
+}
+export interface TeamGraphParams {
+  graphId: string
+}
+export interface TeamCancelParams extends TeamGraphParams {
+  reason?: string
+}
+export interface TeamAddTaskParams extends TeamGraphParams {
+  task: TeamTaskInput
+}
+export interface TeamAssignTaskParams extends TeamGraphParams {
+  taskId: string
+  agentId: string
+}
+export interface TeamSendMessageParams extends TeamGraphParams {
+  message: string
+  agentId?: string
+  taskId?: string
+}
+export interface TeamGraphResult {
+  graph: TaskGraph
+}
+export interface TeamGraphNotification {
+  graph: TaskGraph
+  reason?: string
+}
+export interface TeamAddTaskResult {
+  graph: TaskGraph
+  task: TaskNode
+}
+export interface TeamAssignTaskResult {
+  graph: TaskGraph
+  task: TaskNode
+}
+export interface TeamCleanupResult {
+  cleaned: true
+  graphId: string
+}
+export interface TeamSendMessageResult {
+  graph: TaskGraph
+  message: TeamMessage
+}
+
+// ── Response Types ─────────────────────────────────────────────────
 
 export interface AgentRunResult {
   text: string
@@ -326,6 +546,7 @@ export interface SessionInfo {
   lastActive: string
   messageCount: number
   title?: string
+  titleSource?: 'auto' | 'manual'
   workspacePath?: string | null
   runStatus?: 'idle' | 'running' | 'error'
   activeToolName?: string
@@ -352,6 +573,11 @@ export interface SessionNewResult {
 }
 export interface SessionDeleteResult {
   deleted: boolean
+}
+export interface SessionRenameResult {
+  id: string
+  title: string
+  titleSource: 'manual'
 }
 
 export interface OuroborosConfig {
@@ -509,6 +735,8 @@ export interface ApprovalItem {
   createdAt: string
   risk?: 'high' | 'medium' | 'low'
   diff?: string
+  lease?: Omit<PermissionLeaseDisplayDetails, 'status'> & { status?: PermissionLeaseStatus }
+  workerDiff?: WorkerDiffDisplayDetails
 }
 export interface ApprovalListResult {
   approvals: ApprovalItem[]
@@ -516,6 +744,8 @@ export interface ApprovalListResult {
 export interface ApprovalRespondResult {
   status: string
   message?: string
+  lease?: PermissionLeaseDisplayDetails
+  workerDiff?: WorkerDiffDisplayDetails
 }
 export interface AskUserRespondResult {
   ok: boolean
@@ -576,6 +806,7 @@ export interface RpcMethodMap {
   'session/load': { params: SessionLoadParams; result: SessionData }
   'session/new': { params: SessionNewParams; result: SessionNewResult }
   'session/delete': { params: SessionDeleteParams; result: SessionDeleteResult }
+  'session/rename': { params: SessionRenameParams; result: SessionRenameResult }
   'config/get': { params: ConfigGetParams; result: OuroborosConfig }
   'config/set': { params: ConfigSetParams; result: OuroborosConfig }
   'config/setApiKey': { params: ConfigSetApiKeyParams; result: ConfigSetApiKeyResult }
@@ -600,6 +831,15 @@ export interface RpcMethodMap {
   'approval/respond': { params: ApprovalRespondParams; result: ApprovalRespondResult }
   'askUser/respond': { params: AskUserRespondParams; result: AskUserRespondResult }
   'workspace/set': { params: WorkspaceSetParams; result: WorkspaceSetResult }
+  'team/create': { params: TeamCreateParams; result: TeamGraphResult }
+  'team/createWorkflow': { params: TeamCreateWorkflowParams; result: TeamGraphResult }
+  'team/get': { params: TeamGraphParams; result: TeamGraphResult }
+  'team/start': { params: TeamGraphParams; result: TeamGraphResult }
+  'team/cancel': { params: TeamCancelParams; result: TeamGraphResult }
+  'team/cleanup': { params: TeamGraphParams; result: TeamCleanupResult }
+  'team/addTask': { params: TeamAddTaskParams; result: TeamAddTaskResult }
+  'team/assignTask': { params: TeamAssignTaskParams; result: TeamAssignTaskResult }
+  'team/sendMessage': { params: TeamSendMessageParams; result: TeamSendMessageResult }
   'mode/getState': { params: ModeGetStateParams; result: ModeState }
   'mode/enter': { params: ModeEnterParams; result: ModeEnterResult }
   'mode/exit': { params: ModeExitParams; result: ModeExitResult }
@@ -621,6 +861,7 @@ export const RPC_METHOD_NAMES = [
   'session/load',
   'session/new',
   'session/delete',
+  'session/rename',
   'config/get',
   'config/set',
   'config/setApiKey',
@@ -642,6 +883,15 @@ export const RPC_METHOD_NAMES = [
   'approval/respond',
   'askUser/respond',
   'workspace/set',
+  'team/create',
+  'team/createWorkflow',
+  'team/get',
+  'team/start',
+  'team/cancel',
+  'team/cleanup',
+  'team/addTask',
+  'team/assignTask',
+  'team/sendMessage',
   'mode/getState',
   'mode/enter',
   'mode/exit',
@@ -649,9 +899,13 @@ export const RPC_METHOD_NAMES = [
 ] as const satisfies readonly RpcMethod[]
 
 /** Compile-time check that `RPC_METHOD_NAMES` covers every key of `RpcMethodMap`. */
-type _RpcMethodCoverageCheck = Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]> extends never
-  ? true
-  : ['Missing RPC method in RPC_METHOD_NAMES:', Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]>]
+type _RpcMethodCoverageCheck =
+  Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]> extends never
+    ? true
+    : [
+        'Missing RPC method in RPC_METHOD_NAMES:',
+        Exclude<RpcMethod, (typeof RPC_METHOD_NAMES)[number]>,
+      ]
 const _rpcCoverage: _RpcMethodCoverageCheck = true
 void _rpcCoverage
 
@@ -687,6 +941,40 @@ export interface AgentStatusNotification {
   status: string
   message?: string
 }
+export type SubagentRunStatus = 'running' | 'completed' | 'failed'
+export interface SubagentLifecycleBaseNotification {
+  runId: string
+  parentSessionId?: string
+  childSessionId?: string
+  agentId: string
+  task: string
+  status: SubagentRunStatus
+  startedAt: string
+}
+export interface AgentSubagentStartedNotification extends SubagentLifecycleBaseNotification {
+  status: 'running'
+}
+export interface AgentSubagentUpdatedNotification extends SubagentLifecycleBaseNotification {
+  status: 'running'
+  updatedAt: string
+  message?: string
+}
+export interface AgentSubagentCompletedNotification extends SubagentLifecycleBaseNotification {
+  status: 'completed'
+  completedAt: string
+  result: unknown
+  workerDiff?: WorkerDiffDisplayDetails
+}
+export interface AgentSubagentFailedNotification extends SubagentLifecycleBaseNotification {
+  status: 'failed'
+  completedAt: string
+  error: {
+    message: string
+  }
+  result?: unknown
+  workerDiff?: WorkerDiffDisplayDetails
+}
+export type AgentPermissionLeaseUpdatedNotification = PermissionLeaseDisplayDetails
 export interface MemoryUpdatedNotification {
   topic: string
   action: 'created' | 'updated' | 'deleted'
@@ -701,6 +989,8 @@ export interface ApprovalRequestNotification {
   createdAt?: string
   risk?: 'high' | 'medium' | 'low'
   diff?: string
+  lease?: Omit<PermissionLeaseDisplayDetails, 'status'> & { status?: PermissionLeaseStatus }
+  workerDiff?: WorkerDiffDisplayDetails
 }
 export interface AskUserRequestNotification {
   id: string
@@ -749,6 +1039,13 @@ export interface NotificationMap {
   'agent/error': AgentErrorNotification
   'agent/thinking': AgentThinkingNotification
   'agent/status': AgentStatusNotification
+  'agent/subagentStarted': AgentSubagentStartedNotification
+  'agent/subagentUpdated': AgentSubagentUpdatedNotification
+  'agent/subagentCompleted': AgentSubagentCompletedNotification
+  'agent/subagentFailed': AgentSubagentFailedNotification
+  'agent/permissionLeaseUpdated': AgentPermissionLeaseUpdatedNotification
+  'team/graphOpen': TeamGraphNotification
+  'team/graphUpdated': TeamGraphNotification
   'memory/updated': MemoryUpdatedNotification
   'skill/activated': SkillActivatedNotification
   'approval/request': ApprovalRequestNotification
@@ -780,6 +1077,13 @@ export const NOTIFICATION_METHOD_NAMES = [
   'agent/error',
   'agent/thinking',
   'agent/status',
+  'agent/subagentStarted',
+  'agent/subagentUpdated',
+  'agent/subagentCompleted',
+  'agent/subagentFailed',
+  'agent/permissionLeaseUpdated',
+  'team/graphOpen',
+  'team/graphUpdated',
   'memory/updated',
   'skill/activated',
   'approval/request',
@@ -795,15 +1099,13 @@ export const NOTIFICATION_METHOD_NAMES = [
 ] as const satisfies readonly NotificationMethod[]
 
 /** Compile-time check that `NOTIFICATION_METHOD_NAMES` covers every key of `NotificationMap`. */
-type _NotificationCoverageCheck = Exclude<
-  NotificationMethod,
-  (typeof NOTIFICATION_METHOD_NAMES)[number]
-> extends never
-  ? true
-  : [
-      'Missing notification method in NOTIFICATION_METHOD_NAMES:',
-      Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]>,
-    ]
+type _NotificationCoverageCheck =
+  Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]> extends never
+    ? true
+    : [
+        'Missing notification method in NOTIFICATION_METHOD_NAMES:',
+        Exclude<NotificationMethod, (typeof NOTIFICATION_METHOD_NAMES)[number]>,
+      ]
 const _notificationCoverage: _NotificationCoverageCheck = true
 void _notificationCoverage
 

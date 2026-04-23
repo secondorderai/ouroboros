@@ -50,6 +50,8 @@ export interface BuildSystemPromptOptions {
   responseStyle?: 'default' | 'desktop-readable'
   /** Mode overlay — active mode section or auto-detection hints */
   modeOverlay?: { section?: string; autoDetectionHints: string[] }
+  /** Optional team reputation/advisor guidance from prior orchestration outcomes. */
+  teamGuidance?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +76,7 @@ Always plan before acting. Never guess when you can verify.
 - When you can answer directly from your knowledge or the conversation, respond with plain text.
 - When you need to interact with the filesystem, run commands, or gather information, use tools.
 - After using a tool, always interpret the result before proceeding.
+- When relying on subagent results, mention any contradictions or unresolved risks before treating the result as reliable.
 - Keep responses focused and concise.
 
 ## Safety Tiers
@@ -211,6 +214,10 @@ function formatAutoDetectionSection(hints: string[]): string {
   return `## Mode Awareness\n\nYou have access to specialized modes that change your behavior for specific tasks.\n\n${hints.join('\n\n')}`
 }
 
+function formatTeamGuidanceSection(guidance: string): string {
+  return `## Team Orchestration Guidance\n\n${guidance.trim()}`
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -235,6 +242,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
     rsiEnabled,
     responseStyle,
     modeOverlay,
+    teamGuidance,
   } = options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
@@ -259,6 +267,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 
   if (skills && skills.length > 0) {
     sections.push(formatSkillsSection(skills))
+  }
+
+  if (teamGuidance?.trim()) {
+    sections.push(formatTeamGuidanceSection(teamGuidance))
   }
 
   if (resolvedMemorySections) {

@@ -25,11 +25,14 @@ import {
 } from '@src/json-rpc/handlers'
 import { writeMessage } from '@src/json-rpc/transport'
 import { ModeManager } from '@src/modes/manager'
+import { TaskGraphStore, type TaskGraph } from '@src/team/task-graph'
 import { execute as executeAskUser, setAskUserPromptHandler } from '@src/tools/ask-user'
+import * as spawnAgentTool from '@src/tools/spawn-agent'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { ReflectionCheckpoint } from '@src/rsi/types'
+import type { AgentDefinition, PermissionConfig } from '@src/types'
 
 // ── Test Helpers ────────────────────────────────────────────────────
 
@@ -98,6 +101,42 @@ function makeTestConfig(): OuroborosConfig {
   return configSchema.parse({})
 }
 
+const READ_ONLY_PERMISSIONS: PermissionConfig = {
+  tier0: true,
+  tier1: false,
+  tier2: false,
+  tier3: false,
+  tier4: false,
+}
+
+function makePlannerAgent(canInvokeAgents: string[]): AgentDefinition {
+  return {
+    id: 'planner',
+    description: 'Planner',
+    mode: 'primary',
+    prompt: 'Plan and delegate bounded read-only work.',
+    permissions: {
+      ...READ_ONLY_PERMISSIONS,
+      canInvokeAgents,
+    },
+  }
+}
+
+function validSubagentResultText(): string {
+  return JSON.stringify({
+    summary: 'Child summary.',
+    claims: [
+      {
+        claim: 'The child checked the task.',
+        evidence: [{ type: 'output', excerpt: 'Checked.' }],
+        confidence: 0.8,
+      },
+    ],
+    uncertainty: [],
+    suggestedNextSteps: ['Continue.'],
+  })
+}
+
 /** Create a handler context for testing with a mock agent. */
 function createTestContext(overrides?: {
   model?: LanguageModel
@@ -108,6 +147,7 @@ function createTestContext(overrides?: {
   agentOptions?: Partial<AgentOptions>
   authManager?: OpenAIChatGPTAuthManager
   modeManager?: ModeManager
+  taskGraphStore?: TaskGraphStore
 }): HandlerContext {
   const registry = overrides?.registry ?? new ToolRegistry()
   const model =
@@ -177,6 +217,7 @@ function createTestContext(overrides?: {
       ctx.configDir = newConfigDir
     },
     modeManager: overrides?.modeManager ?? new ModeManager(),
+    taskGraphStore: overrides?.taskGraphStore,
   }
 
   return ctx
@@ -315,6 +356,222 @@ describe('JSON-RPC', () => {
       expect(typeof result.sessionId).toBe('string')
       expect(result.sessionId.length).toBeGreaterThan(0)
       expect((ctx.getAgent() as unknown as { sessionId?: string }).sessionId).toBe(result.sessionId)
+
+      ctx.transcriptStore.close()
+    })
+  })
+
+  describe('team task graph handlers', () => {
+    test('team/create creates a graph and team/get retrieves it', async () => {
+      const store = new TaskGraphStore()
+      const ctx = createTestContext({ taskGraphStore: store })
+      const handlers = createHandlers(ctx)
+
+      const created = (await handlers.get('team/create')!({
+        name: 'Wave 10',
+        tasks: [
+          {
+            id: 'task-a',
+            title: 'Implement runtime',
+            requiredArtifacts: ['test report'],
+            qualityGates: [{ id: 'gate-a', description: 'Tests pass' }],
+          },
+        ],
+      })) as { graph: TaskGraph }
+
+      const retrieved = (await handlers.get('team/get')!({
+        graphId: created.graph.id,
+      })) as { graph: TaskGraph }
+
+      expect(retrieved.graph.id).toBe(created.graph.id)
+      expect(retrieved.graph.name).toBe('Wave 10')
+      expect(retrieved.graph.tasks[0]).toEqual(
+        expect.objectContaining({
+          id: 'task-a',
+          title: 'Implement runtime',
+          status: 'pending',
+          requiredArtifacts: ['test report'],
+        }),
+      )
+      expect(retrieved.graph.tasks[0]?.qualityGates[0]).toEqual(
+        expect.objectContaining({
+          id: 'gate-a',
+          description: 'Tests pass',
+          required: true,
+          status: 'pending',
+        }),
+      )
+
+      ctx.transcriptStore.close()
+    })
+
+    test('team/createWorkflow creates a deterministic built-in workflow graph', async () => {
+      const store = new TaskGraphStore()
+      const ctx = createTestContext({ taskGraphStore: store })
+      const handlers = createHandlers(ctx)
+
+      const created = (await handlers.get('team/createWorkflow')!({
+        template: 'parallel-investigation',
+        taskContext: 'Investigate task graph orchestration.',
+      })) as { graph: TaskGraph }
+
+      expect(created.graph.name).toBe('Parallel Investigation')
+      expect(created.graph.tasks.map((task) => task.id)).toEqual([
+        'explorer-primary',
+        'explorer-alternative',
+        'explorer-risk',
+        'synthesis',
+      ])
+      expect(created.graph.tasks.find((task) => task.id === 'synthesis')?.dependencies).toEqual([
+        'explorer-primary',
+        'explorer-alternative',
+        'explorer-risk',
+      ])
+
+      ctx.transcriptStore.close()
+    })
+
+    test('blocked tasks become pending after dependencies complete', async () => {
+      const store = new TaskGraphStore()
+      const graphResult = store.createGraph({
+        tasks: [
+          { id: 'task-a', title: 'Task A' },
+          { id: 'task-b', title: 'Task B', dependencies: ['task-a'] },
+        ],
+      })
+      expect(graphResult.ok).toBe(true)
+      if (!graphResult.ok) throw graphResult.error
+      expect(graphResult.value.tasks.find((task) => task.id === 'task-b')?.status).toBe('blocked')
+
+      const completed = store.completeTask(graphResult.value.id, 'task-a')
+      expect(completed.ok).toBe(true)
+      if (!completed.ok) throw completed.error
+
+      expect(completed.value.tasks.find((task) => task.id === 'task-b')?.status).toBe('pending')
+    })
+
+    test('concurrent claim attempts cannot assign one task twice', async () => {
+      const store = new TaskGraphStore()
+      const ctx = createTestContext({ taskGraphStore: store })
+      const handlers = createHandlers(ctx)
+      const created = (await handlers.get('team/create')!({
+        tasks: [{ id: 'task-a', title: 'Task A' }],
+      })) as { graph: TaskGraph }
+
+      const claims = await Promise.allSettled([
+        handlers.get('team/assignTask')!({
+          graphId: created.graph.id,
+          taskId: 'task-a',
+          agentId: 'sam',
+        }),
+        handlers.get('team/assignTask')!({
+          graphId: created.graph.id,
+          taskId: 'task-a',
+          agentId: 'tim',
+        }),
+      ])
+
+      const fulfilled = claims.filter((claim) => claim.status === 'fulfilled')
+      const rejected = claims.filter((claim) => claim.status === 'rejected')
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
+
+      const graph = store.getGraph(created.graph.id)
+      expect(graph.ok).toBe(true)
+      if (!graph.ok) throw graph.error
+      const task = graph.value.tasks.find((candidate) => candidate.id === 'task-a')
+      expect(task).toBeDefined()
+      expect(task?.status).toBe('running')
+      expect(task?.assignedAgentId).toBeDefined()
+      expect(['sam', 'tim']).toContain(task!.assignedAgentId as string)
+      expect(
+        graph.value.agents.filter((agent) => agent.activeTaskIds.includes('task-a')),
+      ).toHaveLength(1)
+
+      ctx.transcriptStore.close()
+    })
+
+    test('team/cancel updates active tasks and agents', async () => {
+      const store = new TaskGraphStore()
+      const ctx = createTestContext({ taskGraphStore: store })
+      const handlers = createHandlers(ctx)
+      const created = (await handlers.get('team/create')!({
+        tasks: [{ id: 'task-a', title: 'Task A' }],
+      })) as { graph: TaskGraph }
+      await handlers.get('team/assignTask')!({
+        graphId: created.graph.id,
+        taskId: 'task-a',
+        agentId: 'sam',
+      })
+
+      const cancelled = (await handlers.get('team/cancel')!({
+        graphId: created.graph.id,
+        reason: 'Stopped by user',
+      })) as { graph: TaskGraph }
+
+      expect(cancelled.graph.status).toBe('cancelled')
+      expect(cancelled.graph.tasks[0]?.status).toBe('cancelled')
+      expect(cancelled.graph.tasks[0]?.cancellationReason).toBe('Stopped by user')
+      expect(cancelled.graph.agents[0]).toEqual(
+        expect.objectContaining({
+          id: 'sam',
+          status: 'cancelled',
+          activeTaskIds: [],
+        }),
+      )
+
+      ctx.transcriptStore.close()
+    })
+
+    test('team/cleanup refuses while agents are active', async () => {
+      const store = new TaskGraphStore()
+      const ctx = createTestContext({ taskGraphStore: store })
+      const handlers = createHandlers(ctx)
+      const created = (await handlers.get('team/create')!({
+        tasks: [{ id: 'task-a', title: 'Task A' }],
+      })) as { graph: TaskGraph }
+      await handlers.get('team/assignTask')!({
+        graphId: created.graph.id,
+        taskId: 'task-a',
+        agentId: 'sam',
+      })
+
+      await expect(handlers.get('team/cleanup')!({ graphId: created.graph.id })).rejects.toThrow(
+        'Cannot cleanup team while agents are active: sam',
+      )
+
+      expect(store.getGraph(created.graph.id).ok).toBe(true)
+
+      ctx.transcriptStore.close()
+    })
+
+    test('team/addTask and team/sendMessage update the graph', async () => {
+      const store = new TaskGraphStore()
+      const ctx = createTestContext({ taskGraphStore: store })
+      const handlers = createHandlers(ctx)
+      const created = (await handlers.get('team/create')!({ name: 'Messages' })) as {
+        graph: TaskGraph
+      }
+
+      const added = (await handlers.get('team/addTask')!({
+        graphId: created.graph.id,
+        task: { id: 'task-a', title: 'Task A' },
+      })) as { graph: TaskGraph }
+      const sent = (await handlers.get('team/sendMessage')!({
+        graphId: created.graph.id,
+        taskId: 'task-a',
+        agentId: 'sam',
+        message: 'Please work this task.',
+      })) as { graph: TaskGraph }
+
+      expect(added.graph.tasks).toHaveLength(1)
+      expect(sent.graph.messages[0]).toEqual(
+        expect.objectContaining({
+          taskId: 'task-a',
+          agentId: 'sam',
+          message: 'Please work this task.',
+        }),
+      )
 
       ctx.transcriptStore.close()
     })
@@ -743,6 +1000,255 @@ describe('JSON-RPC', () => {
 
       ctx.transcriptStore.close()
     })
+
+    test('agent/run emits successful subagent lifecycle notifications', async () => {
+      const registry = new ToolRegistry()
+      registry.register(spawnAgentTool)
+      const config = configSchema.parse({
+        agent: {
+          definitions: [makePlannerAgent(['explore'])],
+        },
+      })
+      const sessionResult = new TranscriptStore(
+        join(tmpdir(), `.ouroboros-subagent-success-${crypto.randomUUID()}.db`),
+      )
+      const parentSession = sessionResult.createSession(tmpdir())
+      expect(parentSession.ok).toBe(true)
+      if (!parentSession.ok) {
+        sessionResult.close()
+        return
+      }
+
+      const model = createMockModel([
+        [
+          { type: 'tool-input-start', id: 'spawn_1', toolName: 'spawn_agent' },
+          { type: 'tool-input-end', id: 'spawn_1' },
+          {
+            type: 'tool-call',
+            toolCallId: 'spawn_1',
+            toolName: 'spawn_agent',
+            input: JSON.stringify({
+              agentId: 'explore',
+              task: 'Inspect the repo.',
+              outputFormat: 'summary',
+            }),
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'child' },
+          { type: 'text-delta', id: 'child', delta: validSubagentResultText() },
+          { type: 'text-end', id: 'child' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'parent' },
+          { type: 'text-delta', id: 'parent', delta: 'Parent received child result.' },
+          { type: 'text-end', id: 'parent' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+      const ctx = createTestContext({
+        model,
+        registry,
+        config,
+        transcriptStore: sessionResult,
+        agentOptions: {
+          agentId: 'planner',
+          transcriptStore: sessionResult,
+          sessionId: parentSession.value,
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      const output = await captureStdout(async () => {
+        await handlers.get('agent/run')!({ message: 'Delegate.' })
+      })
+      const messages = parseNdjson(output) as Array<{
+        method?: string
+        params?: Record<string, unknown>
+      }>
+      const started = messages.find((m) => m.method === 'agent/subagentStarted')
+      const completed = messages.find((m) => m.method === 'agent/subagentCompleted')
+
+      expect(started).toBeDefined()
+      expect(completed).toBeDefined()
+      expect(started?.params).toMatchObject({
+        parentSessionId: parentSession.value,
+        agentId: 'explore',
+        task: 'Inspect the repo.',
+        status: 'running',
+      })
+      expect(completed?.params).toMatchObject({
+        parentSessionId: parentSession.value,
+        agentId: 'explore',
+        task: 'Inspect the repo.',
+        status: 'completed',
+      })
+      expect(completed?.params?.runId).toBe(started?.params?.runId)
+      expect(typeof completed?.params?.childSessionId).toBe('string')
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run emits failed subagent lifecycle notification', async () => {
+      const registry = new ToolRegistry()
+      registry.register(spawnAgentTool)
+      const config = configSchema.parse({
+        agent: {
+          definitions: [makePlannerAgent(['explore'])],
+        },
+      })
+      const transcriptStore = new TranscriptStore(
+        join(tmpdir(), `.ouroboros-subagent-failure-${crypto.randomUUID()}.db`),
+      )
+      const parentSession = transcriptStore.createSession(tmpdir())
+      expect(parentSession.ok).toBe(true)
+      if (!parentSession.ok) {
+        transcriptStore.close()
+        return
+      }
+
+      const model = createMockModel([
+        [
+          { type: 'tool-input-start', id: 'spawn_1', toolName: 'spawn_agent' },
+          { type: 'tool-input-end', id: 'spawn_1' },
+          {
+            type: 'tool-call',
+            toolCallId: 'spawn_1',
+            toolName: 'spawn_agent',
+            input: JSON.stringify({
+              agentId: 'explore',
+              task: 'Fail during child run.',
+              outputFormat: 'summary',
+            }),
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          {
+            type: 'error',
+            error: new Error('Authentication failed for child model'),
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'parent' },
+          { type: 'text-delta', id: 'parent', delta: 'Parent handled failure.' },
+          { type: 'text-end', id: 'parent' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+      const ctx = createTestContext({
+        model,
+        registry,
+        config,
+        transcriptStore,
+        agentOptions: {
+          agentId: 'planner',
+          transcriptStore,
+          sessionId: parentSession.value,
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      const output = await captureStdout(async () => {
+        await handlers.get('agent/run')!({ message: 'Delegate failing child.' })
+      })
+      const messages = parseNdjson(output) as Array<{
+        method?: string
+        params?: Record<string, unknown>
+      }>
+      const started = messages.find((m) => m.method === 'agent/subagentStarted')
+      const failed = messages.find((m) => m.method === 'agent/subagentFailed')
+
+      expect(started).toBeDefined()
+      expect(failed).toBeDefined()
+      expect(failed?.params).toMatchObject({
+        parentSessionId: parentSession.value,
+        agentId: 'explore',
+        task: 'Fail during child run.',
+        status: 'failed',
+        error: {
+          message: 'Child agent stopped with reason: error',
+        },
+      })
+      expect(failed?.params?.runId).toBe(started?.params?.runId)
+
+      ctx.transcriptStore.close()
+    })
   })
 
   // -------------------------------------------------------------------
@@ -1121,6 +1627,125 @@ describe('JSON-RPC', () => {
           title: 'Restore my previous tab',
         }),
       )
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run stores an automatic title after the first assistant turn', async () => {
+      const model = createMockModel([
+        [
+          { type: 'text-start', id: 'tx1' },
+          {
+            type: 'text-delta',
+            id: 'tx1',
+            delta: 'Implemented the desktop session title rename flow.',
+          },
+          { type: 'text-end', id: 'tx1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+      const ctx = createTestContext({ model })
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      await handlers.get('agent/run')!({
+        message: 'Implement the recommended direction - option 1 and 2',
+      })
+
+      const session = ctx.transcriptStore.getSession(newResult.sessionId)
+      expect(session.ok).toBe(true)
+      if (!session.ok) return
+      expect(session.value.title).toBe('Desktop session title rename')
+      expect(session.value.titleSource).toBe('auto')
+
+      const listResult = (await handlers.get('session/list')!({})) as {
+        sessions: Array<{ id: string; title?: string; titleSource?: string }>
+      }
+      expect(listResult.sessions).toContainEqual(
+        expect.objectContaining({
+          id: newResult.sessionId,
+          title: 'Desktop session title rename',
+          titleSource: 'auto',
+        }),
+      )
+
+      ctx.transcriptStore.close()
+    })
+
+    test('session/rename stores a manual title that auto-title does not overwrite', async () => {
+      const model = createMockModel([
+        [
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'Implemented automatic title refresh.' },
+          { type: 'text-end', id: 'tx1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'tx2' },
+          { type: 'text-delta', id: 'tx2', delta: 'Updated the sidebar search experience.' },
+          { type: 'text-end', id: 'tx2' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+      const ctx = createTestContext({ model })
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      await handlers.get('agent/run')!({ message: 'Implement the recommended title changes' })
+
+      const renameResult = (await handlers.get('session/rename')!({
+        id: newResult.sessionId,
+        title: 'Pinned Sidebar Title',
+      })) as { id: string; title: string; titleSource: string }
+      expect(renameResult).toEqual({
+        id: newResult.sessionId,
+        title: 'Pinned Sidebar Title',
+        titleSource: 'manual',
+      })
+
+      await handlers.get('agent/run')!({ message: 'Continue improving this' })
+
+      const session = ctx.transcriptStore.getSession(newResult.sessionId)
+      expect(session.ok).toBe(true)
+      if (!session.ok) return
+      expect(session.value.title).toBe('Pinned Sidebar Title')
+      expect(session.value.titleSource).toBe('manual')
 
       ctx.transcriptStore.close()
     })
@@ -1638,6 +2263,89 @@ description: A generated test skill
 
       ctx.transcriptStore.close()
     })
+
+    test('approval/list returns pending permission lease details', async () => {
+      const ctx = createTestContext()
+      ctx.listApprovals = () => [
+        {
+          id: 'lease-approval-1',
+          type: 'permission-lease',
+          description: 'Approve permission lease for subagent run run-1',
+          createdAt: '2026-04-22T00:00:00.000Z',
+          risk: 'high',
+          lease: {
+            leaseId: 'lease-1',
+            agentRunId: 'run-1',
+            requestedTools: ['file-edit', 'bash'],
+            requestedPaths: ['packages/cli/**'],
+            requestedBashCommands: ['bun test packages/cli/tests/permission-lease.test.ts'],
+            expiresAt: '2026-04-22T01:00:00.000Z',
+            riskSummary: 'Needs write and exact test command access.',
+            risk: 'high',
+            createdAt: '2026-04-22T00:00:00.000Z',
+          },
+        },
+      ]
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('approval/list')!({})) as {
+        approvals: Array<{ lease?: { requestedTools: string[]; riskSummary: string } }>
+      }
+
+      expect(result.approvals[0]?.lease?.requestedTools).toEqual(['file-edit', 'bash'])
+      expect(result.approvals[0]?.lease?.riskSummary).toBe(
+        'Needs write and exact test command access.',
+      )
+
+      ctx.transcriptStore.close()
+    })
+
+    test('approval/respond delegates approved and denied lease decisions', async () => {
+      const ctx = createTestContext()
+      const decisions: Array<{ id: string; approved: boolean; reason?: string }> = []
+      ctx.respondToApproval = (id, approved, reason) => {
+        decisions.push({ id, approved, reason })
+        return {
+          status: approved ? 'approved' : 'denied',
+          message: reason,
+          lease: {
+            leaseId: 'lease-1',
+            agentRunId: 'run-1',
+            requestedTools: ['file-edit'],
+            requestedPaths: ['packages/cli/**'],
+            requestedBashCommands: [],
+            riskSummary: 'Write one scoped file.',
+            risk: 'medium',
+            createdAt: '2026-04-22T00:00:00.000Z',
+            status: approved ? 'active' : 'denied',
+            ...(approved ? { approvedAt: '2026-04-22T00:01:00.000Z' } : { denialReason: reason }),
+          },
+        }
+      }
+      const handlers = createHandlers(ctx)
+
+      const approved = await handlers.get('approval/respond')!({
+        id: 'lease-approval-1',
+        approved: true,
+      })
+      const denied = await handlers.get('approval/respond')!({
+        id: 'lease-approval-2',
+        approved: false,
+        reason: 'Too broad.',
+      })
+
+      expect(approved).toMatchObject({ status: 'approved', lease: { status: 'active' } })
+      expect(denied).toMatchObject({
+        status: 'denied',
+        lease: { status: 'denied', denialReason: 'Too broad.' },
+      })
+      expect(decisions).toEqual([
+        { id: 'lease-approval-1', approved: true, reason: undefined },
+        { id: 'lease-approval-2', approved: false, reason: 'Too broad.' },
+      ])
+
+      ctx.transcriptStore.close()
+    })
   })
 
   describe('ask-user operations', () => {
@@ -1880,6 +2588,73 @@ description: A generated test skill
       expect(notif.method).toBe('agent/error')
       expect(notif.params.message).toBe('Something broke')
       expect(notif.params.recoverable).toBe(true)
+    })
+
+    test('subagent lifecycle events are bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent({
+          type: 'subagent-started',
+          runId: 'run-1',
+          parentSessionId: 'parent-1',
+          childSessionId: 'child-1',
+          agentId: 'explore',
+          task: 'Inspect files.',
+          status: 'running',
+          startedAt: '2026-04-22T00:00:00.000Z',
+        })
+        bridgeAgentEvent({
+          type: 'subagent-completed',
+          runId: 'run-1',
+          parentSessionId: 'parent-1',
+          childSessionId: 'child-1',
+          agentId: 'explore',
+          task: 'Inspect files.',
+          status: 'completed',
+          startedAt: '2026-04-22T00:00:00.000Z',
+          completedAt: '2026-04-22T00:00:01.000Z',
+          result: { summary: 'Done.' },
+        })
+        bridgeAgentEvent({
+          type: 'subagent-failed',
+          runId: 'run-2',
+          parentSessionId: 'parent-1',
+          agentId: 'explore',
+          task: 'Inspect failure.',
+          status: 'failed',
+          startedAt: '2026-04-22T00:00:00.000Z',
+          completedAt: '2026-04-22T00:00:01.000Z',
+          error: { message: 'Child failed.' },
+        })
+      })
+
+      const messages = parseNdjson(output) as Array<{
+        method: string
+        params: Record<string, unknown>
+      }>
+
+      expect(messages.map((message) => message.method)).toEqual([
+        'agent/subagentStarted',
+        'agent/subagentCompleted',
+        'agent/subagentFailed',
+      ])
+      expect(messages[0]?.params).toMatchObject({
+        runId: 'run-1',
+        parentSessionId: 'parent-1',
+        childSessionId: 'child-1',
+        agentId: 'explore',
+        task: 'Inspect files.',
+        status: 'running',
+      })
+      expect(messages[1]?.params).toMatchObject({
+        runId: 'run-1',
+        status: 'completed',
+        result: { summary: 'Done.' },
+      })
+      expect(messages[2]?.params).toMatchObject({
+        runId: 'run-2',
+        status: 'failed',
+        error: { message: 'Child failed.' },
+      })
     })
   })
 

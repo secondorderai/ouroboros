@@ -64,7 +64,7 @@ bun run build:win    # Windows installer
 | Flag                       | Description                                |
 | -------------------------- | ------------------------------------------ |
 | `-m <prompt>`              | Single-shot mode — run one prompt and exit |
-| `--model <provider/model>` | Override model (e.g. `openai/gpt-4o`)      |
+| `--model <provider/model>` | Override model (e.g. `openai/gpt-5.4`)     |
 | `--verbose`, `-v`          | Show tool call details                     |
 | `--no-stream`              | Wait for full response before printing     |
 | `--config <path>`          | Path to `.ouroboros` config file           |
@@ -267,7 +267,7 @@ Each skill is a directory with a `SKILL.md` containing YAML frontmatter (name, d
 Provider-agnostic via [Vercel AI SDK](https://sdk.vercel.ai). Supports:
 
 - **Anthropic** (Claude) — default
-- **OpenAI** (GPT-4o, etc.)
+- **OpenAI** (GPT-5.4, etc.)
 - **OpenAI ChatGPT subscription** via `openai-chatgpt`
 - **OpenAI-compatible** endpoints (Ollama, vLLM, etc.) via `baseUrl` config
 

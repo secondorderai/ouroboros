@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from 'bun:test'
-import { ToolRegistry } from '@src/tools/registry'
+import { ToolRegistry, createReadOnlyToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
@@ -33,6 +33,7 @@ describe('ToolRegistry', () => {
     const names = tools.map((t) => t.name).sort()
 
     expect(names).toEqual([
+      'apply_worker_diff',
       'ask-user',
       'bash',
       'crystallize',
@@ -46,11 +47,14 @@ describe('ToolRegistry', () => {
       'self-test',
       'skill-gen',
       'skill-manager',
+      'spawn_agent',
+      'team_advisor',
+      'team_graph',
       'todo',
       'web-fetch',
       'web-search',
     ])
-    expect(registry.size).toBe(16)
+    expect(registry.size).toBe(20)
   })
 
   test('getTools() returns metadata with name, description, and parameters', async () => {
@@ -97,6 +101,55 @@ describe('ToolRegistry', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.error.message).toContain('Unknown tool')
+    }
+  })
+
+  test('read-only registry omits mutating and privileged tools from metadata', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+
+    const parent = await createRegistry()
+    const child = createReadOnlyToolRegistry(parent)
+    const names = child
+      .getTools()
+      .map((tool) => tool.name)
+      .sort()
+
+    expect(names).toEqual(['file-read', 'web-fetch', 'web-search'])
+    expect(names).not.toContain('file-write')
+    expect(names).not.toContain('file-edit')
+    expect(names).not.toContain('bash')
+    expect(names).not.toContain('evolution')
+    expect(names).not.toContain('skill-gen')
+  })
+
+  test('read-only registry is isolated from the parent registry', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+
+    const parent = await createRegistry()
+    const child = createReadOnlyToolRegistry(parent)
+
+    expect(parent.getTool('file-write')).toBeDefined()
+    expect(parent.getTool('file-edit')).toBeDefined()
+    expect(parent.getTool('bash')).toBeDefined()
+    expect(parent.size).toBe(23)
+    expect(child.getTool('file-write')).toBeUndefined()
+    expect(child.size).toBe(3)
+  })
+
+  test('read-only registry returns clear denied errors for blocked built-in tools', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+
+    const parent = await createRegistry()
+    const child = createReadOnlyToolRegistry(parent)
+    const result = await child.executeTool('file-write', {
+      path: '/tmp/should-not-write',
+      content: 'nope',
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('denied by read-only policy')
+      expect(result.error.message).toContain('cannot write files')
     }
   })
 
@@ -172,6 +225,7 @@ describe('ToolRegistry', () => {
       .sort()
 
     expect(names).toEqual([
+      'apply_worker_diff',
       'ask-user',
       'bash',
       'crystallize',
@@ -187,12 +241,15 @@ describe('ToolRegistry', () => {
       'self-test',
       'skill-gen',
       'skill-manager',
+      'spawn_agent',
       'submit-plan',
+      'team_advisor',
+      'team_graph',
       'todo',
       'web-fetch',
       'web-search',
     ])
-    expect(bundledRegistry.size).toBe(19)
+    expect(bundledRegistry.size).toBe(23)
   })
 
   test('all built-in tools produce JSON Schema with type: "object" (AI SDK requirement)', async () => {

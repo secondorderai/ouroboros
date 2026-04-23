@@ -190,6 +190,171 @@ describe('json-rpc transport', () => {
     expect(c.error).toBeUndefined()
   })
 
+  test('agent/run emits subagent started and completed notifications over NDJSON', async () => {
+    await client.close()
+
+    const mockServer = createMockOpenAICompatibleServer([
+      [
+        {
+          toolCallId: 'spawn_1',
+          toolName: 'spawn_agent',
+          args: {
+            agentId: 'review',
+            task: 'Review delegated context.',
+            outputFormat: 'summary',
+          },
+        },
+      ],
+      [{ text: validSubagentResultText() }],
+      [{ text: 'Parent received the subagent result.' }],
+    ])
+    const subagentConfigDir = mkdtempSync(join(tmpdir(), 'ouroboros-transport-subagent-'))
+    mkdirSync(subagentConfigDir, { recursive: true })
+    writeFileSync(
+      join(subagentConfigDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai-compatible',
+          name: 'mock-chat',
+          baseUrl: `http://127.0.0.1:${mockServer.port}/v1`,
+          apiMode: 'chat',
+          apiKey: 'test-key',
+        },
+        agent: {
+          definitions: [
+            {
+              id: 'explore',
+              description: 'Read-only explorer',
+              mode: 'primary',
+              prompt: 'Explore and delegate read-only review.',
+              permissions: {
+                tier0: true,
+                tier1: false,
+                tier2: false,
+                tier3: false,
+                tier4: false,
+                canInvokeAgents: ['review'],
+              },
+            },
+          ],
+        },
+      }),
+    )
+
+    const subagentClient = new RpcClient(subagentConfigDir)
+    try {
+      await waitForReady(subagentClient)
+      const resp = await subagentClient.sendRequest(10, 'agent/run', {
+        message: 'Spawn a reviewer.',
+        maxSteps: 3,
+      })
+      expect(resp.error).toBeUndefined()
+
+      const started = subagentClient.unsolicited.find(
+        (message) => message.method === 'agent/subagentStarted',
+      )
+      const completed = subagentClient.unsolicited.find(
+        (message) => message.method === 'agent/subagentCompleted',
+      )
+
+      expect(started).toBeDefined()
+      expect(completed).toBeDefined()
+      expect((started?.params as Record<string, unknown>).agentId).toBe('review')
+      expect((completed?.params as Record<string, unknown>).agentId).toBe('review')
+      expect((completed?.params as Record<string, unknown>).runId).toBe(
+        (started?.params as Record<string, unknown>).runId,
+      )
+    } finally {
+      await subagentClient.close()
+      mockServer.stop()
+      rmSync(subagentConfigDir, { recursive: true, force: true })
+      client = new RpcClient(configDir)
+      await waitForReady(client)
+    }
+  })
+
+  test('agent/run emits subagent failed notification over NDJSON', async () => {
+    await client.close()
+
+    const mockServer = createMockOpenAICompatibleServer([
+      [
+        {
+          toolCallId: 'spawn_1',
+          toolName: 'spawn_agent',
+          args: {
+            agentId: 'review',
+            task: 'Fail delegated review.',
+            outputFormat: 'summary',
+          },
+        },
+      ],
+      [{ errorStatus: 401, errorMessage: 'Authentication failed for child model' }],
+      [{ text: 'Parent handled the subagent failure.' }],
+    ])
+    const subagentConfigDir = mkdtempSync(join(tmpdir(), 'ouroboros-transport-subagent-fail-'))
+    mkdirSync(subagentConfigDir, { recursive: true })
+    writeFileSync(
+      join(subagentConfigDir, '.ouroboros'),
+      JSON.stringify({
+        model: {
+          provider: 'openai-compatible',
+          name: 'mock-chat',
+          baseUrl: `http://127.0.0.1:${mockServer.port}/v1`,
+          apiMode: 'chat',
+          apiKey: 'test-key',
+        },
+        agent: {
+          definitions: [
+            {
+              id: 'explore',
+              description: 'Read-only explorer',
+              mode: 'primary',
+              prompt: 'Explore and delegate read-only review.',
+              permissions: {
+                tier0: true,
+                tier1: false,
+                tier2: false,
+                tier3: false,
+                tier4: false,
+                canInvokeAgents: ['review'],
+              },
+            },
+          ],
+        },
+      }),
+    )
+
+    const subagentClient = new RpcClient(subagentConfigDir)
+    try {
+      await waitForReady(subagentClient)
+      const resp = await subagentClient.sendRequest(11, 'agent/run', {
+        message: 'Spawn a failing reviewer.',
+        maxSteps: 3,
+      })
+      expect(resp.error).toBeUndefined()
+
+      const failed = subagentClient.unsolicited.find(
+        (message) => message.method === 'agent/subagentFailed',
+      )
+
+      expect(failed).toBeDefined()
+      expect(failed?.params).toMatchObject({
+        agentId: 'review',
+        task: 'Fail delegated review.',
+        status: 'failed',
+        error: {
+          message: 'Child agent stopped with reason: error',
+        },
+      })
+    } finally {
+      await subagentClient.close()
+      mockServer.stop()
+      rmSync(subagentConfigDir, { recursive: true, force: true })
+      client = new RpcClient(configDir)
+      await waitForReady(client)
+    }
+  })
+
   afterAll(async () => {
     if (client) await client.close()
   })
@@ -213,4 +378,128 @@ async function waitForReady(client: RpcClient, attempts = 40): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+type MockChatTurn =
+  | { text: string }
+  | { toolCallId: string; toolName: string; args: Record<string, unknown> }
+  | { errorStatus: number; errorMessage: string }
+
+function createMockOpenAICompatibleServer(turns: MockChatTurn[][]): {
+  port: number
+  stop: () => void
+} {
+  let requestCount = 0
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      const turn = turns[requestCount++] ?? [{ text: '[No scripted turn]' }]
+      const error = turn.find(
+        (part): part is Extract<MockChatTurn, { errorStatus: number }> => 'errorStatus' in part,
+      )
+      if (error) {
+        return Response.json(
+          { error: { message: error.errorMessage, type: 'mock_error' } },
+          { status: error.errorStatus },
+        )
+      }
+
+      return new Response(toOpenAIChatSse(turn), {
+        headers: {
+          'content-type': 'text/event-stream',
+        },
+      })
+    },
+  })
+
+  return {
+    port: server.port ?? 0,
+    stop: () => server.stop(true),
+  }
+}
+
+function toOpenAIChatSse(turn: MockChatTurn[]): string {
+  const lines: string[] = []
+  for (const part of turn) {
+    if ('text' in part) {
+      lines.push(
+        `data: ${JSON.stringify({
+          id: crypto.randomUUID(),
+          object: 'chat.completion.chunk',
+          created: 0,
+          model: 'mock-chat',
+          choices: [
+            { index: 0, delta: { role: 'assistant', content: part.text }, finish_reason: null },
+          ],
+        })}`,
+      )
+      lines.push(
+        `data: ${JSON.stringify({
+          id: crypto.randomUUID(),
+          object: 'chat.completion.chunk',
+          created: 0,
+          model: 'mock-chat',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        })}`,
+      )
+      continue
+    }
+
+    if ('toolCallId' in part) {
+      lines.push(
+        `data: ${JSON.stringify({
+          id: crypto.randomUUID(),
+          object: 'chat.completion.chunk',
+          created: 0,
+          model: 'mock-chat',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                role: 'assistant',
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: part.toolCallId,
+                    type: 'function',
+                    function: {
+                      name: part.toolName,
+                      arguments: JSON.stringify(part.args),
+                    },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+      )
+      lines.push(
+        `data: ${JSON.stringify({
+          id: crypto.randomUUID(),
+          object: 'chat.completion.chunk',
+          created: 0,
+          model: 'mock-chat',
+          choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+        })}`,
+      )
+    }
+  }
+  lines.push('data: [DONE]')
+  return `${lines.join('\n\n')}\n\n`
+}
+
+function validSubagentResultText(): string {
+  return JSON.stringify({
+    summary: 'Child summary.',
+    claims: [
+      {
+        claim: 'The child reviewed delegated context.',
+        evidence: [{ type: 'output', excerpt: 'Reviewed.' }],
+        confidence: 0.8,
+      },
+    ],
+    uncertainty: [],
+    suggestedNextSteps: ['Continue.'],
+  })
 }

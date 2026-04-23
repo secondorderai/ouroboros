@@ -24,8 +24,16 @@ import { createProvider } from '@src/llm/provider'
 import { readCheckpoint } from '@src/memory/checkpoints'
 import { resolveCheckpointsDir } from '@src/memory/paths'
 import type { SessionSummary, SessionWithMessages, TranscriptStore } from '@src/memory/transcripts'
+import type { PermissionLeaseApprovalDetails } from '@src/permission-lease'
+import type { WorkerDiffApprovalDetails } from '@src/tools/worker-diff-approval'
 import { getEntries, getStats } from '@src/rsi/evolution-log'
 import type { ReflectionCheckpoint } from '@src/rsi/types'
+import { TaskGraphStore, type CreateTaskNodeInput } from '@src/team/task-graph'
+import {
+  createWorkflowTemplate,
+  WORKFLOW_TEMPLATE_NAMES,
+  type WorkflowTemplateName,
+} from '@src/team/workflow-templates'
 import { discoverSkills, listSkills, getSkillInfo, activateSkill } from '@src/tools/skill-manager'
 import { JSON_RPC_ERRORS, makeNotification } from './types'
 import { writeMessage } from './transport'
@@ -60,7 +68,36 @@ export interface HandlerContext {
   setConfigDir?: (configDir: string) => void
   authManager: OpenAIChatGPTAuthManager
   modeManager: ModeManager
+  taskGraphStore?: TaskGraphStore
   respondToAskUser?: (id: string, response: string) => void
+  listApprovals?: () => ApprovalItem[]
+  respondToApproval?: (id: string, approved: boolean, reason?: string) => ApprovalRespondResult
+}
+
+export interface ApprovalItem {
+  id: string
+  type: string
+  description: string
+  createdAt: string
+  risk?: 'high' | 'medium' | 'low'
+  diff?: string
+  lease?: PermissionLeaseApprovalDetails
+  workerDiff?: WorkerDiffApprovalDetails
+}
+
+export interface ApprovalRespondResult {
+  status: string
+  message?: string
+  lease?: PermissionLeaseApprovalDetails & {
+    status: 'pending' | 'active' | 'denied'
+    approvedAt?: string
+    denialReason?: string
+  }
+  workerDiff?: WorkerDiffApprovalDetails & {
+    reviewStatus: 'approved' | 'rejected'
+    approvedAt?: string
+    denialReason?: string
+  }
 }
 
 // ── Handler errors ───────────────────────────────────────────────────
@@ -160,6 +197,95 @@ export function bridgeAgentEvent(event: AgentEvent): void {
         }),
       )
       break
+    case 'subagent-started':
+      writeMessage(
+        makeNotification('agent/subagentStarted', {
+          runId: event.runId,
+          parentSessionId: event.parentSessionId,
+          childSessionId: event.childSessionId,
+          agentId: event.agentId,
+          task: event.task,
+          status: event.status,
+          startedAt: event.startedAt,
+        }),
+      )
+      break
+    case 'subagent-updated':
+      writeMessage(
+        makeNotification('agent/subagentUpdated', {
+          runId: event.runId,
+          parentSessionId: event.parentSessionId,
+          childSessionId: event.childSessionId,
+          agentId: event.agentId,
+          task: event.task,
+          status: event.status,
+          startedAt: event.startedAt,
+          updatedAt: event.updatedAt,
+          message: event.message,
+        }),
+      )
+      break
+    case 'subagent-completed':
+      writeMessage(
+        makeNotification('agent/subagentCompleted', {
+          runId: event.runId,
+          parentSessionId: event.parentSessionId,
+          childSessionId: event.childSessionId,
+          agentId: event.agentId,
+          task: event.task,
+          status: event.status,
+          startedAt: event.startedAt,
+          completedAt: event.completedAt,
+          result: event.result,
+          workerDiff: event.workerDiff,
+        }),
+      )
+      break
+    case 'subagent-failed':
+      writeMessage(
+        makeNotification('agent/subagentFailed', {
+          runId: event.runId,
+          parentSessionId: event.parentSessionId,
+          childSessionId: event.childSessionId,
+          agentId: event.agentId,
+          task: event.task,
+          status: event.status,
+          startedAt: event.startedAt,
+          completedAt: event.completedAt,
+          error: event.error,
+          result: event.result,
+          workerDiff: event.workerDiff,
+        }),
+      )
+      break
+    case 'permission-lease-check':
+      break
+    case 'permission-lease-updated':
+      writeMessage(
+        makeNotification('agent/permissionLeaseUpdated', {
+          leaseId: event.leaseId,
+          agentRunId: event.agentRunId,
+          requestedTools: event.requestedTools,
+          requestedPaths: event.requestedPaths,
+          requestedBashCommands: event.requestedBashCommands,
+          expiresAt: event.expiresAt,
+          riskSummary: event.riskSummary,
+          risk: event.risk,
+          createdAt: event.createdAt,
+          status: event.status,
+          approvedAt: event.approvedAt,
+          denialReason: event.denialReason,
+        }),
+      )
+      break
+    case 'team-graph-open':
+      writeMessage(makeNotification('team/graphOpen', { graph: event.graph, reason: event.reason }))
+      break
+    case 'team-graph-updated':
+      writeMessage(
+        makeNotification('team/graphUpdated', { graph: event.graph, reason: event.reason }),
+      )
+      break
     case 'rsi-reflection':
       writeMessage(
         makeNotification('rsi/reflection', {
@@ -220,6 +346,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   const validClients = new Set(['desktop', 'cli'])
   const validResponseStyles = new Set(['default', 'desktop-readable'])
   const validAuthMethods = new Set(OPENAI_CHATGPT_AUTH_METHODS)
+  const taskGraphStore = ctx.taskGraphStore ?? new TaskGraphStore()
 
   const refreshSkills = () => {
     discoverSkills(ctx.config.skillDirectories, ctx.configDir)
@@ -304,6 +431,10 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         )
         if (!persistResult.ok) {
           throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, persistResult.error.message)
+        }
+        const titleResult = refreshAutoSessionTitle(ctx.transcriptStore, sessionId)
+        if (!titleResult.ok) {
+          throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, titleResult.error.message)
         }
       }
       return {
@@ -434,6 +565,25 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       }
     }
     return { deleted: true }
+  })
+
+  handlers.set('session/rename', async (params) => {
+    const id = params.id
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.id is required')
+    }
+    const title = params.title
+    if (typeof title !== 'string' || title.trim().length === 0) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.title is required and must be a non-empty string',
+      )
+    }
+    const cleanedTitle = normalizeManualSessionTitle(title)
+    const result = ctx.transcriptStore.updateSessionTitle(id, cleanedTitle, 'manual')
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    return { id, title: cleanedTitle, titleSource: 'manual' }
   })
 
   // ── config/* ─────────────────────────────────────────────────────
@@ -752,13 +902,111 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   // ── approval/* ───────────────────────────────────────────────────
 
   handlers.set('approval/list', async () => {
-    // Approval queue not yet implemented — return empty
-    return { approvals: [] }
+    return { approvals: ctx.listApprovals?.() ?? [] }
   })
 
-  handlers.set('approval/respond', async () => {
-    // Approval queue not yet implemented
-    return { status: 'not-implemented', message: 'Approval system not yet available' }
+  handlers.set('approval/respond', async (params) => {
+    const id = params.id
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.id is required')
+    }
+    const approved = params.approved
+    if (typeof approved !== 'boolean') {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.approved is required')
+    }
+    const reason = typeof params.reason === 'string' ? params.reason : undefined
+    if (!ctx.respondToApproval) {
+      return { status: 'not-implemented', message: 'Approval system not yet available' }
+    }
+    return ctx.respondToApproval(id, approved, reason)
+  })
+
+  // ── team/* ───────────────────────────────────────────────────────
+
+  handlers.set('team/create', async (params) => {
+    const name = typeof params.name === 'string' ? params.name : undefined
+    const tasks = params.tasks === undefined ? undefined : parseTaskInputs(params.tasks)
+    const result = taskGraphStore.createGraph({ name, tasks })
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return { graph: result.value }
+  })
+
+  handlers.set('team/createWorkflow', async (params) => {
+    const template = parseWorkflowTemplateName(params.template)
+    const taskContext = requireStringParam(params, 'taskContext')
+    const name = typeof params.name === 'string' ? params.name : undefined
+    const templateResult = createWorkflowTemplate({ template, taskContext, name })
+    if (!templateResult.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, templateResult.error.message)
+    }
+    const result = taskGraphStore.createGraph(templateResult.value)
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return { graph: result.value }
+  })
+
+  handlers.set('team/get', async (params) => {
+    const graphId = requireStringParam(params, 'graphId')
+    const result = taskGraphStore.getGraph(graphId)
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return { graph: result.value }
+  })
+
+  handlers.set('team/start', async (params) => {
+    const graphId = requireStringParam(params, 'graphId')
+    const result = taskGraphStore.startGraph(graphId)
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return { graph: result.value }
+  })
+
+  handlers.set('team/cancel', async (params) => {
+    const graphId = requireStringParam(params, 'graphId')
+    const reason = typeof params.reason === 'string' ? params.reason : undefined
+    const result = taskGraphStore.cancelGraph(graphId, reason)
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return { graph: result.value }
+  })
+
+  handlers.set('team/cleanup', async (params) => {
+    const graphId = requireStringParam(params, 'graphId')
+    const result = taskGraphStore.cleanupGraph(graphId)
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return result.value
+  })
+
+  handlers.set('team/addTask', async (params) => {
+    const graphId = requireStringParam(params, 'graphId')
+    const task = parseTaskInput(params.task)
+    const result = taskGraphStore.addTask(graphId, task)
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return result.value
+  })
+
+  handlers.set('team/assignTask', async (params) => {
+    const graphId = requireStringParam(params, 'graphId')
+    const taskId = requireStringParam(params, 'taskId')
+    const agentId = requireStringParam(params, 'agentId')
+    const result = taskGraphStore.assignTask({ graphId, taskId, agentId })
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return result.value
+  })
+
+  handlers.set('team/sendMessage', async (params) => {
+    const graphId = requireStringParam(params, 'graphId')
+    const message = requireStringParam(params, 'message')
+    const agentId = typeof params.agentId === 'string' ? params.agentId : undefined
+    const taskId = typeof params.taskId === 'string' ? params.taskId : undefined
+    const result = taskGraphStore.sendMessage({ graphId, message, agentId, taskId })
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, result.error.message)
+    return result.value
   })
 
   // ── mode/* ───────────────────────────────────────────────────────
@@ -847,7 +1095,8 @@ function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: Transcri
         createdAt: summary.startedAt,
         lastActive: summary.endedAt ?? summary.startedAt,
         messageCount: 0,
-        title: summary.summary ?? undefined,
+        title: summary.title ?? summary.summary ?? undefined,
+        titleSource: summary.titleSource ?? undefined,
         workspacePath: summary.workspacePath,
       },
     }
@@ -866,7 +1115,12 @@ function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: Transcri
       lastActive:
         sessionResult.value.messages.at(-1)?.createdAt ?? summary.endedAt ?? summary.startedAt,
       messageCount: summary.messageCount,
-      title: getSessionTitle(sessionResult.value) ?? summary.summary ?? undefined,
+      title:
+        sessionResult.value.title ??
+        getSessionTitle(sessionResult.value) ??
+        summary.summary ??
+        undefined,
+      titleSource: sessionResult.value.titleSource ?? undefined,
       workspacePath: summary.workspacePath,
     },
   }
@@ -885,6 +1139,102 @@ function validateAndReadImageAttachments(value: unknown): LLMFilePart[] | undefi
     if (image) images.push(image)
   }
   return images
+}
+
+function requireStringParam(params: Record<string, unknown>, name: string): string {
+  const value = params[name]
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, `params.${name} is required`)
+  }
+  return value.trim()
+}
+
+function parseWorkflowTemplateName(value: unknown): WorkflowTemplateName {
+  if (
+    typeof value !== 'string' ||
+    !WORKFLOW_TEMPLATE_NAMES.includes(value as WorkflowTemplateName)
+  ) {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.template must be one of: ${WORKFLOW_TEMPLATE_NAMES.join(', ')}`,
+    )
+  }
+  return value as WorkflowTemplateName
+}
+
+function parseTaskInputs(value: unknown): CreateTaskNodeInput[] {
+  if (!Array.isArray(value)) {
+    throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.tasks must be an array')
+  }
+  return value.map((item, index) => parseTaskInput(item, `params.tasks[${index}]`))
+}
+
+function parseTaskInput(value: unknown, path = 'params.task'): CreateTaskNodeInput {
+  if (value == null || typeof value !== 'object') {
+    throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, `${path} must be an object`)
+  }
+  const record = value as Record<string, unknown>
+  const title = record.title
+  if (typeof title !== 'string' || title.trim().length === 0) {
+    throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, `${path}.title is required`)
+  }
+
+  return {
+    id: typeof record.id === 'string' ? record.id : undefined,
+    title,
+    description: typeof record.description === 'string' ? record.description : undefined,
+    dependencies: parseStringArray(record.dependencies, `${path}.dependencies`),
+    assignedAgentId:
+      typeof record.assignedAgentId === 'string' ? record.assignedAgentId : undefined,
+    requiredArtifacts:
+      parseStringArray(record.requiredArtifacts, `${path}.requiredArtifacts`) ?? [],
+    qualityGates: parseQualityGates(record.qualityGates, `${path}.qualityGates`),
+  }
+}
+
+function parseStringArray(value: unknown, path: string): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `${path} must be an array of strings`,
+    )
+  }
+  return value
+}
+
+function parseQualityGates(
+  value: unknown,
+  path: string,
+): CreateTaskNodeInput['qualityGates'] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) {
+    throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, `${path} must be an array`)
+  }
+  return value.map((item, index) => {
+    if (item == null || typeof item !== 'object') {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        `${path}[${index}] must be an object`,
+      )
+    }
+    const record = item as Record<string, unknown>
+    if (typeof record.description !== 'string' || record.description.trim().length === 0) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        `${path}[${index}].description is required`,
+      )
+    }
+    return {
+      id: typeof record.id === 'string' ? record.id : undefined,
+      description: record.description,
+      required: typeof record.required === 'boolean' ? record.required : undefined,
+      status:
+        record.status === 'pending' || record.status === 'passed' || record.status === 'failed'
+          ? record.status
+          : undefined,
+    }
+  })
 }
 
 function parseIncomingImageAttachment(value: unknown, index: number): ImageAttachmentMetadata {
@@ -1132,7 +1482,27 @@ function getSessionTitle(session: SessionWithMessages): string | undefined {
   )
 
   if (!firstUserMessage) return undefined
-  return deriveSessionTitle(firstUserMessage.content)
+  const firstAssistantMessage = session.messages.find(
+    (message) => message.role === 'assistant' && message.content.trim().length > 0,
+  )
+  return deriveCompletedSessionTitle(firstUserMessage.content, firstAssistantMessage?.content)
+}
+
+function refreshAutoSessionTitle(transcriptStore: TranscriptStore, sessionId: string) {
+  const sessionResult = transcriptStore.getSession(sessionId)
+  if (!sessionResult.ok) return sessionResult
+
+  const session = sessionResult.value
+  if (session.titleSource === 'manual') return { ok: true as const, value: undefined }
+
+  const title = getSessionTitle(session)
+  if (!title || title === session.title) return { ok: true as const, value: undefined }
+
+  return transcriptStore.updateSessionTitle(sessionId, title, 'auto')
+}
+
+function normalizeManualSessionTitle(input: string): string {
+  return finalizeSessionTitle(input.trim().replace(/\s+/g, ' '))
 }
 
 function toSentenceCase(input: string): string {
@@ -1212,7 +1582,10 @@ function toDesktopCheckpoint(checkpoint: ReflectionCheckpoint) {
 
 function finalizeSessionTitle(input: string): string {
   const maxChars = 42
-  const words = input.split(/\s+/).filter(Boolean)
+  const words = input
+    .replace(/[?.!,;:]+(?=\s|$)/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
   const limitedWords = words.slice(0, 6).join(' ')
   const candidate =
     limitedWords.length > maxChars
@@ -1220,6 +1593,54 @@ function finalizeSessionTitle(input: string): string {
       : limitedWords
 
   return candidate || 'New conversation'
+}
+
+function deriveCompletedSessionTitle(userInput: string, assistantResponse?: string): string {
+  const initialTitle = deriveSessionTitle(userInput)
+  const isWeakInitialTitle =
+    initialTitle === 'New conversation' ||
+    /^(?:Implement|Update|Fix|Add|Build|Create|Help|Please|Can you|Could you)\b/i.test(
+      initialTitle,
+    ) ||
+    /\b(?:option|recommended direction|above|this|that)\b/i.test(initialTitle)
+
+  if (!assistantResponse || !isWeakInitialTitle) return initialTitle
+
+  const assistantTitle = deriveTitleFromAssistantResponse(assistantResponse)
+  return assistantTitle && assistantTitle !== 'New conversation' ? assistantTitle : initialTitle
+}
+
+function deriveTitleFromAssistantResponse(response: string): string | undefined {
+  const text = response.trim().replace(/\s+/g, ' ')
+  if (!text) return undefined
+
+  const matchers: Array<[RegExp, (...matches: string[]) => string]> = [
+    [
+      /\b(?:implemented|added|built|created|updated|fixed|wired|renamed)\s+(?:the\s+)?(.+?)(?:\.|,|;|\band\b|\bwith\b|\bso\b|$)/i,
+      (subject) => toSentenceCase(subject),
+    ],
+    [
+      /\b(?:this|the)\s+change\s+(?:adds|updates|fixes|implements)\s+(.+?)(?:\.|,|;|\band\b|\bwith\b|\bso\b|$)/i,
+      (subject) => toSentenceCase(subject),
+    ],
+  ]
+
+  for (const [pattern, formatter] of matchers) {
+    const match = text.match(pattern)
+    if (match) {
+      const title = finalizeSessionTitle(cleanTitleSubject(formatter(...match.slice(1))))
+      if (title !== 'New conversation') return title
+    }
+  }
+
+  return undefined
+}
+
+function cleanTitleSubject(input: string): string {
+  return input
+    .replace(/\b(?:support|path|flow|feature)\b$/i, '')
+    .replace(/\b(?:in|to|for|from|with|by)\s*$/i, '')
+    .trim()
 }
 
 function deriveSessionTitle(input: string): string {
@@ -1235,6 +1656,8 @@ function deriveSessionTitle(input: string): string {
   const matchers: Array<[RegExp, (...matches: string[]) => string]> = [
     [/^create (?:a )?plan to (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
     [/^plan for (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^implement (.+)$/i, (subject) => toSentenceCase(subject)],
+    [/^(?:fix|add|build|update|improve|refactor) (.+)$/i, (subject) => toSentenceCase(subject)],
     [/^what are the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
     [/^what is the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
     [

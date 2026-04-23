@@ -15,14 +15,30 @@ import type { OuroborosConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { ModeManager, PLAN_MODE } from '@src/modes'
+import {
+  approvePermissionLease,
+  setPermissionLeaseApprovalHandler,
+  type PermissionLeaseApprovalRequest,
+} from '@src/permission-lease'
 import { setModeManager as setEnterModeModeManager } from '@src/modes/tools/enter-mode'
 import { setModeManager as setSubmitPlanModeManager } from '@src/modes/tools/submit-plan'
 import { setModeManager as setExitModeModeManager } from '@src/modes/tools/exit-mode'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
+import { TaskGraphStore } from '@src/team/task-graph'
 import { setAskUserPromptHandler } from '@src/tools/ask-user'
 import { createRegistry } from '@src/tools/registry'
+import {
+  setWorkerDiffApprovalHandler,
+  type WorkerDiffApprovalRequest,
+} from '@src/tools/worker-diff-approval'
 import { resolve } from 'node:path'
-import { createHandlers, bridgeAgentEvent, HandlerError, type HandlerContext } from './handlers'
+import {
+  createHandlers,
+  bridgeAgentEvent,
+  HandlerError,
+  type ApprovalItem,
+  type HandlerContext,
+} from './handlers'
 import { writeMessage, debugLog, startLineReader } from './transport'
 import {
   isJsonRpcRequest,
@@ -53,6 +69,20 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
   let configDir = initialConfigDir
   let askUserCounter = 0
   const pendingAskUserPrompts = new Map<string, (response: string) => void>()
+  const pendingLeaseApprovals = new Map<
+    string,
+    {
+      request: PermissionLeaseApprovalRequest
+      resolve: (result: ReturnType<typeof approvePermissionLease> | Error) => void
+    }
+  >()
+  const pendingWorkerDiffApprovals = new Map<
+    string,
+    {
+      request: WorkerDiffApprovalRequest
+      resolve: (result: { approved: true; approvedAt: string } | Error) => void
+    }
+  >()
 
   // Create tool registry
   const registry = await createRegistry()
@@ -75,6 +105,75 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     })
   })
 
+  setPermissionLeaseApprovalHandler(async (request) => {
+    pendingLeaseApprovals.set(request.approvalId, {
+      request,
+      resolve: () => {},
+    })
+
+    writeMessage(
+      makeNotification('approval/request', {
+        id: request.approvalId,
+        type: 'permission-lease',
+        description: request.description,
+        createdAt: request.details.createdAt,
+        risk: request.details.risk,
+        lease: request.details,
+      }),
+    )
+    writeMessage(
+      makeNotification('agent/permissionLeaseUpdated', {
+        ...request.details,
+        status: 'pending',
+      }),
+    )
+
+    return new Promise((resolveLease) => {
+      pendingLeaseApprovals.set(request.approvalId, {
+        request,
+        resolve: (result) => {
+          if (result instanceof Error) {
+            resolveLease({ ok: false, error: result })
+            return
+          }
+          resolveLease({ ok: true, value: result })
+        },
+      })
+    })
+  })
+
+  setWorkerDiffApprovalHandler(async (request) => {
+    pendingWorkerDiffApprovals.set(request.approvalId, {
+      request,
+      resolve: () => {},
+    })
+
+    writeMessage(
+      makeNotification('approval/request', {
+        id: request.approvalId,
+        type: 'worker-diff-apply',
+        description: request.description,
+        createdAt: request.details.createdAt,
+        risk: request.details.risk,
+        diff: request.details.diff,
+        workerDiff: request.details,
+      }),
+    )
+
+    return new Promise((resolveDecision) => {
+      pendingWorkerDiffApprovals.set(request.approvalId, {
+        request,
+        resolve: (result) => {
+          if (result instanceof Error) {
+            resolveDecision({ ok: false, error: result })
+            return
+          }
+          resolveDecision({ ok: true, value: result })
+        },
+      })
+    })
+  })
+
   // Create transcript store
   const dbPath = resolve(configDir, '.ouroboros-transcripts.db')
   const storeResult = TranscriptStore.create(dbPath)
@@ -85,6 +184,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     process.exit(1)
   }
   const transcriptStore = storeResult.value
+  const taskGraphStore = new TaskGraphStore(transcriptStore)
 
   // Mutable event dispatch — wired to bridge agent events to JSON-RPC notifications
   let currentHandler: AgentEventHandler = bridgeAgentEvent
@@ -127,9 +227,11 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       toolRegistry: registry,
       onEvent: eventProxy,
       config,
+      transcriptStore,
       basePath: configDir,
       rsiOrchestrator,
       modeManager,
+      taskGraphStore,
     })
     return agent
   }
@@ -168,6 +270,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     },
     authManager: new OpenAIChatGPTAuthManager(),
     modeManager,
+    taskGraphStore,
     respondToAskUser: (id, response) => {
       const resolvePrompt = pendingAskUserPrompts.get(id)
       if (!resolvePrompt) {
@@ -178,6 +281,82 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       }
       pendingAskUserPrompts.delete(id)
       resolvePrompt(response)
+    },
+    listApprovals: () => [
+      ...Array.from(pendingLeaseApprovals.values()).map(({ request }) =>
+        toLeaseApprovalItem(request),
+      ),
+      ...Array.from(pendingWorkerDiffApprovals.values()).map(({ request }) =>
+        toWorkerDiffApprovalItem(request),
+      ),
+    ],
+    respondToApproval: (id, approved, reason) => {
+      const pending = pendingLeaseApprovals.get(id)
+      if (!pending) {
+        const pendingWorkerDiff = pendingWorkerDiffApprovals.get(id)
+        if (pendingWorkerDiff) {
+          pendingWorkerDiffApprovals.delete(id)
+          if (approved) {
+            const approvedAt = new Date().toISOString()
+            pendingWorkerDiff.resolve({ approved: true, approvedAt })
+            return {
+              status: 'approved',
+              message: 'Worker diff application approved.',
+              workerDiff: {
+                ...pendingWorkerDiff.request.details,
+                reviewStatus: 'approved' as const,
+                approvedAt,
+              },
+            }
+          }
+
+          const denialReason = reason?.trim() || 'Worker diff application denied by user.'
+          pendingWorkerDiff.resolve(new Error(denialReason))
+          return {
+            status: 'denied',
+            message: denialReason,
+            workerDiff: {
+              ...pendingWorkerDiff.request.details,
+              reviewStatus: 'rejected' as const,
+              denialReason,
+            },
+          }
+        }
+        throw new HandlerError(
+          JSON_RPC_ERRORS.INVALID_PARAMS.code,
+          `Unknown approval request: ${id}`,
+        )
+      }
+      pendingLeaseApprovals.delete(id)
+      if (approved) {
+        const approvedLease = approvePermissionLease(pending.request.lease)
+        const details = {
+          ...pending.request.details,
+          status: 'active' as const,
+          approvedAt: approvedLease.approvedAt ?? undefined,
+        }
+        writeMessage(makeNotification('agent/permissionLeaseUpdated', details))
+        pending.resolve(approvedLease)
+        return {
+          status: 'approved',
+          message: 'Permission lease approved.',
+          lease: details,
+        }
+      }
+
+      const denialReason = reason?.trim() || 'Permission lease request denied by user.'
+      const deniedDetails = {
+        ...pending.request.details,
+        status: 'denied' as const,
+        denialReason,
+      }
+      writeMessage(makeNotification('agent/permissionLeaseUpdated', deniedDetails))
+      pending.resolve(new Error(denialReason))
+      return {
+        status: 'denied',
+        message: denialReason,
+        lease: deniedDetails,
+      }
     },
   }
 
@@ -193,6 +372,29 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       debugLog(`Unhandled error in line handler: ${message}`)
     })
   })
+}
+
+function toLeaseApprovalItem(request: PermissionLeaseApprovalRequest): ApprovalItem {
+  return {
+    id: request.approvalId,
+    type: 'permission-lease',
+    description: request.description,
+    createdAt: request.details.createdAt,
+    risk: request.details.risk,
+    lease: request.details,
+  }
+}
+
+function toWorkerDiffApprovalItem(request: WorkerDiffApprovalRequest): ApprovalItem {
+  return {
+    id: request.approvalId,
+    type: 'worker-diff-apply',
+    description: request.description,
+    createdAt: request.details.createdAt,
+    risk: request.details.risk,
+    diff: request.details.diff,
+    workerDiff: request.details,
+  }
 }
 
 // ── Line dispatcher ─────────────────────────────────────────────────

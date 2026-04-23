@@ -13,9 +13,13 @@ import * as reflectTool from './reflect'
 import * as selfTestTool from './self-test'
 import * as skillGenTool from './skill-gen'
 import * as skillManagerTool from './skill-manager'
+import * as spawnAgentTool from './spawn-agent'
+import * as teamAdvisorTool from './team-advisor'
+import * as teamGraphTool from './team-graph'
 import * as todoTool from './todo'
 import * as webFetchTool from './web-fetch'
 import * as webSearchTool from './web-search'
+import * as workerDiffApprovalTool from './worker-diff-approval'
 
 // Mode tools
 import * as enterModeTool from '@src/modes/tools/enter-mode'
@@ -36,9 +40,13 @@ export const BUILTIN_TOOLS: ToolDefinition[] = [
   selfTestTool,
   skillGenTool,
   skillManagerTool,
+  spawnAgentTool,
+  teamAdvisorTool,
+  teamGraphTool,
   todoTool,
   webFetchTool,
   webSearchTool,
+  workerDiffApprovalTool,
   // Mode system
   enterModeTool,
   submitPlanTool,

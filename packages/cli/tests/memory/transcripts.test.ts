@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -219,5 +220,66 @@ describe('Layer 3 — Session Transcripts', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value).toEqual([])
+  })
+
+  test('opens databases created before subagent run persistence', () => {
+    store.close()
+
+    const dbPath = join(tempDir, 'legacy-transcripts.db')
+    const legacyDb = new Database(dbPath)
+    legacyDb.run(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        summary TEXT
+      )
+    `)
+    legacyDb.run(`
+      CREATE TABLE messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('system', 'user', 'assistant', 'tool-call', 'tool-result')),
+        content TEXT NOT NULL,
+        tool_name TEXT,
+        tool_args TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      )
+    `)
+    legacyDb
+      .prepare('INSERT INTO sessions (id, started_at, summary) VALUES (?, ?, ?)')
+      .run('legacy-session', '2026-01-01T00:00:00.000Z', 'Legacy session')
+    legacyDb
+      .prepare(
+        'INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(
+        'legacy-message',
+        'legacy-session',
+        'user',
+        'Hello from the old schema',
+        '2026-01-01T00:00:01.000Z',
+      )
+    legacyDb.close()
+
+    const legacyStore = new TranscriptStore(dbPath)
+    store = legacyStore
+
+    const sessions = legacyStore.getRecentSessions(10)
+    expect(sessions.ok).toBe(true)
+    if (!sessions.ok) return
+    expect(sessions.value).toHaveLength(1)
+    expect(sessions.value[0]).toMatchObject({
+      id: 'legacy-session',
+      summary: 'Legacy session',
+      workspacePath: null,
+      messageCount: 1,
+    })
+
+    const runs = legacyStore.getSubagentRunsForParent('legacy-session')
+    expect(runs.ok).toBe(true)
+    if (!runs.ok) return
+    expect(runs.value).toEqual([])
   })
 })

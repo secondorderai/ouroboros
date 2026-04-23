@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { type Result, ok, err } from '@src/types'
+import { type AgentDefinition, type PermissionConfig, type Result, ok, err } from '@src/types'
 import { getContextWindowTokens } from '@src/llm/model-capabilities'
 
 const CONFIG_FILE_NAME = '.ouroboros'
@@ -34,7 +34,131 @@ export const DEFAULT_AGENT_CONFIG = {
     singleShot: 50,
     automation: 100,
   },
+  allowedTestCommands: [] as string[],
 }
+
+const READ_ONLY_PERMISSIONS: PermissionConfig = {
+  tier0: true,
+  tier1: false,
+  tier2: false,
+  tier3: false,
+  tier4: false,
+}
+
+export const BUILT_IN_AGENT_DEFINITIONS: AgentDefinition[] = [
+  {
+    id: 'default',
+    description: 'Primary orchestration agent for planning, implementation, and delegation.',
+    mode: 'primary',
+    prompt:
+      'Plan and execute user tasks. Delegate bounded read-only research or review to subagents when it materially improves confidence, and keep final accountability for the answer.',
+    permissions: {
+      tier0: true,
+      tier1: true,
+      tier2: true,
+      tier3: false,
+      tier4: false,
+      canInvokeAgents: ['explore', 'review', 'test'],
+    },
+  },
+  {
+    id: 'explore',
+    description: 'Read-only codebase exploration and context gathering.',
+    mode: 'all',
+    prompt:
+      'Explore the codebase, gather relevant context, and report findings without editing files or running privileged actions.',
+    permissions: READ_ONLY_PERMISSIONS,
+  },
+  {
+    id: 'review',
+    description: 'Read-only review focused on bugs, regressions, and missing tests.',
+    mode: 'all',
+    prompt:
+      'Review the relevant code and report only actionable bugs, regressions, missing tests, and correctness risks. Stay read-only: do not edit files or run mutating commands. Return structured reviewFindings with title, severity, optional file, optional line, body, confidence, and evidence. Prefer evidence-backed findings and include file/line references when possible. If there are no findings, return an empty reviewFindings array and say that clearly in the summary.',
+    permissions: READ_ONLY_PERMISSIONS,
+  },
+  {
+    id: 'test',
+    description: 'Restricted test runner for configured verification commands.',
+    mode: 'subagent',
+    prompt:
+      'Run configured verification commands only. Use bash only for commands explicitly listed in the allowed test command policy. Report each test command result with command, exit code, duration, output excerpt, and passed or failed status. Do not run arbitrary shell commands.',
+    permissions: READ_ONLY_PERMISSIONS,
+  },
+  {
+    id: 'worker',
+    description: 'Write-capable worker role isolated inside a git worktree.',
+    mode: 'subagent',
+    prompt:
+      'Implement the assigned task only inside the provided isolated git worktree. Use write tools only for the provided write scope and permission lease. Run only the provided verification command. Return structured JSON with summary, claims, uncertainty, suggestedNextSteps, and any testResults.',
+    permissions: {
+      tier0: true,
+      tier1: true,
+      tier2: false,
+      tier3: false,
+      tier4: false,
+    },
+    hidden: true,
+  },
+]
+
+function mergeAgentDefinitions(customDefinitions: AgentDefinition[] = []): AgentDefinition[] {
+  const definitionsById = new Map<string, AgentDefinition>()
+
+  for (const definition of BUILT_IN_AGENT_DEFINITIONS) {
+    definitionsById.set(definition.id, definition)
+  }
+
+  for (const definition of customDefinitions) {
+    definitionsById.set(definition.id, definition)
+  }
+
+  return Array.from(definitionsById.values())
+}
+
+export function getSelectablePrimaryAgentDefinitions(config: OuroborosConfig): AgentDefinition[] {
+  return config.agent.definitions.filter(
+    (definition) =>
+      !definition.hidden && (definition.mode === 'primary' || definition.mode === 'all'),
+  )
+}
+
+const permissionSchema = z.object({
+  tier0: z.boolean().default(true).describe('Read-only operations'),
+  tier1: z.boolean().default(true).describe('Scoped writes'),
+  tier2: z.boolean().default(true).describe('Skill generation (auto + self-test)'),
+  tier3: z.boolean().default(false).describe('Self-modification (requires human approval)'),
+  tier4: z.boolean().default(false).describe('System-level (requires human approval)'),
+  canInvokeAgents: z
+    .array(
+      z
+        .string()
+        .regex(
+          /^[a-z][a-z0-9-]*$/,
+          'Invalid invokable agent id. Use lowercase letters, numbers, and hyphens, starting with a letter.',
+        ),
+    )
+    .optional()
+    .describe('Agent ids this agent may invoke as task subagents'),
+})
+
+const agentDefinitionSchema = z.object({
+  id: z
+    .string()
+    .regex(
+      /^[a-z][a-z0-9-]*$/,
+      'Invalid agent definition id. Use lowercase letters, numbers, and hyphens, starting with a letter.',
+    )
+    .describe('Stable agent definition id'),
+  description: z.string().min(1, 'Agent definition description is required'),
+  mode: z.enum(['primary', 'subagent', 'all']).describe('Where this agent can be used'),
+  prompt: z.string().min(1, 'Agent definition prompt is required'),
+  model: z.string().min(1).optional(),
+  permissions: permissionSchema.optional(),
+  hidden: z.boolean().optional(),
+  phaseGate: z.string().min(1).optional(),
+  maxSteps: z.number().int().positive().optional(),
+})
 
 /**
  * Zod schema for the .ouroboros configuration file.
@@ -57,13 +181,7 @@ export const configSchema = z.object({
     .default({ provider: 'anthropic' as const, name: 'claude-sonnet-4-20250514' }),
 
   permissions: z
-    .object({
-      tier0: z.boolean().default(true).describe('Read-only operations'),
-      tier1: z.boolean().default(true).describe('Scoped writes'),
-      tier2: z.boolean().default(true).describe('Skill generation (auto + self-test)'),
-      tier3: z.boolean().default(false).describe('Self-modification (requires human approval)'),
-      tier4: z.boolean().default(false).describe('System-level (requires human approval)'),
-    })
+    .object(permissionSchema.shape)
     .default({ tier0: true, tier1: true, tier2: true, tier3: false, tier4: false }),
 
   skillDirectories: z
@@ -101,8 +219,22 @@ export const configSchema = z.object({
             .describe('Maximum autonomous steps for automation/RPC runs'),
         })
         .default(DEFAULT_AGENT_CONFIG.maxSteps),
+      definitions: z
+        .array(agentDefinitionSchema)
+        .default([])
+        .describe(
+          'Custom agent definitions. Entries override built-ins with the same id; later entries win.',
+        ),
+      allowedTestCommands: z
+        .array(z.string().trim().min(1))
+        .default(DEFAULT_AGENT_CONFIG.allowedTestCommands)
+        .describe('Exact shell commands the restricted test subagent may execute'),
     })
-    .default(DEFAULT_AGENT_CONFIG),
+    .default({ ...DEFAULT_AGENT_CONFIG, definitions: [] })
+    .transform((agent) => ({
+      ...agent,
+      definitions: mergeAgentDefinitions(agent.definitions),
+    })),
 
   memory: z
     .object({

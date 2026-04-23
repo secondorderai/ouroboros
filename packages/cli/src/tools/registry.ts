@@ -1,12 +1,82 @@
 import { readdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { isAbsolute, relative, resolve, join } from 'node:path'
 import { z } from 'zod'
-import { type Result, err } from '@src/types'
+import { enforcePermissionLease } from '@src/permission-lease'
+import { type Result, err, ok } from '@src/types'
 import { BUILTIN_TOOLS } from './builtin'
-import type { ToolDefinition, ToolMetadata } from './types'
+import type { ToolDefinition, ToolExecutionContext, ToolMetadata } from './types'
+import type { TestCommandResult } from './subagent-result'
 
 /** Files that should never be loaded as tools. */
 const SKIP_FILES = new Set(['types.ts', 'registry.ts', '.gitkeep'])
+
+const READ_ONLY_ALLOWED_TOOL_NAMES = new Set(['file-read', 'web-fetch', 'web-search'])
+
+const READ_ONLY_DENIED_TOOL_REASONS = new Map<string, string>([
+  ['ask-user', 'read-only child agents cannot block on interactive user input'],
+  ['bash', 'read-only child agents cannot execute shell commands'],
+  ['crystallize', 'read-only child agents cannot perform RSI crystallization'],
+  ['dream', 'read-only child agents cannot perform RSI dream operations'],
+  ['enter-mode', 'read-only child agents cannot change agent modes'],
+  ['evolution', 'read-only child agents cannot modify evolution state'],
+  ['exit-mode', 'read-only child agents cannot change agent modes'],
+  ['file-edit', 'read-only child agents cannot edit files'],
+  ['file-write', 'read-only child agents cannot write files'],
+  ['memory', 'read-only child agents cannot mutate memory'],
+  ['reflect', 'read-only child agents cannot perform privileged reflection'],
+  ['self-test', 'read-only child agents cannot run privileged self-tests'],
+  ['skill-gen', 'read-only child agents cannot create or modify skills'],
+  ['skill-manager', 'read-only child agents cannot manage skills'],
+  ['spawn_agent', 'read-only child agents cannot spawn nested agents'],
+  ['submit-plan', 'read-only child agents cannot submit mode plans'],
+  ['todo', 'read-only child agents cannot mutate task state'],
+])
+
+const TEST_AGENT_ALLOWED_TOOL_NAMES = new Set([...READ_ONLY_ALLOWED_TOOL_NAMES, 'bash'])
+
+const TEST_AGENT_DENIED_TOOL_REASONS = new Map(READ_ONLY_DENIED_TOOL_REASONS)
+TEST_AGENT_DENIED_TOOL_REASONS.delete('bash')
+
+const WORKER_ALLOWED_TOOL_NAMES = new Set([
+  'file-read',
+  'file-write',
+  'file-edit',
+  'bash',
+  'web-fetch',
+  'web-search',
+])
+
+const WORKER_DENIED_TOOL_REASONS = new Map<string, string>([
+  ['ask-user', 'worker child agents cannot block on interactive user input'],
+  ['crystallize', 'worker child agents cannot perform RSI crystallization'],
+  ['dream', 'worker child agents cannot perform RSI dream operations'],
+  ['enter-mode', 'worker child agents cannot change agent modes'],
+  ['evolution', 'worker child agents cannot modify evolution state'],
+  ['exit-mode', 'worker child agents cannot change agent modes'],
+  ['memory', 'worker child agents cannot mutate parent memory'],
+  ['reflect', 'worker child agents cannot perform privileged reflection'],
+  ['self-test', 'worker child agents cannot run privileged self-tests'],
+  ['skill-gen', 'worker child agents cannot create or modify skills'],
+  ['skill-manager', 'worker child agents cannot manage skills'],
+  ['spawn_agent', 'worker child agents cannot spawn nested agents'],
+  ['submit-plan', 'worker child agents cannot submit mode plans'],
+  ['todo', 'worker child agents cannot mutate parent task state'],
+])
+
+export interface TestCommandDenial {
+  command: string
+  message: string
+}
+
+export interface TestToolRegistryOptions {
+  allowedCommands: string[]
+  onTestResult?: (result: TestCommandResult) => void
+  onDeniedCommand?: (denial: TestCommandDenial) => void
+}
+
+export interface WorkerToolRegistryOptions {
+  worktreePath: string
+}
 
 /**
  * The tool registry.
@@ -16,10 +86,18 @@ const SKIP_FILES = new Set(['types.ts', 'registry.ts', '.gitkeep'])
  */
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>()
+  private deniedTools = new Map<string, string>()
 
   /** Register a single tool definition (useful for testing). */
   register(tool: ToolDefinition): void {
     this.tools.set(tool.name, tool)
+    this.deniedTools.delete(tool.name)
+  }
+
+  /** Mark a tool name as explicitly denied without exposing it in metadata. */
+  denyTool(name: string, reason: string): void {
+    this.tools.delete(name)
+    this.deniedTools.set(name, reason)
   }
 
   /**
@@ -70,14 +148,27 @@ export class ToolRegistry {
     return this.tools.size
   }
 
+  /** Return registered tool definitions for deriving isolated registries. */
+  entries(): Array<[string, ToolDefinition]> {
+    return Array.from(this.tools.entries())
+  }
+
   /**
    * Validate arguments against the tool's schema, then execute.
    *
    * Returns `Result` — never throws, even if the tool itself misbehaves.
    */
-  async executeTool(name: string, args: unknown): Promise<Result<unknown>> {
+  async executeTool(
+    name: string,
+    args: unknown,
+    context?: ToolExecutionContext,
+  ): Promise<Result<unknown>> {
     const tool = this.tools.get(name)
     if (!tool) {
+      const denialReason = this.deniedTools.get(name)
+      if (denialReason) {
+        return err(new Error(`Tool "${name}" is denied by read-only policy: ${denialReason}`))
+      }
       return err(new Error(`Unknown tool: "${name}"`))
     }
 
@@ -88,8 +179,20 @@ export class ToolRegistry {
       return err(new Error(`Invalid arguments for tool "${name}": ${issues}`))
     }
 
+    if (context?.permissionLease) {
+      const leaseResult = await enforcePermissionLease(
+        context.permissionLease,
+        name,
+        parsed.data,
+        context,
+      )
+      if (!leaseResult.ok) {
+        return leaseResult
+      }
+    }
+
     try {
-      return await tool.execute(parsed.data)
+      return await tool.execute(parsed.data, context)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       return err(new Error(`Tool "${name}" threw unexpectedly: ${message}`))
@@ -216,6 +319,255 @@ export async function createRegistry(directory?: string): Promise<ToolRegistry> 
 
   if (directory) {
     await registry.discover(directory)
+  }
+
+  return registry
+}
+
+/**
+ * Derive an isolated registry for read-only child agents.
+ *
+ * Only tools that cannot mutate local state or perform privileged operations
+ * are exposed in metadata. Known unsafe built-ins are explicitly denied so a
+ * forced or stale child tool call records a clear error instead of executing.
+ */
+export function createReadOnlyToolRegistry(parent: ToolRegistry): ToolRegistry {
+  const registry = new ToolRegistry()
+
+  for (const [toolName, tool] of parent.entries()) {
+    if (READ_ONLY_ALLOWED_TOOL_NAMES.has(toolName)) {
+      registry.register(tool)
+    } else {
+      registry.denyTool(
+        toolName,
+        READ_ONLY_DENIED_TOOL_REASONS.get(toolName) ??
+          'tool is not included in the read-only child registry',
+      )
+    }
+  }
+
+  for (const [toolName, reason] of READ_ONLY_DENIED_TOOL_REASONS.entries()) {
+    if (!registry.getTool(toolName)) {
+      registry.denyTool(toolName, reason)
+    }
+  }
+
+  return registry
+}
+
+function outputExcerpt(stdout: string, stderr: string, maxLength = 4000): string {
+  const output = [
+    stdout ? `stdout:\n${stdout.trimEnd()}` : '',
+    stderr ? `stderr:\n${stderr.trimEnd()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  if (output.length <= maxLength) {
+    return output
+  }
+
+  const half = Math.floor((maxLength - 7) / 2)
+  return `${output.slice(0, half)}\n...\n${output.slice(output.length - half)}`
+}
+
+function createRestrictedTestBashTool(
+  parentBashTool: ToolDefinition,
+  options: TestToolRegistryOptions,
+): ToolDefinition {
+  const allowedCommands = new Set(options.allowedCommands.map((command) => command.trim()))
+
+  return {
+    ...parentBashTool,
+    description:
+      'Execute one configured allowed test command and return command, exit code, duration, output excerpt, and pass/fail status. Arbitrary shell commands are denied before execution.',
+    execute: async (args: unknown, context?: ToolExecutionContext): Promise<Result<unknown>> => {
+      const command = (args as { command?: unknown }).command
+      if (typeof command !== 'string') {
+        return err(new Error('Test command policy requires a string command.'))
+      }
+
+      const normalizedCommand = command.trim()
+      if (!allowedCommands.has(normalizedCommand)) {
+        const allowedList =
+          allowedCommands.size > 0 ? Array.from(allowedCommands).join(', ') : '(none configured)'
+        const message = `Command "${normalizedCommand}" is not allowed for test agents. Allowed commands: ${allowedList}`
+        options.onDeniedCommand?.({ command: normalizedCommand, message })
+        return err(new Error(message))
+      }
+
+      const started = Date.now()
+      const forwardedArgs = typeof args === 'object' && args !== null ? args : {}
+      const cwd = (forwardedArgs as { cwd?: unknown }).cwd ?? context?.basePath
+      const result = await parentBashTool.execute(
+        { ...forwardedArgs, command: normalizedCommand, ...(cwd ? { cwd } : {}) },
+        context,
+      )
+      const durationMs = Date.now() - started
+
+      if (!result.ok) {
+        return result
+      }
+
+      const value = result.value as { stdout?: string; stderr?: string; exitCode?: number }
+      const exitCode = typeof value.exitCode === 'number' ? value.exitCode : 1
+      const testResult: TestCommandResult = {
+        command: normalizedCommand,
+        exitCode,
+        durationMs,
+        outputExcerpt: outputExcerpt(value.stdout ?? '', value.stderr ?? ''),
+        status: exitCode === 0 ? 'passed' : 'failed',
+      }
+      options.onTestResult?.(testResult)
+      return ok(testResult)
+    },
+  }
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/g, '')
+}
+
+function isInsideDirectory(path: string, directory: string): boolean {
+  const rel = normalizePath(relative(directory, path))
+  return rel === '' || (!rel.startsWith('../') && rel !== '..' && !isAbsolute(rel))
+}
+
+function resolveWorktreePath(path: string, worktreePath: string): string {
+  return isAbsolute(path) ? resolve(path) : resolve(worktreePath, path)
+}
+
+function createWorkerPathTool(
+  tool: ToolDefinition,
+  options: WorkerToolRegistryOptions,
+): ToolDefinition {
+  return {
+    ...tool,
+    execute: async (args: unknown, context?: ToolExecutionContext): Promise<Result<unknown>> => {
+      const path = (args as { path?: unknown }).path
+      if (typeof path !== 'string') {
+        return err(new Error(`Worker ${tool.name} requires a string path.`))
+      }
+
+      const resolvedPath = resolveWorktreePath(path, options.worktreePath)
+      if (!isInsideDirectory(resolvedPath, options.worktreePath)) {
+        return err(
+          new Error(
+            `Worker ${tool.name} path "${path}" is outside worktree ${options.worktreePath}`,
+          ),
+        )
+      }
+
+      const forwardedArgs = typeof args === 'object' && args !== null ? args : {}
+      return tool.execute({ ...forwardedArgs, path: resolvedPath }, context)
+    },
+  }
+}
+
+function createWorkerBashTool(
+  tool: ToolDefinition,
+  options: WorkerToolRegistryOptions,
+): ToolDefinition {
+  return {
+    ...tool,
+    execute: async (args: unknown, context?: ToolExecutionContext): Promise<Result<unknown>> => {
+      const forwardedArgs = typeof args === 'object' && args !== null ? args : {}
+      const requestedCwd = (forwardedArgs as { cwd?: unknown }).cwd
+      const cwd =
+        typeof requestedCwd === 'string'
+          ? resolveWorktreePath(requestedCwd, options.worktreePath)
+          : options.worktreePath
+
+      if (!isInsideDirectory(cwd, options.worktreePath)) {
+        return err(new Error(`Worker bash cwd "${String(requestedCwd)}" is outside worktree.`))
+      }
+
+      return tool.execute({ ...forwardedArgs, cwd }, context)
+    },
+  }
+}
+
+/**
+ * Derive an isolated registry for restricted test child agents.
+ *
+ * The test agent may inspect files and run bash only through an exact command
+ * allowlist. Denied commands are rejected before the shell is invoked.
+ */
+export function createTestToolRegistry(
+  parent: ToolRegistry,
+  options: TestToolRegistryOptions,
+): ToolRegistry {
+  const registry = new ToolRegistry()
+
+  for (const [toolName, tool] of parent.entries()) {
+    if (toolName === 'bash') {
+      registry.register(createRestrictedTestBashTool(tool, options))
+    } else if (TEST_AGENT_ALLOWED_TOOL_NAMES.has(toolName)) {
+      registry.register(tool)
+    } else {
+      registry.denyTool(
+        toolName,
+        TEST_AGENT_DENIED_TOOL_REASONS.get(toolName) ??
+          'tool is not included in the restricted test child registry',
+      )
+    }
+  }
+
+  if (!registry.getTool('bash')) {
+    registry.denyTool('bash', 'restricted test child agents require the bash tool to be registered')
+  }
+
+  for (const [toolName, reason] of TEST_AGENT_DENIED_TOOL_REASONS.entries()) {
+    if (!registry.getTool(toolName)) {
+      registry.denyTool(toolName, reason)
+    }
+  }
+
+  return registry
+}
+
+/**
+ * Derive an isolated registry for write-capable workers.
+ *
+ * The permission lease still authorizes each restricted operation. This registry
+ * additionally forces filesystem paths and shell cwd values into the worker
+ * worktree so relative tool calls cannot accidentally mutate the parent tree.
+ */
+export function createWorkerToolRegistry(
+  parent: ToolRegistry,
+  options: WorkerToolRegistryOptions,
+): ToolRegistry {
+  const registry = new ToolRegistry()
+
+  for (const [toolName, tool] of parent.entries()) {
+    if (!WORKER_ALLOWED_TOOL_NAMES.has(toolName)) {
+      registry.denyTool(
+        toolName,
+        WORKER_DENIED_TOOL_REASONS.get(toolName) ??
+          'tool is not included in the isolated worker registry',
+      )
+      continue
+    }
+
+    if (toolName === 'file-read' || toolName === 'file-write' || toolName === 'file-edit') {
+      registry.register(createWorkerPathTool(tool, options))
+    } else if (toolName === 'bash') {
+      registry.register(createWorkerBashTool(tool, options))
+    } else {
+      registry.register(tool)
+    }
+  }
+
+  for (const toolName of WORKER_ALLOWED_TOOL_NAMES) {
+    if (!registry.getTool(toolName)) {
+      registry.denyTool(toolName, 'worker child agents require this tool to be registered')
+    }
+  }
+
+  for (const [toolName, reason] of WORKER_DENIED_TOOL_REASONS.entries()) {
+    if (!registry.getTool(toolName)) {
+      registry.denyTool(toolName, reason)
+    }
   }
 
   return registry

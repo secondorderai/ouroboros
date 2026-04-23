@@ -47,6 +47,18 @@ export function createSingleShotHandler(options: { verbose: boolean; noStream: b
         renderer.endToolCall(event.toolCallId, event.toolName, event.result, event.isError)
         break
 
+      case 'subagent-started':
+        renderer.writeInfo(`Subagent ${event.agentId} started`)
+        break
+
+      case 'subagent-completed':
+        renderer.writeInfo(`Subagent ${event.agentId} completed`)
+        break
+
+      case 'subagent-failed':
+        renderer.writeInfo(`Subagent ${event.agentId} failed: ${event.error.message}`)
+        break
+
       case 'error':
         renderer.writeError(event.error)
         break

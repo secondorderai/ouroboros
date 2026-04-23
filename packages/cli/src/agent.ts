@@ -10,7 +10,7 @@
  */
 
 import { getAgentsMdInstructions } from '@src/agents-md'
-import { loadConfig, type OuroborosConfig } from '@src/config'
+import { BUILT_IN_AGENT_DEFINITIONS, loadConfig, type OuroborosConfig } from '@src/config'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
 import { streamResponse } from '@src/llm/streaming'
 import {
@@ -26,13 +26,23 @@ import {
 import { readCheckpoint, reflectCheckpoint } from '@src/memory/checkpoints'
 import { loadLayeredMemory, type LayeredMemorySections } from '@src/memory/loaders'
 import { appendObservationBatch, type NewObservationInput } from '@src/memory/observations'
+import type { TranscriptStore } from '@src/memory/transcripts'
 import type { ModeManager } from '@src/modes/manager'
 import type { Plan } from '@src/modes/plan/types'
+import type {
+  PermissionLease,
+  PermissionLeaseApprovalDetails,
+  PermissionLeaseCheck,
+} from '@src/permission-lease'
 import { appendEntry, type NewEvolutionEntry } from '@src/rsi/evolution-log'
 import type { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { ReflectionCheckpoint, RSIEvent } from '@src/rsi/types'
+import { readReputationSnapshot } from '@src/team/reputation'
 import type { ToolRegistry } from '@src/tools/registry'
+import type { ToolExecutionContext } from '@src/tools/types'
 import { discoverSkills, getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
+import type { TaskGraph, TaskGraphStore } from '@src/team/task-graph'
+import type { AgentDefinition } from '@src/types'
 import type { LanguageModel } from 'ai'
 
 // ── Event types ──────────────────────────────────────────────────────
@@ -65,6 +75,74 @@ export type AgentEvent =
   | { type: 'mode-entered'; modeId: string; displayName: string; reason: string }
   | { type: 'mode-exited'; modeId: string; reason: string }
   | { type: 'plan-submitted'; plan: Plan }
+  | {
+      type: 'subagent-started'
+      runId: string
+      parentSessionId?: string
+      childSessionId?: string
+      agentId: string
+      task: string
+      status: 'running'
+      startedAt: string
+    }
+  | {
+      type: 'subagent-updated'
+      runId: string
+      parentSessionId?: string
+      childSessionId?: string
+      agentId: string
+      task: string
+      status: 'running'
+      startedAt: string
+      updatedAt: string
+      message?: string
+    }
+  | {
+      type: 'subagent-completed'
+      runId: string
+      parentSessionId?: string
+      childSessionId?: string
+      agentId: string
+      task: string
+      status: 'completed'
+      startedAt: string
+      completedAt: string
+      result: unknown
+      workerDiff?: unknown
+    }
+  | {
+      type: 'subagent-failed'
+      runId: string
+      parentSessionId?: string
+      childSessionId?: string
+      agentId: string
+      task: string
+      status: 'failed'
+      startedAt: string
+      completedAt: string
+      error: { message: string }
+      result?: unknown
+      workerDiff?: unknown
+    }
+  | ({
+      type: 'permission-lease-check'
+    } & PermissionLeaseCheck)
+  | ({
+      type: 'permission-lease-updated'
+      status: 'pending' | 'active' | 'denied'
+      approvedAt?: string
+      denialReason?: string
+    } & PermissionLeaseApprovalDetails)
+  | {
+      type: 'team-graph-open'
+      graph: TaskGraph
+      reason?: string
+    }
+  | {
+      type: 'team-graph-updated'
+      graph: TaskGraph
+      reason?: string
+    }
   | RSIEvent
 
 /** Callback function for agent events. */
@@ -93,6 +171,8 @@ export interface AgentOptions {
   skillCatalogProvider?: () => SkillCatalogEntry[]
   /** Parsed configuration used for layered memory budgets */
   config?: OuroborosConfig
+  /** Optional transcript store exposed to tools that persist audit records. */
+  transcriptStore?: TranscriptStore
   /** Base path used for filesystem-backed memory loading */
   basePath?: string
   /** Active session whose checkpoint should be loaded into prompt memory */
@@ -101,6 +181,14 @@ export interface AgentOptions {
   rsiOrchestrator?: RSIOrchestrator
   /** Mode manager for behavioral overlays (plan mode, etc.) */
   modeManager?: ModeManager
+  /** Active agent definition id used for subagent invocation permission checks. */
+  agentId?: string
+  /** Optional agent definition prompt layered into the system prompt. */
+  agentDefinition?: AgentDefinition
+  /** Active permission lease used by write-capable subagents. */
+  permissionLease?: PermissionLease
+  /** Optional team task graph runtime exposed to orchestration tools. */
+  taskGraphStore?: TaskGraphStore
 }
 
 // ── Agent result ─────────────────────────────────────────────────────
@@ -391,10 +479,15 @@ export class Agent {
   private memoryContextProvider: (() => LayeredMemorySections) | null
   private skillCatalogProvider: () => SkillCatalogEntry[]
   private config: OuroborosConfig
+  private transcriptStore: TranscriptStore | undefined
   private basePath: string | undefined
   private sessionId: string | undefined
   private rsiOrchestrator: RSIOrchestrator | null
   private modeManager: ModeManager | null
+  private agentId: string
+  private agentDefinition: AgentDefinition | undefined
+  private permissionLease: PermissionLease | undefined
+  private taskGraphStore: TaskGraphStore | undefined
 
   /** Conversation history persisted across run() calls within a session. */
   private conversationHistory: LLMMessage[] = []
@@ -412,6 +505,7 @@ export class Agent {
     this.memoryProvider = options.memoryProvider ?? null
     this.memoryContextProvider = options.memoryContextProvider ?? null
     this.skillCatalogProvider = options.skillCatalogProvider ?? getSkillCatalog
+    this.transcriptStore = options.transcriptStore
     this.basePath = options.basePath
     this.sessionId = options.sessionId
     this.config =
@@ -437,6 +531,8 @@ export class Agent {
                   singleShot: 50,
                   automation: 100,
                 },
+                allowedTestCommands: [],
+                definitions: BUILT_IN_AGENT_DEFINITIONS,
               },
               memory: {
                 consolidationSchedule: 'session-end',
@@ -462,6 +558,17 @@ export class Agent {
       })()
     this.rsiOrchestrator = options.rsiOrchestrator ?? null
     this.modeManager = options.modeManager ?? null
+    this.agentDefinition = options.agentDefinition
+    this.permissionLease = options.permissionLease
+    this.taskGraphStore = options.taskGraphStore
+    this.agentId =
+      options.agentId ??
+      options.agentDefinition?.id ??
+      this.config.agent.definitions.find(
+        (definition) =>
+          !definition.hidden && (definition.mode === 'primary' || definition.mode === 'all'),
+      )?.id ??
+      'default'
   }
 
   /**
@@ -846,8 +953,9 @@ export class Agent {
 
     // Get mode overlay (active mode section or auto-detection hints)
     const modeOverlay = this.modeManager?.getPromptOverlay() ?? undefined
+    const teamGuidance = this.buildTeamGuidance()
 
-    return this.systemPromptBuilder({
+    const prompt = this.systemPromptBuilder({
       tools,
       skills,
       memory: memorySections.durableMemory,
@@ -855,7 +963,61 @@ export class Agent {
       agentsInstructions,
       responseStyle: options.responseStyle,
       modeOverlay,
+      teamGuidance,
     })
+
+    if (!this.agentDefinition?.prompt.trim()) {
+      return prompt
+    }
+
+    return `## Active Agent: ${this.agentDefinition.id}\n\n${this.agentDefinition.prompt.trim()}\n\n${prompt}`
+  }
+
+  private buildTeamGuidance(): string | undefined {
+    const snapshotResult = readReputationSnapshot(this.basePath)
+    if (!snapshotResult.ok || snapshotResult.value.summaries.length === 0) {
+      return [
+        'Use `team_graph` for explicit team plans, workflow templates, or when the user asks to show the team graph.',
+        'Use `spawn_agent` for bounded read-only exploration/review when the parent task has independent uncertainty.',
+        'Prefer one agent for sequential or same-file work unless a user explicitly asks for a team.',
+      ].join('\n')
+    }
+
+    const summaries = snapshotResult.value.summaries
+      .slice()
+      .sort((left, right) => right.scores.overall - left.scores.overall)
+      .slice(0, 5)
+      .map(
+        (summary) =>
+          `- ${summary.role} in ${summary.projectId}: overall=${summary.scores.overall.toFixed(
+            2,
+          )}, runs=${summary.runs}`,
+      )
+      .join('\n')
+
+    return [
+      'Use `team_graph` for explicit team plans, workflow templates, or when the user asks to show the team graph.',
+      'Prefer roles with stronger recent reputation when choosing subagents or task assignments.',
+      summaries,
+    ].join('\n')
+  }
+
+  private buildToolExecutionContext(): ToolExecutionContext {
+    return {
+      model: this.model,
+      toolRegistry: this.toolRegistry,
+      config: this.config,
+      transcriptStore: this.transcriptStore,
+      basePath: this.basePath,
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      permissionLease: this.permissionLease,
+      taskGraphStore: this.taskGraphStore,
+      systemPromptBuilder: this.systemPromptBuilder,
+      memoryProvider: this.memoryProvider ?? undefined,
+      skillCatalogProvider: this.skillCatalogProvider,
+      emitEvent: (event) => this.emitEvent(event),
+    }
   }
 
   private prepareContextForCall(options: AgentRunOptions): {
@@ -1405,7 +1567,11 @@ export class Agent {
           }
         }
 
-        const execResult = await this.toolRegistry.executeTool(tc.toolName, tc.input)
+        const execResult = await this.toolRegistry.executeTool(
+          tc.toolName,
+          tc.input,
+          this.buildToolExecutionContext(),
+        )
 
         const isError = !execResult.ok
         const resultValue = execResult.ok ? execResult.value : execResult.error.message

@@ -163,6 +163,18 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           renderer.endToolCall(event.toolCallId, event.toolName, event.result, event.isError)
           break
 
+        case 'subagent-started':
+          renderer.writeInfo(`Subagent ${event.agentId} started`)
+          break
+
+        case 'subagent-completed':
+          renderer.writeInfo(`Subagent ${event.agentId} completed`)
+          break
+
+        case 'subagent-failed':
+          renderer.writeInfo(`Subagent ${event.agentId} failed: ${event.error.message}`)
+          break
+
         case 'turn-complete':
           renderer.writeTurnComplete()
           break
