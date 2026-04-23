@@ -1,0 +1,508 @@
+.team-graph-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 880;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--bg-overlay);
+}
+
+.team-graph-drawer {
+  width: min(1040px, calc(100vw - 32px));
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-light);
+  box-shadow: var(--shadow-xl);
+}
+
+.team-graph-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.team-graph-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.team-graph-title {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.team-graph-subtitle {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.team-graph-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.team-graph-icon-button,
+.team-graph-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-standard);
+  background: var(--bg-chat);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.team-graph-refresh-button {
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.team-graph-icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.team-graph-icon-button:hover,
+.team-graph-refresh-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.team-graph-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.team-graph-status-pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.team-graph-status-pill--running {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent-blue);
+  border-color: rgba(37, 99, 235, 0.24);
+}
+
+.team-graph-status-pill--completed {
+  background: rgba(22, 163, 74, 0.12);
+  color: var(--accent-green);
+  border-color: rgba(22, 163, 74, 0.24);
+}
+
+.team-graph-status-pill--cancelled {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--accent-red);
+  border-color: rgba(220, 38, 38, 0.24);
+}
+
+.team-graph-content {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+}
+
+.team-graph-main {
+  min-width: 0;
+  overflow: auto;
+  padding: 18px 22px 24px;
+}
+
+.team-graph-inspector {
+  min-width: 0;
+  overflow: auto;
+  border-left: 1px solid var(--border-light);
+  background: var(--bg-chat);
+  padding: 18px;
+}
+
+.team-graph-alert {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: var(--radius-standard);
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.team-graph-alert strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent-red);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.team-graph-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(82px, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.team-graph-summary-item {
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-standard);
+  background: var(--bg-chat);
+}
+
+.team-graph-summary-value {
+  display: block;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.team-graph-summary-label {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.team-graph-section-title {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.team-graph-lanes {
+  display: grid;
+  gap: 14px;
+}
+
+.team-graph-agent-lane {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-standard);
+  background: var(--bg-chat);
+  overflow: hidden;
+}
+
+.team-graph-agent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.team-graph-agent-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-graph-agent-meta {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.team-graph-task-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.team-graph-task-card {
+  position: relative;
+  width: 100%;
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 10px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-standard);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  text-align: left;
+}
+
+.team-graph-task-card:hover,
+.team-graph-task-card--selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-muted);
+}
+
+.team-graph-task-status-bar {
+  border-radius: var(--radius-standard) 0 0 var(--radius-standard);
+  background: var(--text-tertiary);
+}
+
+.team-graph-task-card--pending .team-graph-task-status-bar {
+  background: var(--text-tertiary);
+}
+
+.team-graph-task-card--blocked .team-graph-task-status-bar {
+  background: var(--accent-orange);
+}
+
+.team-graph-task-card--running .team-graph-task-status-bar {
+  background: var(--accent-blue);
+}
+
+.team-graph-task-card--completed .team-graph-task-status-bar {
+  background: var(--accent-green);
+}
+
+.team-graph-task-card--failed,
+.team-graph-task-card--cancelled {
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.team-graph-task-card--failed .team-graph-task-status-bar,
+.team-graph-task-card--cancelled .team-graph-task-status-bar {
+  background: var(--accent-red);
+}
+
+.team-graph-task-body {
+  min-width: 0;
+  padding: 10px 10px 10px 0;
+}
+
+.team-graph-task-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.team-graph-task-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-graph-task-state {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.team-graph-task-state--pending {
+  background: var(--text-tertiary);
+}
+
+.team-graph-task-state--blocked {
+  background: var(--accent-orange);
+}
+
+.team-graph-task-state--running {
+  background: var(--accent-blue);
+}
+
+.team-graph-task-state--completed {
+  background: var(--accent-green);
+}
+
+.team-graph-task-state--failed,
+.team-graph-task-state--cancelled {
+  background: var(--accent-red);
+}
+
+.team-graph-task-description {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.team-graph-task-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.team-graph-chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-standard);
+  padding: 2px 6px;
+  background: var(--bg-tool-chip);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.team-graph-chip--agent {
+  color: var(--accent-primary);
+}
+
+.team-graph-chip--dependency {
+  color: var(--text-primary);
+}
+
+.team-graph-detail-empty,
+.team-graph-loading {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.team-graph-detail-title {
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.team-graph-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 16px;
+}
+
+.team-graph-detail-section {
+  margin-top: 18px;
+}
+
+.team-graph-detail-heading {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.team-graph-detail-list {
+  display: grid;
+  gap: 7px;
+}
+
+.team-graph-detail-row {
+  padding: 8px 9px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-standard);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.team-graph-gate {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.team-graph-gate-status {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.team-graph-gate-status--passed {
+  color: var(--accent-green);
+}
+
+.team-graph-gate-status--failed {
+  color: var(--accent-red);
+}
+
+.team-graph-gate-status--pending {
+  color: var(--accent-orange);
+}
+
+.team-graph-event {
+  display: grid;
+  gap: 4px;
+}
+
+.team-graph-event-message {
+  color: var(--text-primary);
+}
+
+.team-graph-event-meta {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+@media (max-width: 860px) {
+  .team-graph-drawer {
+    width: 100vw;
+  }
+
+  .team-graph-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(360px, 1fr) minmax(280px, 42vh);
+  }
+
+  .team-graph-inspector {
+    border-left: none;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .team-graph-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

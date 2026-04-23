@@ -225,6 +225,7 @@ async function handleRequest(request) {
         createdAt: now,
         lastActive: now,
         title: 'New conversation',
+        titleSource: 'auto',
         messages: [],
       }
       runtime.sessions.unshift(newSession)
@@ -235,6 +236,31 @@ async function handleRequest(request) {
       runtime.sessions = runtime.sessions.filter((entry) => entry.id !== request.params?.id)
       writeResult(request.id, { deleted: true })
       return
+    case 'session/rename': {
+      const id = request.params?.id
+      const title = request.params?.title
+      if (typeof id !== 'string' || typeof title !== 'string' || title.trim().length === 0) {
+        writeResponse({
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32602, message: 'Invalid session rename params' },
+        })
+        return
+      }
+      const session = runtime.sessions.find((entry) => entry.id === id)
+      if (!session) {
+        writeResponse({
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32001, message: 'Session not found' },
+        })
+        return
+      }
+      session.title = title.trim().replace(/\s+/g, ' ')
+      session.titleSource = 'manual'
+      writeResult(request.id, { id, title: session.title, titleSource: 'manual' })
+      return
+    }
     case 'approval/list':
       writeResult(request.id, { approvals: runtime.approvals })
       return
@@ -482,6 +508,7 @@ function toSessionInfo(session) {
     lastActive: session.lastActive,
     messageCount: session.messages.length,
     title: session.title,
+    titleSource: session.titleSource,
   }
 }
 

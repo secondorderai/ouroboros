@@ -12,6 +12,7 @@ import { ApprovalQueue } from './components/ApprovalQueue'
 import { AskUserDialog } from './components/AskUserDialog'
 import { UpdateBanner } from './components/UpdateBanner'
 import { OuroborosMark } from './components/OuroborosMark'
+import { TeamGraphDrawer } from './components/TeamGraphDrawer'
 import { useTheme } from './hooks/useTheme'
 import { useNotifications } from './hooks/useNotifications'
 import { useModeSync } from './hooks/useModeSync'
@@ -19,6 +20,7 @@ import { useRSI } from './hooks/useRSI'
 import { useConversationStore } from './stores/conversationStore'
 import { useApprovals } from './stores/approvalStore'
 import type { SettingsSectionId } from './views/SettingsOverlay'
+import type { TeamGraphNotification } from '../shared/protocol'
 
 // Keys for persisting state
 const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
@@ -84,6 +86,8 @@ export function App(): React.ReactElement {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId | undefined>(undefined)
   const [approvalQueueOpen, setApprovalQueueOpen] = useState(false)
+  const [teamGraphOpen, setTeamGraphOpen] = useState(false)
+  const [activeTeamGraphId, setActiveTeamGraphId] = useState<string | null>(null)
 
   // Drag-and-drop state
   const [isDragOver, setIsDragOver] = useState(false)
@@ -208,6 +212,30 @@ export function App(): React.ReactElement {
     setCommandPaletteOpen(false)
     rsi.openDrawer()
   }, [rsi])
+
+  const openTeamGraph = useCallback(() => {
+    setCommandPaletteOpen(false)
+    setTeamGraphOpen(true)
+  }, [])
+
+  useEffect(() => {
+    const api = window.ouroboros
+    if (!api?.onNotification) return
+    const openUnsubscribe = api.onNotification('team/graphOpen', (params: TeamGraphNotification) => {
+      setActiveTeamGraphId(params.graph.id)
+      setTeamGraphOpen(true)
+    })
+    const updateUnsubscribe = api.onNotification(
+      'team/graphUpdated',
+      (params: TeamGraphNotification) => {
+        setActiveTeamGraphId((current) => current ?? params.graph.id)
+      },
+    )
+    return () => {
+      openUnsubscribe()
+      updateUnsubscribe()
+    }
+  }, [])
 
   // ---- Drag-and-drop handlers -----------------------------------------------
 
@@ -349,6 +377,7 @@ export function App(): React.ReactElement {
         onOpenSettings={openSettings}
         onOpenApprovals={openApprovalQueue}
         onOpenRSIDrawer={openRSIDrawer}
+        onOpenTeamGraph={openTeamGraph}
       />
       <SettingsOverlay
         isOpen={settingsOpen}
@@ -358,6 +387,11 @@ export function App(): React.ReactElement {
         initialSection={settingsSection}
       />
       <ApprovalQueue isOpen={approvalQueueOpen} onClose={() => setApprovalQueueOpen(false)} />
+      <TeamGraphDrawer
+        isOpen={teamGraphOpen}
+        onClose={() => setTeamGraphOpen(false)}
+        graphId={activeTeamGraphId}
+      />
       <RSIDrawer
         isOpen={rsi.drawerOpen}
         onClose={rsi.closeDrawer}

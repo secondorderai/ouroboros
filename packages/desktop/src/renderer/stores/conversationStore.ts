@@ -10,8 +10,17 @@ import type {
   AgentToolCallEndParams,
   AgentTurnCompleteParams,
   AgentErrorParams,
+  AgentSubagentStartedNotification,
+  AgentSubagentUpdatedNotification,
+  AgentSubagentCompletedNotification,
+  AgentSubagentFailedNotification,
+  AgentPermissionLeaseUpdatedNotification,
   SessionInfo,
   SessionMessage,
+  SubagentEvidenceReference,
+  SubagentRun,
+  PermissionLeaseDisplayDetails,
+  WorkerDiffDisplayDetails,
 } from '../../shared/protocol'
 
 // ---------------------------------------------------------------------------
@@ -30,6 +39,9 @@ export interface ConversationState {
 
   /** Completed tool calls accumulated during the current agent turn. */
   pendingToolCalls: CompletedToolCall[]
+
+  /** Subagent runs accumulated during the current agent turn. */
+  pendingSubagentRuns: SubagentRun[]
 
   /** Whether the agent is currently executing a turn. */
   isAgentRunning: boolean
@@ -81,6 +93,24 @@ export interface ConversationState {
   /** Handle an incoming `agent/error` notification. */
   handleAgentError: (params: AgentErrorParams) => void
 
+  /** Handle an incoming `agent/subagentStarted` notification. */
+  handleSubagentStarted: (params: AgentSubagentStartedNotification) => void
+
+  /** Handle an incoming `agent/subagentUpdated` notification. */
+  handleSubagentUpdated: (params: AgentSubagentUpdatedNotification) => void
+
+  /** Handle an incoming `agent/subagentCompleted` notification. */
+  handleSubagentCompleted: (params: AgentSubagentCompletedNotification) => void
+
+  /** Handle an incoming `agent/subagentFailed` notification. */
+  handleSubagentFailed: (params: AgentSubagentFailedNotification) => void
+
+  /** Handle an incoming `agent/permissionLeaseUpdated` notification. */
+  handlePermissionLeaseUpdated: (params: AgentPermissionLeaseUpdatedNotification) => void
+
+  /** Handle worker diff approval status updates. */
+  handleWorkerDiffUpdated: (params: WorkerDiffDisplayDetails) => void
+
   /** Reset the conversation (e.g., when switching sessions). */
   resetConversation: () => void
 
@@ -98,6 +128,9 @@ export interface ConversationState {
 
   /** Delete a session from the list. */
   deleteSession: (id: string) => void
+
+  /** Rename a session in the sidebar. */
+  renameSession: (id: string, title: string) => void
 
   /** Set the workspace path. */
   setWorkspace: (path: string | null) => void
@@ -122,7 +155,10 @@ function toSentenceCase(input: string): string {
 
 function finalizeSessionTitle(input: string): string {
   const maxChars = 42
-  const words = input.split(/\s+/).filter(Boolean)
+  const words = input
+    .replace(/[?.!,;:]+(?=\s|$)/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
   const limitedWords = words.slice(0, 6).join(' ')
   const candidate =
     limitedWords.length > maxChars
@@ -130,6 +166,54 @@ function finalizeSessionTitle(input: string): string {
       : limitedWords
 
   return candidate || 'New conversation'
+}
+
+function deriveCompletedSessionTitle(userInput: string, assistantResponse?: string): string {
+  const initialTitle = deriveSessionTitle(userInput)
+  const isWeakInitialTitle =
+    initialTitle === 'New conversation' ||
+    /^(?:Implement|Update|Fix|Add|Build|Create|Help|Please|Can you|Could you)\b/i.test(
+      initialTitle,
+    ) ||
+    /\b(?:option|recommended direction|above|this|that)\b/i.test(initialTitle)
+
+  if (!assistantResponse || !isWeakInitialTitle) return initialTitle
+
+  const assistantTitle = deriveTitleFromAssistantResponse(assistantResponse)
+  return assistantTitle && assistantTitle !== 'New conversation' ? assistantTitle : initialTitle
+}
+
+function deriveTitleFromAssistantResponse(response: string): string | undefined {
+  const text = response.trim().replace(/\s+/g, ' ')
+  if (!text) return undefined
+
+  const matchers: Array<[RegExp, (...matches: string[]) => string]> = [
+    [
+      /\b(?:implemented|added|built|created|updated|fixed|wired|renamed)\s+(?:the\s+)?(.+?)(?:\.|,|;|\band\b|\bwith\b|\bso\b|$)/i,
+      (subject) => toSentenceCase(subject),
+    ],
+    [
+      /\b(?:this|the)\s+change\s+(?:adds|updates|fixes|implements)\s+(.+?)(?:\.|,|;|\band\b|\bwith\b|\bso\b|$)/i,
+      (subject) => toSentenceCase(subject),
+    ],
+  ]
+
+  for (const [pattern, formatter] of matchers) {
+    const match = text.match(pattern)
+    if (match) {
+      const title = finalizeSessionTitle(cleanTitleSubject(formatter(...match.slice(1))))
+      if (title !== 'New conversation') return title
+    }
+  }
+
+  return undefined
+}
+
+function cleanTitleSubject(input: string): string {
+  return input
+    .replace(/\b(?:support|path|flow|feature)\b$/i, '')
+    .replace(/\b(?:in|to|for|from|with|by)\s*$/i, '')
+    .trim()
 }
 
 function deriveSessionTitle(input: string): string {
@@ -145,6 +229,8 @@ function deriveSessionTitle(input: string): string {
   const matchers: Array<[RegExp, (...matches: string[]) => string]> = [
     [/^create (?:a )?plan to (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
     [/^plan for (.+)$/i, (subject) => `${toSentenceCase(subject)} plan`],
+    [/^implement (.+)$/i, (subject) => toSentenceCase(subject)],
+    [/^(?:fix|add|build|update|improve|refactor) (.+)$/i, (subject) => toSentenceCase(subject)],
     [/^what are the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
     [/^what is the best (.+)$/i, (subject) => `Best ${subject.trim()}`],
     [
@@ -236,6 +322,209 @@ function stripImagePreviewData(image: ImageAttachment): ImageAttachment {
   return metadata
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function getStringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function getNumberField(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function labelEvidence(evidence: Record<string, unknown>): SubagentEvidenceReference | null {
+  const type = evidence.type
+  if (type === 'file') {
+    const path = getStringField(evidence, 'path')
+    if (!path) return null
+    const line = getNumberField(evidence, 'line')
+    const endLine = getNumberField(evidence, 'endLine')
+    const suffix =
+      line == null ? '' : endLine != null && endLine !== line ? `:${line}-${endLine}` : `:${line}`
+    return { type: 'file', label: `${path}${suffix}`, path, line, endLine }
+  }
+  if (type === 'command') {
+    const command = getStringField(evidence, 'command')
+    if (!command) return null
+    return { type: 'command', label: command }
+  }
+  if (type === 'output') {
+    const excerpt = getStringField(evidence, 'excerpt')
+    if (!excerpt) return null
+    return {
+      type: 'output',
+      label: excerpt.length > 48 ? `${excerpt.slice(0, 45)}...` : excerpt,
+    }
+  }
+  return null
+}
+
+function extractSubagentResult(result: unknown): {
+  summary?: string
+  evidenceCount: number
+  uncertaintyCount: number
+  evidence: SubagentEvidenceReference[]
+} {
+  if (!isRecord(result)) {
+    return { evidenceCount: 0, uncertaintyCount: 0, evidence: [] }
+  }
+
+  const summary = getStringField(result, 'summary')
+  const claims = Array.isArray(result.claims) ? result.claims : []
+  const uncertainty = Array.isArray(result.uncertainty) ? result.uncertainty : []
+  const evidence: SubagentEvidenceReference[] = []
+  let evidenceCount = 0
+
+  for (const claim of claims) {
+    if (!isRecord(claim) || !Array.isArray(claim.evidence)) continue
+    for (const item of claim.evidence) {
+      if (!isRecord(item)) continue
+      evidenceCount += 1
+      const reference = labelEvidence(item)
+      if (reference) evidence.push(reference)
+    }
+  }
+
+  return {
+    summary,
+    evidenceCount,
+    uncertaintyCount: uncertainty.length,
+    evidence,
+  }
+}
+
+function extractWorkerDiff(
+  result: unknown,
+  notificationWorkerDiff: WorkerDiffDisplayDetails | undefined,
+): WorkerDiffDisplayDetails | undefined {
+  if (notificationWorkerDiff) return notificationWorkerDiff
+  if (!isRecord(result) || !isRecord(result.workerDiff)) return undefined
+  return result.workerDiff as unknown as WorkerDiffDisplayDetails
+}
+
+function createSubagentRun(params: AgentSubagentStartedNotification): SubagentRun {
+  return createSubagentRunBase(params)
+}
+
+function createSubagentRunBase(params: {
+  runId: string
+  parentSessionId?: string
+  childSessionId?: string
+  agentId: string
+  task: string
+  startedAt: string
+}): SubagentRun {
+  return {
+    runId: params.runId,
+    parentSessionId: params.parentSessionId,
+    childSessionId: params.childSessionId,
+    agentId: params.agentId,
+    task: params.task,
+    status: 'running',
+    startedAt: params.startedAt,
+    evidenceCount: 0,
+    uncertaintyCount: 0,
+    evidence: [],
+    permissionLeases: [],
+  }
+}
+
+function isSameWorkerDiff(
+  existing: WorkerDiffDisplayDetails | undefined,
+  incoming: WorkerDiffDisplayDetails,
+): boolean {
+  if (!existing) return false
+  return (
+    existing.taskId === incoming.taskId &&
+    (!incoming.worktreePath || existing.worktreePath === incoming.worktreePath)
+  )
+}
+
+function upsertSubagentRun(runs: SubagentRun[], run: SubagentRun): SubagentRun[] {
+  const index = runs.findIndex((item) => item.runId === run.runId)
+  if (index === -1) return [...runs, run]
+  const next = [...runs]
+  next[index] = { ...next[index], ...run }
+  return next
+}
+
+function updateSubagentRun(
+  runs: SubagentRun[],
+  runId: string,
+  update: (run: SubagentRun) => SubagentRun,
+): SubagentRun[] {
+  let changed = false
+  const next = runs.map((run) => {
+    if (run.runId !== runId) return run
+    changed = true
+    return update(run)
+  })
+  return changed ? next : runs
+}
+
+function updateMessageSubagentRun(
+  messages: Message[],
+  runId: string,
+  update: (run: SubagentRun) => SubagentRun,
+): { messages: Message[]; changed: boolean } {
+  let changed = false
+  const nextMessages = messages.map((message) => {
+    if (!message.subagentRuns?.some((run) => run.runId === runId)) return message
+    changed = true
+    return {
+      ...message,
+      subagentRuns: updateSubagentRun(message.subagentRuns, runId, update),
+    }
+  })
+  return { messages: nextMessages, changed }
+}
+
+function upsertPermissionLease(
+  leases: PermissionLeaseDisplayDetails[] | undefined,
+  lease: PermissionLeaseDisplayDetails,
+): PermissionLeaseDisplayDetails[] {
+  const existing = leases ?? []
+  const index = existing.findIndex((item) => item.leaseId === lease.leaseId)
+  if (index === -1) return [...existing, lease]
+  const next = [...existing]
+  next[index] = { ...next[index], ...lease }
+  return next
+}
+
+function appendSubagentRunToLatestAgentMessage(
+  messages: Message[],
+  run: SubagentRun,
+): { messages: Message[]; changed: boolean } {
+  const index = [...messages].reverse().findIndex((message) => message.role === 'agent')
+  if (index === -1) return { messages, changed: false }
+
+  const messageIndex = messages.length - 1 - index
+  const message = messages[messageIndex]
+  const next = [...messages]
+  next[messageIndex] = {
+    ...message,
+    subagentRuns: upsertSubagentRun(message.subagentRuns ?? [], run),
+  }
+  return { messages: next, changed: true }
+}
+
+function shouldApplySubagentNotification(
+  state: ConversationState,
+  parentSessionId: string | undefined,
+): boolean {
+  if (parentSessionId && state.currentSessionId && parentSessionId !== state.currentSessionId) {
+    return false
+  }
+  if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
+    return false
+  }
+  return true
+}
+
 type StoreSet = (
   partial: Partial<ConversationState> | ((state: ConversationState) => Partial<ConversationState>),
 ) => void
@@ -311,6 +600,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   streamingText: null,
   activeToolCalls: new Map(),
   pendingToolCalls: [],
+  pendingSubagentRuns: [],
   isAgentRunning: false,
   activeRunSessionId: null,
   nextId: 1,
@@ -326,11 +616,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const state = get()
     const runSessionId = state.currentSessionId
     const id = makeId('user', state.nextId)
+    const sentAt = new Date().toISOString()
     const userMessage: Message = {
       id,
       role: 'user',
       text,
-      timestamp: new Date().toISOString(),
+      timestamp: sentAt,
       files,
       imageAttachments: images,
     }
@@ -342,6 +633,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingText: '',
       activeToolCalls: new Map(),
       pendingToolCalls: [],
+      pendingSubagentRuns: [],
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: runSessionId
@@ -351,7 +643,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
                   ...s,
                   runStatus: 'running' as const,
                   activeToolName: undefined,
-                  lastActive: new Date().toISOString(),
+                  lastActive: sentAt,
                 }
               : s,
           )
@@ -360,18 +652,63 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     // Fire-and-forget RPC call to start the agent run.
     // The IPC bridge (window.ouroboros) may not be available in unit tests.
-    window.ouroboros
-      ?.rpc('agent/run', {
+    void (async () => {
+      let sessionId = runSessionId
+      const api = window.ouroboros
+
+      if (!sessionId && api) {
+        const result = (await api.rpc('session/new', {})) as { sessionId?: string }
+        if (result?.sessionId) {
+          sessionId = result.sessionId
+          const title = deriveSessionTitle(text)
+          const now = new Date().toISOString()
+
+          set((state) => {
+            const session: SessionInfo = {
+              id: result.sessionId!,
+              createdAt: now,
+              lastActive: now,
+              messageCount: state.messages.length,
+              title,
+              titleSource: 'auto',
+              runStatus: 'running',
+            }
+            const existing = state.sessions.some((item) => item.id === result.sessionId)
+            return {
+              currentSessionId: state.currentSessionId ?? result.sessionId,
+              activeRunSessionId: result.sessionId,
+              sessions: existing
+                ? state.sessions.map((item) =>
+                    item.id === result.sessionId
+                      ? {
+                          ...item,
+                          title:
+                            item.title && item.title !== 'New conversation' ? item.title : title,
+                          titleSource: item.titleSource ?? 'auto',
+                          messageCount: state.messages.length,
+                          lastActive: now,
+                          runStatus: 'running',
+                          activeToolName: undefined,
+                        }
+                      : item,
+                  )
+                : [session, ...state.sessions],
+            }
+          })
+        }
+      }
+
+      await api?.rpc('agent/run', {
         message: text,
         files,
         images: images?.map(stripImagePreviewData),
         client: 'desktop',
         responseStyle: 'desktop-readable',
       })
-      .catch((err) => {
-        console.error('agent/run RPC failed:', err)
-        get().handleAgentError({ message: String(err) })
-      })
+    })().catch((err) => {
+      console.error('agent/run RPC failed:', err)
+      get().handleAgentError({ message: String(err) })
+    })
   },
 
   cancelRun() {
@@ -389,6 +726,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         text: finalText,
         timestamp: new Date().toISOString(),
         toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
+        subagentRuns:
+          state.pendingSubagentRuns.length > 0 ? [...state.pendingSubagentRuns] : undefined,
       })
     }
 
@@ -399,6 +738,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingText: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
+      pendingSubagentRuns: [],
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: state.activeRunSessionId
@@ -501,6 +841,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         streamingText: null,
         activeToolCalls: new Map(),
         pendingToolCalls: [],
+        pendingSubagentRuns: [],
         contextUsage: null,
         sessions: state.sessions.map((s) =>
           s.id === completedSessionId
@@ -522,6 +863,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       text: normalizeTextContent(params.text),
       timestamp: new Date().toISOString(),
       toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
+      subagentRuns:
+        state.pendingSubagentRuns.length > 0 ? [...state.pendingSubagentRuns] : undefined,
     }
 
     const newMessages = [...state.messages, agentMessage]
@@ -531,17 +874,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     if (state.currentSessionId) {
       updatedSessions = state.sessions.map((s) => {
         if (s.id !== state.currentSessionId) return s
-        // Set title from first user message if not already set or still default
+        // Keep manual titles stable; refresh automatic titles after the full turn.
         let title = s.title
-        if (!title || title === 'New conversation') {
+        if (s.titleSource !== 'manual') {
           const firstUserMsg = newMessages.find((m) => m.role === 'user')
           if (firstUserMsg) {
-            title = deriveSessionTitle(firstUserMsg.text)
+            title = deriveCompletedSessionTitle(firstUserMsg.text, agentMessage.text)
           }
         }
         return {
           ...s,
           title,
+          titleSource: s.titleSource === 'manual' ? 'manual' : 'auto',
           messageCount: newMessages.length,
           lastActive: new Date().toISOString(),
           runStatus: 'idle',
@@ -557,6 +901,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeRunSessionId: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
+      pendingSubagentRuns: [],
       nextId: state.nextId + 1,
       sessions: updatedSessions,
     })
@@ -572,6 +917,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         streamingText: null,
         activeToolCalls: new Map(),
         pendingToolCalls: [],
+        pendingSubagentRuns: [],
         contextUsage: null,
         sessions: state.sessions.map((s) =>
           s.id === failedSessionId
@@ -599,6 +945,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         text: streamText,
         timestamp: new Date().toISOString(),
         toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
+        subagentRuns:
+          state.pendingSubagentRuns.length > 0 ? [...state.pendingSubagentRuns] : undefined,
       })
     }
     messages.push(errorMessage)
@@ -610,6 +958,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeRunSessionId: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
+      pendingSubagentRuns: [],
       nextId: state.nextId + 2,
       contextUsage: null,
       sessions: failedSessionId
@@ -622,12 +971,200 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     })
   },
 
+  handleSubagentStarted(params: AgentSubagentStartedNotification) {
+    set((state) => {
+      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
+      return {
+        pendingSubagentRuns: upsertSubagentRun(
+          state.pendingSubagentRuns,
+          createSubagentRun(params),
+        ),
+      }
+    })
+  },
+
+  handleSubagentUpdated(params: AgentSubagentUpdatedNotification) {
+    set((state) => {
+      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
+
+      const updater = (run: SubagentRun): SubagentRun => ({
+        ...run,
+        childSessionId: params.childSessionId ?? run.childSessionId,
+        task: params.task,
+        status: 'running',
+        updatedAt: params.updatedAt,
+        message: params.message,
+      })
+
+      const pendingSubagentRuns = updateSubagentRun(
+        state.pendingSubagentRuns,
+        params.runId,
+        updater,
+      )
+      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
+        return { pendingSubagentRuns }
+      }
+
+      const messageUpdate = updateMessageSubagentRun(state.messages, params.runId, updater)
+      if (messageUpdate.changed) return { messages: messageUpdate.messages }
+
+      const run = updater(createSubagentRunBase(params))
+      if (!state.isAgentRunning) {
+        const appendUpdate = appendSubagentRunToLatestAgentMessage(state.messages, run)
+        if (appendUpdate.changed) return { messages: appendUpdate.messages }
+      }
+
+      return {
+        pendingSubagentRuns: upsertSubagentRun(state.pendingSubagentRuns, run),
+      }
+    })
+  },
+
+  handleSubagentCompleted(params: AgentSubagentCompletedNotification) {
+    set((state) => {
+      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
+
+      const result = extractSubagentResult(params.result)
+      const workerDiff = extractWorkerDiff(params.result, params.workerDiff)
+      const updater = (run: SubagentRun): SubagentRun => ({
+        ...run,
+        childSessionId: params.childSessionId ?? run.childSessionId,
+        task: params.task,
+        status: 'completed',
+        completedAt: params.completedAt,
+        summary: result.summary,
+        evidenceCount: result.evidenceCount,
+        uncertaintyCount: result.uncertaintyCount,
+        evidence: result.evidence,
+        workerDiff: workerDiff ?? run.workerDiff,
+        failureMessage: undefined,
+      })
+
+      const pendingSubagentRuns = updateSubagentRun(
+        state.pendingSubagentRuns,
+        params.runId,
+        updater,
+      )
+      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
+        return { pendingSubagentRuns }
+      }
+
+      const messageUpdate = updateMessageSubagentRun(state.messages, params.runId, updater)
+      if (messageUpdate.changed) return { messages: messageUpdate.messages }
+
+      const run = updater(createSubagentRunBase(params))
+      if (!state.isAgentRunning) {
+        const appendUpdate = appendSubagentRunToLatestAgentMessage(state.messages, run)
+        if (appendUpdate.changed) return { messages: appendUpdate.messages }
+      }
+
+      return {
+        pendingSubagentRuns: upsertSubagentRun(state.pendingSubagentRuns, run),
+      }
+    })
+  },
+
+  handleSubagentFailed(params: AgentSubagentFailedNotification) {
+    set((state) => {
+      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
+
+      const result = extractSubagentResult(params.result)
+      const workerDiff = extractWorkerDiff(params.result, params.workerDiff)
+      const updater = (run: SubagentRun): SubagentRun => ({
+        ...run,
+        childSessionId: params.childSessionId ?? run.childSessionId,
+        task: params.task,
+        status: 'failed',
+        completedAt: params.completedAt,
+        summary: result.summary,
+        evidenceCount: result.evidenceCount,
+        uncertaintyCount: result.uncertaintyCount,
+        evidence: result.evidence,
+        workerDiff: workerDiff ?? run.workerDiff,
+        failureMessage: params.error.message,
+      })
+
+      const pendingSubagentRuns = updateSubagentRun(
+        state.pendingSubagentRuns,
+        params.runId,
+        updater,
+      )
+      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
+        return { pendingSubagentRuns }
+      }
+
+      const messageUpdate = updateMessageSubagentRun(state.messages, params.runId, updater)
+      if (messageUpdate.changed) return { messages: messageUpdate.messages }
+
+      const run = updater(createSubagentRunBase(params))
+      if (!state.isAgentRunning) {
+        const appendUpdate = appendSubagentRunToLatestAgentMessage(state.messages, run)
+        if (appendUpdate.changed) return { messages: appendUpdate.messages }
+      }
+
+      return {
+        pendingSubagentRuns: upsertSubagentRun(state.pendingSubagentRuns, run),
+      }
+    })
+  },
+
+  handlePermissionLeaseUpdated(params: AgentPermissionLeaseUpdatedNotification) {
+    set((state) => {
+      const updater = (run: SubagentRun): SubagentRun => ({
+        ...run,
+        permissionLeases: upsertPermissionLease(run.permissionLeases, params),
+      })
+
+      const pendingSubagentRuns = updateSubagentRun(
+        state.pendingSubagentRuns,
+        params.agentRunId,
+        updater,
+      )
+      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
+        return { pendingSubagentRuns }
+      }
+
+      const messageUpdate = updateMessageSubagentRun(state.messages, params.agentRunId, updater)
+      if (messageUpdate.changed) return { messages: messageUpdate.messages }
+
+      return state
+    })
+  },
+
+  handleWorkerDiffUpdated(params: WorkerDiffDisplayDetails) {
+    set((state) => {
+      const updater = (run: SubagentRun): SubagentRun =>
+        isSameWorkerDiff(run.workerDiff, params)
+          ? { ...run, workerDiff: { ...run.workerDiff, ...params } }
+          : run
+
+      const pendingSubagentRuns = state.pendingSubagentRuns.map(updater)
+      if (pendingSubagentRuns.some((run, index) => run !== state.pendingSubagentRuns[index])) {
+        return { pendingSubagentRuns }
+      }
+
+      let changed = false
+      const messages = state.messages.map((message) => {
+        if (!message.subagentRuns) return message
+        const nextRuns = message.subagentRuns.map(updater)
+        if (nextRuns.some((run, index) => run !== message.subagentRuns?.[index])) {
+          changed = true
+          return { ...message, subagentRuns: nextRuns }
+        }
+        return message
+      })
+
+      return changed ? { messages } : state
+    })
+  },
+
   resetConversation() {
     set({
       messages: [],
       streamingText: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
+      pendingSubagentRuns: [],
       isAgentRunning: false,
       activeRunSessionId: null,
       nextId: 1,
@@ -638,20 +1175,28 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   setSessions(sessions: SessionInfo[]) {
     set((state) => ({
-      sessions: sessions.map((session) => {
-        const existing = state.sessions.find((s) => s.id === session.id)
-        if (existing?.runStatus === 'running' || state.activeRunSessionId === session.id) {
-          return {
-            ...session,
-            runStatus: 'running',
-            activeToolName: existing?.activeToolName,
+      sessions: sessions
+        .map((session) => {
+          const existing = state.sessions.find((s) => s.id === session.id)
+          if (existing?.runStatus === 'running' || state.activeRunSessionId === session.id) {
+            return {
+              ...session,
+              runStatus: 'running' as const,
+              activeToolName: existing?.activeToolName,
+            }
           }
-        }
-        if (existing?.runStatus === 'error') {
-          return { ...session, runStatus: 'error' }
-        }
-        return session
-      }),
+          if (existing?.runStatus === 'error') {
+            return { ...session, runStatus: 'error' as const }
+          }
+          return session
+        })
+        .concat(
+          state.sessions.filter(
+            (session) =>
+              !sessions.some((incoming) => incoming.id === session.id) &&
+              (session.id === state.currentSessionId || session.id === state.activeRunSessionId),
+          ),
+        ),
     }))
   },
 
@@ -677,6 +1222,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingText: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
+      pendingSubagentRuns: [],
       isAgentRunning: state.activeRunSessionId === id,
       nextId: messages.length + 1,
       currentSessionId: id,
@@ -695,6 +1241,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       lastActive: new Date().toISOString(),
       messageCount: 0,
       title: 'New conversation',
+      titleSource: 'auto',
     }
 
     set({
@@ -702,6 +1249,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       streamingText: null,
       activeToolCalls: new Map(),
       pendingToolCalls: [],
+      pendingSubagentRuns: [],
       isAgentRunning: false,
       activeRunSessionId: state.activeRunSessionId,
       nextId: 1,
@@ -722,6 +1270,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       updates.streamingText = null
       updates.activeToolCalls = new Map()
       updates.pendingToolCalls = []
+      updates.pendingSubagentRuns = []
       updates.contextUsage = null
     }
 
@@ -731,6 +1280,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       updates.streamingText = null
       updates.activeToolCalls = new Map()
       updates.pendingToolCalls = []
+      updates.pendingSubagentRuns = []
       updates.isAgentRunning = false
       updates.activeRunSessionId = null
       updates.nextId = 1
@@ -739,6 +1289,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
 
     set(updates as ConversationState)
+  },
+
+  renameSession(id: string, title: string) {
+    const cleanedTitle = finalizeSessionTitle(title.trim().replace(/\s+/g, ' '))
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, title: cleanedTitle, titleSource: 'manual' as const } : s,
+      ),
+    }))
   },
 
   setWorkspace(path: string | null) {

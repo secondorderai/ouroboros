@@ -136,6 +136,19 @@ function LayersIcon(): React.ReactElement {
   )
 }
 
+function NetworkIcon(): React.ReactElement {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="12" cy="18" r="3" />
+      <path d="M8.6 7.7 10.9 15" />
+      <path d="M15.4 7.7 13.1 15" />
+      <path d="M9 6h6" />
+    </svg>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Default actions
 // ---------------------------------------------------------------------------
@@ -148,6 +161,7 @@ function createDefaultActions(handlers: {
   onOpenWorkspace: () => void
   onBrowseSkills: () => void
   onViewEvolution: () => void
+  onTeamGraph: () => void
   onApprovalsQueue: () => void
   onChangeModel: () => void
   onConfigurePermissions: () => void
@@ -202,6 +216,14 @@ function createDefaultActions(handlers: {
       title: 'View evolution log',
       description: 'Self-improvement history',
       handler: handlers.onViewEvolution,
+    },
+    {
+      id: 'team-graph',
+      group: 'Navigation',
+      icon: <NetworkIcon />,
+      title: 'Team graph',
+      description: 'Inspect agent assignments and task dependencies',
+      handler: handlers.onTeamGraph,
     },
     {
       id: 'approvals-queue',
@@ -280,9 +302,17 @@ interface CommandPaletteProps {
   onOpenSettings?: (section?: SettingsSectionId) => void
   onOpenApprovals?: () => void
   onOpenRSIDrawer?: () => void
+  onOpenTeamGraph?: () => void
 }
 
-export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, onOpenSettings, onOpenApprovals, onOpenRSIDrawer }) => {
+export const CommandPalette: React.FC<CommandPaletteProps> = ({
+  isOpen,
+  onClose,
+  onOpenSettings,
+  onOpenApprovals,
+  onOpenRSIDrawer,
+  onOpenTeamGraph,
+}) => {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [closing, setClosing] = useState(false)
@@ -323,6 +353,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
       onViewEvolution: () => {
         if (onOpenRSIDrawer) onOpenRSIDrawer()
       },
+      onTeamGraph: () => {
+        if (onOpenTeamGraph) onOpenTeamGraph()
+      },
       onApprovalsQueue: () => {
         if (onOpenApprovals) onOpenApprovals()
       },
@@ -342,7 +375,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
         if (onOpenSettings) onOpenSettings('mode')
       },
     })
-  }, [onOpenApprovals, onOpenRSIDrawer, onOpenSettings, resetConversation])
+  }, [onOpenApprovals, onOpenRSIDrawer, onOpenSettings, onOpenTeamGraph, resetConversation])
 
   // Fuse.js index
   const fuse = useMemo(() => new Fuse(actions, fuseOptions), [actions])

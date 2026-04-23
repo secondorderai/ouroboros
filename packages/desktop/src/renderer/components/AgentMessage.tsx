@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react'
-import type { CompletedToolCall, Message, ToolCallState } from '../../shared/protocol'
+import type { CompletedToolCall, Message, SubagentRun, ToolCallState } from '../../shared/protocol'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { StreamingCursor } from './StreamingCursor'
+import { SubagentActivityList } from './SubagentActivity'
 import { ToolCallChip } from './ToolCallChip'
 
 // ---------------------------------------------------------------------------
@@ -221,6 +222,9 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
             ))}
           </div>
         )}
+        {message.subagentRuns && message.subagentRuns.length > 0 && (
+          <SubagentActivityList runs={message.subagentRuns} />
+        )}
       </div>
     </div>
   </div>
@@ -234,6 +238,7 @@ interface StreamingAgentMessageProps {
   text: string
   activeToolCalls: Map<string, ToolCallState>
   completedToolCalls: CompletedToolCall[]
+  subagentRuns: SubagentRun[]
   isRunning: boolean
   expandedToolCallIds?: ReadonlySet<string>
   onToolCallExpandedChange?: (toolCallId: string, expanded: boolean) => void
@@ -243,6 +248,7 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
   text,
   activeToolCalls,
   completedToolCalls,
+  subagentRuns,
   isRunning,
   expandedToolCallIds,
   onToolCallExpandedChange,
@@ -298,6 +304,7 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
               ))}
             </div>
           )}
+          {subagentRuns.length > 0 && <SubagentActivityList runs={subagentRuns} />}
         </div>
       </div>
     </div>

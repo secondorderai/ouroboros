@@ -222,6 +222,78 @@ test('onboarding creates a session for the first chat history entry', async ({},
     .toContain('"method":"session/new"')
 })
 
+test('first message after launch creates a sidebar history session', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'Launch question answered.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          { delayMs: 10, method: 'agent/text', params: { text: 'Launch question answered.' } },
+          {
+            delayMs: 20,
+            method: 'agent/turnComplete',
+            params: { text: 'Launch question answered.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await expect(launched.page.getByText('No sessions yet')).toBeVisible()
+  await launched.page
+    .getByLabel('Message input')
+    .fill('What materials are good for use in wet areas?')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Launch question answered.')).toBeVisible()
+  await expect(launched.page.getByLabel('Session: Wet areas materials')).toBeVisible()
+
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  expect(log.indexOf('"method":"session/new"')).toBeLessThan(log.indexOf('"method":"agent/run"'))
+})
+
+test('sidebar sessions can be renamed from the context menu', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      sessions: [
+        {
+          id: 'session-rename',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          title: 'Generated fragment title',
+          titleSource: 'auto',
+          messages: [
+            {
+              role: 'user',
+              content: 'Implement the recommended direction',
+              timestamp: '2026-04-23T00:00:00.000Z',
+            },
+          ],
+        },
+      ],
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByLabel('Session: Generated fragment title').click({ button: 'right' })
+  await launched.page.getByRole('button', { name: 'Rename' }).click()
+  await launched.page.getByLabel('Session title').fill('Desktop Sidebar Titles')
+  await launched.page.getByRole('button', { name: 'Save' }).click()
+
+  await expect(launched.page.getByLabel('Session: Desktop Sidebar Titles')).toBeVisible()
+  await expect(launched.page.getByLabel('Session: Generated fragment title')).toHaveCount(0)
+
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"method":"session/rename"')
+})
+
 test('native attachment dialog adds multiple images, de-dupes, rejects unsupported images, and sends metadata', async ({}, testInfo) => {
   const { pngPath, jpgPath, gifPath } = await writeTestImageFiles('ouroboros-images-dialog-')
   launched = await launchTestApp(testInfo, {
@@ -589,6 +661,330 @@ test('agent notifications finalize chat output and completed tool calls', async 
 
   await expect(launched.page.getByText('Final answer')).toBeVisible()
   await expect(launched.page.getByText('Searched web')).toBeVisible()
+})
+
+test('running subagent notification appears under the active turn', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Final answer',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Delegate repo inspection')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await emitNotification(launched.page, 'agent/subagentStarted', {
+    runId: 'subagent-running-1',
+    agentId: 'code-reviewer',
+    task: 'Inspect renderer state changes',
+    status: 'running',
+    startedAt: new Date().toISOString(),
+  })
+
+  const row = launched.page.getByTestId('subagent-activity-row')
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('code-reviewer')
+  await expect(row).toContainText('Inspect renderer state changes')
+  await expect(row).toContainText('Running')
+})
+
+test('completed subagent row shows summary and evidence count after turn completion', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Parent final answer',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Use a subagent')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  const startedAt = new Date(Date.now() - 1200).toISOString()
+  await emitNotification(launched.page, 'agent/subagentStarted', {
+    runId: 'subagent-complete-1',
+    agentId: 'researcher',
+    task: 'Find supporting files',
+    status: 'running',
+    startedAt,
+  })
+  await emitNotification(launched.page, 'agent/subagentCompleted', {
+    runId: 'subagent-complete-1',
+    agentId: 'researcher',
+    task: 'Find supporting files',
+    status: 'completed',
+    startedAt,
+    completedAt: new Date().toISOString(),
+    result: {
+      summary: 'Renderer store and chat message components need subagent activity state.',
+      claims: [
+        {
+          claim: 'The chat renders agent messages in AgentMessage.',
+          confidence: 0.9,
+          evidence: [
+            { type: 'file', path: 'packages/desktop/src/renderer/components/AgentMessage.tsx' },
+            { type: 'file', path: 'packages/desktop/src/renderer/views/ChatView.tsx', line: 270 },
+          ],
+        },
+      ],
+      uncertainty: ['Loaded sessions do not yet persist subagent metadata.'],
+      suggestedNextSteps: [],
+    },
+  })
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Parent final answer',
+    iterations: 1,
+  })
+
+  const row = launched.page.getByTestId('subagent-activity-row')
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('Completed')
+  await expect(row).toContainText('2 evidence')
+  await expect(row).toContainText('1 uncertainty')
+  await expect(row).toContainText(
+    'Renderer store and chat message components need subagent activity state.',
+  )
+  await expect(row).toContainText('packages/desktop/src/renderer/views/ChatView.tsx:270')
+  await expect(launched.page.getByText('Parent final answer')).toBeVisible()
+})
+
+test('worker subagent row shows diff summary and review status', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Parent final answer',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Use a worker')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  const startedAt = new Date(Date.now() - 800).toISOString()
+  await emitNotification(launched.page, 'agent/subagentStarted', {
+    runId: 'worker-diff-1',
+    agentId: 'worker',
+    task: 'Implement a ticket',
+    status: 'running',
+    startedAt,
+  })
+  await emitNotification(launched.page, 'agent/subagentCompleted', {
+    runId: 'worker-diff-1',
+    agentId: 'worker',
+    task: 'Implement a ticket',
+    status: 'completed',
+    startedAt,
+    completedAt: new Date().toISOString(),
+    result: {
+      summary: 'Worker completed the isolated implementation.',
+      claims: [],
+      workerDiff: {
+        taskId: 'ticket-15',
+        branchName: 'worker/ticket-15',
+        worktreePath: '/tmp/ouroboros-worker-ticket-15',
+        changedFiles: ['packages/cli/src/tools/worker-diff-approval.ts'],
+        diff: 'diff --git a/file b/file\n+new line\n',
+        diffLineCount: 2,
+        testResult: {
+          command: 'bun test packages/cli/tests/tools/spawn-agent.test.ts',
+          exitCode: 0,
+          status: 'passed',
+        },
+        unresolvedRisks: [],
+        reviewStatus: 'awaiting-review',
+      },
+      uncertainty: [],
+      suggestedNextSteps: [],
+    },
+    workerDiff: {
+      taskId: 'ticket-15',
+      branchName: 'worker/ticket-15',
+      worktreePath: '/tmp/ouroboros-worker-ticket-15',
+      changedFiles: ['packages/cli/src/tools/worker-diff-approval.ts'],
+      diff: 'diff --git a/file b/file\n+new line\n',
+      diffLineCount: 2,
+      testResult: {
+        command: 'bun test packages/cli/tests/tools/spawn-agent.test.ts',
+        exitCode: 0,
+        status: 'passed',
+      },
+      unresolvedRisks: [],
+      reviewStatus: 'awaiting-review',
+    },
+  })
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Parent final answer',
+    iterations: 1,
+  })
+
+  const row = launched.page.getByTestId('subagent-activity-row')
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('Awaiting review')
+  await expect(row).toContainText('Worker diff')
+  await expect(row).toContainText('1 files')
+  await expect(row).toContainText('packages/cli/src/tools/worker-diff-approval.ts')
+  await expect(row).toContainText(
+    'Tests: passed: bun test packages/cli/tests/tools/spawn-agent.test.ts',
+  )
+})
+
+test('subagent row renders pending active and denied lease details', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Parent final answer',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Use a lease-backed subagent')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  const startedAt = new Date(Date.now() - 900).toISOString()
+  await emitNotification(launched.page, 'agent/subagentStarted', {
+    runId: 'subagent-lease-1',
+    agentId: 'tester',
+    task: 'Run focused tests',
+    status: 'running',
+    startedAt,
+  })
+  await emitNotification(launched.page, 'agent/permissionLeaseUpdated', {
+    leaseId: 'lease-pending-1',
+    agentRunId: 'subagent-lease-1',
+    requestedTools: ['bash', 'file-edit'],
+    requestedPaths: ['packages/cli/tests/**'],
+    requestedBashCommands: ['bun test packages/cli/tests/permission-lease.test.ts'],
+    expiresAt: '2026-04-23T00:00:00.000Z',
+    riskSummary: 'Subagent needs scoped test edits and one exact command.',
+    risk: 'high',
+    createdAt: '2026-04-22T00:00:00.000Z',
+    status: 'pending',
+  })
+  await emitNotification(launched.page, 'agent/permissionLeaseUpdated', {
+    leaseId: 'lease-pending-1',
+    agentRunId: 'subagent-lease-1',
+    requestedTools: ['bash', 'file-edit'],
+    requestedPaths: ['packages/cli/tests/**'],
+    requestedBashCommands: ['bun test packages/cli/tests/permission-lease.test.ts'],
+    expiresAt: '2026-04-23T00:00:00.000Z',
+    riskSummary: 'Subagent needs scoped test edits and one exact command.',
+    risk: 'high',
+    createdAt: '2026-04-22T00:00:00.000Z',
+    status: 'active',
+    approvedAt: '2026-04-22T00:01:00.000Z',
+  })
+  await emitNotification(launched.page, 'agent/permissionLeaseUpdated', {
+    leaseId: 'lease-denied-1',
+    agentRunId: 'subagent-lease-1',
+    requestedTools: ['bash'],
+    requestedPaths: [],
+    requestedBashCommands: ['rm -rf /tmp/ouroboros-denied'],
+    riskSummary: 'Destructive cleanup was requested.',
+    risk: 'high',
+    createdAt: '2026-04-22T00:02:00.000Z',
+    status: 'denied',
+    denialReason: 'Command is destructive and outside the task.',
+  })
+  await emitNotification(launched.page, 'agent/subagentCompleted', {
+    runId: 'subagent-lease-1',
+    agentId: 'tester',
+    task: 'Run focused tests',
+    status: 'completed',
+    startedAt,
+    completedAt: new Date().toISOString(),
+    result: {
+      summary: 'Focused tests passed.',
+      claims: [],
+      uncertainty: [],
+      suggestedNextSteps: [],
+    },
+  })
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Parent final answer',
+    iterations: 1,
+  })
+
+  const row = launched.page.getByTestId('subagent-activity-row')
+  await expect(row).toContainText('Active lease')
+  await expect(row).toContainText('bash, file-edit')
+  await expect(row).toContainText('packages/cli/tests/**')
+  await expect(row).toContainText('bun test packages/cli/tests/permission-lease.test.ts')
+  await expect(row).toContainText('Expires:')
+  await expect(row).toContainText('Denied lease')
+  await expect(row).toContainText('Command is destructive and outside the task.')
+})
+
+test('failed subagent row shows failure state without breaking chat rendering', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Parent recovered',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Delegate risky work')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  const startedAt = new Date(Date.now() - 700).toISOString()
+  await emitNotification(launched.page, 'agent/subagentFailed', {
+    runId: 'subagent-failed-1',
+    agentId: 'tester',
+    task: 'Run verification',
+    status: 'failed',
+    startedAt,
+    completedAt: new Date().toISOString(),
+    error: { message: 'Child agent stopped with reason: max_steps' },
+    result: {
+      summary: 'Verification did not finish.',
+      claims: [],
+      uncertainty: ['Need another pass with more steps.'],
+      suggestedNextSteps: [],
+    },
+  })
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Parent recovered',
+    iterations: 1,
+  })
+
+  const row = launched.page.getByTestId('subagent-activity-row')
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('Failed')
+  await expect(row).toContainText('Child agent stopped with reason: max_steps')
+  await expect(row).toContainText('Verification did not finish.')
+  await expect(launched.page.getByText('Parent recovered')).toBeVisible()
 })
 
 test('running sessions show sidebar and chat processing indicators', async ({}, testInfo) => {

@@ -5,6 +5,24 @@ import {
   normalizeToolName,
 } from '../src/renderer/stores/conversationStore'
 
+function resetStore(): void {
+  useConversationStore.setState({
+    messages: [],
+    streamingText: null,
+    activeToolCalls: new Map(),
+    pendingToolCalls: [],
+    pendingSubagentRuns: [],
+    isAgentRunning: false,
+    activeRunSessionId: null,
+    nextId: 1,
+    currentSessionId: null,
+    sessions: [],
+    workspace: null,
+    modelName: null,
+    contextUsage: null,
+  })
+}
+
 describe('conversation store normalization', () => {
   test('normalizes structured text payloads into readable strings', () => {
     expect(normalizeTextContent({ text: 'Hello desktop' })).toBe('Hello desktop')
@@ -27,19 +45,7 @@ describe('conversation store normalization', () => {
   })
 
   test('stores and clears context usage across session changes', () => {
-    useConversationStore.setState({
-      messages: [],
-      streamingText: null,
-      activeToolCalls: new Map(),
-      pendingToolCalls: [],
-      isAgentRunning: false,
-      nextId: 1,
-      currentSessionId: null,
-      sessions: [],
-      workspace: null,
-      modelName: null,
-      contextUsage: null,
-    })
+    resetStore()
 
     useConversationStore.getState().handleContextUsage({
       estimatedTotalTokens: 12_345,
@@ -60,24 +66,181 @@ describe('conversation store normalization', () => {
   })
 })
 
-describe('loadSession image preview hydration', () => {
-  function resetStore(): void {
-    useConversationStore.setState({
-      messages: [],
-      streamingText: null,
-      activeToolCalls: new Map(),
-      pendingToolCalls: [],
-      isAgentRunning: false,
-      activeRunSessionId: null,
-      nextId: 1,
-      currentSessionId: null,
-      sessions: [],
-      workspace: null,
-      modelName: null,
-      contextUsage: null,
-    })
-  }
+describe('conversation store sessions', () => {
+  test('creates a persisted session before the first agent run when none is active', async () => {
+    resetStore()
 
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          if (method === 'session/new') {
+            return Promise.resolve({ sessionId: 'session-first-message' })
+          }
+          return Promise.resolve({ text: 'ok' })
+        },
+      },
+    }
+
+    useConversationStore.getState().sendMessage('What materials are good for use in wet areas?')
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls.map((call) => call.method)).toEqual(['session/new', 'agent/run'])
+    expect(useConversationStore.getState().currentSessionId).toBe('session-first-message')
+    expect(useConversationStore.getState().activeRunSessionId).toBe('session-first-message')
+    expect(useConversationStore.getState().sessions[0]).toEqual(
+      expect.objectContaining({
+        id: 'session-first-message',
+        title: 'Wet areas materials',
+        titleSource: 'auto',
+        messageCount: 1,
+        runStatus: 'running',
+      }),
+    )
+  })
+
+  test('refreshes weak automatic titles after the assistant turn completes', () => {
+    resetStore()
+
+    useConversationStore.setState({
+      currentSessionId: 'session-title',
+      activeRunSessionId: 'session-title',
+      isAgentRunning: true,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'Implement the recommended direction - option 1 and 2',
+          timestamp: '2026-04-23T00:00:00.000Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'session-title',
+          title: 'Recommended direction option 1',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 1,
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnComplete({
+      text: 'Implemented the desktop session title rename flow.',
+    })
+
+    expect(useConversationStore.getState().sessions[0]).toEqual(
+      expect.objectContaining({
+        title: 'Desktop session title rename',
+        titleSource: 'auto',
+        runStatus: 'idle',
+      }),
+    )
+  })
+
+  test('keeps manual titles when assistant turns complete', () => {
+    resetStore()
+
+    useConversationStore.setState({
+      currentSessionId: 'session-manual-title',
+      activeRunSessionId: 'session-manual-title',
+      isAgentRunning: true,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'Implement the recommended title changes',
+          timestamp: '2026-04-23T00:00:00.000Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'session-manual-title',
+          title: 'Pinned Sidebar Title',
+          titleSource: 'manual',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 1,
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnComplete({
+      text: 'Updated the sidebar search experience.',
+    })
+
+    expect(useConversationStore.getState().sessions[0]).toEqual(
+      expect.objectContaining({
+        title: 'Pinned Sidebar Title',
+        titleSource: 'manual',
+        runStatus: 'idle',
+      }),
+    )
+  })
+
+  test('renames sessions locally as manual titles', () => {
+    resetStore()
+
+    useConversationStore.setState({
+      sessions: [
+        {
+          id: 'session-rename',
+          title: 'Auto Title',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 1,
+        },
+      ],
+    })
+
+    useConversationStore.getState().renameSession('session-rename', '  My renamed session  ')
+
+    expect(useConversationStore.getState().sessions[0]).toEqual(
+      expect.objectContaining({
+        title: 'My renamed session',
+        titleSource: 'manual',
+      }),
+    )
+  })
+
+  test('keeps the active local session when a stale session list response arrives', () => {
+    resetStore()
+
+    useConversationStore.setState({
+      currentSessionId: 'session-new',
+      activeRunSessionId: 'session-new',
+      sessions: [
+        {
+          id: 'session-new',
+          title: 'Fresh question',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 1,
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().setSessions([])
+
+    expect(useConversationStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-new',
+        title: 'Fresh question',
+        runStatus: 'running',
+      }),
+    ])
+  })
+})
+
+describe('loadSession image preview hydration', () => {
   test('fills previewDataUrl on loaded messages by calling validateImageAttachments', async () => {
     resetStore()
 

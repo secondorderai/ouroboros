@@ -208,6 +208,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const activeToolCalls = useConversationStore((s) => s.activeToolCalls)
   const pendingToolCalls = useConversationStore((s) => s.pendingToolCalls)
+  const pendingSubagentRuns = useConversationStore((s) => s.pendingSubagentRuns)
   const sessions = useConversationStore((s) => s.sessions)
   const cancelRun = useConversationStore((s) => s.cancelRun)
   const bufferedText = useStreamingBuffer()
@@ -225,6 +226,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     isAgentRunning ||
     activeToolCalls.size > 0 ||
     pendingToolCalls.length > 0 ||
+    pendingSubagentRuns.length > 0 ||
     bufferedText !== null
 
   // Total item count = completed messages + optional streaming row.
@@ -284,6 +286,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           text={bufferedText ?? ''}
           activeToolCalls={activeToolCalls}
           completedToolCalls={pendingToolCalls}
+          subagentRuns={pendingSubagentRuns}
           isRunning={isAgentRunning}
           expandedToolCallIds={expandedToolCallIds}
           onToolCallExpandedChange={handleToolCallExpandedChange}
@@ -295,6 +298,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       bufferedText,
       activeToolCalls,
       pendingToolCalls,
+      pendingSubagentRuns,
       isAgentRunning,
       expandedToolCallIds,
       handleToolCallExpandedChange,

@@ -1,10 +1,8 @@
-import { useEffect } from 'react';
-import { useConversationStore } from '../stores/conversationStore';
+import { useEffect } from 'react'
+import { useConversationStore } from '../stores/conversationStore'
 import { addApproval, loadApprovals, toPendingApproval } from '../stores/approvalStore'
 import { addAskUserRequest, clearAskUserRequests } from '../stores/askUserStore'
-import type {
-  ApprovalRequestNotification,
-} from '../../shared/protocol';
+import type { ApprovalRequestNotification } from '../../shared/protocol'
 
 /**
  * Subscribes to all relevant IPC notifications from the CLI via
@@ -16,7 +14,7 @@ import type {
 export function useNotifications(): void {
   useEffect(() => {
     const api = window.ouroboros
-    if (!api) return;
+    if (!api) return
 
     const {
       handleContextUsage,
@@ -25,7 +23,12 @@ export function useNotifications(): void {
       handleToolCallEnd,
       handleTurnComplete,
       handleAgentError,
-    } = useConversationStore.getState();
+      handleSubagentStarted,
+      handleSubagentUpdated,
+      handleSubagentCompleted,
+      handleSubagentFailed,
+      handlePermissionLeaseUpdated,
+    } = useConversationStore.getState()
 
     loadApprovals().catch((error) => {
       console.error('approval/list failed:', error)
@@ -50,8 +53,29 @@ export function useNotifications(): void {
       api.onNotification('agent/error', (params) => {
         handleAgentError(params)
       }),
+      api.onNotification('agent/subagentStarted', (params) => {
+        handleSubagentStarted(params)
+      }),
+      api.onNotification('agent/subagentUpdated', (params) => {
+        handleSubagentUpdated(params)
+      }),
+      api.onNotification('agent/subagentCompleted', (params) => {
+        handleSubagentCompleted(params)
+      }),
+      api.onNotification('agent/subagentFailed', (params) => {
+        handleSubagentFailed(params)
+      }),
+      api.onNotification('agent/permissionLeaseUpdated', (params) => {
+        handlePermissionLeaseUpdated(params)
+      }),
       api.onNotification('approval/request', (params: ApprovalRequestNotification) => {
         addApproval(toPendingApproval(params))
+        if (params.lease) {
+          handlePermissionLeaseUpdated({
+            ...params.lease,
+            status: params.lease.status ?? 'pending',
+          })
+        }
       }),
       api.onNotification('askUser/request', (params) => {
         addAskUserRequest(params)
@@ -61,7 +85,7 @@ export function useNotifications(): void {
           clearAskUserRequests()
         }
       }),
-    ];
+    ]
 
     return () => {
       unsubs.forEach((unsub) => unsub())

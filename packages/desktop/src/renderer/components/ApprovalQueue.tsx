@@ -13,10 +13,7 @@ const RISK_COLORS: Record<string, { bg: string; text: string; label: string }> =
   low: { bg: 'rgba(107, 107, 107, 0.12)', text: 'var(--text-secondary)', label: 'Low' },
 }
 
-export function ApprovalQueue({
-  isOpen,
-  onClose,
-}: ApprovalQueueProps): React.ReactElement | null {
+export function ApprovalQueue({ isOpen, onClose }: ApprovalQueueProps): React.ReactElement | null {
   const approvals = useApprovals()
   const { respond } = useApprovalActions()
   const [exiting, setExiting] = useState(false)
@@ -58,7 +55,7 @@ export function ApprovalQueue({
           <button
             style={styles.closeButton}
             onClick={handleClose}
-            aria-label="Close approval queue"
+            aria-label='Close approval queue'
           >
             <CloseIcon />
           </button>
@@ -72,8 +69,7 @@ export function ApprovalQueue({
               <CheckCircleIcon />
               <p style={styles.emptyText}>No pending approvals</p>
               <p style={styles.emptySubtext}>
-                Approval requests will appear here when the agent proposes
-                self-modifications.
+                Approval requests will appear here when the agent proposes self-modifications.
               </p>
             </div>
           ) : (
@@ -83,9 +79,7 @@ export function ApprovalQueue({
                 return (
                   <div key={approval.id} style={styles.item}>
                     <div style={styles.itemHeader}>
-                      <span style={styles.itemDescription}>
-                        {approval.description}
-                      </span>
+                      <span style={styles.itemDescription}>{approval.description}</span>
                       <span
                         style={{
                           ...styles.riskBadge,
@@ -97,11 +91,11 @@ export function ApprovalQueue({
                       </span>
                     </div>
                     <div style={styles.itemMeta}>
-                      <span style={styles.timestamp}>
-                        {formatTimestamp(approval.timestamp)}
-                      </span>
+                      <span style={styles.timestamp}>{formatTimestamp(approval.timestamp)}</span>
                       <span style={styles.typeBadge}>{approval.type}</span>
                     </div>
+                    {approval.lease && <LeaseDetails lease={approval.lease} />}
+                    {approval.workerDiff && <WorkerDiffDetails workerDiff={approval.workerDiff} />}
                     <div style={styles.itemActions}>
                       <button
                         style={styles.approveButton}
@@ -112,7 +106,9 @@ export function ApprovalQueue({
                             await respond(approval.id, 'approve')
                           } catch (error) {
                             const message =
-                              error instanceof Error ? error.message : 'Failed to submit approval response'
+                              error instanceof Error
+                                ? error.message
+                                : 'Failed to submit approval response'
                             setErrorMessage(message)
                           } finally {
                             setSubmittingId(null)
@@ -131,7 +127,9 @@ export function ApprovalQueue({
                             await respond(approval.id, 'deny')
                           } catch (error) {
                             const message =
-                              error instanceof Error ? error.message : 'Failed to submit approval response'
+                              error instanceof Error
+                                ? error.message
+                                : 'Failed to submit approval response'
                             setErrorMessage(message)
                           } finally {
                             setSubmittingId(null)
@@ -150,7 +148,56 @@ export function ApprovalQueue({
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
+  )
+}
+
+function LeaseDetails({
+  lease,
+}: {
+  lease: NonNullable<ReturnType<typeof useApprovals>[number]['lease']>
+}): React.ReactElement {
+  return (
+    <div style={styles.leaseDetails}>
+      <div style={styles.leaseSummary}>{lease.riskSummary}</div>
+      <DetailLine label='Tools' values={lease.requestedTools} />
+      <DetailLine label='Paths' values={lease.requestedPaths} />
+      <DetailLine label='Commands' values={lease.requestedBashCommands} />
+      {lease.expiresAt && (
+        <div style={styles.detailLine}>Expires: {formatFullTimestamp(lease.expiresAt)}</div>
+      )}
+    </div>
+  )
+}
+
+function WorkerDiffDetails({
+  workerDiff,
+}: {
+  workerDiff: NonNullable<ReturnType<typeof useApprovals>[number]['workerDiff']>
+}): React.ReactElement {
+  return (
+    <div style={styles.leaseDetails}>
+      <div style={styles.leaseSummary}>
+        Worker diff: {workerDiff.changedFiles.length} changed file
+        {workerDiff.changedFiles.length === 1 ? '' : 's'}
+      </div>
+      <div style={styles.detailLine}>Task: {workerDiff.taskId}</div>
+      <div style={styles.detailLine}>Status: {workerDiff.reviewStatus.replace('-', ' ')}</div>
+      {workerDiff.testResult && (
+        <div style={styles.detailLine}>
+          Tests: {workerDiff.testResult.status} ({workerDiff.testResult.command})
+        </div>
+      )}
+      <DetailLine label='Files' values={workerDiff.changedFiles} />
+    </div>
+  )
+}
+
+function DetailLine({ label, values }: { label: string; values: string[] }): React.ReactElement {
+  return (
+    <div style={styles.detailLine}>
+      {label}: {values.length > 0 ? values.join(', ') : 'None'}
+    </div>
   )
 }
 
@@ -166,20 +213,28 @@ function formatTimestamp(ts: string): string {
   }
 }
 
+function formatFullTimestamp(ts: string): string {
+  try {
+    return new Date(ts).toLocaleString()
+  } catch {
+    return ts
+  }
+}
+
 function CloseIcon(): React.ReactElement {
   return (
     <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1='18' y1='6' x2='6' y2='18' />
+      <line x1='6' y1='6' x2='18' y2='18' />
     </svg>
   )
 }
@@ -187,17 +242,17 @@ function CloseIcon(): React.ReactElement {
 function CheckCircleIcon(): React.ReactElement {
   return (
     <svg
-      width="40"
-      height="40"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="var(--text-tertiary)"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='40'
+      height='40'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='var(--text-tertiary)'
+      strokeWidth='1.5'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <circle cx="12" cy="12" r="10" />
-      <path d="M9 12l2 2 4-4" />
+      <circle cx='12' cy='12' r='10' />
+      <path d='M9 12l2 2 4-4' />
     </svg>
   )
 }
@@ -322,6 +377,29 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 8,
     marginBottom: 12,
+  },
+  leaseDetails: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: 'var(--bg-secondary)',
+    border: '1px solid var(--border-light)',
+    borderRadius: 8,
+  },
+  leaseSummary: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+    lineHeight: 1.4,
+  },
+  detailLine: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-mono)',
+    overflowWrap: 'anywhere',
+    lineHeight: 1.4,
   },
   timestamp: {
     fontSize: 12,

@@ -10,7 +10,11 @@ import type {
   ApprovalItem,
   ApprovalListResult,
   ApprovalRequestNotification,
+  ApprovalRespondResult,
+  PermissionLeaseDisplayDetails,
+  WorkerDiffDisplayDetails,
 } from '../../shared/protocol'
+import { useConversationStore } from './conversationStore'
 
 export interface PendingApproval {
   id: string
@@ -18,6 +22,8 @@ export interface PendingApproval {
   description: string
   risk: 'high' | 'medium' | 'low'
   diff?: string
+  lease?: PermissionLeaseDisplayDetails
+  workerDiff?: WorkerDiffDisplayDetails
   timestamp: string
 }
 
@@ -75,19 +81,34 @@ export function toPendingApproval(
     description: approval.description,
     risk: approval.risk ?? 'low',
     diff: approval.diff,
+    lease: approval.lease ? normalizeApprovalLease(approval.lease) : undefined,
+    workerDiff: approval.workerDiff,
     timestamp:
-      ('createdAt' in approval && approval.createdAt) ? approval.createdAt : new Date().toISOString(),
+      'createdAt' in approval && approval.createdAt ? approval.createdAt : new Date().toISOString(),
   }
 }
 
-export async function respondToApproval(
-  id: string,
-  decision: 'approve' | 'deny'
-): Promise<void> {
-  await window.ouroboros.rpc('approval/respond', {
+function normalizeApprovalLease(
+  lease: (ApprovalItem | ApprovalRequestNotification)['lease'],
+): PermissionLeaseDisplayDetails | undefined {
+  if (!lease) return undefined
+  return {
+    ...lease,
+    status: lease.status ?? 'pending',
+  }
+}
+
+export async function respondToApproval(id: string, decision: 'approve' | 'deny'): Promise<void> {
+  const result = (await window.ouroboros.rpc('approval/respond', {
     id,
     approved: decision === 'approve',
-  })
+  })) as ApprovalRespondResult
+  if (result.lease) {
+    useConversationStore.getState().handlePermissionLeaseUpdated(result.lease)
+  }
+  if (result.workerDiff) {
+    useConversationStore.getState().handleWorkerDiffUpdated(result.workerDiff)
+  }
   removeApproval(id)
 }
 
@@ -98,14 +119,11 @@ export function useApprovals(): PendingApproval[] {
 export function useApprovalActions(): {
   respond: (id: string, decision: 'approve' | 'deny') => Promise<void>
 } {
-  const respond = useCallback(
-    (id: string, decision: 'approve' | 'deny') => {
-      return respondToApproval(id, decision).catch(async (error) => {
-        console.error('approval/respond failed:', error)
-        throw error
-      })
-    },
-    []
-  )
+  const respond = useCallback((id: string, decision: 'approve' | 'deny') => {
+    return respondToApproval(id, decision).catch(async (error) => {
+      console.error('approval/respond failed:', error)
+      throw error
+    })
+  }, [])
   return { respond }
 }

@@ -107,6 +107,7 @@ export function Sidebar({
   const loadSession = useConversationStore((s) => s.loadSession)
   const createNewSession = useConversationStore((s) => s.createNewSession)
   const deleteSession = useConversationStore((s) => s.deleteSession)
+  const renameSession = useConversationStore((s) => s.renameSession)
   const setCurrentSessionId = useConversationStore((s) => s.setCurrentSessionId)
 
   const [contextMenu, setContextMenu] = useState<{
@@ -115,6 +116,8 @@ export function Sidebar({
     y: number
   } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<SessionInfo | null>(null)
+  const [renameTitle, setRenameTitle] = useState('')
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
 
@@ -207,6 +210,15 @@ export function Sidebar({
     setContextMenu(null)
   }, [contextMenu])
 
+  const handleRenameClick = useCallback(() => {
+    if (!contextMenu) return
+    const session = sessions.find((item) => item.id === contextMenu.sessionId)
+    if (!session) return
+    setRenameTarget(session)
+    setRenameTitle(session.title || 'New conversation')
+    setContextMenu(null)
+  }, [contextMenu, sessions])
+
   const handleConfirmDelete = useCallback(async () => {
     if (!confirmDelete) return
     const api = window.ouroboros
@@ -224,16 +236,43 @@ export function Sidebar({
     setConfirmDelete(null)
   }, [])
 
+  const handleCancelRename = useCallback(() => {
+    setRenameTarget(null)
+    setRenameTitle('')
+  }, [])
+
+  const handleConfirmRename = useCallback(async () => {
+    if (!renameTarget) return
+    const title = renameTitle.trim().replace(/\s+/g, ' ')
+    if (!title) return
+    const api = window.ouroboros
+    if (!api) return
+    try {
+      const result = (await api.rpc('session/rename', {
+        id: renameTarget.id,
+        title,
+      })) as { title: string }
+      renameSession(renameTarget.id, result.title)
+    } catch (err) {
+      console.error('session/rename failed:', err)
+    }
+    handleCancelRename()
+  }, [handleCancelRename, renameSession, renameTarget, renameTitle])
+
   useEffect(() => {
-    if (!confirmDelete) return
+    if (!confirmDelete && !renameTarget) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setConfirmDelete(null)
+        handleCancelRename()
+      }
+      if (e.key === 'Enter' && renameTarget) {
+        void handleConfirmRename()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [confirmDelete])
+  }, [confirmDelete, handleCancelRename, handleConfirmRename, renameTarget])
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
@@ -347,7 +386,14 @@ export function Sidebar({
             top: contextMenu.y,
           }}
         >
-          <button style={styles.contextMenuItem} onClick={handleDeleteClick}>
+          <button style={styles.contextMenuItem} onClick={handleRenameClick}>
+            <EditIcon />
+            <span>Rename</span>
+          </button>
+          <button
+            style={{ ...styles.contextMenuItem, ...styles.contextMenuItemDanger }}
+            onClick={handleDeleteClick}
+          >
             <TrashIcon />
             <span>Delete</span>
           </button>
@@ -364,6 +410,34 @@ export function Sidebar({
               </button>
               <button style={styles.dialogButtonDelete} onClick={handleConfirmDelete}>
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div style={styles.overlay}>
+          <div style={styles.dialog}>
+            <input
+              style={styles.dialogInput}
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.currentTarget.value)}
+              autoFocus
+              aria-label='Session title'
+            />
+            <div style={styles.dialogButtons}>
+              <button style={styles.dialogButtonCancel} onClick={handleCancelRename}>
+                Cancel
+              </button>
+              <button
+                style={styles.dialogButtonPrimary}
+                onClick={() => {
+                  void handleConfirmRename()
+                }}
+                disabled={renameTitle.trim().length === 0}
+              >
+                Save
               </button>
             </div>
           </div>
@@ -503,6 +577,24 @@ function TrashIcon(): React.ReactElement {
       <path d='M10 11v6' />
       <path d='M14 11v6' />
       <path d='M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2' />
+    </svg>
+  )
+}
+
+function EditIcon(): React.ReactElement {
+  return (
+    <svg
+      width='13'
+      height='13'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <path d='M12 20h9' />
+      <path d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z' />
     </svg>
   )
 }
@@ -693,11 +785,14 @@ const styles: Record<string, React.CSSProperties> = {
     border: 'none',
     background: 'transparent',
     borderRadius: 'var(--radius-micro)',
-    color: 'var(--accent-red)',
+    color: 'var(--text-secondary)',
     fontSize: 13,
     fontFamily: 'var(--font-sans)',
     cursor: 'pointer',
     textAlign: 'left',
+  },
+  contextMenuItemDanger: {
+    color: 'var(--accent-red)',
   },
   overlay: {
     position: 'fixed',
@@ -727,6 +822,19 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.5,
     margin: '0 0 16px',
   },
+  dialogInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid var(--border-medium)',
+    backgroundColor: 'var(--bg-secondary)',
+    borderRadius: 'var(--radius-standard)',
+    color: 'var(--text-primary)',
+    fontSize: 14,
+    fontFamily: 'var(--font-sans)',
+    padding: '8px 10px',
+    margin: '0 0 16px',
+    outline: 'none',
+  },
   dialogButtons: {
     display: 'flex',
     justifyContent: 'flex-end',
@@ -746,6 +854,17 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '6px 14px',
     border: 'none',
     backgroundColor: 'var(--accent-red)',
+    borderRadius: 'var(--radius-standard)',
+    color: 'var(--text-inverse)',
+    fontSize: 13,
+    fontFamily: 'var(--font-sans)',
+    fontWeight: 500,
+    cursor: 'pointer',
+  },
+  dialogButtonPrimary: {
+    padding: '6px 14px',
+    border: 'none',
+    backgroundColor: 'var(--accent-primary)',
     borderRadius: 'var(--radius-standard)',
     color: 'var(--text-inverse)',
     fontSize: 13,
