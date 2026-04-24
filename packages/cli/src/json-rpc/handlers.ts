@@ -136,6 +136,8 @@ export function bridgeAgentEvent(event: AgentEvent): void {
           contextWindowTokens: event.contextWindowTokens,
           usageRatio: event.usageRatio,
           threshold: event.threshold,
+          breakdown: event.breakdown,
+          contextWindowSource: event.contextWindowSource,
         }),
       )
       break
