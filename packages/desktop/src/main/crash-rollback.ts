@@ -78,7 +78,7 @@ async function showRollbackDialog(): Promise<void> {
 
   if (response === 0) {
     await shell.openExternal(
-      "https://github.com/anthropics/ouroboros/releases"
+      "https://github.com/secondorderai/ouroboros/releases"
     );
     app.quit();
   }

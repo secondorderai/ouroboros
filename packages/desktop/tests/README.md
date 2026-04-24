@@ -33,9 +33,9 @@ bun run test:cdp:smoke
 
 ## Manual Release Matrix
 
-Before release, verify on macOS 13/14/15 and Windows 10/11:
+Before release, verify on macOS 13/14/15:
 
 - Visual pass: title bar, theme switching, markdown rendering, sidebar, palette, drawer.
 - Native pass: file dialogs, workspace picker, external links, window bounds restore.
-- Packaging pass: installer launch, update banner behavior, rollback prompt.
+- Packaging pass: DMG install, app launch, update banner behavior, rollback prompt.
 - Resilience pass: startup during CLI failure, restart during active chat, no API keys in logs.

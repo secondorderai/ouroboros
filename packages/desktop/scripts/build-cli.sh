@@ -15,6 +15,12 @@ bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/ouroboros
 
 echo "==> Copying binary to $OUT_DIR ..."
 mkdir -p "$OUT_DIR"
+rm -f \
+  "$OUT_DIR/ouroboros" \
+  "$OUT_DIR/ouroboros.exe" \
+  "$OUT_DIR/ouroboros-darwin-arm64" \
+  "$OUT_DIR/ouroboros-darwin-x64" \
+  "$OUT_DIR/cli.js.map"
 
 if [[ "$OSTYPE" == darwin* ]]; then
   echo "==> Building macOS release binaries for both architectures ..."
@@ -39,12 +45,12 @@ if [[ "$OSTYPE" == darwin* ]]; then
 fi
 
 # Copy the compiled binary (ouroboros on Unix, ouroboros.exe on Windows)
-if [[ -f "$CLI_DIR/dist/ouroboros.exe" ]]; then
+if [[ "$OSTYPE" != darwin* && -f "$CLI_DIR/dist/ouroboros.exe" ]]; then
   cp "$CLI_DIR/dist/ouroboros.exe" "$OUT_DIR/"
   echo "    Copied ouroboros.exe"
 fi
 
-if [[ -f "$CLI_DIR/dist/ouroboros" ]]; then
+if [[ "$OSTYPE" != darwin* && -f "$CLI_DIR/dist/ouroboros" ]]; then
   cp "$CLI_DIR/dist/ouroboros" "$OUT_DIR/"
   chmod +x "$OUT_DIR/ouroboros"
   echo "    Copied ouroboros"

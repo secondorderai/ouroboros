@@ -55,8 +55,8 @@ Build distributable packages:
 ```bash
 cd packages/desktop
 bun run build        # compile + package (unpacked, current platform)
-bun run build:mac    # macOS .dmg / .zip
-bun run build:win    # Windows installer
+bun run build:mac    # macOS .dmg
+# Windows packaging is deferred for GitHub releases; local build:win remains available.
 ```
 
 ## CLI Flags
@@ -340,7 +340,7 @@ bun run ts-check      # TypeScript type check
 bun run dev           # Launch Electron dev mode
 bun run build         # Build + package (current platform)
 bun run build:mac     # Build macOS distributable
-bun run build:win     # Build Windows distributable
+# Windows packaging is deferred for GitHub releases; local build:win remains available.
 bun run ts-check      # TypeScript type check
 ```
 

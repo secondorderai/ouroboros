@@ -10,14 +10,7 @@ permissions:
 
 jobs:
   release:
-    strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            build_script: build:mac
-          - os: windows-latest
-            build_script: build:win
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -52,7 +45,7 @@ jobs:
 
       - name: Build and sign desktop app
         working-directory: packages/desktop
-        run: bun run ${{ matrix.build_script }}
+        run: bun run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

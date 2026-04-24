@@ -20,6 +20,7 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  x64ArchFiles: "Contents/Resources/ouroboros-darwin-*"
   artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 
 win:
@@ -49,5 +50,5 @@ extraResources:
 
 publish:
   provider: github
-  owner: anthropics
+  owner: secondorderai
   repo: ouroboros
