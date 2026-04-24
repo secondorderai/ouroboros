@@ -33,13 +33,15 @@ import {
 export const name = 'spawn_agent'
 
 export const description =
-  'Run a bounded read-only child agent task and return a structured completion or failure result.'
+  'Run a bounded read-only child agent task and return a structured completion or failure result. agentId must be a configured agent definition id such as explore, review, or test; do not pass team_graph task ids or lane labels such as inspector-1.'
 
 export const schema = z.object({
   agentId: z
     .string()
     .regex(/^[a-z][a-z0-9-]*$/, 'Use a valid agent id')
-    .describe('Agent definition id to run as the child agent'),
+    .describe(
+      'Configured agent definition id to run as the child agent. Built-ins include explore, review, and test. Do not use team_graph task ids or display lane ids such as inspector-1.',
+    ),
   task: z.string().trim().min(1, 'Task must not be empty').describe('Bounded child task to run'),
   contextFiles: z
     .array(z.string().min(1))
@@ -96,6 +98,7 @@ export type SpawnAgentStatus = 'completed' | 'failed'
 export interface SpawnAgentResult {
   status: SpawnAgentStatus
   agentId: string
+  requestedAgentId?: string
   childSessionId?: string
   outputFormat: 'summary' | 'markdown' | 'json'
   text: string
@@ -551,6 +554,69 @@ function outputExcerpt(stdout: string, stderr: string, maxLength = 4000): string
   return `${output.slice(0, half)}\n...\n${output.slice(output.length - half)}`
 }
 
+const READ_ONLY_AGENT_ALIASES: ReadonlyArray<{
+  pattern: RegExp
+  targetAgentId: 'explore' | 'review' | 'test'
+}> = [
+  {
+    pattern: /^(?:inspect|inspector|explore|explorer|research|researcher|reader)(?:-[a-z0-9]+)*$/,
+    targetAgentId: 'explore',
+  },
+  { pattern: /^(?:review|reviewer|red-team|redteam)(?:-[a-z0-9]+)*$/, targetAgentId: 'review' },
+  { pattern: /^(?:test|tester|verify|verifier)(?:-[a-z0-9]+)*$/, targetAgentId: 'test' },
+]
+
+function resolveSpawnAgentId(
+  requestedAgentId: string,
+  definitions: AgentDefinition[],
+): { agentId: string; requestedAgentId?: string } {
+  if (definitions.some((definition) => definition.id === requestedAgentId)) {
+    return { agentId: requestedAgentId }
+  }
+
+  const alias = READ_ONLY_AGENT_ALIASES.find((candidate) =>
+    candidate.pattern.test(requestedAgentId),
+  )
+  if (!alias || !definitions.some((definition) => definition.id === alias.targetAgentId)) {
+    return { agentId: requestedAgentId }
+  }
+
+  return { agentId: alias.targetAgentId, requestedAgentId }
+}
+
+function updateLinkedTeamTask(input: {
+  context: ToolExecutionContext
+  taskId?: string
+  agentId: string
+  status: 'running' | 'completed' | 'failed'
+  reason: string
+  errorMessage?: string
+}): void {
+  if (!input.taskId || !input.context.taskGraphStore) return
+  const graphResult = input.context.taskGraphStore.findGraphContainingTask(input.taskId)
+  if (!graphResult.ok || !graphResult.value) return
+
+  const graphId = graphResult.value.id
+  const result =
+    input.status === 'running'
+      ? input.context.taskGraphStore.startTask({
+          graphId,
+          taskId: input.taskId,
+          agentId: input.agentId,
+        })
+      : input.status === 'completed'
+        ? input.context.taskGraphStore.completeTask(graphId, input.taskId)
+        : input.context.taskGraphStore.failTask(graphId, input.taskId, input.errorMessage)
+  if (!result.ok) return
+
+  const graph = 'graph' in result.value ? result.value.graph : result.value
+  input.context.emitEvent?.({
+    type: 'team-graph-open',
+    graph,
+    reason: input.reason,
+  })
+}
+
 export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async (
   args,
   context?: ToolExecutionContext,
@@ -564,9 +630,11 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
     return workerArgsResult
   }
 
+  const resolvedAgent = resolveSpawnAgentId(args.agentId, context.config.agent.definitions)
+
   const permission = checkAgentInvocationPermission({
     parentAgentId: context.agentId,
-    targetAgentId: args.agentId,
+    targetAgentId: resolvedAgent.agentId,
     definitions: context.config.agent.definitions,
     enabledPhaseGates: workerArgsResult?.ok ? ['worker-runtime'] : [],
   })
@@ -581,7 +649,9 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
   }
 
   if (!hasOnlyReadOnlyPermissions(targetAgent.permissions)) {
-    return err(new Error(`Agent "${args.agentId}" is not read-only and cannot be spawned yet.`))
+    return err(
+      new Error(`Agent "${resolvedAgent.agentId}" is not read-only and cannot be spawned yet.`),
+    )
   }
 
   const contextFileRequest = resolveContextFileRequest(args, context.basePath)
@@ -590,6 +660,7 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
     contextFileRequest.basePath,
     contextFileRequest.title,
   )
+  const linkedTeamAgentId = resolvedAgent.requestedAgentId ?? targetAgent.id
   const maxSteps = resolveMaxSteps(args.maxSteps, targetAgent)
   const transcriptStore = context.transcriptStore
   const parentSessionId = context.sessionId
@@ -612,6 +683,7 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
       toolName: name,
       toolArgs: {
         agentId: args.agentId,
+        ...(resolvedAgent.requestedAgentId ? { resolvedAgentId: resolvedAgent.agentId } : {}),
         task: args.task,
         childSessionId,
       },
@@ -630,6 +702,13 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
     task: args.task,
     status: 'running',
     startedAt,
+  })
+  updateLinkedTeamTask({
+    context,
+    taskId: args.taskId,
+    agentId: linkedTeamAgentId,
+    status: 'running',
+    reason: `Team task "${args.taskId ?? args.task}" started.`,
   })
 
   let childAgent: Agent | undefined
@@ -686,6 +765,9 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
     spawnResult = {
       status,
       agentId: targetAgent.id,
+      ...(resolvedAgent.requestedAgentId
+        ? { requestedAgentId: resolvedAgent.requestedAgentId }
+        : {}),
       ...(childSessionId ? { childSessionId } : {}),
       outputFormat: args.outputFormat,
       text: result.text,
@@ -718,6 +800,9 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
     spawnResult = {
       status: 'failed',
       agentId: targetAgent.id,
+      ...(resolvedAgent.requestedAgentId
+        ? { requestedAgentId: resolvedAgent.requestedAgentId }
+        : {}),
       ...(childSessionId ? { childSessionId } : {}),
       outputFormat: args.outputFormat,
       text: '',
@@ -739,6 +824,13 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
 
   const completedAt = new Date().toISOString()
   if (spawnResult.status === 'completed') {
+    updateLinkedTeamTask({
+      context,
+      taskId: args.taskId,
+      agentId: linkedTeamAgentId,
+      status: 'completed',
+      reason: `Team task "${args.taskId ?? args.task}" completed.`,
+    })
     context.emitEvent?.({
       type: 'subagent-completed',
       runId,
@@ -752,6 +844,14 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
       result: spawnResult.structuredResult,
     })
   } else {
+    updateLinkedTeamTask({
+      context,
+      taskId: args.taskId,
+      agentId: linkedTeamAgentId,
+      status: 'failed',
+      reason: `Team task "${args.taskId ?? args.task}" failed.`,
+      errorMessage: spawnResult.error?.message ?? 'Subagent failed.',
+    })
     context.emitEvent?.({
       type: 'subagent-failed',
       runId,

@@ -7,6 +7,7 @@ import { Agent } from '@src/agent'
 import { configSchema } from '@src/config'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { createPermissionLease } from '@src/permission-lease'
+import { TaskGraphStore } from '@src/team/task-graph'
 import { createTestToolRegistry, ToolRegistry } from '@src/tools/registry'
 import * as bashTool from '@src/tools/bash'
 import * as fileEditTool from '@src/tools/file-edit'
@@ -84,6 +85,18 @@ function makeNoopTool(): ToolDefinition {
     description: 'No-op tool',
     schema: z.object({}),
     execute: async () => ok({ done: true }),
+  }
+}
+
+function makeBasePathProbeTool(onBasePath: (basePath: string | undefined) => void): ToolDefinition {
+  return {
+    name: 'file-read',
+    description: 'Probe child workspace path.',
+    schema: z.object({ path: z.string() }),
+    execute: async (_args, context) => {
+      onBasePath(context?.basePath)
+      return ok({ content: 'workspace probed', lines: 1, path: 'workspace.txt' })
+    },
   }
 }
 
@@ -434,6 +447,159 @@ describe('spawn_agent tool', () => {
       agentId: 'explore',
       structuredResult: { summary: 'Default delegation works.' },
     })
+  })
+
+  test('maps generated inspector lane ids to the read-only explore agent', async () => {
+    const model = createMockModel([
+      [
+        ...textBlock(validSubagentResultText({ summary: 'Inspector alias delegated.' })),
+        finishStop(),
+      ],
+    ])
+    const config = configSchema.parse({})
+
+    const result = await registry.executeTool(
+      'spawn_agent',
+      {
+        agentId: 'inspector-1',
+        task: 'Inspect the CLI package.',
+        taskId: 'inspect-cli',
+        maxSteps: 2,
+        outputFormat: 'summary',
+      },
+      {
+        model,
+        toolRegistry: registry,
+        config,
+        basePath: tempDir,
+        agentId: 'default',
+        systemPromptBuilder: () => 'Base child prompt.',
+        memoryProvider: () => '',
+        skillCatalogProvider: () => [],
+      },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toMatchObject({
+      status: 'completed',
+      agentId: 'explore',
+      requestedAgentId: 'inspector-1',
+      structuredResult: { summary: 'Inspector alias delegated.' },
+    })
+  })
+
+  test('linked team graph task is assigned and completed from subagent lifecycle', async () => {
+    const taskGraphStore = new TaskGraphStore()
+    const graphResult = taskGraphStore.createGraph({
+      name: 'Package inspection',
+      tasks: [{ id: 'inspect-cli', title: 'Inspect CLI package' }],
+    })
+    expect(graphResult.ok).toBe(true)
+    if (!graphResult.ok) return
+    const emitted: unknown[] = []
+    const model = createMockModel([
+      [...textBlock(validSubagentResultText({ summary: 'CLI package inspected.' })), finishStop()],
+    ])
+    const config = configSchema.parse({})
+
+    const result = await registry.executeTool(
+      'spawn_agent',
+      {
+        agentId: 'inspector-1',
+        task: 'Inspect the CLI package.',
+        taskId: 'inspect-cli',
+        maxSteps: 2,
+        outputFormat: 'summary',
+      },
+      {
+        model,
+        toolRegistry: registry,
+        config,
+        basePath: tempDir,
+        agentId: 'default',
+        taskGraphStore,
+        systemPromptBuilder: () => 'Base child prompt.',
+        memoryProvider: () => '',
+        skillCatalogProvider: () => [],
+        emitEvent: (event: unknown) => emitted.push(event),
+      },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const graph = taskGraphStore.getGraph(graphResult.value.id)
+    expect(graph.ok).toBe(true)
+    if (!graph.ok) return
+    expect(graph.value.status).toBe('completed')
+    expect(graph.value.tasks[0]).toMatchObject({
+      id: 'inspect-cli',
+      status: 'completed',
+      assignedAgentId: 'inspector-1',
+    })
+    expect(graph.value.agents[0]).toMatchObject({
+      id: 'inspector-1',
+      status: 'completed',
+      activeTaskIds: [],
+    })
+    expect(emitted).toContainEqual(
+      expect.objectContaining({
+        type: 'team-graph-open',
+        graph: expect.objectContaining({
+          tasks: [expect.objectContaining({ id: 'inspect-cli', status: 'running' })],
+        }),
+      }),
+    )
+    expect(emitted).toContainEqual(
+      expect.objectContaining({
+        type: 'team-graph-open',
+        graph: expect.objectContaining({
+          tasks: [expect.objectContaining({ id: 'inspect-cli', status: 'completed' })],
+        }),
+      }),
+    )
+  })
+
+  test('read-only child agents inherit the parent workspace base path', async () => {
+    let observedChildBasePath: string | undefined
+    registry.register(
+      makeBasePathProbeTool((basePath) => {
+        observedChildBasePath = basePath
+      }),
+    )
+    const model = createMockModel([
+      [
+        ...toolCallBlock('child_read', 'file-read', {
+          path: 'workspace.txt',
+        }),
+        finishToolCalls(),
+      ],
+      [...textBlock(validSubagentResultText({ summary: 'Workspace inherited.' })), finishStop()],
+    ])
+    const config = configSchema.parse({})
+
+    const result = await registry.executeTool(
+      'spawn_agent',
+      {
+        agentId: 'explore',
+        task: 'Check workspace inheritance.',
+        maxSteps: 3,
+        outputFormat: 'summary',
+      },
+      {
+        model,
+        toolRegistry: registry,
+        config,
+        basePath: tempDir,
+        agentId: 'default',
+        systemPromptBuilder: () => 'Base child prompt.',
+        memoryProvider: () => '',
+        skillCatalogProvider: () => [],
+      },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(observedChildBasePath).toBe(tempDir)
   })
 
   test('review agent receives changed-file context when no context files are provided', async () => {

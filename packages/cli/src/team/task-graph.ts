@@ -127,6 +127,15 @@ export class TaskGraphStore {
     return ok(cloneGraph(graph))
   }
 
+  findGraphContainingTask(taskId: string): Result<TaskGraph | null> {
+    for (const graph of this.graphs.values()) {
+      if (graph.tasks.some((task) => task.id === taskId)) {
+        return ok(cloneGraph(graph))
+      }
+    }
+    return ok(null)
+  }
+
   startGraph(graphId: string): Result<TaskGraph> {
     const graphResult = this.getMutableGraph(graphId)
     if (!graphResult.ok) return graphResult
@@ -165,6 +174,10 @@ export class TaskGraphStore {
     return this.withGraphLock(input.graphId, () => this.assignTaskLocked(input))
   }
 
+  startTask(input: AssignTaskInput): Result<{ graph: TaskGraph; task: TaskNode }> {
+    return this.withGraphLock(input.graphId, () => this.startTaskLocked(input))
+  }
+
   private assignTaskLocked(input: AssignTaskInput): Result<{ graph: TaskGraph; task: TaskNode }> {
     const graphResult = this.getMutableGraph(input.graphId)
     if (!graphResult.ok) return graphResult
@@ -190,6 +203,39 @@ export class TaskGraphStore {
     task.assignedAgentId = input.agentId
     task.updatedAt = now
     const agent = this.getOrCreateAgent(graph, input.agentId, now)
+    agent.status = 'active'
+    agent.updatedAt = now
+    if (!agent.activeTaskIds.includes(task.id)) agent.activeTaskIds.push(task.id)
+    graph.status = graph.status === 'draft' ? 'running' : graph.status
+    graph.startedAt ??= now
+    graph.updatedAt = now
+    const saveResult = this.persistGraph(graph)
+    if (!saveResult.ok) return saveResult
+    return ok({ graph: cloneGraph(graph), task: cloneTask(task) })
+  }
+
+  private startTaskLocked(input: AssignTaskInput): Result<{ graph: TaskGraph; task: TaskNode }> {
+    const graphResult = this.getMutableGraph(input.graphId)
+    if (!graphResult.ok) return graphResult
+    const graph = graphResult.value
+    if (graph.status === 'cancelled')
+      return err(new Error('Cannot start tasks in a cancelled team'))
+
+    const now = new Date().toISOString()
+    this.refreshBlockedTasks(graph, now)
+    const task = graph.tasks.find((candidate) => candidate.id === input.taskId)
+    if (!task) return err(new Error(`Task "${input.taskId}" not found`))
+    if (task.status === 'blocked') {
+      return err(new Error(`Task "${input.taskId}" is blocked by incomplete dependencies`))
+    }
+    if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+      return err(new Error(`Task "${input.taskId}" is not startable because it is ${task.status}`))
+    }
+
+    task.status = 'running'
+    task.assignedAgentId ??= input.agentId
+    task.updatedAt = now
+    const agent = this.getOrCreateAgent(graph, task.assignedAgentId, now)
     agent.status = 'active'
     agent.updatedAt = now
     if (!agent.activeTaskIds.includes(task.id)) agent.activeTaskIds.push(task.id)
@@ -239,6 +285,33 @@ export class TaskGraphStore {
     ) {
       graph.status = 'completed'
     }
+    graph.updatedAt = now
+    const saveResult = this.persistGraph(graph)
+    if (!saveResult.ok) return saveResult
+    return ok(cloneGraph(graph))
+  }
+
+  failTask(graphId: string, taskId: string, reason?: string): Result<TaskGraph> {
+    const graphResult = this.getMutableGraph(graphId)
+    if (!graphResult.ok) return graphResult
+    const graph = graphResult.value
+    const task = graph.tasks.find((candidate) => candidate.id === taskId)
+    if (!task) return err(new Error(`Task "${taskId}" not found`))
+
+    const now = new Date().toISOString()
+    task.status = 'failed'
+    task.cancellationReason = reason
+    task.updatedAt = now
+    if (task.assignedAgentId) {
+      const agent = graph.agents.find((candidate) => candidate.id === task.assignedAgentId)
+      if (agent) {
+        agent.activeTaskIds = agent.activeTaskIds.filter((id) => id !== task.id)
+        agent.status = agent.activeTaskIds.length === 0 ? 'completed' : 'active'
+        agent.updatedAt = now
+      }
+    }
+    graph.status = 'failed'
+    graph.cancellationReason = reason
     graph.updatedAt = now
     const saveResult = this.persistGraph(graph)
     if (!saveResult.ok) return saveResult

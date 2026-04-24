@@ -11,7 +11,7 @@ import type { TypedToolExecute, ToolExecutionContext } from './types'
 export const name = 'team_graph'
 
 export const description =
-  'Create, open, update, and inspect persistent team task graphs. Use this when the user asks for a team plan, task graph, workflow template, or to show the team graph in desktop.'
+  'Create, open, update, and inspect persistent team task graphs. Use this when the user asks for a team plan, task graph, workflow template, or to show the team graph in desktop. assignedAgentId is only a graph lane/display id; spawn_agent.agentId must be a configured agent definition such as explore.'
 
 const qualityGateSchema = z
   .object({
@@ -28,7 +28,14 @@ const taskInputSchema = z
     title: z.string().trim().min(1),
     description: z.string().trim().min(1).optional(),
     dependencies: z.array(z.string().trim().min(1)).optional(),
-    assignedAgentId: z.string().trim().min(1).optional(),
+    assignedAgentId: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        'Optional display lane id for the graph only. This is not a spawn_agent target id.',
+      ),
     requiredArtifacts: z.array(z.string().trim().min(1)).optional(),
     qualityGates: z.array(qualityGateSchema).optional(),
   })
