@@ -12,6 +12,25 @@ export interface AgentTextNotification {
   params: { text: string }
 }
 
+export interface AgentContextUsageNotification {
+  method: 'agent/contextUsage'
+  params: {
+    estimatedTotalTokens: number
+    contextWindowTokens: number | null
+    usageRatio: number | null
+    threshold: 'within-budget' | 'warn' | 'flush' | 'compact'
+    breakdown?: {
+      systemPromptTokens: number
+      toolPromptTokens: number
+      agentsInstructionsTokens: number
+      memoryTokens: number
+      conversationTokens: number
+      toolResultTokens: number
+    }
+    contextWindowSource?: 'config' | 'model-registry' | 'fallback' | 'unknown'
+  }
+}
+
 export interface AgentToolCallStartNotification {
   method: 'agent/toolCallStart'
   params: {
@@ -85,6 +104,7 @@ export interface ApprovalRequestNotification {
 
 export type ProtocolNotification =
   | AgentTextNotification
+  | AgentContextUsageNotification
   | AgentToolCallStartNotification
   | AgentToolCallEndNotification
   | AgentTurnCompleteNotification

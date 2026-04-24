@@ -258,7 +258,22 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
         ? `${(contextUsage.usageRatio * 100).toFixed(contextUsage.usageRatio >= 0.1 ? 0 : 1)}%`
         : null
 
-    const title =
+    const breakdown = contextUsage.breakdown
+    const sourceLabel = contextUsage.contextWindowSource
+      ? `Context window source: ${contextUsage.contextWindowSource}`
+      : null
+    const breakdownLines = breakdown
+      ? [
+          `System prompt: ${breakdown.systemPromptTokens.toLocaleString()}`,
+          `Tools catalog: ${breakdown.toolPromptTokens.toLocaleString()}`,
+          `AGENTS.md: ${breakdown.agentsInstructionsTokens.toLocaleString()}`,
+          `Memory: ${breakdown.memoryTokens.toLocaleString()}`,
+          `Conversation: ${breakdown.conversationTokens.toLocaleString()}`,
+          `Tool results: ${breakdown.toolResultTokens.toLocaleString()}`,
+        ]
+      : []
+
+    const titleMain =
       contextUsage.contextWindowTokens !== null
         ? `${contextUsage.estimatedTotalTokens.toLocaleString()} of ${contextUsage.contextWindowTokens.toLocaleString()} context tokens in use${
             percentDisplay ? ` (${percentDisplay})` : ''
@@ -266,6 +281,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
         : `${contextUsage.estimatedTotalTokens.toLocaleString()} estimated context tokens in use${
             percentDisplay ? ` (${percentDisplay})` : ''
           }`
+    const title = [titleMain, sourceLabel, ...breakdownLines].filter(Boolean).join('\n')
 
     return {
       label: percentDisplay ? `${tokenDisplay} · ${percentDisplay}` : tokenDisplay,

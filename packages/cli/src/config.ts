@@ -18,6 +18,8 @@ export const DEFAULT_MEMORY_CONFIG = {
   workingMemoryBudgetTokens: 1000,
 }
 
+export type ContextWindowSource = 'config' | 'model-registry' | 'fallback' | 'unknown'
+
 export const DEFAULT_RSI_CONFIG = {
   noveltyThreshold: 0.7,
   autoReflect: true,
@@ -248,6 +250,10 @@ export const configSchema = z.object({
         .positive()
         .optional()
         .describe('Optional context window budget used by memory compaction heuristics'),
+      contextWindowSource: z
+        .enum(['config', 'model-registry', 'fallback', 'unknown'])
+        .optional()
+        .describe('Runtime source for contextWindowTokens diagnostics'),
       warnRatio: z
         .number()
         .min(0)
@@ -490,11 +496,22 @@ export function loadConfig(cwd?: string): Result<OuroborosConfig> {
   // Auto-detect context window from model registry when not explicitly configured.
   // Explicit user config always takes precedence.
   const config = result.data
+  const explicitMemory =
+    typeof merged.memory === 'object' && merged.memory !== null
+      ? (merged.memory as Record<string, unknown>)
+      : {}
+  const hasExplicitContextWindowTokens = typeof explicitMemory.contextWindowTokens === 'number'
+
   if (config.memory.contextWindowTokens === undefined) {
     const detected = getContextWindowTokens(config.model.name, config.model.provider)
     if (detected !== null) {
       config.memory.contextWindowTokens = detected
+      config.memory.contextWindowSource = 'model-registry'
+    } else {
+      config.memory.contextWindowSource = 'unknown'
     }
+  } else if (!config.memory.contextWindowSource) {
+    config.memory.contextWindowSource = hasExplicitContextWindowTokens ? 'config' : 'unknown'
   }
 
   return ok(config)

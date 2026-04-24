@@ -37,6 +37,7 @@ function createMockModel(options: {
   generateText?: string
   generateToolCalls?: Array<{ toolCallId: string; toolName: string; input: string }>
   error?: Error
+  onDoStream?: (options: unknown) => void
 }): LanguageModel {
   return {
     specificationVersion: 'v3',
@@ -81,8 +82,9 @@ function createMockModel(options: {
       }
     },
 
-    doStream: async () => {
+    doStream: async (doStreamOptions: unknown) => {
       if (options.error) throw options.error
+      options.onDoStream?.(doStreamOptions)
 
       const parts = options.streamParts ?? []
 
@@ -204,6 +206,35 @@ describe('streamResponse', () => {
     expect(toolCall.toolCallId).toBe('call_123')
     expect(toolCall.toolName).toBe('read_file')
     expect(toolCall.input).toEqual({ path: '/tmp/test.txt' })
+  })
+
+  test('passes native tool definitions with schemas to the model', async () => {
+    let capturedOptions: unknown
+    const model = createMockModel({
+      streamParts: [v3Finish('stop', 10, 1)],
+      onDoStream: (options) => {
+        capturedOptions = options
+      },
+    })
+
+    const result = streamResponse(model, testMessages, testToolOptions)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    for await (const chunk of result.value.stream) {
+      expect(chunk).toBeDefined()
+      // Drain stream so the mock model receives the AI SDK call.
+    }
+
+    const options = capturedOptions as {
+      tools?: Array<{ name: string; description: string; inputSchema: unknown }>
+    }
+    const readFileTool = options.tools?.find((tool) => tool.name === 'read_file')
+    const searchTool = options.tools?.find((tool) => tool.name === 'search')
+    expect(readFileTool?.description).toBe('Read a file from disk')
+    expect(readFileTool?.inputSchema).toBeDefined()
+    expect(searchTool?.description).toBe('Search for something')
   })
 
   test('yields finish event with usage information', async () => {

@@ -91,6 +91,7 @@ describe('loadConfig', () => {
     expect(config.memory.consolidationSchedule).toBe('session-end')
     // Auto-detected from default model claude-sonnet-4-20250514
     expect(config.memory.contextWindowTokens).toBe(200_000)
+    expect(config.memory.contextWindowSource).toBe('model-registry')
     expect(config.memory.warnRatio).toBe(DEFAULT_MEMORY_CONFIG.warnRatio)
     expect(config.memory.flushRatio).toBe(DEFAULT_MEMORY_CONFIG.flushRatio)
     expect(config.memory.compactRatio).toBe(DEFAULT_MEMORY_CONFIG.compactRatio)
@@ -771,6 +772,7 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.memory.contextWindowTokens).toBe(200_000)
+    expect(result.value.memory.contextWindowSource).toBe('model-registry')
   })
 
   test('auto-detects contextWindowTokens for known OpenAI model', () => {
@@ -787,6 +789,7 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.memory.contextWindowTokens).toBe(128_000)
+    expect(result.value.memory.contextWindowSource).toBe('model-registry')
   })
 
   test('auto-detects contextWindowTokens via prefix match', () => {
@@ -803,6 +806,7 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.memory.contextWindowTokens).toBe(128_000)
+    expect(result.value.memory.contextWindowSource).toBe('model-registry')
   })
 
   test('falls back to undefined for unknown model ID', () => {
@@ -823,6 +827,7 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.memory.contextWindowTokens).toBeUndefined()
+    expect(result.value.memory.contextWindowSource).toBe('unknown')
   })
 
   test('explicit contextWindowTokens overrides auto-detection', () => {
@@ -840,5 +845,6 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.memory.contextWindowTokens).toBe(50_000)
+    expect(result.value.memory.contextWindowSource).toBe('config')
   })
 })

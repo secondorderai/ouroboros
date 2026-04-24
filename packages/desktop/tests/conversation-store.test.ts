@@ -52,6 +52,15 @@ describe('conversation store normalization', () => {
       contextWindowTokens: 200_000,
       usageRatio: 0.061725,
       threshold: 'within-budget',
+      breakdown: {
+        systemPromptTokens: 8000,
+        toolPromptTokens: 1000,
+        agentsInstructionsTokens: 2000,
+        memoryTokens: 300,
+        conversationTokens: 45,
+        toolResultTokens: 0,
+      },
+      contextWindowSource: 'model-registry',
     })
 
     expect(useConversationStore.getState().contextUsage).toEqual({
@@ -59,6 +68,15 @@ describe('conversation store normalization', () => {
       contextWindowTokens: 200_000,
       usageRatio: 0.061725,
       threshold: 'within-budget',
+      breakdown: {
+        systemPromptTokens: 8000,
+        toolPromptTokens: 1000,
+        agentsInstructionsTokens: 2000,
+        memoryTokens: 300,
+        conversationTokens: 45,
+        toolResultTokens: 0,
+      },
+      contextWindowSource: 'model-registry',
     })
 
     useConversationStore.getState().createNewSession('session-1')
