@@ -194,6 +194,7 @@ const RSICrystallizationCard: React.FC<{
 interface ChatViewProps {
   crystallizations?: RSICrystallizationEvent[]
   onDismissCrystallization?: (id: string) => void
+  onOpenTeamGraph?: () => void
 }
 
 /**
@@ -203,6 +204,7 @@ interface ChatViewProps {
 export const ChatView: React.FC<ChatViewProps> = ({
   crystallizations,
   onDismissCrystallization,
+  onOpenTeamGraph,
 }) => {
   const messages = useConversationStore((s) => s.messages)
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
@@ -274,6 +276,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               message={message}
               expandedToolCallIds={expandedToolCallIds}
               onToolCallExpandedChange={handleToolCallExpandedChange}
+              onOpenTeamGraph={onOpenTeamGraph}
             />
           )
         }
@@ -290,6 +293,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           isRunning={isAgentRunning}
           expandedToolCallIds={expandedToolCallIds}
           onToolCallExpandedChange={handleToolCallExpandedChange}
+          onOpenTeamGraph={onOpenTeamGraph}
         />
       )
     },
@@ -302,6 +306,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       isAgentRunning,
       expandedToolCallIds,
       handleToolCallExpandedChange,
+      onOpenTeamGraph,
     ],
   )
 

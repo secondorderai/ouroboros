@@ -58,7 +58,14 @@ function mockGraph(overrides: Record<string, unknown> = {}): Record<string, unkn
         dependencies: [],
         assignedAgentId: 'Jack',
         requiredArtifacts: ['packages/desktop/src/shared/protocol.ts'],
-        qualityGates: [{ id: 'gate-contract', description: 'Contract test passes', required: true, status: 'passed' }],
+        qualityGates: [
+          {
+            id: 'gate-contract',
+            description: 'Contract test passes',
+            required: true,
+            status: 'passed',
+          },
+        ],
         createdAt: now,
         updatedAt: now,
         completedAt: now,
@@ -72,8 +79,18 @@ function mockGraph(overrides: Record<string, unknown> = {}): Record<string, unkn
         assignedAgentId: 'Sam',
         requiredArtifacts: ['TeamGraphDrawer.tsx', 'TeamGraphDrawer.css'],
         qualityGates: [
-          { id: 'gate-e2e', description: 'E2E covers task details', required: true, status: 'pending' },
-          { id: 'gate-design', description: 'Uses desktop design tokens', required: true, status: 'passed' },
+          {
+            id: 'gate-e2e',
+            description: 'E2E covers task details',
+            required: true,
+            status: 'pending',
+          },
+          {
+            id: 'gate-design',
+            description: 'Uses desktop design tokens',
+            required: true,
+            status: 'passed',
+          },
         ],
         createdAt: now,
         updatedAt: now,
@@ -86,7 +103,14 @@ function mockGraph(overrides: Record<string, unknown> = {}): Record<string, unkn
         dependencies: ['task-running'],
         assignedAgentId: 'Tim',
         requiredArtifacts: ['handoff-notes.md'],
-        qualityGates: [{ id: 'gate-handoff', description: 'Handoff received', required: true, status: 'pending' }],
+        qualityGates: [
+          {
+            id: 'gate-handoff',
+            description: 'Handoff received',
+            required: true,
+            status: 'pending',
+          },
+        ],
         createdAt: now,
         updatedAt: now,
       },
@@ -98,7 +122,14 @@ function mockGraph(overrides: Record<string, unknown> = {}): Record<string, unkn
         dependencies: [],
         assignedAgentId: 'Sam',
         requiredArtifacts: ['failure-report.md'],
-        qualityGates: [{ id: 'gate-ux', description: 'Chat-first UX preserved', required: true, status: 'failed' }],
+        qualityGates: [
+          {
+            id: 'gate-ux',
+            description: 'Chat-first UX preserved',
+            required: true,
+            status: 'failed',
+          },
+        ],
         createdAt: now,
         updatedAt: now,
       },
@@ -172,7 +203,14 @@ test('cancelled team graph shows cancellation and cleanup state', async ({}, tes
         dependencies: [],
         assignedAgentId: 'Sam',
         requiredArtifacts: ['shutdown-log.md'],
-        qualityGates: [{ id: 'gate-cancel', description: 'Cancellation visible', required: true, status: 'pending' }],
+        qualityGates: [
+          {
+            id: 'gate-cancel',
+            description: 'Cancellation visible',
+            required: true,
+            status: 'pending',
+          },
+        ],
         createdAt: '2026-04-23T10:00:00.000Z',
         updatedAt: '2026-04-23T10:05:00.000Z',
         cancellationReason: 'Team cancelled',
@@ -206,7 +244,11 @@ test('agent-created team graph notification opens the matching graph drawer', as
           maxIterationsReached: false,
         },
         notifications: [
-          { delayMs: 10, method: 'team/graphOpen', params: { graph, reason: 'Created by team_graph' } },
+          {
+            delayMs: 10,
+            method: 'team/graphOpen',
+            params: { graph, reason: 'Created by team_graph' },
+          },
           { delayMs: 20, method: 'agent/text', params: { text: 'Created the team graph.' } },
           {
             delayMs: 30,
@@ -224,7 +266,9 @@ test('agent-created team graph notification opens the matching graph drawer', as
   await launched.page.getByLabel('Message input').press('Enter')
 
   await expect(launched.page.getByRole('dialog', { name: 'Team graph' })).toBeVisible()
-  await expect(launched.page.getByRole('heading', { name: 'Agent-created team plan' })).toBeVisible()
+  await expect(
+    launched.page.getByRole('heading', { name: 'Agent-created team plan' }),
+  ).toBeVisible()
   await expect(launched.page.getByTestId('team-graph-workflow-events')).toContainText(
     'Renderer panel mounted with mock team data.',
   )

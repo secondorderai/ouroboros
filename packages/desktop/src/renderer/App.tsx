@@ -88,15 +88,24 @@ export function App(): React.ReactElement {
   const [approvalQueueOpen, setApprovalQueueOpen] = useState(false)
   const [teamGraphOpen, setTeamGraphOpen] = useState(false)
   const [activeTeamGraphId, setActiveTeamGraphId] = useState<string | null>(null)
+  const [activeTeamGraphSnapshot, setActiveTeamGraphSnapshot] = useState<
+    TeamGraphNotification['graph'] | null
+  >(null)
 
   // Drag-and-drop state
   const [isDragOver, setIsDragOver] = useState(false)
   const dragCounterRef = useRef(0)
 
   const messages = useConversationStore((s) => s.messages)
+  const pendingSubagentRuns = useConversationStore((s) => s.pendingSubagentRuns)
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const setModelName = useConversationStore((s) => s.setModelName)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
+  const hasSubagentActivity =
+    pendingSubagentRuns.length > 0 ||
+    messages.some((message) => message.role === 'agent' && (message.subagentRuns?.length ?? 0) > 0)
+  const hasTeamGraphAffordance =
+    Boolean(activeTeamGraphId) || Boolean(activeTeamGraphSnapshot) || hasSubagentActivity
 
   const handleOnboardingComplete = useCallback(
     (welcomeMessage: string, _template: number) => {
@@ -221,14 +230,19 @@ export function App(): React.ReactElement {
   useEffect(() => {
     const api = window.ouroboros
     if (!api?.onNotification) return
-    const openUnsubscribe = api.onNotification('team/graphOpen', (params: TeamGraphNotification) => {
-      setActiveTeamGraphId(params.graph.id)
-      setTeamGraphOpen(true)
-    })
+    const openUnsubscribe = api.onNotification(
+      'team/graphOpen',
+      (params: TeamGraphNotification) => {
+        setActiveTeamGraphId(params.graph.id)
+        setActiveTeamGraphSnapshot({ ...params.graph })
+        setTeamGraphOpen(true)
+      },
+    )
     const updateUnsubscribe = api.onNotification(
       'team/graphUpdated',
       (params: TeamGraphNotification) => {
         setActiveTeamGraphId((current) => current ?? params.graph.id)
+        setActiveTeamGraphSnapshot({ ...params.graph })
       },
     )
     return () => {
@@ -310,6 +324,8 @@ export function App(): React.ReactElement {
           serpentState={rsi.serpentState}
           onSerpentClick={rsi.openDrawer}
           pendingApprovals={pendingApprovals.length}
+          showTeamGraph={hasTeamGraphAffordance}
+          onOpenTeamGraph={openTeamGraph}
         />
         <OnboardingWizard onComplete={handleOnboardingComplete} />
       </div>
@@ -328,6 +344,8 @@ export function App(): React.ReactElement {
         serpentState={rsi.serpentState}
         onSerpentClick={rsi.openDrawer}
         pendingApprovals={pendingApprovals.length}
+        showTeamGraph={hasTeamGraphAffordance}
+        onOpenTeamGraph={openTeamGraph}
       />
       <div
         style={{
@@ -352,6 +370,7 @@ export function App(): React.ReactElement {
             <ChatView
               crystallizations={rsi.crystallizations}
               onDismissCrystallization={rsi.dismissCrystallization}
+              onOpenTeamGraph={openTeamGraph}
             />
           ) : (
             <div style={styles.content}>
@@ -391,6 +410,7 @@ export function App(): React.ReactElement {
         isOpen={teamGraphOpen}
         onClose={() => setTeamGraphOpen(false)}
         graphId={activeTeamGraphId}
+        graphSnapshot={activeTeamGraphSnapshot}
       />
       <RSIDrawer
         isOpen={rsi.drawerOpen}

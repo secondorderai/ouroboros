@@ -8,6 +8,8 @@ interface TitleBarProps {
   serpentState: SerpentState
   onSerpentClick: () => void
   pendingApprovals: number
+  showTeamGraph?: boolean
+  onOpenTeamGraph?: () => void
 }
 
 export function TitleBar({
@@ -17,6 +19,8 @@ export function TitleBar({
   serpentState,
   onSerpentClick,
   pendingApprovals,
+  showTeamGraph = false,
+  onOpenTeamGraph,
 }: TitleBarProps): React.ReactElement {
   const [platform, setPlatform] = useState<string>('darwin')
 
@@ -48,6 +52,18 @@ export function TitleBar({
 
       {/* Right section: serpent icon + theme toggle */}
       <div style={styles.right}>
+        {showTeamGraph && onOpenTeamGraph && (
+          <button
+            style={styles.iconButton}
+            className="no-drag"
+            onClick={onOpenTeamGraph}
+            title="Open team graph"
+            aria-label="Open team graph"
+            data-testid="titlebar-team-graph-button"
+          >
+            <NetworkIcon />
+          </button>
+        )}
         <div style={styles.serpentWrapper}>
           <SerpentIcon state={serpentState} onClick={onSerpentClick} />
           {pendingApprovals > 0 && (
@@ -124,6 +140,28 @@ function MoonIcon(): React.ReactElement {
       strokeLinejoin="round"
     >
       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  )
+}
+
+function NetworkIcon(): React.ReactElement {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="12" cy="18" r="3" />
+      <path d="M8.6 7.7 10.9 15" />
+      <path d="M15.4 7.7 13.1 15" />
+      <path d="M9 6h6" />
     </svg>
   )
 }

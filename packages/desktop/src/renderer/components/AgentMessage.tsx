@@ -181,12 +181,14 @@ interface AgentMessageProps {
   message: Message
   expandedToolCallIds?: ReadonlySet<string>
   onToolCallExpandedChange?: (toolCallId: string, expanded: boolean) => void
+  onOpenTeamGraph?: () => void
 }
 
 export const AgentMessage: React.FC<AgentMessageProps> = ({
   message,
   expandedToolCallIds,
   onToolCallExpandedChange,
+  onOpenTeamGraph,
 }) => (
   <div
     style={wrapperStyle}
@@ -223,7 +225,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
           </div>
         )}
         {message.subagentRuns && message.subagentRuns.length > 0 && (
-          <SubagentActivityList runs={message.subagentRuns} />
+          <SubagentActivityList runs={message.subagentRuns} onOpenTeamGraph={onOpenTeamGraph} />
         )}
       </div>
     </div>
@@ -242,6 +244,7 @@ interface StreamingAgentMessageProps {
   isRunning: boolean
   expandedToolCallIds?: ReadonlySet<string>
   onToolCallExpandedChange?: (toolCallId: string, expanded: boolean) => void
+  onOpenTeamGraph?: () => void
 }
 
 export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
@@ -252,6 +255,7 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
   isRunning,
   expandedToolCallIds,
   onToolCallExpandedChange,
+  onOpenTeamGraph,
 }) => {
   const activeEntries = useMemo(() => Array.from(activeToolCalls.values()), [activeToolCalls])
   const visibleToolCalls = useMemo(
@@ -304,7 +308,9 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
               ))}
             </div>
           )}
-          {subagentRuns.length > 0 && <SubagentActivityList runs={subagentRuns} />}
+          {subagentRuns.length > 0 && (
+            <SubagentActivityList runs={subagentRuns} onOpenTeamGraph={onOpenTeamGraph} />
+          )}
         </div>
       </div>
     </div>

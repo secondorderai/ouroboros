@@ -58,6 +58,22 @@ async function writeTestImageFiles(prefix: string): Promise<{
   return { pngPath, jpgPath, webpPath, gifPath }
 }
 
+function mockTeamGraph(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const now = '2026-04-23T10:00:00.000Z'
+  return {
+    id: 'renderer-contract-graph',
+    name: 'Renderer contract team graph',
+    status: 'running',
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    agents: [{ id: 'code-reviewer', status: 'active', activeTaskIds: [], updatedAt: now }],
+    tasks: [],
+    messages: [],
+    ...overrides,
+  }
+}
+
 test('onboarding renders and preload bridges are available', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await clearClientState(launched.page)
@@ -668,6 +684,10 @@ test('running subagent notification appears under the active turn', async ({}, t
   await openMainApp()
 
   await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'team/create', {
+    ok: true,
+    result: { graph: mockTeamGraph() },
+  })
   await setRpcOverride(launched.page, 'agent/run', {
     ok: true,
     result: {
@@ -680,6 +700,8 @@ test('running subagent notification appears under the active turn', async ({}, t
 
   await launched.page.getByLabel('Message input').fill('Delegate repo inspection')
   await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByTestId('titlebar-team-graph-button')).toHaveCount(0)
 
   await emitNotification(launched.page, 'agent/subagentStarted', {
     runId: 'subagent-running-1',
@@ -694,6 +716,40 @@ test('running subagent notification appears under the active turn', async ({}, t
   await expect(row).toContainText('code-reviewer')
   await expect(row).toContainText('Inspect renderer state changes')
   await expect(row).toContainText('Running')
+
+  const expandButton = launched.page.getByRole('button', { name: 'code-reviewer subagent running' })
+  await expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+
+  const rowGraphButton = row.getByTestId('subagent-team-graph-button')
+  await expect(rowGraphButton).toBeVisible()
+  await rowGraphButton.click()
+  await expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+  await expect(launched.page.getByRole('dialog', { name: 'Team graph' })).toBeVisible()
+
+  await launched.page.getByLabel('Close team graph').click()
+  await expandButton.click()
+  await expect(expandButton).toHaveAttribute('aria-expanded', 'true')
+
+  const titlebarGraphButton = launched.page.getByTestId('titlebar-team-graph-button')
+  await expect(titlebarGraphButton).toBeVisible()
+  await titlebarGraphButton.click()
+  await expect(launched.page.getByRole('dialog', { name: 'Team graph' })).toBeVisible()
+})
+
+test('team graph update notification reveals title bar graph control', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await expect(launched.page.getByTestId('titlebar-team-graph-button')).toHaveCount(0)
+  await emitNotification(launched.page, 'team/graphUpdated', {
+    graph: mockTeamGraph({ id: 'graph-from-update', name: 'Graph from update notification' }),
+  })
+
+  const titlebarGraphButton = launched.page.getByTestId('titlebar-team-graph-button')
+  await expect(titlebarGraphButton).toBeVisible()
+  await titlebarGraphButton.click()
+  await expect(launched.page.getByRole('dialog', { name: 'Team graph' })).toBeVisible()
+  await expect(launched.page.getByText('Graph from update notification')).toBeVisible()
 })
 
 test('completed subagent row shows summary and evidence count after turn completion', async ({}, testInfo) => {

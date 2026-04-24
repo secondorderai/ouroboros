@@ -7,6 +7,7 @@ interface TeamGraphDrawerProps {
   isOpen: boolean
   onClose: () => void
   graphId?: string | null
+  graphSnapshot?: TaskGraph | null
 }
 
 const TASK_STATUS_ORDER: TaskNodeStatus[] = [
@@ -29,11 +30,13 @@ export function TeamGraphDrawer({
   isOpen,
   onClose,
   graphId,
+  graphSnapshot,
 }: TeamGraphDrawerProps): React.ReactElement | null {
   const [graph, setGraph] = useState<TaskGraph | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const latestSnapshotRef = React.useRef<TaskGraph | null>(null)
 
   const selectedTask = useMemo(
     () => graph?.tasks.find((task) => task.id === selectedTaskId) ?? graph?.tasks[0] ?? null,
@@ -44,12 +47,12 @@ export function TeamGraphDrawer({
     setLoading(true)
     setError(null)
     try {
-      const result =
-        graphId
-          ? await window.ouroboros.rpc('team/get', { graphId })
-          : graph?.id
+      const result = graphId
+        ? await window.ouroboros.rpc('team/get', { graphId })
+        : graph?.id
           ? await window.ouroboros.rpc('team/get', { graphId: graph.id })
           : await window.ouroboros.rpc('team/create', { name: 'Desktop team graph' })
+      if (latestSnapshotRef.current?.id === result.graph.id) return
       setGraph(result.graph)
       setSelectedTaskId((current) => {
         if (current && result.graph.tasks.some((task) => task.id === current)) return current
@@ -69,9 +72,33 @@ export function TeamGraphDrawer({
   }, [graphId])
 
   useEffect(() => {
-    if (!isOpen || graph || loading) return
+    if (!graphSnapshot) return
+    latestSnapshotRef.current = graphSnapshot
+    setGraph(graphSnapshot)
+    setSelectedTaskId((current) => {
+      if (current && graphSnapshot.tasks.some((task) => task.id === current)) return current
+      return graphSnapshot.tasks[0]?.id ?? null
+    })
+  }, [graphSnapshot])
+
+  useEffect(() => {
+    if (!isOpen || graph || loading || graphSnapshot) return
     void loadGraph()
-  }, [graph, isOpen, loadGraph, loading])
+  }, [graph, graphSnapshot, isOpen, loadGraph, loading])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const unsubscribe = window.ouroboros?.onNotification?.('team/graphUpdated', (params) => {
+      if (graphId && params.graph.id !== graphId) return
+      latestSnapshotRef.current = params.graph
+      setGraph(params.graph)
+      setSelectedTaskId((current) => {
+        if (current && params.graph.tasks.some((task) => task.id === current)) return current
+        return params.graph.tasks[0]?.id ?? null
+      })
+    })
+    return unsubscribe
+  }, [graphId, isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -117,7 +144,11 @@ export function TeamGraphDrawer({
               <RefreshIcon />
               {loading ? 'Loading' : 'Refresh'}
             </button>
-            <button className='team-graph-icon-button' onClick={onClose} aria-label='Close team graph'>
+            <button
+              className='team-graph-icon-button'
+              onClick={onClose}
+              aria-label='Close team graph'
+            >
               <CloseIcon />
             </button>
           </div>
@@ -202,7 +233,11 @@ function TeamGraphOverview({
               : task.assignedAgentId === agent.id,
           )
           return (
-            <section key={agent.id} className='team-graph-agent-lane' aria-label={`${agent.id} tasks`}>
+            <section
+              key={agent.id}
+              className='team-graph-agent-lane'
+              aria-label={`${agent.id} tasks`}
+            >
               <div className='team-graph-agent-header'>
                 <span className='team-graph-agent-name'>{agent.id}</span>
                 <span className='team-graph-agent-meta'>
@@ -280,7 +315,9 @@ function TaskCard({
             {task.status}
           </span>
         </span>
-        {task.description && <span className='team-graph-task-description'>{task.description}</span>}
+        {task.description && (
+          <span className='team-graph-task-description'>{task.description}</span>
+        )}
         <span className='team-graph-task-links'>
           <span className='team-graph-chip team-graph-chip--agent'>
             Agent: {task.assignedAgentId ?? 'Unassigned'}
@@ -310,7 +347,9 @@ function TaskInspector({
   if (!graph || !task) {
     return (
       <aside className='team-graph-inspector'>
-        <div className='team-graph-detail-empty'>Select a task to inspect its artifacts and gates.</div>
+        <div className='team-graph-detail-empty'>
+          Select a task to inspect its artifacts and gates.
+        </div>
       </aside>
     )
   }
@@ -331,7 +370,9 @@ function TaskInspector({
         <span className='team-graph-chip team-graph-chip--agent'>
           Agent: {task.assignedAgentId ?? 'Unassigned'}
         </span>
-        {task.cancellationReason && <span className='team-graph-chip'>{task.cancellationReason}</span>}
+        {task.cancellationReason && (
+          <span className='team-graph-chip'>{task.cancellationReason}</span>
+        )}
       </div>
       {task.description && <div className='team-graph-detail-row'>{task.description}</div>}
 
@@ -408,7 +449,14 @@ function formatTime(value: string): string {
 
 function CloseIcon(): React.ReactElement {
   return (
-    <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'>
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+    >
       <line x1='18' y1='6' x2='6' y2='18' />
       <line x1='6' y1='6' x2='18' y2='18' />
     </svg>
@@ -417,7 +465,14 @@ function CloseIcon(): React.ReactElement {
 
 function RefreshIcon(): React.ReactElement {
   return (
-    <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'>
+    <svg
+      width='14'
+      height='14'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+    >
       <polyline points='23 4 23 10 17 10' />
       <polyline points='1 20 1 14 7 14' />
       <path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10' />

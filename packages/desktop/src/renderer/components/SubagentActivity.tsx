@@ -4,6 +4,7 @@ import './SubagentActivity.css'
 
 interface SubagentActivityListProps {
   runs: SubagentRun[]
+  onOpenTeamGraph?: () => void
 }
 
 function formatDuration(startedAt: string, completedAt?: string): string {
@@ -45,7 +46,10 @@ const SubagentStatusIcon: React.FC<{ status: SubagentRunUiStatus }> = ({ status 
   )
 }
 
-const SubagentActivityRow: React.FC<{ run: SubagentRun }> = ({ run }) => {
+const SubagentActivityRow: React.FC<{ run: SubagentRun; onOpenTeamGraph?: () => void }> = ({
+  run,
+  onOpenTeamGraph,
+}) => {
   const [expanded, setExpanded] = useState(run.status !== 'running')
   const duration = useMemo(
     () => formatDuration(run.startedAt, run.completedAt),
@@ -65,33 +69,47 @@ const SubagentActivityRow: React.FC<{ run: SubagentRun }> = ({ run }) => {
       className={`subagent-activity subagent-activity--${run.status}`}
       data-testid='subagent-activity-row'
     >
-      <button
-        className='subagent-activity__header'
-        type='button'
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-        aria-label={`${run.agentId} subagent ${statusLabel(run.status).toLowerCase()}`}
-      >
-        <span className='subagent-activity__status' aria-hidden='true'>
-          <SubagentStatusIcon status={run.status} />
-        </span>
-        <span className='subagent-activity__main'>
-          <span className='subagent-activity__title'>
-            <span className='subagent-activity__role'>{run.agentId}</span>
-            <span className='subagent-activity__task'>{run.task}</span>
+      <div className='subagent-activity__header'>
+        <button
+          className='subagent-activity__toggle'
+          type='button'
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-label={`${run.agentId} subagent ${statusLabel(run.status).toLowerCase()}`}
+        >
+          <span className='subagent-activity__status' aria-hidden='true'>
+            <SubagentStatusIcon status={run.status} />
           </span>
-          <span className='subagent-activity__meta'>
-            <span>{statusLabel(run.status)}</span>
-            {duration && <span>{duration}</span>}
-            <span>{run.evidenceCount} evidence</span>
-            <span>{run.uncertaintyCount} uncertainty</span>
-            {run.workerDiff && <span>{workerDiffStatusLabel(run.workerDiff.reviewStatus)}</span>}
+          <span className='subagent-activity__main'>
+            <span className='subagent-activity__title'>
+              <span className='subagent-activity__role'>{run.agentId}</span>
+              <span className='subagent-activity__task'>{run.task}</span>
+            </span>
+            <span className='subagent-activity__meta'>
+              <span>{statusLabel(run.status)}</span>
+              {duration && <span>{duration}</span>}
+              <span>{run.evidenceCount} evidence</span>
+              <span>{run.uncertaintyCount} uncertainty</span>
+              {run.workerDiff && <span>{workerDiffStatusLabel(run.workerDiff.reviewStatus)}</span>}
+            </span>
           </span>
-        </span>
-        <svg className='subagent-activity__chevron' viewBox='0 0 24 24' aria-hidden='true'>
-          <polyline points='6 9 12 15 18 9' />
-        </svg>
-      </button>
+          <svg className='subagent-activity__chevron' viewBox='0 0 24 24' aria-hidden='true'>
+            <polyline points='6 9 12 15 18 9' />
+          </svg>
+        </button>
+        {onOpenTeamGraph && (
+          <button
+            className='subagent-activity__graph-button'
+            type='button'
+            onClick={onOpenTeamGraph}
+            title='Open team graph'
+            aria-label='Open team graph'
+            data-testid='subagent-team-graph-button'
+          >
+            <NetworkIcon />
+          </button>
+        )}
+      </div>
 
       {expanded && hasDetails && (
         <div className='subagent-activity__body'>
@@ -152,6 +170,19 @@ const SubagentActivityRow: React.FC<{ run: SubagentRun }> = ({ run }) => {
         </div>
       )}
     </div>
+  )
+}
+
+function NetworkIcon(): React.ReactElement {
+  return (
+    <svg viewBox='0 0 24 24' aria-hidden='true'>
+      <circle cx='6' cy='6' r='3' />
+      <circle cx='18' cy='6' r='3' />
+      <circle cx='12' cy='18' r='3' />
+      <path d='M8.6 7.7 10.9 15' />
+      <path d='M15.4 7.7 13.1 15' />
+      <path d='M9 6h6' />
+    </svg>
   )
 }
 
@@ -222,13 +253,16 @@ function LeaseLine({ label, values }: { label: string; values: string[] }): Reac
   )
 }
 
-export const SubagentActivityList: React.FC<SubagentActivityListProps> = ({ runs }) => {
+export const SubagentActivityList: React.FC<SubagentActivityListProps> = ({
+  runs,
+  onOpenTeamGraph,
+}) => {
   if (runs.length === 0) return null
 
   return (
     <div className='subagent-activity-list' data-testid='subagent-activity-list'>
       {runs.map((run) => (
-        <SubagentActivityRow key={run.runId} run={run} />
+        <SubagentActivityRow key={run.runId} run={run} onOpenTeamGraph={onOpenTeamGraph} />
       ))}
     </div>
   )
