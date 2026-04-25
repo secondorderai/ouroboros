@@ -48,6 +48,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const sendMessage = useConversationStore((s) => s.sendMessage)
+  const steerCurrentRun = useConversationStore((s) => s.steerCurrentRun)
   const cancelRun = useConversationStore((s) => s.cancelRun)
   const workspace = useConversationStore((s) => s.workspace)
   const modelName = useConversationStore((s) => s.modelName)
@@ -89,15 +90,29 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   // ---- Handlers ------------------------------------------------------------
 
   const handleSend = useCallback(() => {
-    if (isEmpty || isAgentRunning) return
+    if (isEmpty) return
     const trimmed = text.trim()
     if (!trimmed && attachedFiles.length === 0 && attachedImages.length === 0) return
-    sendMessage(
-      trimmed,
-      attachedFiles.length > 0 ? attachedFiles : undefined,
-      attachedImages.length > 0 ? attachedImages : undefined,
-      selectedSkill?.name,
-    )
+
+    if (isAgentRunning) {
+      // Mid-flight steer: the new message is queued for injection at the next
+      // ReAct iteration top. Files-only / skill-picker payloads aren't
+      // meaningful for steering, so they fall through to normal send only
+      // when the agent is idle.
+      if (!trimmed) return
+      steerCurrentRun(
+        trimmed,
+        attachedImages.length > 0 ? attachedImages : undefined,
+      )
+    } else {
+      sendMessage(
+        trimmed,
+        attachedFiles.length > 0 ? attachedFiles : undefined,
+        attachedImages.length > 0 ? attachedImages : undefined,
+        selectedSkill?.name,
+      )
+    }
+
     setText('')
     setAttachedFiles([])
     setAttachedImages([])
@@ -109,7 +124,16 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       textareaRef.current.style.height = `${MIN_HEIGHT}px`
       textareaRef.current.focus()
     }
-  }, [text, attachedFiles, attachedImages, selectedSkill, isEmpty, isAgentRunning, sendMessage])
+  }, [
+    text,
+    attachedFiles,
+    attachedImages,
+    selectedSkill,
+    isEmpty,
+    isAgentRunning,
+    sendMessage,
+    steerCurrentRun,
+  ])
 
   const skillQuery = useMemo(() => getActiveSkillQuery(text), [text])
 
@@ -437,21 +461,40 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder='Message Ouroboros...'
+          placeholder={
+            isAgentRunning
+              ? 'Steer the agent... (will be injected on next step)'
+              : 'Message Ouroboros...'
+          }
           aria-label='Message input'
           rows={1}
           disabled={false}
         />
 
         {isAgentRunning ? (
-          <button
-            style={{ ...styles.sendButton, ...styles.stopButton }}
-            onClick={handleStop}
-            title='Stop agent'
-            aria-label='Stop agent'
-          >
-            <StopIcon />
-          </button>
+          <>
+            <button
+              style={{ ...styles.sendButton, ...styles.stopButton }}
+              onClick={handleStop}
+              title='Stop agent'
+              aria-label='Stop agent'
+            >
+              <StopIcon />
+            </button>
+            <button
+              style={{
+                ...styles.sendButton,
+                opacity: text.trim().length === 0 ? 0.4 : 1,
+                cursor: text.trim().length === 0 ? 'not-allowed' : 'pointer',
+              }}
+              onClick={handleSend}
+              disabled={text.trim().length === 0}
+              title='Steer current turn'
+              aria-label='Steer current turn'
+            >
+              <SteerIcon />
+            </button>
+          </>
         ) : (
           <button
             style={{
@@ -807,6 +850,25 @@ function StopIcon(): React.ReactElement {
   return (
     <svg width='14' height='14' viewBox='0 0 24 24' fill='currentColor' stroke='none'>
       <rect x='4' y='4' width='16' height='16' rx='2' />
+    </svg>
+  )
+}
+
+function SteerIcon(): React.ReactElement {
+  // Hooked-arrow ↳ glyph signaling "redirect / steer this turn".
+  return (
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <path d='M5 4 v9 a3 3 0 0 0 3 3 h11' />
+      <polyline points='15 12 19 16 15 20' />
     </svg>
   )
 }

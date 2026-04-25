@@ -23,6 +23,9 @@ export function useNotifications(): void {
       handleToolCallEnd,
       handleTurnComplete,
       handleAgentError,
+      handleSteerInjected,
+      handleSteerOrphaned,
+      handleTurnAborted,
       handleSubagentStarted,
       handleSubagentUpdated,
       handleSubagentCompleted,
@@ -53,6 +56,15 @@ export function useNotifications(): void {
       }),
       api.onNotification('agent/error', (params) => {
         handleAgentError(params)
+      }),
+      api.onNotification('agent/steerInjected', (params) => {
+        handleSteerInjected(params)
+      }),
+      api.onNotification('agent/steerOrphaned', (params) => {
+        handleSteerOrphaned(params)
+      }),
+      api.onNotification('agent/turnAborted', (params) => {
+        handleTurnAborted(params)
       }),
       api.onNotification('agent/subagentStarted', (params) => {
         handleSubagentStarted(params)

@@ -418,6 +418,13 @@ async function handleRequest(request) {
       clearScheduledAgentNotifications()
       writeResult(request.id, { cancelled: true })
       return
+    case 'agent/steer': {
+      // Echo "accepted" so the renderer keeps the bubble in the pending state
+      // until the test emits agent/steerInjected (or agent/steerOrphaned)
+      // explicitly. The requestId is logged so tests can correlate the wire.
+      writeResult(request.id, { accepted: true, duplicate: false })
+      return
+    }
     default:
       writeResponse({
         jsonrpc: '2.0',

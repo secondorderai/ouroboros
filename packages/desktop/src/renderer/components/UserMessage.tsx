@@ -1,6 +1,7 @@
 import React from 'react'
 import type { Message } from '../../shared/protocol'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { useConversationStore } from '../stores/conversationStore'
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -82,40 +83,141 @@ interface UserMessageProps {
   message: Message
 }
 
-export const UserMessage: React.FC<UserMessageProps> = ({ message }) => (
-  <div style={wrapperStyle}>
-    <div style={bubbleStyle}>
-      {looksLikeMarkdown(message.text) ? (
-        <MarkdownRenderer content={message.text} />
-      ) : (
-        <div style={plainTextStyle}>{message.text}</div>
-      )}
-      {message.files && message.files.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-          {message.files.map((file, i) => (
-            <span key={i} style={fileChipStyle}>
-              {file.split('/').pop()}
-            </span>
-          ))}
+const SteerMessage: React.FC<UserMessageProps> = ({ message }) => {
+  const steerStatus = message.steerStatus
+  const resendOrphan = useConversationStore((s) => s.resendOrphanedSteer)
+  const dismissOrphan = useConversationStore((s) => s.dismissOrphanedSteer)
+
+  const composedBubbleStyle: React.CSSProperties = {
+    ...bubbleStyle,
+    borderRight: '3px solid var(--accent-amber)',
+    opacity: steerStatus === 'pending' ? 0.78 : 1,
+  }
+
+  return (
+    <div style={wrapperStyle}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        <div style={composedBubbleStyle}>
+          <div style={steerCaptionStyle}>↳ {captionForSteerStatus(steerStatus)}</div>
+          {looksLikeMarkdown(message.text) ? (
+            <MarkdownRenderer content={message.text} />
+          ) : (
+            <div style={plainTextStyle}>{message.text}</div>
+          )}
         </div>
-      )}
-      {message.imageAttachments && message.imageAttachments.length > 0 && (
-        <div style={imageGridStyle}>
-          {message.imageAttachments.map((image) => (
-            <div key={image.path} style={imageAttachmentStyle}>
-              {image.previewDataUrl ? (
-                <img src={image.previewDataUrl} alt={image.name} style={imagePreviewStyle} />
-              ) : null}
-              <span style={imageNameStyle} title={image.path}>
-                {image.name}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+        {steerStatus === 'orphaned' && message.steerRequestId && (
+          <div style={orphanActionsStyle}>
+            <span style={orphanHintStyle}>This steer didn&apos;t reach the agent.</span>
+            <button
+              style={orphanResendButtonStyle}
+              onClick={() => resendOrphan(message.steerRequestId!)}
+            >
+              Send as new message
+            </button>
+            <button
+              style={orphanDismissButtonStyle}
+              onClick={() => dismissOrphan(message.steerRequestId!)}
+            >
+              Discard
+            </button>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-)
+  )
+}
+
+export const UserMessage: React.FC<UserMessageProps> = ({ message }) => {
+  if (message.kind === 'steer') {
+    return <SteerMessage message={message} />
+  }
+  return (
+    <div style={wrapperStyle}>
+      <div style={bubbleStyle}>
+        {looksLikeMarkdown(message.text) ? (
+          <MarkdownRenderer content={message.text} />
+        ) : (
+          <div style={plainTextStyle}>{message.text}</div>
+        )}
+        {message.files && message.files.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+            {message.files.map((file, i) => (
+              <span key={i} style={fileChipStyle}>
+                {file.split('/').pop()}
+              </span>
+            ))}
+          </div>
+        )}
+        {message.imageAttachments && message.imageAttachments.length > 0 && (
+          <div style={imageGridStyle}>
+            {message.imageAttachments.map((image) => (
+              <div key={image.path} style={imageAttachmentStyle}>
+                {image.previewDataUrl ? (
+                  <img src={image.previewDataUrl} alt={image.name} style={imagePreviewStyle} />
+                ) : null}
+                <span style={imageNameStyle} title={image.path}>
+                  {image.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const steerCaptionStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--accent-amber)',
+  letterSpacing: 0.3,
+  textTransform: 'uppercase',
+  marginBottom: 6,
+}
+
+const orphanActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginTop: 6,
+  fontSize: 12,
+}
+
+const orphanHintStyle: React.CSSProperties = {
+  color: 'var(--text-tertiary)',
+}
+
+const orphanResendButtonStyle: React.CSSProperties = {
+  border: '1px solid var(--accent-amber)',
+  background: 'transparent',
+  color: 'var(--accent-amber)',
+  borderRadius: 6,
+  padding: '3px 8px',
+  fontSize: 12,
+  cursor: 'pointer',
+}
+
+const orphanDismissButtonStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--text-tertiary)',
+  fontSize: 12,
+  cursor: 'pointer',
+  padding: '3px 6px',
+}
+
+function captionForSteerStatus(status: Message['steerStatus']): string {
+  switch (status) {
+    case 'pending':
+      return 'pending'
+    case 'orphaned':
+      return 'not steered'
+    case 'injected':
+    default:
+      return 'steered'
+  }
+}
 
 const markdownBlockPatterns = [
   /^#{1,6}\s/m,
