@@ -188,10 +188,21 @@ function gitOutput(args: string[], cwd: string): string {
       cwd,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: scrubbedGitEnv(),
     }).trim()
   } catch {
     return ''
   }
+}
+
+// Strip inherited GIT_* env so child `git` invocations always operate on
+// `cwd`, not on whatever repo the parent process was bound to.
+function scrubbedGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('GIT_')) env[key] = value
+  }
+  return env
 }
 
 function gitApply(cwd: string, patch: string, args: string[]): Result<void> {
@@ -202,6 +213,7 @@ function gitApply(cwd: string, patch: string, args: string[]): Result<void> {
       input: patchInput,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: scrubbedGitEnv(),
     })
     return ok(undefined)
   } catch (e) {

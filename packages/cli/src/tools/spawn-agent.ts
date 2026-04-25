@@ -291,10 +291,21 @@ function gitOutput(args: string[], cwd: string): string {
       cwd,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: scrubbedGitEnv(),
     }).trim()
   } catch {
     return ''
   }
+}
+
+// Strip inherited GIT_* env so this query always reflects `cwd`'s repo,
+// not whatever repo the parent process was bound to.
+function scrubbedGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('GIT_')) env[key] = value
+  }
+  return env
 }
 
 function uniqueLines(...outputs: string[]): string[] {
