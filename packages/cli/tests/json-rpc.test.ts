@@ -28,11 +28,12 @@ import { ModeManager } from '@src/modes/manager'
 import { TaskGraphStore, type TaskGraph } from '@src/team/task-graph'
 import { execute as executeAskUser, setAskUserPromptHandler } from '@src/tools/ask-user'
 import * as spawnAgentTool from '@src/tools/spawn-agent'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { ReflectionCheckpoint } from '@src/rsi/types'
 import type { AgentDefinition, PermissionConfig } from '@src/types'
+import { _resetSkills } from '@src/tools/skill-manager'
 
 // ── Test Helpers ────────────────────────────────────────────────────
 
@@ -197,6 +198,8 @@ function createTestContext(overrides?: {
     getAgent: () => agent,
     config,
     configDir: currentConfigDir,
+    initialCwd: process.cwd(),
+    initialConfigDir: configDir,
     transcriptStore,
     authManager: overrides?.authManager ?? new OpenAIChatGPTAuthManager(),
     currentRunAbort,
@@ -330,11 +333,26 @@ describe('JSON-RPC', () => {
           jsonrpc: '2.0',
           method: 'agent/contextUsage',
           params: {
+            sessionId: null,
             estimatedTotalTokens: 12_345,
             contextWindowTokens: 200_000,
             usageRatio: 0.061725,
             threshold: 'within-budget',
           },
+        },
+      ])
+    })
+
+    test('bridges events with the supplied sessionId so notifications can be routed per-session', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent({ type: 'text', text: 'hi' }, 'session-abc')
+      })
+
+      expect(parseNdjson(output)).toEqual([
+        {
+          jsonrpc: '2.0',
+          method: 'agent/text',
+          params: { sessionId: 'session-abc', text: 'hi' },
         },
       ])
     })
@@ -344,7 +362,7 @@ describe('JSON-RPC', () => {
   // Test: Basic request/response round-trip
   // -------------------------------------------------------------------
   describe('basic request/response round-trip', () => {
-    test('session/new returns a session ID', async () => {
+    test('session/new returns a session ID and updates the current view', async () => {
       const ctx = createTestContext()
       const handlers = createHandlers(ctx)
 
@@ -355,7 +373,11 @@ describe('JSON-RPC', () => {
       expect(result.sessionId).toBeDefined()
       expect(typeof result.sessionId).toBe('string')
       expect(result.sessionId.length).toBeGreaterThan(0)
-      expect((ctx.getAgent() as unknown as { sessionId?: string }).sessionId).toBe(result.sessionId)
+      // session/new updates the "currently viewed session" but is now decoupled
+      // from any running agent so a mid-stream call cannot corrupt another
+      // session's in-memory state. The new session's agent is materialized
+      // lazily on the first agent/run.
+      expect(ctx.currentSessionId).toBe(result.sessionId)
 
       ctx.transcriptStore.close()
     })
@@ -770,6 +792,51 @@ describe('JSON-RPC', () => {
       expect(String(promptCalls[1]?.agentsInstructions ?? '')).toContain('Nested rules.')
     })
 
+    test('workspace/clear reverts cwd to the initial launch directory', async () => {
+      const baseDir = realpathSync(
+        mkdtempSync(join(tmpdir(), `ouroboros-jsonrpc-clear-${crypto.randomUUID()}-`)),
+      )
+      const initialDir = join(baseDir, 'initial')
+      const otherDir = join(baseDir, 'other')
+      mkdirSync(initialDir, { recursive: true })
+      mkdirSync(otherDir, { recursive: true })
+
+      const originalCwd = process.cwd()
+      process.chdir(initialDir)
+
+      const ctx = createTestContext({ configDir: initialDir })
+      // Override to reflect post-chdir initial cwd, mirroring what
+      // startJsonRpcServer captures at startup.
+      ctx.initialCwd = initialDir
+      ctx.initialConfigDir = initialDir
+
+      const handlers = createHandlers(ctx)
+      const setHandler = handlers.get('workspace/set')!
+      const clearHandler = handlers.get('workspace/clear')!
+
+      try {
+        // Create a session so the handler exercises the session-update branch.
+        const sessionResult = ctx.transcriptStore.createSession(initialDir)
+        if (!sessionResult.ok) throw sessionResult.error
+        ctx.setCurrentSessionId(sessionResult.value)
+
+        await setHandler({ directory: otherDir })
+        expect(process.cwd()).toBe(realpathSync(otherDir))
+
+        const clearResult = (await clearHandler({})) as { directory: string }
+        expect(clearResult.directory).toBe(realpathSync(initialDir))
+        expect(process.cwd()).toBe(realpathSync(initialDir))
+
+        const sessionAfter = ctx.transcriptStore.getSession(sessionResult.value)
+        if (!sessionAfter.ok) throw sessionAfter.error
+        expect(sessionAfter.value.workspacePath).toBe(realpathSync(initialDir))
+      } finally {
+        process.chdir(originalCwd)
+        rmSync(baseDir, { recursive: true, force: true })
+        ctx.transcriptStore.close()
+      }
+    })
+
     test('agent/run accepts desktop response-style hints', async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const ctx = createTestContext({
@@ -795,6 +862,140 @@ describe('JSON-RPC', () => {
       )
 
       ctx.transcriptStore.close()
+    })
+
+    test('agent/run activates selected skill instructions', async () => {
+      const baseDir = join(tmpdir(), `ouroboros-skill-run-${crypto.randomUUID()}`)
+      const skillDir = join(baseDir, 'skills', 'core', 'code-review')
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        [
+          '---',
+          'name: code-review',
+          'description: Review code carefully',
+          '---',
+          '',
+          '## Review Instructions',
+          '',
+          'Look for correctness regressions.',
+        ].join('\n'),
+      )
+
+      const promptCalls: Array<Record<string, unknown>> = []
+      const ctx = createTestContext({
+        configDir: baseDir,
+        agentOptions: {
+          systemPromptBuilder: (options) => {
+            promptCalls.push(options as Record<string, unknown>)
+            return 'You are a test assistant.'
+          },
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      try {
+        await handlers.get('agent/run')!({
+          message: 'Review this patch',
+          skillName: 'code-review',
+        })
+      } finally {
+        ctx.transcriptStore.close()
+        rmSync(baseDir, { recursive: true, force: true })
+        _resetSkills()
+      }
+
+      expect(promptCalls).toContainEqual(
+        expect.objectContaining({
+          activatedSkill: expect.objectContaining({
+            name: 'code-review',
+            instructions: expect.stringContaining('Look for correctness regressions.'),
+          }),
+        }),
+      )
+    })
+
+    test('agent/run activates a built-in skill provided only via OUROBOROS_BUILTIN_SKILLS_DIR', async () => {
+      // Regression: previously activateSkillForRun re-ran discovery without
+      // the built-in roots, so a skill picked from a built-in source produced
+      // "Skill not found" on submit.
+      const baseDir = join(tmpdir(), `ouroboros-builtin-run-${crypto.randomUUID()}`)
+      mkdirSync(baseDir, { recursive: true })
+      const builtinRoot = join(tmpdir(), `ouroboros-builtin-root-${crypto.randomUUID()}`)
+      const skillDir = join(builtinRoot, 'meta-thinking')
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        [
+          '---',
+          'name: meta-thinking',
+          'description: Bundled meta-thinking',
+          '---',
+          '',
+          'Apply the meta-thinking loop.',
+        ].join('\n'),
+      )
+
+      const previousEnv = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+      process.env.OUROBOROS_BUILTIN_SKILLS_DIR = builtinRoot
+
+      const promptCalls: Array<Record<string, unknown>> = []
+      const ctx = createTestContext({
+        configDir: baseDir,
+        agentOptions: {
+          systemPromptBuilder: (options) => {
+            promptCalls.push(options as Record<string, unknown>)
+            return 'You are a test assistant.'
+          },
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      try {
+        await handlers.get('agent/run')!({
+          message: 'Plan this',
+          skillName: 'meta-thinking',
+        })
+      } finally {
+        if (previousEnv === undefined) {
+          delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+        } else {
+          process.env.OUROBOROS_BUILTIN_SKILLS_DIR = previousEnv
+        }
+        ctx.transcriptStore.close()
+        rmSync(baseDir, { recursive: true, force: true })
+        rmSync(builtinRoot, { recursive: true, force: true })
+        _resetSkills()
+      }
+
+      expect(promptCalls).toContainEqual(
+        expect.objectContaining({
+          activatedSkill: expect.objectContaining({
+            name: 'meta-thinking',
+            instructions: expect.stringContaining('Apply the meta-thinking loop.'),
+          }),
+        }),
+      )
+    })
+
+    test('agent/run rejects unknown selected skills', async () => {
+      const baseDir = join(tmpdir(), `ouroboros-missing-skill-${crypto.randomUUID()}`)
+      mkdirSync(baseDir, { recursive: true })
+      const ctx = createTestContext({ configDir: baseDir })
+      const handlers = createHandlers(ctx)
+
+      try {
+        await expect(
+          handlers.get('agent/run')!({
+            message: 'Review this patch',
+            skillName: 'missing-skill',
+          }),
+        ).rejects.toThrow('Skill not found: "missing-skill"')
+      } finally {
+        ctx.transcriptStore.close()
+        rmSync(baseDir, { recursive: true, force: true })
+        _resetSkills()
+      }
     })
 
     test('agent/run remains backward compatible when response-style hints are omitted', async () => {
@@ -1750,6 +1951,64 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('agent/run with skillName persists activatedSkills and surfaces them via session/load', async () => {
+      // Set up a built-in skill via OUROBOROS_BUILTIN_SKILLS_DIR — same path the
+      // desktop wires up — so the picker selection round-trips through the
+      // server's skill discovery, persistence layer, and load handler.
+      const builtinRoot = join(tmpdir(), `ouroboros-skill-row-${crypto.randomUUID()}`)
+      const skillDir = join(builtinRoot, 'meta-thinking')
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        '---\nname: meta-thinking\ndescription: Bundled\n---\n\nbody\n',
+      )
+      const previousEnv = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+      process.env.OUROBOROS_BUILTIN_SKILLS_DIR = builtinRoot
+
+      const ctx = createTestContext()
+
+      // Match the wiring server.ts does so activations populate the per-run
+      // accumulator. createTestContext leaves takeSkillActivations as a stub
+      // returning [], so we override it together with the activation handler.
+      const collected: string[] = []
+      ctx.takeSkillActivations = () => collected.splice(0, collected.length)
+      const { setSkillActivatedHandler, _resetSkillActivatedHandler } =
+        await import('@src/tools/skill-manager')
+      setSkillActivatedHandler((name) => {
+        if (!collected.includes(name)) collected.push(name)
+      })
+
+      const handlers = createHandlers(ctx)
+      try {
+        const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+        await handlers.get('agent/run')!({
+          message: 'Plan it',
+          skillName: 'meta-thinking',
+        })
+
+        const loadResult = (await handlers.get('session/load')!({
+          id: newResult.sessionId,
+        })) as {
+          messages: Array<{ role: string; content: string; activatedSkills?: string[] }>
+        }
+        const assistant = loadResult.messages.find((m) => m.role === 'assistant')
+        expect(assistant?.activatedSkills).toEqual(['meta-thinking'])
+
+        const userMsg = loadResult.messages.find((m) => m.role === 'user')
+        expect(userMsg?.activatedSkills).toBeUndefined()
+      } finally {
+        if (previousEnv === undefined) {
+          delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+        } else {
+          process.env.OUROBOROS_BUILTIN_SKILLS_DIR = previousEnv
+        }
+        _resetSkillActivatedHandler()
+        ctx.transcriptStore.close()
+        rmSync(builtinRoot, { recursive: true, force: true })
+        _resetSkills()
+      }
+    })
+
     test('session/load returns a session by ID', async () => {
       const ctx = createTestContext()
       const handlers = createHandlers(ctx)
@@ -1781,9 +2040,11 @@ describe('JSON-RPC', () => {
           content: 'Hello from agent',
         }),
       ])
-      expect((ctx.getAgent() as unknown as { sessionId?: string }).sessionId).toBe(
-        newResult.sessionId,
-      )
+      // session/load updates the desktop's "currently viewed session" but is
+      // now decoupled from agent state — a mid-stream switch can't corrupt
+      // another session's run. The agent for the loaded session is hydrated
+      // lazily by getAgent(sessionId) on the next agent/run.
+      expect(ctx.currentSessionId).toBe(newResult.sessionId)
 
       ctx.transcriptStore.close()
     })
@@ -2125,6 +2386,50 @@ description: A generated test skill
       )
 
       ctx.transcriptStore.close()
+    })
+
+    test('skills/list discovers built-in skills via OUROBOROS_BUILTIN_SKILLS_DIR', async () => {
+      const builtinRoot = join(tmpdir(), `ouroboros-builtin-${crypto.randomUUID()}`)
+      const skillDir = join(builtinRoot, 'meta-thinking')
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: meta-thinking
+description: Bundled meta-thinking skill
+---
+
+# Meta thinking body
+`,
+      )
+
+      const previousEnv = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+      process.env.OUROBOROS_BUILTIN_SKILLS_DIR = builtinRoot
+
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      try {
+        const result = (await handlers.get('skills/list')!({})) as {
+          skills: Array<{ name: string; version: string; enabled: boolean }>
+        }
+        expect(result.skills).toContainEqual(
+          expect.objectContaining({
+            name: 'meta-thinking',
+            version: '1.0',
+            enabled: true,
+          }),
+        )
+      } finally {
+        if (previousEnv === undefined) {
+          delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+        } else {
+          process.env.OUROBOROS_BUILTIN_SKILLS_DIR = previousEnv
+        }
+        ctx.transcriptStore.close()
+        rmSync(builtinRoot, { recursive: true, force: true })
+        _resetSkills()
+      }
     })
   })
 
@@ -2708,6 +3013,7 @@ description: A generated test skill
         'approval/list',
         'approval/respond',
         'workspace/set',
+        'workspace/clear',
       ]
 
       for (const method of expectedMethods) {

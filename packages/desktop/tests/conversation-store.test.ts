@@ -102,6 +102,80 @@ describe('conversation store sessions', () => {
     )
   })
 
+  test('seeds pendingActivatedSkills from sendMessage and folds into the assistant turn', () => {
+    resetStore()
+
+    // Suppress the fire-and-forget RPC inside sendMessage. We're not testing
+    // the wire here, just store-internal accumulation.
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: { rpc: () => Promise.resolve({ sessionId: 'session-skill-acc' }) },
+    }
+
+    const store = useConversationStore.getState()
+
+    store.sendMessage('Plan it', undefined, undefined, 'meta-thinking')
+    expect(useConversationStore.getState().pendingActivatedSkills).toEqual(['meta-thinking'])
+
+    // skill/activated arrives for the same name (echo of the user-selected
+    // activation). Should be deduped — no second entry.
+    store.handleSkillActivated({ name: 'meta-thinking' })
+    expect(useConversationStore.getState().pendingActivatedSkills).toEqual(['meta-thinking'])
+
+    // The LLM activates an additional skill mid-turn.
+    store.handleSkillActivated({ name: 'self-test' })
+    expect(useConversationStore.getState().pendingActivatedSkills).toEqual([
+      'meta-thinking',
+      'self-test',
+    ])
+
+    store.handleTurnComplete({ text: 'done' })
+    const state = useConversationStore.getState()
+    const lastMessage = state.messages[state.messages.length - 1]
+    expect(lastMessage.role).toBe('agent')
+    expect(lastMessage.activatedSkills).toEqual(['meta-thinking', 'self-test'])
+    // And the accumulator is reset for the next turn.
+    expect(state.pendingActivatedSkills).toEqual([])
+  })
+
+  test('handleSkillActivated dedupes by name', () => {
+    resetStore()
+    useConversationStore.setState({ pendingActivatedSkills: ['meta-thinking'] })
+
+    useConversationStore.getState().handleSkillActivated({ name: 'meta-thinking' })
+    expect(useConversationStore.getState().pendingActivatedSkills).toEqual(['meta-thinking'])
+  })
+
+  test('forwards selected skill name to agent run', async () => {
+    resetStore()
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          if (method === 'session/new') {
+            return Promise.resolve({ sessionId: 'session-skill-message' })
+          }
+          return Promise.resolve({ text: 'ok' })
+        },
+      },
+    }
+
+    useConversationStore
+      .getState()
+      .sendMessage('Review this patch', undefined, undefined, 'code-review')
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls.find((call) => call.method === 'agent/run')?.params).toEqual(
+      expect.objectContaining({
+        message: 'Review this patch',
+        skillName: 'code-review',
+      }),
+    )
+  })
+
   test('refreshes weak automatic titles after the assistant turn completes', () => {
     resetStore()
 
@@ -237,6 +311,368 @@ describe('conversation store sessions', () => {
         runStatus: 'running',
       }),
     ])
+  })
+})
+
+describe('per-session notification routing', () => {
+  // Regression tests for the "chats lost on switch back" bug. Notifications
+  // for a session the user is NOT currently viewing must update sidebar
+  // status only — never the visible streamingText / messages / pending* state
+  // that belongs to the currently-viewed session.
+
+  test('handleAgentText for a non-current session does NOT touch streamingText', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-B',
+      sessions: [
+        {
+          id: 'session-A',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 0,
+          title: 'A',
+          titleSource: 'auto',
+        },
+        {
+          id: 'session-B',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 0,
+          title: 'B',
+          titleSource: 'auto',
+        },
+      ],
+      streamingText: 'session A in progress',
+    })
+
+    useConversationStore
+      .getState()
+      .handleAgentText({ sessionId: 'session-B', text: 'streaming for B' })
+
+    // The visible session A's streamingText must be unchanged.
+    expect(useConversationStore.getState().streamingText).toBe('session A in progress')
+  })
+
+  test('handleAgentText for the current session DOES append to streamingText', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-A',
+      sessions: [],
+    })
+
+    useConversationStore.getState().handleAgentText({ sessionId: 'session-A', text: 'hello ' })
+    useConversationStore.getState().handleAgentText({ sessionId: 'session-A', text: 'world' })
+
+    expect(useConversationStore.getState().streamingText).toBe('hello world')
+  })
+
+  test('handleTurnComplete for a non-current session updates sidebar only, leaves messages intact', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-B',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'session A user message',
+          timestamp: '2025-01-01T00:00:00Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'session-B',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 0,
+          title: 'B',
+          titleSource: 'auto',
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnComplete({
+      sessionId: 'session-B',
+      text: 'reply for session B',
+      iterations: 1,
+    })
+
+    const state = useConversationStore.getState()
+    // Visible messages (session A's) must NOT receive the assistant message.
+    expect(state.messages.map((m) => m.text)).toEqual(['session A user message'])
+    // Sidebar entry for B reflects idle.
+    expect(state.sessions[0].runStatus).toBe('idle')
+    // The global activeRunSessionId tracker is cleared since B was the
+    // running session.
+    expect(state.activeRunSessionId).toBeNull()
+    expect(state.isAgentRunning).toBe(false)
+  })
+
+  test('handleTurnComplete for the current session appends the assistant message', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-A',
+      messages: [],
+      sessions: [
+        {
+          id: 'session-A',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 0,
+          title: 'A',
+          titleSource: 'auto',
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnComplete({
+      sessionId: 'session-A',
+      text: 'reply for A',
+      iterations: 1,
+    })
+
+    const state = useConversationStore.getState()
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0].role).toBe('agent')
+    expect(state.messages[0].text).toBe('reply for A')
+    expect(state.sessions[0].runStatus).toBe('idle')
+  })
+
+  test('handleSkillActivated ignores activations from non-current sessions', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      pendingActivatedSkills: [],
+    })
+
+    useConversationStore
+      .getState()
+      .handleSkillActivated({ sessionId: 'session-B', name: 'meta-thinking' })
+
+    expect(useConversationStore.getState().pendingActivatedSkills).toEqual([])
+  })
+
+  test('handleSkillActivated applies activations for the current session', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      pendingActivatedSkills: [],
+    })
+
+    useConversationStore
+      .getState()
+      .handleSkillActivated({ sessionId: 'session-A', name: 'meta-thinking' })
+
+    expect(useConversationStore.getState().pendingActivatedSkills).toEqual(['meta-thinking'])
+  })
+
+  test('handleAgentError for a non-current session marks sidebar but does not pollute visible messages', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-B',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'A user message',
+          timestamp: '2025-01-01T00:00:00Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'session-B',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 0,
+          title: 'B',
+          titleSource: 'auto',
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore
+      .getState()
+      .handleAgentError({ sessionId: 'session-B', message: 'B failed' })
+
+    const state = useConversationStore.getState()
+    expect(state.messages.map((m) => m.text)).toEqual(['A user message'])
+    expect(state.sessions[0].runStatus).toBe('error')
+    expect(state.activeRunSessionId).toBeNull()
+  })
+})
+
+describe('per-session snapshots survive view switches', () => {
+  // Regression tests for the "switching between mid-processing sessions
+  // shows an empty chat" UX bug. Per-session snapshots preserve the user
+  // message, partial streaming text, pending tool calls, etc. across
+  // switches.
+
+  test('switching to a new session and back preserves the user message and partial reply', () => {
+    resetStore()
+    // Set up: in session A, user has sent a message and the agent is
+    // partially streaming a reply.
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-A',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'tell me a story',
+          timestamp: '2025-01-01T00:00:00Z',
+        },
+      ],
+      streamingText: 'Once upon a time',
+      isAgentRunning: true,
+      sessions: [
+        {
+          id: 'session-A',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 1,
+          title: 'A',
+          titleSource: 'auto',
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    // Switch to a brand-new session B (the "+ new chat" button click).
+    useConversationStore.getState().createNewSession('session-B')
+
+    // Visible UI is now B's empty state.
+    expect(useConversationStore.getState().messages).toEqual([])
+    expect(useConversationStore.getState().streamingText).toBeNull()
+
+    // Switch back to A.
+    useConversationStore.getState().setCurrentSessionId('session-A')
+
+    const restored = useConversationStore.getState()
+    // The user's question and partial reply must still be there.
+    expect(restored.messages).toHaveLength(1)
+    expect(restored.messages[0].text).toBe('tell me a story')
+    expect(restored.streamingText).toBe('Once upon a time')
+    expect(restored.isAgentRunning).toBe(true)
+  })
+
+  test('streaming text accumulates into the background session snapshot while user views another session', () => {
+    resetStore()
+    // User is currently viewing session A. Session B has a run in progress.
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-B',
+      sessionRunSnapshots: new Map([
+        [
+          'session-B',
+          {
+            messages: [
+              {
+                id: 'user-1',
+                role: 'user',
+                text: 'B question',
+                timestamp: '2025-01-01T00:00:00Z',
+              },
+            ],
+            streamingText: 'half',
+            activeToolCalls: new Map(),
+            pendingToolCalls: [],
+            pendingSubagentRuns: [],
+            pendingActivatedSkills: [],
+            isAgentRunning: true,
+            contextUsage: null,
+            nextId: 2,
+          },
+        ],
+      ]),
+      sessions: [],
+    })
+
+    // A streaming chunk arrives for session B while the user is on A.
+    useConversationStore
+      .getState()
+      .handleAgentText({ sessionId: 'session-B', text: ' way through' })
+
+    // A's flat state is unchanged — no streaming text leaked over.
+    expect(useConversationStore.getState().streamingText).toBeNull()
+
+    // B's snapshot accumulated the new text.
+    const bSnap = useConversationStore.getState().sessionRunSnapshots.get('session-B')
+    expect(bSnap?.streamingText).toBe('half way through')
+    expect(bSnap?.messages).toHaveLength(1)
+
+    // Switch to B — the accumulated state becomes the visible UI.
+    useConversationStore.getState().setCurrentSessionId('session-B')
+    expect(useConversationStore.getState().messages).toHaveLength(1)
+    expect(useConversationStore.getState().streamingText).toBe('half way through')
+  })
+
+  test('handleTurnComplete for a background session lands the assistant message in the snapshot', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-B',
+      sessionRunSnapshots: new Map([
+        [
+          'session-B',
+          {
+            messages: [
+              {
+                id: 'user-1',
+                role: 'user',
+                text: 'B question',
+                timestamp: '2025-01-01T00:00:00Z',
+              },
+            ],
+            streamingText: 'partial',
+            activeToolCalls: new Map(),
+            pendingToolCalls: [],
+            pendingSubagentRuns: [],
+            pendingActivatedSkills: [],
+            isAgentRunning: true,
+            contextUsage: null,
+            nextId: 2,
+          },
+        ],
+      ]),
+      sessions: [
+        {
+          id: 'session-B',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 1,
+          title: 'B',
+          titleSource: 'auto',
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnComplete({
+      sessionId: 'session-B',
+      text: 'B reply complete',
+      iterations: 1,
+    })
+
+    // B's snapshot now has both the user message and the finalized
+    // assistant reply. Switching to B reveals the full conversation.
+    const bSnap = useConversationStore.getState().sessionRunSnapshots.get('session-B')
+    expect(bSnap?.messages).toHaveLength(2)
+    expect(bSnap?.messages[1].role).toBe('agent')
+    expect(bSnap?.messages[1].text).toBe('B reply complete')
+    expect(bSnap?.streamingText).toBeNull()
+    expect(bSnap?.isAgentRunning).toBe(false)
+
+    // Sidebar entry reflects idle.
+    const session = useConversationStore.getState().sessions[0]
+    expect(session.runStatus).toBe('idle')
+    expect(session.messageCount).toBe(2)
   })
 })
 
@@ -412,7 +848,17 @@ describe('loadSession image preview hydration', () => {
     await validatePromise
     await Promise.resolve()
 
-    const messages = useConversationStore.getState().messages
-    expect(messages[0].imageAttachments?.[0].previewDataUrl).toBeUndefined()
+    // After switching to session B, the visible chat should be B's (empty —
+    // we never loaded anything for it). The late-arriving A hydration must
+    // not leak into B's messages.
+    expect(useConversationStore.getState().messages).toEqual([])
+
+    // Switch back to A: its snapshot was preserved on the switch-out.
+    // Hydration was discarded because the snapshot reference changed during
+    // validation (the loadSession→setCurrentSessionId sequence rebuilt A's
+    // snapshot). A's image therefore still has no previewDataUrl.
+    useConversationStore.getState().setCurrentSessionId('session-a')
+    const aMessages = useConversationStore.getState().messages
+    expect(aMessages[0]?.imageAttachments?.[0].previewDataUrl).toBeUndefined()
   })
 })

@@ -129,6 +129,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         const message =
           error instanceof Error ? error.message : 'Failed to start initial project exploration'
         useConversationStore.getState().handleAgentError({
+          sessionId: null,
           message: `Initial exploration failed: ${message}`,
         })
       }

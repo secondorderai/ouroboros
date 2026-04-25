@@ -274,6 +274,158 @@ test('first message after launch creates a sidebar history session', async ({}, 
   expect(log.indexOf('"method":"session/new"')).toBeLessThan(log.indexOf('"method":"agent/run"'))
 })
 
+test('slash skill picker selects and removes skills for agent runs', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      skills: [
+        {
+          name: 'code-review',
+          description: 'Review code for correctness',
+          version: '1.0',
+          enabled: true,
+        },
+        {
+          name: 'figma',
+          description: 'Implement designs from Figma',
+          version: '1.0',
+          enabled: true,
+        },
+      ],
+      agentRuns: [
+        {
+          response: {
+            text: 'Review complete.',
+            iterations: 1,
+            stopReason: 'completed',
+            maxIterationsReached: false,
+          },
+          notifications: [
+            { delayMs: 10, method: 'agent/text', params: { text: 'Review complete.' } },
+            {
+              delayMs: 20,
+              method: 'agent/turnComplete',
+              params: { text: 'Review complete.', iterations: 1 },
+            },
+          ],
+        },
+        {
+          response: {
+            text: 'Plain run complete.',
+            iterations: 1,
+            stopReason: 'completed',
+            maxIterationsReached: false,
+          },
+          notifications: [
+            { delayMs: 10, method: 'agent/text', params: { text: 'Plain run complete.' } },
+            {
+              delayMs: 20,
+              method: 'agent/turnComplete',
+              params: { text: 'Plain run complete.', iterations: 1 },
+            },
+          ],
+        },
+      ],
+    },
+  })
+  await openMainApp()
+
+  const input = launched.page.getByLabel('Message input')
+  await input.fill('/code')
+  await expect(launched.page.getByRole('listbox', { name: 'Skill picker' })).toBeVisible()
+  await expect(launched.page.getByRole('option', { name: /code-review/ })).toBeVisible()
+  await input.press('Enter')
+  await expect(
+    launched.page.getByRole('button', { name: 'Remove code-review skill' }),
+  ).toBeVisible()
+
+  await input.fill('Review this change')
+  await input.press('Enter')
+  await expect(launched.page.getByText('Review complete.')).toBeVisible()
+
+  await input.fill('/fig')
+  await input.press('Enter')
+  await launched.page.getByRole('button', { name: 'Remove figma skill' }).click()
+  await input.fill('Run without a skill')
+  await input.press('Enter')
+  await expect(launched.page.getByText('Plain run complete.')).toBeVisible()
+
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  const agentRuns = log
+    .split('\n')
+    .filter((line) => line.includes('"method":"agent/run"'))
+    .map((line) => JSON.parse(line.replace(/^\[request\]\s*/, '')))
+
+  expect(agentRuns[0].params).toEqual(
+    expect.objectContaining({
+      message: 'Review this change',
+      skillName: 'code-review',
+    }),
+  )
+  expect(agentRuns[1].params).toEqual(
+    expect.objectContaining({
+      message: 'Run without a skill',
+    }),
+  )
+  expect(agentRuns[1].params).not.toHaveProperty('skillName')
+})
+
+test('skill badge row shows user-selected and LLM-activated skills on the assistant turn', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      skills: [
+        {
+          name: 'meta-thinking',
+          description: 'Bundled meta-thinking',
+          version: '1.0',
+          enabled: true,
+        },
+      ],
+      agentRuns: [
+        {
+          response: {
+            text: 'All planned.',
+            iterations: 1,
+            stopReason: 'completed',
+            maxIterationsReached: false,
+          },
+          notifications: [
+            // User-selected skill — server emits this right after activation.
+            { delayMs: 5, method: 'skill/activated', params: { name: 'meta-thinking' } },
+            // LLM activates an additional skill mid-turn via skill-manager.
+            { delayMs: 8, method: 'skill/activated', params: { name: 'self-test' } },
+            // Echo of the same name should not duplicate (store dedupes).
+            { delayMs: 9, method: 'skill/activated', params: { name: 'meta-thinking' } },
+            { delayMs: 12, method: 'agent/text', params: { text: 'All planned.' } },
+            {
+              delayMs: 18,
+              method: 'agent/turnComplete',
+              params: { text: 'All planned.', iterations: 1 },
+            },
+          ],
+        },
+      ],
+    },
+  })
+  await openMainApp()
+
+  const input = launched.page.getByLabel('Message input')
+  await input.fill('/meta')
+  await expect(launched.page.getByRole('listbox', { name: 'Skill picker' })).toBeVisible()
+  await input.press('Enter')
+  await input.fill('Plan it')
+  await input.press('Enter')
+
+  await expect(launched.page.getByText('All planned.')).toBeVisible()
+
+  // Assistant turn shows both badges, no duplicates from the echo.
+  const badgeRow = launched.page.getByTestId('skill-badge-row')
+  await expect(badgeRow).toBeVisible()
+  const badges = badgeRow.getByTestId('skill-badge')
+  await expect(badges).toHaveCount(2)
+  await expect(badges.nth(0)).toHaveText(/meta-thinking/)
+  await expect(badges.nth(1)).toHaveText(/self-test/)
+})
+
 test('sidebar sessions can be renamed from the context menu', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo, {
     scenario: {
@@ -1476,4 +1628,175 @@ test('update banner can be exercised without leaving the renderer contract suite
   await launched.page.getByRole('button', { name: 'Restart now' }).click()
 
   await expect.poll(async () => getInstallUpdateCount(launched!.page)).toBe(1)
+})
+
+test('workspace chip can be cleared via the dismiss button', async ({}, testInfo) => {
+  const workspacePath = '/tmp/ouroboros-test-workspace-clear'
+  launched = await launchTestApp(testInfo, {
+    dialogResponses: [workspacePath],
+  })
+  await openMainApp()
+
+  // Initial state: no workspace selected.
+  const workspaceButton = launched.page.getByRole('button', { name: 'Change workspace' })
+  await expect(workspaceButton).toBeVisible()
+  await expect(workspaceButton).toContainText('No workspace')
+  await expect(launched.page.getByRole('button', { name: 'Clear workspace' })).toHaveCount(0)
+
+  // Pick a workspace via the mocked open dialog.
+  await workspaceButton.click()
+
+  await expect(workspaceButton).toContainText('ouroboros-test-workspace-clear')
+
+  const clearButton = launched.page.getByRole('button', { name: 'Clear workspace' })
+  await expect(clearButton).toBeVisible()
+
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"method":"workspace/set"')
+
+  // Clear it.
+  await clearButton.click()
+
+  await expect(workspaceButton).toContainText('No workspace')
+  await expect(launched.page.getByRole('button', { name: 'Clear workspace' })).toHaveCount(0)
+
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('"method":"workspace/clear"')
+})
+
+test('chats persist when switching between sessions — regression for "chats lost on switch back"', async ({}, testInfo) => {
+  // Reproduces the user-reported bug:
+  //   1. Start a new chat session, send a message → assistant replies.
+  //   2. Start another new chat session.
+  //   3. Click back to the first session.
+  //   4. The first session's chats must still be there.
+  //
+  // Before the per-session-CLI fix, step 4 showed an empty chat because the
+  // singleton agent's history was cleared mid-flight by `session/new` and
+  // persistence was misrouted to the wrong session.
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'Reply to first session',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          { delayMs: 5, method: 'agent/text', params: { text: 'Reply to first session' } },
+          {
+            delayMs: 10,
+            method: 'agent/turnComplete',
+            params: { text: 'Reply to first session', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  // The session title also contains the user message text, so scope our
+  // chat-content assertions to the virtuoso list to avoid matching the
+  // sidebar entry.
+  const chatList = launched.page.getByTestId('virtuoso-item-list')
+
+  // 1. First session: type a message, agent replies.
+  await launched.page.getByLabel('Message input').fill('First message in session A')
+  await launched.page.getByLabel('Message input').press('Enter')
+  await expect(chatList.getByText('Reply to first session')).toBeVisible()
+  await expect(chatList.getByText('First message in session A')).toBeVisible()
+
+  // 2. Click "+ new chat" to create a second session.
+  await launched.page.getByLabel('New conversation').click()
+  // The visible chat clears for the new session.
+  await expect(chatList.getByText('Reply to first session')).toHaveCount(0)
+  await expect(chatList.getByText('First message in session A')).toHaveCount(0)
+
+  // 3. Click back to the first session in the sidebar. The new session
+  //    has aria-label "Open untitled session" until it gets a title; the
+  //    titled "Session A" entry uses 'Session: ...'.
+  await expect(
+    launched.page.getByRole('button', { name: 'Open untitled session' }),
+  ).toBeVisible()
+  await launched.page
+    .getByRole('button', { name: 'Session: First message in session A' })
+    .click()
+
+  // 4. The first session's chat history is restored — both the user's
+  //    original message and the assistant's reply must be visible again.
+  await expect(chatList.getByText('First message in session A')).toBeVisible()
+  await expect(chatList.getByText('Reply to first session')).toBeVisible()
+})
+
+test('switching mid-processing preserves the in-flight chat (user message + partial reply)', async ({}, testInfo) => {
+  // Regression for the user's follow-up complaint: "I tested it in desktop
+  // app with 2 chat sessions. When I switched between them and they are
+  // still processing, the chat UI becomes empty. I can't even see my
+  // initial question entered."
+  //
+  // Per-session snapshots in the conversation store now preserve every
+  // session's in-flight state across view switches, so the user message
+  // and any streamed partial reply remain visible after switching back.
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        // Make the run intentionally slow so the test can switch away
+        // BEFORE the turn completes.
+        response: {
+          text: 'Slow reply for A',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          // Stream a partial chunk quickly so the user sees something
+          // before they switch away.
+          { delayMs: 5, method: 'agent/text', params: { text: 'Slow reply' } },
+          // Hold the turn open long enough that we can switch sessions
+          // and back, then finalize.
+          {
+            delayMs: 800,
+            method: 'agent/text',
+            params: { text: ' for A' },
+          },
+          {
+            delayMs: 820,
+            method: 'agent/turnComplete',
+            params: { text: 'Slow reply for A', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+  const chatList = launched.page.getByTestId('virtuoso-item-list')
+
+  // 1. Start session A and send a slow message. Wait until at least the
+  //    first chunk has rendered so we know the run is mid-stream.
+  await launched.page.getByLabel('Message input').fill('Initial question for A')
+  await launched.page.getByLabel('Message input').press('Enter')
+  await expect(chatList.getByText('Initial question for A')).toBeVisible()
+  await expect(chatList.getByText('Slow reply')).toBeVisible()
+
+  // 2. Mid-processing, switch to a brand-new session B.
+  await launched.page.getByLabel('New conversation').click()
+  await expect(chatList.getByText('Initial question for A')).toHaveCount(0)
+  await expect(chatList.getByText('Slow reply')).toHaveCount(0)
+
+  // 3. Immediately switch BACK to A while its run is (very likely) still
+  //    streaming. The user's question and the partial streamed reply must
+  //    be visible — that's the UX fix.
+  await launched.page
+    .getByRole('button', { name: 'Session: Initial question for A' })
+    .click()
+  await expect(chatList.getByText('Initial question for A')).toBeVisible()
+  // The partial reply ("Slow reply") was preserved; once the turn
+  // completes, the full reply ("Slow reply for A") will appear in its
+  // place. Either is acceptable evidence that the snapshot was preserved.
+  await expect(
+    chatList.getByText('Slow reply for A').or(chatList.getByText('Slow reply')),
+  ).toBeVisible()
 })

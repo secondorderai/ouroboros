@@ -27,6 +27,26 @@ import type {
 // Store interface
 // ---------------------------------------------------------------------------
 
+/**
+ * All session-scoped run state — what's shown in the chat for a particular
+ * session. Stored per-session in `sessionRunSnapshots` so that switching
+ * away from a mid-stream session preserves its messages, partial reply,
+ * and pending tool calls; switching back restores them. The flat
+ * `messages`/`streamingText`/etc. fields below are a mirror of the
+ * currently-viewed snapshot (kept for component code that reads flat state).
+ */
+export interface SessionRunSnapshot {
+  messages: Message[]
+  streamingText: string | null
+  activeToolCalls: Map<string, ToolCallState>
+  pendingToolCalls: CompletedToolCall[]
+  pendingSubagentRuns: SubagentRun[]
+  pendingActivatedSkills: string[]
+  isAgentRunning: boolean
+  contextUsage: AgentContextUsageParams | null
+  nextId: number
+}
+
 export interface ConversationState {
   /** Ordered list of completed messages in the current conversation. */
   messages: Message[]
@@ -43,6 +63,12 @@ export interface ConversationState {
   /** Subagent runs accumulated during the current agent turn. */
   pendingSubagentRuns: SubagentRun[]
 
+  /** Skill names activated during the current agent turn (deduped, in order
+   * of activation). Seeded by sendMessage when the user picks a slash skill,
+   * extended by handleSkillActivated for mid-turn LLM activations, drained
+   * into the new agent message at handleTurnComplete. */
+  pendingActivatedSkills: string[]
+
   /** Whether the agent is currently executing a turn. */
   isAgentRunning: boolean
 
@@ -54,6 +80,14 @@ export interface ConversationState {
 
   /** Current session ID (null when no session is active). */
   currentSessionId: string | null
+
+  /**
+   * Per-session snapshot of run state. Notifications for non-current sessions
+   * update this map directly so switching back later shows the latest state
+   * (including any in-flight streaming text or pending tool calls). The
+   * currently-viewed session's snapshot is mirrored to the flat fields above.
+   */
+  sessionRunSnapshots: Map<string, SessionRunSnapshot>
 
   /** List of all sessions for the sidebar. */
   sessions: SessionInfo[]
@@ -70,7 +104,12 @@ export interface ConversationState {
   // -- Actions ---------------------------------------------------------------
 
   /** User sends a message. Adds the message to the list and marks agent as running. */
-  sendMessage: (text: string, files?: string[], images?: ImageAttachment[]) => void
+  sendMessage: (
+    text: string,
+    files?: string[],
+    images?: ImageAttachment[],
+    skillName?: string,
+  ) => void
 
   /** Cancel the current agent run. */
   cancelRun: () => void
@@ -89,6 +128,9 @@ export interface ConversationState {
 
   /** Handle an incoming `agent/turnComplete` notification. */
   handleTurnComplete: (params: AgentTurnCompleteParams) => void
+
+  /** Handle an incoming `skill/activated` notification — dedupes by name. */
+  handleSkillActivated: (params: { name: string; sessionId?: string | null }) => void
 
   /** Handle an incoming `agent/error` notification. */
   handleAgentError: (params: AgentErrorParams) => void
@@ -145,6 +187,116 @@ export interface ConversationState {
 
 function makeId(prefix: string, n: number): string {
   return `${prefix}-${n}`
+}
+
+/**
+ * Determine which session a notification belongs to.
+ *
+ * Modern CLIs stamp `sessionId` on every agent/* notification so the renderer
+ * can route concurrent runs without crosstalk. When the field is absent
+ * (older CLI binaries, or events that fire outside any session), we fall
+ * back to the single-run `activeRunSessionId` set by `sendMessage`.
+ */
+function resolveRunSessionId(
+  params: { sessionId?: string | null },
+  state: { activeRunSessionId: string | null },
+): string | null {
+  if (typeof params.sessionId === 'string' && params.sessionId.length > 0) {
+    return params.sessionId
+  }
+  return state.activeRunSessionId
+}
+
+// --- Per-session snapshot helpers ------------------------------------------
+
+function emptySnapshot(): SessionRunSnapshot {
+  return {
+    messages: [],
+    streamingText: null,
+    activeToolCalls: new Map(),
+    pendingToolCalls: [],
+    pendingSubagentRuns: [],
+    pendingActivatedSkills: [],
+    isAgentRunning: false,
+    contextUsage: null,
+    nextId: 1,
+  }
+}
+
+/** Extract the run-scoped fields from a flat ConversationState. */
+function snapshotFromFlat(state: ConversationState): SessionRunSnapshot {
+  return {
+    messages: state.messages,
+    streamingText: state.streamingText,
+    activeToolCalls: state.activeToolCalls,
+    pendingToolCalls: state.pendingToolCalls,
+    pendingSubagentRuns: state.pendingSubagentRuns,
+    pendingActivatedSkills: state.pendingActivatedSkills,
+    isAgentRunning: state.isAgentRunning,
+    contextUsage: state.contextUsage,
+    nextId: state.nextId,
+  }
+}
+
+/** Translate a snapshot back into the flat fields the UI components read. */
+function flatFromSnapshot(snap: SessionRunSnapshot): {
+  messages: Message[]
+  streamingText: string | null
+  activeToolCalls: Map<string, ToolCallState>
+  pendingToolCalls: CompletedToolCall[]
+  pendingSubagentRuns: SubagentRun[]
+  pendingActivatedSkills: string[]
+  isAgentRunning: boolean
+  contextUsage: AgentContextUsageParams | null
+  nextId: number
+} {
+  return {
+    messages: snap.messages,
+    streamingText: snap.streamingText,
+    activeToolCalls: snap.activeToolCalls,
+    pendingToolCalls: snap.pendingToolCalls,
+    pendingSubagentRuns: snap.pendingSubagentRuns,
+    pendingActivatedSkills: snap.pendingActivatedSkills,
+    isAgentRunning: snap.isAgentRunning,
+    contextUsage: snap.contextUsage,
+    nextId: snap.nextId,
+  }
+}
+
+/**
+ * Apply a per-session run-state update.
+ *
+ * - When `sessionId` is the currently-viewed session, the update lands on the
+ *   flat `messages`/`streamingText`/etc. fields AND in the snapshot map so
+ *   future view-switches restore correctly.
+ * - When `sessionId` is some other session, only the snapshot map is touched —
+ *   the visible UI for the current session is unaffected, but the background
+ *   session's state keeps accumulating so that switching to it later shows
+ *   the latest streaming/tool-call/turn state.
+ *
+ * The `updater` is called on the session's current snapshot (or an empty
+ * snapshot if it doesn't exist yet) and must return the next snapshot.
+ */
+function updateRunState(
+  state: ConversationState,
+  sessionId: string,
+  updater: (snap: SessionRunSnapshot) => SessionRunSnapshot,
+): Partial<ConversationState> {
+  const snapshots = new Map(state.sessionRunSnapshots)
+  const currentSnap =
+    sessionId === state.currentSessionId
+      ? snapshotFromFlat(state)
+      : (snapshots.get(sessionId) ?? emptySnapshot())
+  const next = updater(currentSnap)
+  snapshots.set(sessionId, next)
+
+  if (sessionId === state.currentSessionId) {
+    return {
+      sessionRunSnapshots: snapshots,
+      ...flatFromSnapshot(next),
+    }
+  }
+  return { sessionRunSnapshots: snapshots }
 }
 
 function toSentenceCase(input: string): string {
@@ -512,17 +664,107 @@ function appendSubagentRunToLatestAgentMessage(
   return { messages: next, changed: true }
 }
 
-function shouldApplySubagentNotification(
+/**
+ * Apply a per-subagent-run updater across every session's snapshot AND the
+ * flat current-session state. Used by global notifications like
+ * permission-lease and worker-diff updates that don't carry a sessionId —
+ * the update must reach whichever session owns the matching subagent run.
+ *
+ * `runId` is optional: when provided, only pendingSubagentRuns matching that
+ * id are touched (other entries pass through). When undefined, the updater
+ * runs over every subagent run (used by worker-diff which matches via
+ * isSameWorkerDiff inside the updater).
+ */
+function applyAcrossAllSessions(
   state: ConversationState,
-  parentSessionId: string | undefined,
-): boolean {
-  if (parentSessionId && state.currentSessionId && parentSessionId !== state.currentSessionId) {
-    return false
+  runId: string | undefined,
+  updater: (run: SubagentRun) => SubagentRun,
+): Partial<ConversationState> {
+  const transformSnap = (snap: SessionRunSnapshot): SessionRunSnapshot => {
+    const pending = runId
+      ? updateSubagentRun(snap.pendingSubagentRuns, runId, updater)
+      : snap.pendingSubagentRuns.map(updater)
+    let messagesChanged = false
+    const messages = snap.messages.map((message) => {
+      if (!message.subagentRuns) return message
+      const nextRuns = runId
+        ? message.subagentRuns.map((run) => (run.runId === runId ? updater(run) : run))
+        : message.subagentRuns.map(updater)
+      if (nextRuns.some((run, index) => run !== message.subagentRuns?.[index])) {
+        messagesChanged = true
+        return { ...message, subagentRuns: nextRuns }
+      }
+      return message
+    })
+    return {
+      ...snap,
+      pendingSubagentRuns: pending,
+      messages: messagesChanged ? messages : snap.messages,
+    }
   }
-  if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
-    return false
+
+  const snapshots = new Map<string, SessionRunSnapshot>()
+  for (const [id, snap] of state.sessionRunSnapshots) {
+    snapshots.set(id, transformSnap(snap))
   }
-  return true
+
+  // The flat current-session state isn't in the snapshot map until the user
+  // switches away — also apply directly to it.
+  if (state.currentSessionId) {
+    const currentSnap = transformSnap(snapshotFromFlat(state))
+    snapshots.set(state.currentSessionId, currentSnap)
+    return {
+      sessionRunSnapshots: snapshots,
+      ...flatFromSnapshot(currentSnap),
+    }
+  }
+  return { sessionRunSnapshots: snapshots }
+}
+
+/**
+ * Resolve which session a subagent notification belongs to. Prefer the
+ * unconditional `sessionId` stamped by the CLI bridge; fall back to the
+ * older `parentSessionId` for compatibility, then to whichever session is
+ * currently driving the global activeRunSessionId.
+ */
+function resolveSubagentSessionId(
+  notification: { sessionId?: string | null; parentSessionId?: string },
+  state: ConversationState,
+): string | null {
+  if (typeof notification.sessionId === 'string' && notification.sessionId.length > 0) {
+    return notification.sessionId
+  }
+  if (notification.parentSessionId) return notification.parentSessionId
+  return state.activeRunSessionId
+}
+
+/**
+ * Apply a subagent run update to a session snapshot. Tries pendingSubagentRuns
+ * first (run is mid-turn), then falls back to retroactively updating an
+ * already-finalized assistant message (run completes after turn-complete).
+ */
+function applySubagentUpdate(
+  snap: SessionRunSnapshot,
+  runId: string,
+  updater: (run: SubagentRun) => SubagentRun,
+  base: AgentSubagentStartedNotification | AgentSubagentUpdatedNotification | AgentSubagentCompletedNotification | AgentSubagentFailedNotification,
+): SessionRunSnapshot {
+  const pending = updateSubagentRun(snap.pendingSubagentRuns, runId, updater)
+  if (pending !== snap.pendingSubagentRuns) {
+    return { ...snap, pendingSubagentRuns: pending }
+  }
+
+  const messageUpdate = updateMessageSubagentRun(snap.messages, runId, updater)
+  if (messageUpdate.changed) return { ...snap, messages: messageUpdate.messages }
+
+  // Run was never seen before — synthesize one and either attach to the
+  // most-recent assistant message (if the turn finished) or stash in pending.
+  const run = updater(createSubagentRunBase(base))
+  if (!snap.isAgentRunning) {
+    const append = appendSubagentRunToLatestAgentMessage(snap.messages, run)
+    if (append.changed) return { ...snap, messages: append.messages }
+  }
+  return { ...snap, pendingSubagentRuns: upsertSubagentRun(snap.pendingSubagentRuns, run) }
 }
 
 type StoreSet = (
@@ -601,10 +843,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   activeToolCalls: new Map(),
   pendingToolCalls: [],
   pendingSubagentRuns: [],
+  pendingActivatedSkills: [],
   isAgentRunning: false,
   activeRunSessionId: null,
   nextId: 1,
   currentSessionId: null,
+  sessionRunSnapshots: new Map(),
   sessions: [],
   workspace: null,
   modelName: null,
@@ -612,7 +856,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   // ---- Actions -------------------------------------------------------------
 
-  sendMessage(text: string, files?: string[], images?: ImageAttachment[]) {
+  sendMessage(text: string, files?: string[], images?: ImageAttachment[], skillName?: string) {
     const state = get()
     const runSessionId = state.currentSessionId
     const id = makeId('user', state.nextId)
@@ -634,6 +878,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       pendingSubagentRuns: [],
+      // Seed with the slash-picker selection so the chip shows even if the
+      // skill/activated notification is delayed. handleSkillActivated dedupes
+      // by name when the notification eventually arrives.
+      pendingActivatedSkills: skillName ? [skillName] : [],
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: runSessionId
@@ -702,12 +950,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         message: text,
         files,
         images: images?.map(stripImagePreviewData),
+        skillName,
         client: 'desktop',
         responseStyle: 'desktop-readable',
       })
     })().catch((err) => {
       console.error('agent/run RPC failed:', err)
-      get().handleAgentError({ message: String(err) })
+      // Attribute the error to the session that owned the failed run, so the
+      // sidebar entry for that session shows the error state — not whichever
+      // session the user happens to be viewing now.
+      const failedSessionId = get().activeRunSessionId ?? runSessionId ?? null
+      get().handleAgentError({ sessionId: failedSessionId, message: String(err) })
     })
   },
 
@@ -739,6 +992,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeToolCalls: new Map(),
       pendingToolCalls: [],
       pendingSubagentRuns: [],
+      pendingActivatedSkills: [],
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: state.activeRunSessionId
@@ -757,419 +1011,417 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   handleAgentText(params: AgentTextParams) {
     const state = get()
-    if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
+    const runSessionId = resolveRunSessionId(params, state)
+    if (!runSessionId) {
+      // No session attribution — apply to flat state directly. This keeps
+      // legacy single-session callers (and tests that exercise notifications
+      // before any session exists) working.
+      set((s) => ({ streamingText: (s.streamingText ?? '') + normalizeTextContent(params.text) }))
       return
     }
-    set((state) => ({
-      streamingText: (state.streamingText ?? '') + normalizeTextContent(params.text),
-    }))
+    set(
+      updateRunState(state, runSessionId, (snap) => ({
+        ...snap,
+        streamingText: (snap.streamingText ?? '') + normalizeTextContent(params.text),
+      })),
+    )
   },
 
   handleContextUsage(params: AgentContextUsageParams) {
     const state = get()
-    if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
+    const runSessionId = resolveRunSessionId(params, state)
+    if (!runSessionId) {
+      set({ contextUsage: params })
       return
     }
-    set({ contextUsage: params })
+    set(updateRunState(state, runSessionId, (snap) => ({ ...snap, contextUsage: params })))
   },
 
   handleToolCallStart(params: AgentToolCallStartParams) {
-    set((state) => {
-      const toolName = normalizeToolName(params.toolName)
-      const next = new Map(state.activeToolCalls)
-      next.set(params.toolCallId, {
-        id: params.toolCallId,
-        toolName,
-        input: params.input,
-        status: 'running',
-      })
-      const sessions = state.activeRunSessionId
-        ? state.sessions.map((s) =>
-            s.id === state.activeRunSessionId
-              ? { ...s, runStatus: 'running' as const, activeToolName: toolName }
-              : s,
-          )
-        : state.sessions
-      if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
-        return { sessions }
-      }
-      return { activeToolCalls: next, sessions }
+    const state = get()
+    const runSessionId = resolveRunSessionId(params, state)
+    const toolName = normalizeToolName(params.toolName)
+
+    // Sidebar entry's runStatus / activeToolName always update — the sidebar
+    // shows status across all sessions.
+    const sessions = runSessionId
+      ? state.sessions.map((s) =>
+          s.id === runSessionId
+            ? { ...s, runStatus: 'running' as const, activeToolName: toolName }
+            : s,
+        )
+      : state.sessions
+
+    if (!runSessionId) {
+      set({ sessions })
+      return
+    }
+
+    set({
+      sessions,
+      ...updateRunState(state, runSessionId, (snap) => {
+        const next = new Map(snap.activeToolCalls)
+        next.set(params.toolCallId, {
+          id: params.toolCallId,
+          toolName,
+          input: params.input,
+          status: 'running',
+        })
+        return { ...snap, activeToolCalls: next }
+      }),
     })
   },
 
   handleToolCallEnd(params: AgentToolCallEndParams) {
-    set((state) => {
-      const next = new Map(state.activeToolCalls)
-      const existing = next.get(params.toolCallId)
-      if (existing) {
-        next.delete(params.toolCallId)
-      }
+    const state = get()
+    const runSessionId = resolveRunSessionId(params, state)
+    const sessions = runSessionId
+      ? state.sessions.map((s) =>
+          s.id === runSessionId ? { ...s, activeToolName: undefined } : s,
+        )
+      : state.sessions
 
-      const completed: CompletedToolCall = {
-        id: params.toolCallId,
-        toolName: normalizeToolName(params.toolName ?? existing?.toolName),
-        input: existing?.input,
-        output: params.result,
-        error: params.isError ? normalizeTextContent(params.result) : undefined,
-      }
+    if (!runSessionId) {
+      set({ sessions })
+      return
+    }
 
-      const sessions = state.activeRunSessionId
-        ? state.sessions.map((s) =>
-            s.id === state.activeRunSessionId ? { ...s, activeToolName: undefined } : s,
-          )
-        : state.sessions
-
-      if (state.activeRunSessionId && state.currentSessionId !== state.activeRunSessionId) {
-        return { sessions }
-      }
-
-      return {
-        activeToolCalls: next,
-        pendingToolCalls: [...state.pendingToolCalls, completed],
-        sessions,
-      }
+    set({
+      sessions,
+      ...updateRunState(state, runSessionId, (snap) => {
+        const nextActive = new Map(snap.activeToolCalls)
+        const existing = nextActive.get(params.toolCallId)
+        if (existing) nextActive.delete(params.toolCallId)
+        const completed: CompletedToolCall = {
+          id: params.toolCallId,
+          toolName: normalizeToolName(params.toolName ?? existing?.toolName),
+          input: existing?.input,
+          output: params.result,
+          error: params.isError ? normalizeTextContent(params.result) : undefined,
+        }
+        return {
+          ...snap,
+          activeToolCalls: nextActive,
+          pendingToolCalls: [...snap.pendingToolCalls, completed],
+        }
+      }),
     })
   },
 
   handleTurnComplete(params: AgentTurnCompleteParams) {
     const state = get()
-    const completedSessionId = state.activeRunSessionId
-    if (completedSessionId && state.currentSessionId !== completedSessionId) {
-      set({
-        isAgentRunning: false,
-        activeRunSessionId: null,
-        streamingText: null,
-        activeToolCalls: new Map(),
-        pendingToolCalls: [],
-        pendingSubagentRuns: [],
-        contextUsage: null,
-        sessions: state.sessions.map((s) =>
-          s.id === completedSessionId
-            ? {
-                ...s,
-                runStatus: 'idle' as const,
-                activeToolName: undefined,
-                lastActive: new Date().toISOString(),
-              }
-            : s,
-        ),
+    const completedSessionId = resolveRunSessionId(params, state)
+    if (!completedSessionId) {
+      // Synthetic turn-complete with no session attribution — happens for
+      // the onboarding welcome message and for tests that exercise the
+      // notification path before any session exists. Roll any pending
+      // tool-calls / subagent runs / activated skills into the assistant
+      // message so they appear in the rendered turn.
+      set((s) => {
+        const agentMessage: Message = {
+          id: makeId('agent', s.nextId),
+          role: 'agent',
+          text: normalizeTextContent(params.text),
+          timestamp: new Date().toISOString(),
+          toolCalls: s.pendingToolCalls.length > 0 ? [...s.pendingToolCalls] : undefined,
+          subagentRuns:
+            s.pendingSubagentRuns.length > 0 ? [...s.pendingSubagentRuns] : undefined,
+          activatedSkills:
+            s.pendingActivatedSkills.length > 0 ? [...s.pendingActivatedSkills] : undefined,
+        }
+        return {
+          messages: [...s.messages, agentMessage],
+          streamingText: null,
+          isAgentRunning: false,
+          activeRunSessionId: null,
+          activeToolCalls: new Map(),
+          pendingToolCalls: [],
+          pendingSubagentRuns: [],
+          pendingActivatedSkills: [],
+          nextId: s.nextId + 1,
+        }
       })
       return
     }
 
-    const agentMessage: Message = {
-      id: makeId('agent', state.nextId),
-      role: 'agent',
-      text: normalizeTextContent(params.text),
-      timestamp: new Date().toISOString(),
-      toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
-      subagentRuns:
-        state.pendingSubagentRuns.length > 0 ? [...state.pendingSubagentRuns] : undefined,
-    }
+    // Build the assistant message + finalize the snapshot whether the user is
+    // currently viewing this session or not. The non-current case is what
+    // makes "switching to a session whose run completed in the background"
+    // show the final assistant message instead of stale streaming state.
+    const updates = updateRunState(state, completedSessionId, (snap) => {
+      const agentMessage: Message = {
+        id: makeId('agent', snap.nextId),
+        role: 'agent',
+        text: normalizeTextContent(params.text),
+        timestamp: new Date().toISOString(),
+        toolCalls: snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
+        subagentRuns:
+          snap.pendingSubagentRuns.length > 0 ? [...snap.pendingSubagentRuns] : undefined,
+        activatedSkills:
+          snap.pendingActivatedSkills.length > 0 ? [...snap.pendingActivatedSkills] : undefined,
+      }
+      return {
+        ...snap,
+        messages: [...snap.messages, agentMessage],
+        streamingText: null,
+        isAgentRunning: false,
+        activeToolCalls: new Map(),
+        pendingToolCalls: [],
+        pendingSubagentRuns: [],
+        pendingActivatedSkills: [],
+        nextId: snap.nextId + 1,
+      }
+    })
 
-    const newMessages = [...state.messages, agentMessage]
-
-    // Update the session in the sidebar if there's an active session
-    let updatedSessions = state.sessions
-    if (state.currentSessionId) {
-      updatedSessions = state.sessions.map((s) => {
-        if (s.id !== state.currentSessionId) return s
-        // Keep manual titles stable; refresh automatic titles after the full turn.
-        let title = s.title
-        if (s.titleSource !== 'manual') {
-          const firstUserMsg = newMessages.find((m) => m.role === 'user')
-          if (firstUserMsg) {
-            title = deriveCompletedSessionTitle(firstUserMsg.text, agentMessage.text)
-          }
+    // Refresh the sidebar entry's title/messageCount/runStatus for the
+    // completed session — works whether or not it was the viewed session.
+    const completedSnap = (updates.sessionRunSnapshots as Map<string, SessionRunSnapshot>).get(
+      completedSessionId,
+    )
+    const messageCount = completedSnap?.messages.length ?? 0
+    const lastAgentMessage = completedSnap?.messages[completedSnap.messages.length - 1]
+    const sessions = state.sessions.map((s) => {
+      if (s.id !== completedSessionId) return s
+      let title = s.title
+      if (s.titleSource !== 'manual') {
+        const firstUserMsg = completedSnap?.messages.find((m) => m.role === 'user')
+        if (firstUserMsg) {
+          title = deriveCompletedSessionTitle(firstUserMsg.text, lastAgentMessage?.text)
         }
-        return {
-          ...s,
-          title,
-          titleSource: s.titleSource === 'manual' ? 'manual' : 'auto',
-          messageCount: newMessages.length,
-          lastActive: new Date().toISOString(),
-          runStatus: 'idle',
-          activeToolName: undefined,
-        }
-      })
-    }
+      }
+      return {
+        ...s,
+        title,
+        titleSource: s.titleSource === 'manual' ? ('manual' as const) : ('auto' as const),
+        messageCount,
+        lastActive: new Date().toISOString(),
+        runStatus: 'idle' as const,
+        activeToolName: undefined,
+      }
+    })
 
     set({
-      messages: newMessages,
-      streamingText: null,
-      isAgentRunning: false,
-      activeRunSessionId: null,
-      activeToolCalls: new Map(),
-      pendingToolCalls: [],
-      pendingSubagentRuns: [],
-      nextId: state.nextId + 1,
-      sessions: updatedSessions,
+      ...updates,
+      sessions,
+      // Only clear the global run-tracker if it pointed at the completing
+      // session. Another session may have started a run after this one.
+      ...(state.activeRunSessionId === completedSessionId
+        ? { activeRunSessionId: null }
+        : {}),
     })
+  },
+
+  handleSkillActivated(params: { name: string; sessionId?: string | null }) {
+    const state = get()
+    const runSessionId = resolveRunSessionId(params, state)
+    if (!runSessionId) {
+      // No session attribution — fall back to flat state so the legacy
+      // single-session test path keeps working.
+      set((s) =>
+        s.pendingActivatedSkills.includes(params.name)
+          ? {}
+          : { pendingActivatedSkills: [...s.pendingActivatedSkills, params.name] },
+      )
+      return
+    }
+    set(
+      updateRunState(state, runSessionId, (snap) => {
+        if (snap.pendingActivatedSkills.includes(params.name)) return snap
+        return { ...snap, pendingActivatedSkills: [...snap.pendingActivatedSkills, params.name] }
+      }),
+    )
   },
 
   handleAgentError(params: AgentErrorParams) {
     const state = get()
-    const failedSessionId = state.activeRunSessionId
-    if (failedSessionId && state.currentSessionId !== failedSessionId) {
-      set({
-        isAgentRunning: false,
-        activeRunSessionId: null,
-        streamingText: null,
-        activeToolCalls: new Map(),
-        pendingToolCalls: [],
-        pendingSubagentRuns: [],
-        contextUsage: null,
-        sessions: state.sessions.map((s) =>
-          s.id === failedSessionId
-            ? { ...s, runStatus: 'error' as const, activeToolName: undefined }
-            : s,
-        ),
+    const failedSessionId = resolveRunSessionId(params, state)
+    if (!failedSessionId) {
+      // Synthetic error with no session attribution.
+      set((s) => {
+        const errorMessage: Message = {
+          id: makeId('error', s.nextId),
+          role: 'error',
+          text: normalizeTextContent(params.message),
+          timestamp: new Date().toISOString(),
+        }
+        return {
+          messages: [...s.messages, errorMessage],
+          streamingText: null,
+          isAgentRunning: false,
+          activeRunSessionId: null,
+          activeToolCalls: new Map(),
+          pendingToolCalls: [],
+          pendingSubagentRuns: [],
+          pendingActivatedSkills: [],
+          nextId: s.nextId + 1,
+          contextUsage: null,
+        }
       })
       return
     }
 
-    const errorMessage: Message = {
-      id: makeId('error', state.nextId),
-      role: 'error',
-      text: normalizeTextContent(params.message),
-      timestamp: new Date().toISOString(),
-    }
-
-    // Finalize any in-progress streaming text as well.
-    const messages = [...state.messages]
-    const streamText = state.streamingText
-    if (streamText && streamText.length > 0) {
+    const updates = updateRunState(state, failedSessionId, (snap) => {
+      // Finalize any in-progress streaming text as a partial agent message
+      // so the user sees what made it through before the error landed.
+      const messages = [...snap.messages]
+      let nextId = snap.nextId
+      if (snap.streamingText && snap.streamingText.length > 0) {
+        messages.push({
+          id: makeId('agent', nextId),
+          role: 'agent',
+          text: snap.streamingText,
+          timestamp: new Date().toISOString(),
+          toolCalls: snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
+          subagentRuns:
+            snap.pendingSubagentRuns.length > 0 ? [...snap.pendingSubagentRuns] : undefined,
+        })
+        nextId += 1
+      }
       messages.push({
-        id: makeId('agent', state.nextId),
-        role: 'agent',
-        text: streamText,
+        id: makeId('error', nextId),
+        role: 'error',
+        text: normalizeTextContent(params.message),
         timestamp: new Date().toISOString(),
-        toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
-        subagentRuns:
-          state.pendingSubagentRuns.length > 0 ? [...state.pendingSubagentRuns] : undefined,
       })
-    }
-    messages.push(errorMessage)
+      return {
+        ...snap,
+        messages,
+        streamingText: null,
+        isAgentRunning: false,
+        activeToolCalls: new Map(),
+        pendingToolCalls: [],
+        pendingSubagentRuns: [],
+        pendingActivatedSkills: [],
+        nextId: nextId + 1,
+        contextUsage: null,
+      }
+    })
 
     set({
-      messages,
-      streamingText: null,
-      isAgentRunning: false,
-      activeRunSessionId: null,
-      activeToolCalls: new Map(),
-      pendingToolCalls: [],
-      pendingSubagentRuns: [],
-      nextId: state.nextId + 2,
-      contextUsage: null,
-      sessions: failedSessionId
-        ? state.sessions.map((s) =>
-            s.id === failedSessionId
-              ? { ...s, runStatus: 'error' as const, activeToolName: undefined }
-              : s,
-          )
-        : state.sessions,
+      ...updates,
+      sessions: state.sessions.map((s) =>
+        s.id === failedSessionId
+          ? { ...s, runStatus: 'error' as const, activeToolName: undefined }
+          : s,
+      ),
+      ...(state.activeRunSessionId === failedSessionId
+        ? { activeRunSessionId: null }
+        : {}),
     })
   },
 
   handleSubagentStarted(params: AgentSubagentStartedNotification) {
-    set((state) => {
-      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
-      return {
-        pendingSubagentRuns: upsertSubagentRun(
-          state.pendingSubagentRuns,
-          createSubagentRun(params),
-        ),
-      }
-    })
+    const state = get()
+    const sessionId = resolveSubagentSessionId(params, state)
+    if (!sessionId) return
+    set(
+      updateRunState(state, sessionId, (snap) => ({
+        ...snap,
+        pendingSubagentRuns: upsertSubagentRun(snap.pendingSubagentRuns, createSubagentRun(params)),
+      })),
+    )
   },
 
   handleSubagentUpdated(params: AgentSubagentUpdatedNotification) {
-    set((state) => {
-      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
-
-      const updater = (run: SubagentRun): SubagentRun => ({
-        ...run,
-        childSessionId: params.childSessionId ?? run.childSessionId,
-        task: params.task,
-        status: 'running',
-        updatedAt: params.updatedAt,
-        message: params.message,
-      })
-
-      const pendingSubagentRuns = updateSubagentRun(
-        state.pendingSubagentRuns,
-        params.runId,
-        updater,
-      )
-      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
-        return { pendingSubagentRuns }
-      }
-
-      const messageUpdate = updateMessageSubagentRun(state.messages, params.runId, updater)
-      if (messageUpdate.changed) return { messages: messageUpdate.messages }
-
-      const run = updater(createSubagentRunBase(params))
-      if (!state.isAgentRunning) {
-        const appendUpdate = appendSubagentRunToLatestAgentMessage(state.messages, run)
-        if (appendUpdate.changed) return { messages: appendUpdate.messages }
-      }
-
-      return {
-        pendingSubagentRuns: upsertSubagentRun(state.pendingSubagentRuns, run),
-      }
+    const state = get()
+    const sessionId = resolveSubagentSessionId(params, state)
+    if (!sessionId) return
+    const updater = (run: SubagentRun): SubagentRun => ({
+      ...run,
+      childSessionId: params.childSessionId ?? run.childSessionId,
+      task: params.task,
+      status: 'running',
+      updatedAt: params.updatedAt,
+      message: params.message,
     })
+    set(
+      updateRunState(state, sessionId, (snap) =>
+        applySubagentUpdate(snap, params.runId, updater, params),
+      ),
+    )
   },
 
   handleSubagentCompleted(params: AgentSubagentCompletedNotification) {
-    set((state) => {
-      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
-
-      const result = extractSubagentResult(params.result)
-      const workerDiff = extractWorkerDiff(params.result, params.workerDiff)
-      const updater = (run: SubagentRun): SubagentRun => ({
-        ...run,
-        childSessionId: params.childSessionId ?? run.childSessionId,
-        task: params.task,
-        status: 'completed',
-        completedAt: params.completedAt,
-        summary: result.summary,
-        evidenceCount: result.evidenceCount,
-        uncertaintyCount: result.uncertaintyCount,
-        evidence: result.evidence,
-        workerDiff: workerDiff ?? run.workerDiff,
-        failureMessage: undefined,
-      })
-
-      const pendingSubagentRuns = updateSubagentRun(
-        state.pendingSubagentRuns,
-        params.runId,
-        updater,
-      )
-      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
-        return { pendingSubagentRuns }
-      }
-
-      const messageUpdate = updateMessageSubagentRun(state.messages, params.runId, updater)
-      if (messageUpdate.changed) return { messages: messageUpdate.messages }
-
-      const run = updater(createSubagentRunBase(params))
-      if (!state.isAgentRunning) {
-        const appendUpdate = appendSubagentRunToLatestAgentMessage(state.messages, run)
-        if (appendUpdate.changed) return { messages: appendUpdate.messages }
-      }
-
-      return {
-        pendingSubagentRuns: upsertSubagentRun(state.pendingSubagentRuns, run),
-      }
+    const state = get()
+    const sessionId = resolveSubagentSessionId(params, state)
+    if (!sessionId) return
+    const result = extractSubagentResult(params.result)
+    const workerDiff = extractWorkerDiff(params.result, params.workerDiff)
+    const updater = (run: SubagentRun): SubagentRun => ({
+      ...run,
+      childSessionId: params.childSessionId ?? run.childSessionId,
+      task: params.task,
+      status: 'completed',
+      completedAt: params.completedAt,
+      summary: result.summary,
+      evidenceCount: result.evidenceCount,
+      uncertaintyCount: result.uncertaintyCount,
+      evidence: result.evidence,
+      workerDiff: workerDiff ?? run.workerDiff,
+      failureMessage: undefined,
     })
+    set(
+      updateRunState(state, sessionId, (snap) =>
+        applySubagentUpdate(snap, params.runId, updater, params),
+      ),
+    )
   },
 
   handleSubagentFailed(params: AgentSubagentFailedNotification) {
-    set((state) => {
-      if (!shouldApplySubagentNotification(state, params.parentSessionId)) return state
-
-      const result = extractSubagentResult(params.result)
-      const workerDiff = extractWorkerDiff(params.result, params.workerDiff)
-      const updater = (run: SubagentRun): SubagentRun => ({
-        ...run,
-        childSessionId: params.childSessionId ?? run.childSessionId,
-        task: params.task,
-        status: 'failed',
-        completedAt: params.completedAt,
-        summary: result.summary,
-        evidenceCount: result.evidenceCount,
-        uncertaintyCount: result.uncertaintyCount,
-        evidence: result.evidence,
-        workerDiff: workerDiff ?? run.workerDiff,
-        failureMessage: params.error.message,
-      })
-
-      const pendingSubagentRuns = updateSubagentRun(
-        state.pendingSubagentRuns,
-        params.runId,
-        updater,
-      )
-      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
-        return { pendingSubagentRuns }
-      }
-
-      const messageUpdate = updateMessageSubagentRun(state.messages, params.runId, updater)
-      if (messageUpdate.changed) return { messages: messageUpdate.messages }
-
-      const run = updater(createSubagentRunBase(params))
-      if (!state.isAgentRunning) {
-        const appendUpdate = appendSubagentRunToLatestAgentMessage(state.messages, run)
-        if (appendUpdate.changed) return { messages: appendUpdate.messages }
-      }
-
-      return {
-        pendingSubagentRuns: upsertSubagentRun(state.pendingSubagentRuns, run),
-      }
+    const state = get()
+    const sessionId = resolveSubagentSessionId(params, state)
+    if (!sessionId) return
+    const result = extractSubagentResult(params.result)
+    const workerDiff = extractWorkerDiff(params.result, params.workerDiff)
+    const updater = (run: SubagentRun): SubagentRun => ({
+      ...run,
+      childSessionId: params.childSessionId ?? run.childSessionId,
+      task: params.task,
+      status: 'failed',
+      completedAt: params.completedAt,
+      summary: result.summary,
+      evidenceCount: result.evidenceCount,
+      uncertaintyCount: result.uncertaintyCount,
+      evidence: result.evidence,
+      workerDiff: workerDiff ?? run.workerDiff,
+      failureMessage: params.error.message,
     })
+    set(
+      updateRunState(state, sessionId, (snap) =>
+        applySubagentUpdate(snap, params.runId, updater, params),
+      ),
+    )
   },
 
   handlePermissionLeaseUpdated(params: AgentPermissionLeaseUpdatedNotification) {
-    set((state) => {
-      const updater = (run: SubagentRun): SubagentRun => ({
-        ...run,
-        permissionLeases: upsertPermissionLease(run.permissionLeases, params),
-      })
-
-      const pendingSubagentRuns = updateSubagentRun(
-        state.pendingSubagentRuns,
-        params.agentRunId,
-        updater,
-      )
-      if (pendingSubagentRuns !== state.pendingSubagentRuns) {
-        return { pendingSubagentRuns }
-      }
-
-      const messageUpdate = updateMessageSubagentRun(state.messages, params.agentRunId, updater)
-      if (messageUpdate.changed) return { messages: messageUpdate.messages }
-
-      return state
+    // Permission lease updates don't carry a `sessionId` — they relate to a
+    // subagent run identified only by `agentRunId`. Apply across every
+    // session's snapshot (and the flat current state) so the update lands
+    // wherever that run is tracked, regardless of which view is active.
+    const updater = (run: SubagentRun): SubagentRun => ({
+      ...run,
+      permissionLeases: upsertPermissionLease(run.permissionLeases, params),
     })
+    set((state) => applyAcrossAllSessions(state, params.agentRunId, updater))
   },
 
   handleWorkerDiffUpdated(params: WorkerDiffDisplayDetails) {
-    set((state) => {
-      const updater = (run: SubagentRun): SubagentRun =>
-        isSameWorkerDiff(run.workerDiff, params)
-          ? { ...run, workerDiff: { ...run.workerDiff, ...params } }
-          : run
-
-      const pendingSubagentRuns = state.pendingSubagentRuns.map(updater)
-      if (pendingSubagentRuns.some((run, index) => run !== state.pendingSubagentRuns[index])) {
-        return { pendingSubagentRuns }
-      }
-
-      let changed = false
-      const messages = state.messages.map((message) => {
-        if (!message.subagentRuns) return message
-        const nextRuns = message.subagentRuns.map(updater)
-        if (nextRuns.some((run, index) => run !== message.subagentRuns?.[index])) {
-          changed = true
-          return { ...message, subagentRuns: nextRuns }
-        }
-        return message
-      })
-
-      return changed ? { messages } : state
-    })
+    // Same cross-session apply as permission leases — the worker diff update
+    // matches by `taskId` via isSameWorkerDiff so we can't pre-filter by
+    // session.
+    const updater = (run: SubagentRun): SubagentRun =>
+      isSameWorkerDiff(run.workerDiff, params)
+        ? { ...run, workerDiff: { ...run.workerDiff, ...params } }
+        : run
+    set((state) => applyAcrossAllSessions(state, undefined, updater))
   },
 
   resetConversation() {
     set({
-      messages: [],
-      streamingText: null,
-      activeToolCalls: new Map(),
-      pendingToolCalls: [],
-      pendingSubagentRuns: [],
-      isAgentRunning: false,
+      ...flatFromSnapshot(emptySnapshot()),
       activeRunSessionId: null,
-      nextId: 1,
       currentSessionId: null,
-      contextUsage: null,
+      sessionRunSnapshots: new Map(),
     })
   },
 
@@ -1201,7 +1453,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   setCurrentSessionId(id: string | null) {
-    set({ currentSessionId: id })
+    const state = get()
+    if (state.currentSessionId === id) return
+    // Snapshot the outgoing session's flat state so its in-flight messages,
+    // streamingText, etc. survive a switch-back.
+    const snapshots = new Map(state.sessionRunSnapshots)
+    if (state.currentSessionId) {
+      snapshots.set(state.currentSessionId, snapshotFromFlat(state))
+    }
+    // Restore incoming session's snapshot (or start fresh if we've never
+    // seen it). The flat fields mirror the snapshot so component code that
+    // reads `state.messages` etc. keeps working unchanged.
+    const incoming = id ? (snapshots.get(id) ?? emptySnapshot()) : emptySnapshot()
+    set({
+      currentSessionId: id,
+      sessionRunSnapshots: snapshots,
+      ...flatFromSnapshot(incoming),
+    })
   },
 
   loadSession(id: string, sessionMessages: SessionMessage[], workspacePath?: string | null) {
@@ -1215,22 +1483,48 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       ...(m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0
         ? { toolCalls: m.toolCalls }
         : {}),
+      ...(m.role === 'assistant' && m.activatedSkills && m.activatedSkills.length > 0
+        ? { activatedSkills: m.activatedSkills }
+        : {}),
     }))
 
+    // Snapshot the outgoing session before switching so its in-flight state
+    // is preserved if the user comes back.
+    const snapshots = new Map(state.sessionRunSnapshots)
+    if (state.currentSessionId && state.currentSessionId !== id) {
+      snapshots.set(state.currentSessionId, snapshotFromFlat(state))
+    }
+
+    // Choose the incoming snapshot. If we already have one (from a prior
+    // visit or background notifications), prefer it when it has at least as
+    // many messages as the CLI's persisted copy — its accumulated streaming
+    // / pending state is more recent. Otherwise build fresh from the CLI
+    // payload so cold loads work.
+    const existing = snapshots.get(id)
+    const incoming: SessionRunSnapshot =
+      existing && existing.messages.length >= messages.length
+        ? existing
+        : {
+            messages,
+            streamingText: existing?.streamingText ?? null,
+            activeToolCalls: existing?.activeToolCalls ?? new Map(),
+            pendingToolCalls: existing?.pendingToolCalls ?? [],
+            pendingSubagentRuns: existing?.pendingSubagentRuns ?? [],
+            pendingActivatedSkills: existing?.pendingActivatedSkills ?? [],
+            isAgentRunning: state.activeRunSessionId === id,
+            contextUsage: existing?.contextUsage ?? null,
+            nextId: messages.length + 1,
+          }
+    snapshots.set(id, incoming)
+
     set({
-      messages,
-      streamingText: null,
-      activeToolCalls: new Map(),
-      pendingToolCalls: [],
-      pendingSubagentRuns: [],
-      isAgentRunning: state.activeRunSessionId === id,
-      nextId: messages.length + 1,
       currentSessionId: id,
-      contextUsage: null,
+      sessionRunSnapshots: snapshots,
+      ...flatFromSnapshot(incoming),
       ...(workspacePath ? { workspace: workspacePath } : {}),
     })
 
-    hydrateLoadedImagePreviews(id, messages, set, get)
+    hydrateLoadedImagePreviews(id, incoming.messages, set, get)
   },
 
   createNewSession(sessionId: string) {
@@ -1244,48 +1538,48 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       titleSource: 'auto',
     }
 
+    // Snapshot the outgoing session before switching to the new one — this
+    // is what preserves the previous session's chat history when the user
+    // clicks "+ new chat" while a turn is still streaming.
+    const snapshots = new Map(state.sessionRunSnapshots)
+    if (state.currentSessionId) {
+      snapshots.set(state.currentSessionId, snapshotFromFlat(state))
+    }
+    snapshots.set(sessionId, emptySnapshot())
+
     set({
-      messages: [],
-      streamingText: null,
-      activeToolCalls: new Map(),
-      pendingToolCalls: [],
-      pendingSubagentRuns: [],
-      isAgentRunning: false,
+      ...flatFromSnapshot(emptySnapshot()),
+      // Preserve the global activeRunSessionId — another session's run may
+      // still be in flight, and we don't want to lose the tracker just
+      // because the user clicked "+ new chat".
       activeRunSessionId: state.activeRunSessionId,
-      nextId: 1,
       currentSessionId: sessionId,
       sessions: [newSession, ...state.sessions],
-      contextUsage: null,
+      sessionRunSnapshots: snapshots,
     })
   },
 
   deleteSession(id: string) {
     const state = get()
     const newSessions = state.sessions.filter((s) => s.id !== id)
-    const updates: Partial<ConversationState> = { sessions: newSessions }
+    // Drop the deleted session's snapshot so it doesn't leak memory and so
+    // recreating a session with the same id (unlikely but possible) starts
+    // empty.
+    const snapshots = new Map(state.sessionRunSnapshots)
+    snapshots.delete(id)
+
+    const updates: Partial<ConversationState> = {
+      sessions: newSessions,
+      sessionRunSnapshots: snapshots,
+    }
 
     if (state.activeRunSessionId === id) {
       updates.activeRunSessionId = null
-      updates.isAgentRunning = false
-      updates.streamingText = null
-      updates.activeToolCalls = new Map()
-      updates.pendingToolCalls = []
-      updates.pendingSubagentRuns = []
-      updates.contextUsage = null
     }
 
-    // If we're deleting the active session, clear the chat
+    // If we're deleting the currently-viewed session, clear the visible chat.
     if (state.currentSessionId === id) {
-      updates.messages = []
-      updates.streamingText = null
-      updates.activeToolCalls = new Map()
-      updates.pendingToolCalls = []
-      updates.pendingSubagentRuns = []
-      updates.isAgentRunning = false
-      updates.activeRunSessionId = null
-      updates.nextId = 1
-      updates.currentSessionId = null
-      updates.contextUsage = null
+      Object.assign(updates, flatFromSnapshot(emptySnapshot()), { currentSessionId: null })
     }
 
     set(updates as ConversationState)

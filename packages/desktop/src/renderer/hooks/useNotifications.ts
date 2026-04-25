@@ -28,6 +28,7 @@ export function useNotifications(): void {
       handleSubagentCompleted,
       handleSubagentFailed,
       handlePermissionLeaseUpdated,
+      handleSkillActivated,
     } = useConversationStore.getState()
 
     loadApprovals().catch((error) => {
@@ -67,6 +68,9 @@ export function useNotifications(): void {
       }),
       api.onNotification('agent/permissionLeaseUpdated', (params) => {
         handlePermissionLeaseUpdated(params)
+      }),
+      api.onNotification('skill/activated', (params) => {
+        handleSkillActivated(params)
       }),
       api.onNotification('approval/request', (params: ApprovalRequestNotification) => {
         addApproval(toPendingApproval(params))

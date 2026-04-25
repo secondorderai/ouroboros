@@ -121,9 +121,12 @@ export function App(): React.ReactElement {
         })
         .catch(() => {})
 
-      // Add welcome message as a system message
+      // Add welcome message as a system message. Synthetic event — no
+      // sessionId because it's locally generated, not from a CLI run.
       if (welcomeMessage) {
-        useConversationStore.getState().handleTurnComplete({ text: welcomeMessage })
+        useConversationStore
+          .getState()
+          .handleTurnComplete({ sessionId: null, text: welcomeMessage, iterations: 0 })
       }
     },
     [setModelName],

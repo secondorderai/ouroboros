@@ -275,6 +275,10 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         typeof request.params?.directory === 'string' ? request.params.directory : runtime.workspace
       writeResult(request.id, { directory: runtime.workspace })
       return
+    case 'workspace/clear':
+      runtime.workspace = runtime.initialWorkspace ?? null
+      writeResult(request.id, { directory: runtime.workspace ?? '' })
+      return
     case 'session/list':
       writeResult(request.id, {
         sessions: runtime.sessions.map((session) => toSessionInfo(session)),
@@ -290,6 +294,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         })
         return
       }
+      runtime.currentSessionId = session.id
       writeResult(request.id, {
         id: session.id,
         createdAt: session.createdAt,
@@ -310,13 +315,17 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         messages: [],
       }
       runtime.sessions.unshift(newSession)
+      runtime.currentSessionId = newSession.id
       writeResult(request.id, { sessionId: newSession.id })
       return
     }
-    case 'session/delete':
-      runtime.sessions = runtime.sessions.filter((entry) => entry.id !== request.params?.id)
+    case 'session/delete': {
+      const id = request.params?.id
+      runtime.sessions = runtime.sessions.filter((entry) => entry.id !== id)
+      if (runtime.currentSessionId === id) runtime.currentSessionId = null
       writeResult(request.id, { deleted: true })
       return
+    }
     case 'session/rename': {
       const id = request.params?.id
       const title = request.params?.title
@@ -414,6 +423,15 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
       writeResult(request.id, runtime.plan)
       return
     case 'agent/run': {
+      // Pin the run to the explicit sessionId param if given, else the
+      // currently-viewed session. Mirrors the real CLI's `agent/run`
+      // capture-at-start semantics so a session/* mid-run can't redirect
+      // persistence (the bug we're regression-testing here).
+      const runSessionId =
+        (typeof request.params?.sessionId === 'string' && request.params.sessionId) ||
+        runtime.currentSessionId ||
+        null
+
       const runSpec = scenario.agentRuns?.[agentRunIndex] ??
         scenario.defaultAgentRun ?? {
           response: {
@@ -432,6 +450,36 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
           ],
         }
       agentRunIndex += 1
+
+      // Persist the user's prompt + assistant reply to the captured session
+      // so subsequent session/load returns the conversation. This is what
+      // exercises the "switch back to session A" bug regression: if the
+      // session were lost or persistence misrouted, this stored data would
+      // be missing or attached to the wrong session.
+      if (runSessionId) {
+        const session = runtime.sessions.find((entry) => entry.id === runSessionId)
+        if (session) {
+          const now = new Date().toISOString()
+          if (typeof request.params?.message === 'string') {
+            session.messages.push({
+              role: 'user',
+              content: request.params.message,
+              timestamp: now,
+            })
+          }
+          const responseText =
+            typeof runSpec.response?.text === 'string'
+              ? runSpec.response.text
+              : 'Mock final answer'
+          session.messages.push({
+            role: 'assistant',
+            content: responseText,
+            timestamp: now,
+          })
+          session.lastActive = now
+        }
+      }
+
       writeResult(
         request.id,
         runSpec.response ?? {
@@ -441,7 +489,14 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
           maxIterationsReached: false,
         },
       )
-      scheduleNotifications(runSpec.notifications ?? [])
+      // Stamp sessionId on every agent/* notification so the renderer can
+      // route per-session — matches the real CLI bridge.
+      const stampedNotifications = (runSpec.notifications ?? []).map((notif) =>
+        notif.method.startsWith('agent/') || notif.method === 'skill/activated'
+          ? { ...notif, params: { sessionId: runSessionId, ...(notif.params ?? {}) } }
+          : notif,
+      )
+      scheduleNotifications(stampedNotifications)
       return
     }
     case 'agent/cancel':
@@ -462,6 +517,7 @@ function createRuntimeState(currentScenario: MockScenario) {
     config: structuredClone(currentScenario.config ?? defaultConfig),
     apiKeys: { ...(currentScenario.apiKeys ?? {}) },
     workspace: currentScenario.workspace ?? null,
+    initialWorkspace: currentScenario.workspace ?? null,
     approvals: [...(currentScenario.approvals ?? [])],
     skills: [...(currentScenario.skills ?? [])],
     evolutionEntries: [...(currentScenario.evolutionEntries ?? [])],
@@ -476,6 +532,7 @@ function createRuntimeState(currentScenario: MockScenario) {
     modeState: structuredClone(currentScenario.modeState ?? { status: 'inactive' }),
     plan: currentScenario.plan ? structuredClone(currentScenario.plan) : null,
     sessionCounter: currentScenario.sessionCounter ?? currentScenario.sessions?.length ?? 0,
+    currentSessionId: null as string | null,
     auth: {
       connected: currentScenario.authStatus?.connected ?? false,
       pending: false,

@@ -211,6 +211,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const activeToolCalls = useConversationStore((s) => s.activeToolCalls)
   const pendingToolCalls = useConversationStore((s) => s.pendingToolCalls)
   const pendingSubagentRuns = useConversationStore((s) => s.pendingSubagentRuns)
+  const pendingActivatedSkills = useConversationStore((s) => s.pendingActivatedSkills)
   const sessions = useConversationStore((s) => s.sessions)
   const cancelRun = useConversationStore((s) => s.cancelRun)
   const bufferedText = useStreamingBuffer()
@@ -290,6 +291,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           activeToolCalls={activeToolCalls}
           completedToolCalls={pendingToolCalls}
           subagentRuns={pendingSubagentRuns}
+          activatedSkills={pendingActivatedSkills}
           isRunning={isAgentRunning}
           expandedToolCallIds={expandedToolCallIds}
           onToolCallExpandedChange={handleToolCallExpandedChange}
@@ -303,6 +305,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       activeToolCalls,
       pendingToolCalls,
       pendingSubagentRuns,
+      pendingActivatedSkills,
       isAgentRunning,
       expandedToolCallIds,
       handleToolCallExpandedChange,

@@ -99,6 +99,10 @@ export interface Message {
   toolCalls?: CompletedToolCall[]
   /** Subagent activity that appeared during this agent turn. */
   subagentRuns?: SubagentRun[]
+  /** Skills active for this agent turn (deduped by name). Set on assistant
+   * messages only — sourced from the user's slash-picker selection plus any
+   * skills the LLM activates mid-turn via skill-manager. */
+  activatedSkills?: string[]
 }
 
 export interface CompletedToolCall {
@@ -203,13 +207,19 @@ export interface SubagentRun {
 }
 
 // ── Notification Payload Types (CLI -> Renderer) ──────────────────
+//
+// Every agent/* notification carries `sessionId` so the renderer can route
+// concurrent runs without crosstalk. `null` means the event fired outside
+// any session (legacy single-session events, or rare process-wide events).
 
 export interface AgentTextParams {
+  sessionId: string | null
   /** Incremental text chunk from the agent. */
   text: string
 }
 
 export interface AgentContextUsageParams {
+  sessionId: string | null
   estimatedTotalTokens: number
   contextWindowTokens: number | null
   usageRatio: number | null
@@ -217,12 +227,14 @@ export interface AgentContextUsageParams {
 }
 
 export interface AgentToolCallStartParams {
+  sessionId: string | null
   toolCallId: string
   toolName: string
   input?: unknown
 }
 
 export interface AgentToolCallEndParams {
+  sessionId: string | null
   toolCallId: string
   toolName: string
   result?: unknown
@@ -230,12 +242,14 @@ export interface AgentToolCallEndParams {
 }
 
 export interface AgentTurnCompleteParams {
+  sessionId: string | null
   /** The full text of the agent's response once streaming is done. */
   text: string
   iterations?: number
 }
 
 export interface AgentErrorParams {
+  sessionId: string | null
   message: string
   recoverable?: boolean
 }
@@ -314,11 +328,25 @@ export interface AgentRunParams {
   message: string
   files?: string[]
   images?: ImageAttachment[]
+  skillName?: string
   client?: AgentClient
   responseStyle?: AgentResponseStyle
   maxSteps?: number
+  /**
+   * Session this run belongs to. Pinned at the start of the run so persistence
+   * always lands on the right session even if the user switches views before
+   * the turn completes. Falls back to the CLI's currently-viewed session when
+   * omitted (legacy single-session callers).
+   */
+  sessionId?: string
 }
-export type AgentCancelParams = Record<string, never>
+/**
+ * Cancel a specific session's in-flight run. Falls back to the currently
+ * viewed session when omitted.
+ */
+export interface AgentCancelParams {
+  sessionId?: string
+}
 export interface SessionListParams {
   limit?: number
 }
@@ -394,6 +422,7 @@ export interface AskUserRespondParams {
 export interface WorkspaceSetParams {
   directory: string
 }
+export type WorkspaceClearParams = Record<string, never>
 
 export type TaskGraphStatus = 'draft' | 'running' | 'paused' | 'failed' | 'cancelled' | 'completed'
 export type TaskNodeStatus =
@@ -561,6 +590,8 @@ export interface SessionMessage {
   imageAttachments?: ImageAttachment[]
   /** Tool calls made during this assistant turn (assistant role only). */
   toolCalls?: CompletedToolCall[]
+  /** Skills active for this assistant turn (deduped by name). */
+  activatedSkills?: string[]
 }
 export interface SessionData {
   id: string
@@ -737,6 +768,8 @@ export interface ApprovalItem {
   diff?: string
   lease?: Omit<PermissionLeaseDisplayDetails, 'status'> & { status?: PermissionLeaseStatus }
   workerDiff?: WorkerDiffDisplayDetails
+  /** Skill name when type === 'skill-activation'. */
+  skillName?: string
 }
 export interface ApprovalListResult {
   approvals: ApprovalItem[]
@@ -746,12 +779,17 @@ export interface ApprovalRespondResult {
   message?: string
   lease?: PermissionLeaseDisplayDetails
   workerDiff?: WorkerDiffDisplayDetails
+  /** Set when responding to a skill-activation approval. */
+  skillName?: string
 }
 export interface AskUserRespondResult {
   ok: boolean
 }
 
 export interface WorkspaceSetResult {
+  directory: string
+}
+export interface WorkspaceClearResult {
   directory: string
 }
 
@@ -831,6 +869,7 @@ export interface RpcMethodMap {
   'approval/respond': { params: ApprovalRespondParams; result: ApprovalRespondResult }
   'askUser/respond': { params: AskUserRespondParams; result: AskUserRespondResult }
   'workspace/set': { params: WorkspaceSetParams; result: WorkspaceSetResult }
+  'workspace/clear': { params: WorkspaceClearParams; result: WorkspaceClearResult }
   'team/create': { params: TeamCreateParams; result: TeamGraphResult }
   'team/createWorkflow': { params: TeamCreateWorkflowParams; result: TeamGraphResult }
   'team/get': { params: TeamGraphParams; result: TeamGraphResult }
@@ -883,6 +922,7 @@ export const RPC_METHOD_NAMES = [
   'approval/respond',
   'askUser/respond',
   'workspace/set',
+  'workspace/clear',
   'team/create',
   'team/createWorkflow',
   'team/get',
@@ -910,39 +950,51 @@ const _rpcCoverage: _RpcMethodCoverageCheck = true
 void _rpcCoverage
 
 // ── Notification Types ─────────────────────────────────────────────
+//
+// The Notification types are wire envelopes for the *Params payload types
+// above. They carry the same `sessionId` so the renderer can route
+// concurrent runs from different sessions without UI crosstalk.
 
-export interface AgentTextNotification {
-  text: string
+/**
+ * Common base for notifications emitted while an agent run is in flight.
+ * `sessionId` identifies which session (and therefore which agent) produced
+ * the event. `null` means the event has no session attribution (e.g. a
+ * skill activated before any session exists; events from older CLIs).
+ */
+export interface AgentRunSessionScoped {
+  sessionId: string | null
 }
+
+export interface AgentTextNotification extends AgentTextParams {}
 export interface AgentContextUsageNotification extends AgentContextUsageParams {}
-export interface AgentToolCallStartNotification {
+export interface AgentToolCallStartNotification extends AgentRunSessionScoped {
   toolCallId: string
   toolName: string
   input: unknown
 }
-export interface AgentToolCallEndNotification {
+export interface AgentToolCallEndNotification extends AgentRunSessionScoped {
   toolCallId: string
   toolName: string
   result: unknown
   isError: boolean
 }
-export interface AgentTurnCompleteNotification {
+export interface AgentTurnCompleteNotification extends AgentRunSessionScoped {
   text: string
   iterations: number
 }
-export interface AgentErrorNotification {
+export interface AgentErrorNotification extends AgentRunSessionScoped {
   message: string
   recoverable?: boolean
 }
-export interface AgentThinkingNotification {
+export interface AgentThinkingNotification extends AgentRunSessionScoped {
   text: string
 }
-export interface AgentStatusNotification {
+export interface AgentStatusNotification extends AgentRunSessionScoped {
   status: string
   message?: string
 }
 export type SubagentRunStatus = 'running' | 'completed' | 'failed'
-export interface SubagentLifecycleBaseNotification {
+export interface SubagentLifecycleBaseNotification extends AgentRunSessionScoped {
   runId: string
   parentSessionId?: string
   childSessionId?: string
@@ -979,7 +1031,7 @@ export interface MemoryUpdatedNotification {
   topic: string
   action: 'created' | 'updated' | 'deleted'
 }
-export interface SkillActivatedNotification {
+export interface SkillActivatedNotification extends AgentRunSessionScoped {
   name: string
 }
 export interface ApprovalRequestNotification {

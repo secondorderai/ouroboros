@@ -108,7 +108,6 @@ export function Sidebar({
   const createNewSession = useConversationStore((s) => s.createNewSession)
   const deleteSession = useConversationStore((s) => s.deleteSession)
   const renameSession = useConversationStore((s) => s.renameSession)
-  const setCurrentSessionId = useConversationStore((s) => s.setCurrentSessionId)
 
   const [contextMenu, setContextMenu] = useState<{
     sessionId: string
@@ -181,22 +180,22 @@ export function Sidebar({
       if (sessionId === currentSessionId) return
       const api = window.ouroboros
       if (!api) return
-      setCurrentSessionId(sessionId)
+      // Wait for the messages to come back from the CLI before flipping the
+      // view. Optimistically setting `currentSessionId` first used to leave
+      // the UI showing the *previous* session's (already-cleared) `messages`
+      // for as long as the RPC was in flight, and if the RPC errored, the
+      // user got a permanently empty chat. Now we either land on real data
+      // or stay where we were.
       try {
         const result = (await api.rpc('session/load', {
           id: sessionId,
         })) as SessionData
-        if (result?.messages) {
-          loadSession(sessionId, result.messages, result.workspacePath)
-        } else {
-          // No messages, just set the session as active
-          setCurrentSessionId(sessionId)
-        }
+        loadSession(sessionId, result?.messages ?? [], result?.workspacePath)
       } catch (err) {
         console.error('session/load failed:', err)
       }
     },
-    [currentSessionId, loadSession, setCurrentSessionId],
+    [currentSessionId, loadSession],
   )
 
   const handleContextMenu = useCallback((e: React.MouseEvent, sessionId: string) => {
