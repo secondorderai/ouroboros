@@ -146,7 +146,11 @@ export class CLIProcessManager extends EventEmitter {
     try {
       this.process = spawn(command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, ...this.extraEnv },
+        env: {
+          ...process.env,
+          ...this.extraEnv,
+          OUROBOROS_BUILTIN_SKILLS_DIR: this.getBuiltinSkillsDir(),
+        },
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -218,6 +222,21 @@ export class CLIProcessManager extends EventEmitter {
     this.setStatus('restarting')
     writeTestLog(`cli restarting attempt=${this.restartCount}`)
     setTimeout(() => this.spawnProcess(), RESTART_DELAY_MS)
+  }
+
+  /**
+   * Resolve the directory whose direct children are built-in skill folders
+   * (each containing a SKILL.md). The CLI receives this path via the
+   * OUROBOROS_BUILTIN_SKILLS_DIR env var and scans it as the lowest-precedence
+   * skill source, so workspace-local skills can override built-ins by name.
+   */
+  private getBuiltinSkillsDir(): string {
+    if (app.isPackaged) {
+      return join(process.resourcesPath, 'skills', 'builtin')
+    }
+    // app.getAppPath() resolves to packages/desktop in dev (same anchor used
+    // by getCliPath above when locating the CLI binary).
+    return join(app.getAppPath(), 'resources', 'skills', 'builtin')
   }
 
   private resolvePackagedCliPath(): string {

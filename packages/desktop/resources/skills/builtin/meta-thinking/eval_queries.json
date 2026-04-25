@@ -1,0 +1,42 @@
+[
+  {
+    "query": "Create a migration plan from a simple chat route to a multi-step agent system with planner and critic layers, and flag the biggest execution risks.",
+    "should_trigger": true
+  },
+  {
+    "query": "We can either ship our analytics rewrite now or delay a month for better instrumentation. Compare the tradeoffs and tell me what missing information could change the call.",
+    "should_trigger": true
+  },
+  {
+    "query": "Production requests are intermittently failing after a deploy, but the logs are incomplete. Help me troubleshoot without pretending we know the root cause yet.",
+    "should_trigger": true
+  },
+  {
+    "query": "Review this proposal for introducing tool routing into our assistant and call out weak assumptions, limitations, and the shortest safe rollout path.",
+    "should_trigger": true
+  },
+  {
+    "query": "I need a concise answer, but include your confidence and any context gaps that would materially improve it: should we use a planner pass for this support triage workflow?",
+    "should_trigger": true
+  },
+  {
+    "query": "What command shows my current git branch?",
+    "should_trigger": false
+  },
+  {
+    "query": "Convert this JSON object to YAML.",
+    "should_trigger": false
+  },
+  {
+    "query": "Rename the variable `rid` to `resourceId` everywhere in this file.",
+    "should_trigger": false
+  },
+  {
+    "query": "What is the capital of Japan?",
+    "should_trigger": false
+  },
+  {
+    "query": "Summarize this paragraph in one sentence.",
+    "should_trigger": false
+  }
+]

@@ -120,6 +120,45 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Use when user asks to look something up')
   })
 
+  test('skills section instructs the LLM to auto-activate matching skills via skill-manager', () => {
+    const prompt = buildSystemPrompt({
+      skills: [{ name: 'meta-thinking', description: 'Use when complex analysis is needed' }],
+    })
+
+    // Auto-trigger directive — without this the catalog is just a static list
+    // and the LLM has no signal to call skill-manager on its own.
+    expect(prompt).toContain('skill-manager')
+    expect(prompt).toContain('"action": "activate"')
+    expect(prompt).toContain('BEFORE acting on the request')
+    expect(prompt).toContain('Check on every new user turn')
+    expect(prompt).toContain('when in doubt, activate')
+    expect(prompt).toContain('Do not re-activate a skill that is already active')
+  })
+
+  test('skills section is omitted entirely when the catalog is empty', () => {
+    const prompt = buildSystemPrompt({ skills: [] })
+
+    // The auto-trigger guidance must NOT appear when there are no skills —
+    // otherwise we are telling the LLM to activate nothing.
+    expect(prompt).not.toContain('## Skills')
+    expect(prompt).not.toContain('skill-manager')
+  })
+
+  test('activated skill instructions are injected for the current run', () => {
+    const prompt = buildSystemPrompt({
+      activatedSkill: {
+        name: 'code-review',
+        instructions: 'Inspect correctness, regressions, and missing tests.',
+        references: ['Reference details for review workflow.'],
+      },
+    })
+
+    expect(prompt).toContain('## Activated Skill: code-review')
+    expect(prompt).toContain('explicitly invoked this skill')
+    expect(prompt).toContain('Inspect correctness, regressions, and missing tests.')
+    expect(prompt).toContain('Reference details for review workflow.')
+  })
+
   // -------------------------------------------------------------------------
   // Feature Test: Memory context is injected
   // -------------------------------------------------------------------------

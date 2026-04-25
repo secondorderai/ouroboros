@@ -91,6 +91,62 @@ const toolCallsWrapperStyle: React.CSSProperties = {
   marginTop: 14,
 }
 
+const skillBadgeRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+  marginBottom: 10,
+}
+
+const skillBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: '2px 8px',
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 600,
+  lineHeight: 1.4,
+  backgroundColor: 'color-mix(in srgb, var(--accent-blue) 9%, var(--bg-secondary))',
+  border: '1px solid color-mix(in srgb, var(--accent-blue) 22%, var(--border-light))',
+  color: 'var(--accent-blue)',
+  letterSpacing: '0.01em',
+}
+
+const skillBadgeIconStyle: React.CSSProperties = {
+  fontSize: 10,
+  opacity: 0.7,
+  marginRight: 1,
+}
+
+// ---------------------------------------------------------------------------
+// Skill badge row
+// ---------------------------------------------------------------------------
+
+interface SkillBadgeRowProps {
+  skills: readonly string[]
+}
+
+const SkillBadgeRow: React.FC<SkillBadgeRowProps> = ({ skills }) => {
+  if (skills.length === 0) return null
+  return (
+    <div
+      style={skillBadgeRowStyle}
+      data-testid='skill-badge-row'
+      aria-label={`Skills used: ${skills.join(', ')}`}
+    >
+      {skills.map((name) => (
+        <span key={name} style={skillBadgeStyle} data-testid='skill-badge' title={`Skill: ${name}`}>
+          <span style={skillBadgeIconStyle} aria-hidden='true'>
+            ◆
+          </span>
+          {name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -205,6 +261,9 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
         data-testid='agent-message-surface'
       >
         <div style={nameStyle}>Ouroboros</div>
+        {message.activatedSkills && message.activatedSkills.length > 0 && (
+          <SkillBadgeRow skills={message.activatedSkills} />
+        )}
         <div
           style={contentStyle}
           className='agent-message__content'
@@ -241,6 +300,8 @@ interface StreamingAgentMessageProps {
   activeToolCalls: Map<string, ToolCallState>
   completedToolCalls: CompletedToolCall[]
   subagentRuns: SubagentRun[]
+  /** Skills active for the in-progress turn (from store.pendingActivatedSkills). */
+  activatedSkills?: readonly string[]
   isRunning: boolean
   expandedToolCallIds?: ReadonlySet<string>
   onToolCallExpandedChange?: (toolCallId: string, expanded: boolean) => void
@@ -252,6 +313,7 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
   activeToolCalls,
   completedToolCalls,
   subagentRuns,
+  activatedSkills,
   isRunning,
   expandedToolCallIds,
   onToolCallExpandedChange,
@@ -283,6 +345,9 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
           data-testid='agent-message-surface'
         >
           <div style={nameStyle}>Ouroboros</div>
+          {activatedSkills && activatedSkills.length > 0 && (
+            <SkillBadgeRow skills={activatedSkills} />
+          )}
           <div
             style={contentStyle}
             className='agent-message__content'

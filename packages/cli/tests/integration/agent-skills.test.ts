@@ -13,6 +13,8 @@ import {
   getSkillCatalog,
   activateSkill,
   _resetSkills,
+  setSkillActivatedHandler,
+  _resetSkillActivatedHandler,
 } from '@src/tools/skill-manager'
 import { buildSystemPrompt } from '@src/llm/prompt'
 import { createInspectingMockModel, textBlock, finishStop } from '../helpers/mock-llm'
@@ -31,11 +33,13 @@ describe('Agent + Skills Integration', () => {
     tempDir = makeTempDir('ouroboros-skills-test')
     registry = new ToolRegistry()
     _resetSkills()
+    _resetSkillActivatedHandler()
   })
 
   afterEach(() => {
     cleanupTempDir(tempDir)
     _resetSkills()
+    _resetSkillActivatedHandler()
   })
 
   // -------------------------------------------------------------------
@@ -80,7 +84,7 @@ describe('Agent + Skills Integration', () => {
   // -------------------------------------------------------------------
   // Test: Agent can activate a skill (full instructions loaded)
   // -------------------------------------------------------------------
-  test('agent can activate a skill and receive full instructions', () => {
+  test('agent can activate a skill and receive full instructions', async () => {
     const body = `## Code Review Instructions
 
 1. Check for bugs and edge cases
@@ -98,7 +102,7 @@ describe('Agent + Skills Integration', () => {
     expect(catalog[0].name).toBe('code-review')
 
     // Activate the skill
-    const result = activateSkill('code-review')
+    const result = await activateSkill('code-review')
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -168,7 +172,7 @@ Step 4: Report findings`
     discoverSkills([`${tempDir}/skills/core`], tempDir)
 
     // Activate and verify full body is returned
-    const activation = activateSkill('detailed-review')
+    const activation = await activateSkill('detailed-review')
     expect(activation.ok).toBe(true)
     if (!activation.ok) return
 
@@ -180,13 +184,116 @@ Step 4: Report findings`
   // -------------------------------------------------------------------
   // Test: Non-existent skill activation returns error
   // -------------------------------------------------------------------
-  test('activating a non-existent skill returns an error', () => {
+  test('activating a non-existent skill returns an error', async () => {
     discoverSkills([`${tempDir}/skills/core`], tempDir)
 
-    const result = activateSkill('non-existent-skill')
+    const result = await activateSkill('non-existent-skill')
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.message).toContain('not found')
+  })
+
+  // -------------------------------------------------------------------
+  // Regression test: built-in skills shipped via OUROBOROS_BUILTIN_SKILLS_DIR
+  // must reach the LLM's system prompt during a normal agent turn — the
+  // agent's per-turn discoverSkills call previously ignored the env var,
+  // so meta-thinking and other bundled skills were invisible to the LLM
+  // even though the desktop picker listed them.
+  // -------------------------------------------------------------------
+  test('built-in skills from OUROBOROS_BUILTIN_SKILLS_DIR appear in the system prompt', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+
+    const builtinRoot = join(tempDir, 'builtin')
+    const builtinSkillDir = join(builtinRoot, 'meta-thinking')
+    mkdirSync(builtinSkillDir, { recursive: true })
+    writeFileSync(
+      join(builtinSkillDir, 'SKILL.md'),
+      `---
+name: meta-thinking
+description: Use when the user needs structured planning or complex analysis
+---
+
+# Meta Thinking
+Apply the SecondOrder method.`,
+      'utf-8',
+    )
+
+    let capturedSystemPrompt = ''
+
+    const model = createInspectingMockModel((prompt) => {
+      const messages = prompt as Array<{ role: string; content: unknown }>
+      const systemMsg = messages.find((m) => m.role === 'system')
+      if (systemMsg) {
+        capturedSystemPrompt = String(
+          Array.isArray(systemMsg.content)
+            ? (systemMsg.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('')
+            : systemMsg.content,
+        )
+      }
+      return [...textBlock('Acknowledged.'), finishStop()]
+    })
+
+    // Important: do NOT override skillCatalogProvider here. We want the agent
+    // to use the real getSkillCatalog so the discovery path is actually
+    // exercised end-to-end.
+    const previous = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+    process.env.OUROBOROS_BUILTIN_SKILLS_DIR = builtinRoot
+    try {
+      const agent = new Agent({
+        model,
+        toolRegistry: registry,
+        systemPromptBuilder: buildSystemPrompt,
+        memoryProvider: () => '',
+        basePath: tempDir,
+        config: {
+          model: { provider: 'anthropic', name: 'claude-opus-4-7' },
+          permissions: { tier0: true, tier1: true, tier2: true, tier3: false, tier4: false },
+          // No core/generated skills in this temp dir — only the env-var source.
+          skillDirectories: ['skills/core', 'skills/generated'],
+          agent: {
+            maxSteps: { interactive: 5, desktop: 5, singleShot: 5, automation: 5 },
+            allowedTestCommands: [],
+            definitions: [],
+          },
+          memory: {
+            consolidationSchedule: 'session-end',
+            contextWindowTokens: 200_000,
+            warnRatio: 0.7,
+            flushRatio: 0.8,
+            compactRatio: 0.9,
+            tailMessageCount: 12,
+            dailyLoadDays: 2,
+            durableMemoryBudgetTokens: 1500,
+            checkpointBudgetTokens: 1200,
+            workingMemoryBudgetTokens: 1000,
+          },
+          rsi: {
+            noveltyThreshold: 0.7,
+            autoReflect: true,
+            observeEveryTurns: 1,
+            checkpointEveryTurns: 6,
+            durablePromotionThreshold: 0.8,
+            crystallizeFromRepeatedPatternsOnly: true,
+          },
+        },
+      })
+
+      await agent.run('Perform complex analysis on two LLMs')
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+      } else {
+        process.env.OUROBOROS_BUILTIN_SKILLS_DIR = previous
+      }
+    }
+
+    expect(capturedSystemPrompt).toContain('## Skills')
+    expect(capturedSystemPrompt).toContain('meta-thinking')
+    expect(capturedSystemPrompt).toContain('structured planning or complex analysis')
+    // And the auto-trigger directive must be present so the LLM knows to act.
+    expect(capturedSystemPrompt).toContain('skill-manager')
+    expect(capturedSystemPrompt).toContain('"action": "activate"')
   })
 
   // -------------------------------------------------------------------
@@ -203,5 +310,35 @@ Step 4: Report findings`
       skills: catalog.map((s) => ({ name: s.name, description: s.description })),
     })
     expect(prompt).not.toContain('## Skills')
+  })
+
+  // -------------------------------------------------------------------
+  // Tier 1.3: Activation dedup at the skill-manager handler level. The
+  // skill-manager tests cover the in-process notification dedup; here we
+  // verify the activated-skill returns identical content (no re-read of
+  // the body) so re-activation is cheap as well as idempotent.
+  // -------------------------------------------------------------------
+  test('repeated activation returns the same body without re-firing the handler', async () => {
+    createTestSkill(
+      tempDir,
+      'idempotent-skill',
+      'Skill body should be returned identically on re-activation',
+      '## Body\n\nDeterministic content.',
+    )
+    discoverSkills([`${tempDir}/skills/core`], tempDir)
+
+    const handlerCalls: string[] = []
+    setSkillActivatedHandler((name) => handlerCalls.push(name))
+
+    const first = await activateSkill('idempotent-skill')
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    const second = await activateSkill('idempotent-skill')
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+
+    expect(second.value.instructions).toBe(first.value.instructions)
+    expect(handlerCalls).toEqual(['idempotent-skill'])
   })
 })

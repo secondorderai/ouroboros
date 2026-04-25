@@ -47,6 +47,8 @@ extraResources:
   - from: resources/cli/
     to: .
     filter: ["ouroboros*"]
+  - from: resources/skills/builtin/
+    to: skills/builtin/
 
 publish:
   provider: github

@@ -18,6 +18,7 @@ import {
   type TestCommandResult,
 } from './subagent-result'
 import type { ToolExecutionContext, TypedToolExecute } from './types'
+import type { SkillActivationResult, SkillCatalogEntry } from './skill-manager'
 import {
   collectWorkerDiff,
   createWorkerRuntime,
@@ -29,6 +30,38 @@ import {
   type WorkerDiffContext,
   type WorkerDiffReviewStatus,
 } from './worker-diff-approval'
+
+/**
+ * Wrap a parent skillCatalogProvider so the child sees only the allowed
+ * subset of skills. When `allowedSkills` is undefined or empty, the child
+ * inherits the full catalog (existing behavior).
+ *
+ * Exported for unit testing — production callers pass through
+ * `spawn-agent`'s `skills` arg.
+ */
+export function scopeSkillCatalogProvider(
+  parentProvider: (() => SkillCatalogEntry[]) | undefined,
+  allowedSkills: string[] | undefined,
+): (() => SkillCatalogEntry[]) | undefined {
+  if (!parentProvider) return undefined
+  if (!allowedSkills || allowedSkills.length === 0) return parentProvider
+  const allowSet = new Set(allowedSkills)
+  return () => parentProvider().filter((entry) => allowSet.has(entry.name))
+}
+
+/**
+ * Resolve which skill (if any) the child run should start activated with.
+ * Only inherits when the parent explicitly opts in via `inheritSkill: true`.
+ *
+ * Exported for unit testing.
+ */
+export function resolveInheritedSkill(
+  inheritSkill: boolean | undefined,
+  parentActivatedSkill: SkillActivationResult | undefined,
+): SkillActivationResult | undefined {
+  if (!inheritSkill) return undefined
+  return parentActivatedSkill
+}
 
 export const name = 'spawn_agent'
 
@@ -91,6 +124,18 @@ export const schema = z.object({
   workerDiff: workerDiffContextSchema
     .optional()
     .describe('Worker output diff context for review/test agents to inspect.'),
+  inheritSkill: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true and the parent has an activated skill, pass the parent's activated skill through to this child run. Default: false (child operates without an inherited skill).",
+    ),
+  skills: z
+    .array(z.string().min(1))
+    .optional()
+    .describe(
+      "Optional allowlist of skill names visible to this child agent's catalog. If omitted, the child sees the full catalog inherited from the parent.",
+    ),
 })
 
 export type SpawnAgentStatus = 'completed' | 'failed'
@@ -746,14 +791,16 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
       agentDefinition: targetAgent,
       systemPromptBuilder: context.systemPromptBuilder,
       memoryProvider: context.memoryProvider,
-      skillCatalogProvider: context.skillCatalogProvider,
+      skillCatalogProvider: scopeSkillCatalogProvider(context.skillCatalogProvider, args.skills),
     })
 
+    const inheritedSkill = resolveInheritedSkill(args.inheritSkill, context.activatedSkill)
     const result = await childAgent.run(
       buildChildTask(args, contextFileResult.section, context.config.agent.allowedTestCommands),
       {
         maxSteps,
         runProfile: 'automation',
+        ...(inheritedSkill ? { activatedSkill: inheritedSkill } : {}),
       },
     )
     const normalized = normalizeSubAgentOutput(result.text)
@@ -1009,14 +1056,16 @@ async function executeWorkerAgent(
         permissionLease: args.permissionLease,
         systemPromptBuilder: context.systemPromptBuilder,
         memoryProvider: context.memoryProvider,
-        skillCatalogProvider: context.skillCatalogProvider,
+        skillCatalogProvider: scopeSkillCatalogProvider(context.skillCatalogProvider, args.skills),
       })
 
+      const inheritedSkill = resolveInheritedSkill(args.inheritSkill, context.activatedSkill)
       const result = await childAgent.run(
         buildWorkerTask(args, runtime, contextFileResult.section),
         {
           maxSteps,
           runProfile: 'automation',
+          ...(inheritedSkill ? { activatedSkill: inheritedSkill } : {}),
         },
       )
       const normalized = normalizeSubAgentOutput(result.text)

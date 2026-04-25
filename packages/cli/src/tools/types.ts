@@ -5,7 +5,7 @@ import type { BuildSystemPromptOptions } from '@src/llm/prompt'
 import type { TranscriptStore } from '@src/memory/transcripts'
 import type { LanguageModel } from 'ai'
 import type { ToolRegistry } from './registry'
-import type { SkillCatalogEntry } from './skill-manager'
+import type { SkillActivationResult, SkillCatalogEntry } from './skill-manager'
 import type { AgentEvent } from '@src/agent'
 import type { PermissionLease } from '@src/permission-lease'
 import type { TaskGraphStore } from '@src/team/task-graph'
@@ -23,6 +23,8 @@ export interface ToolExecutionContext {
   systemPromptBuilder?: (options: BuildSystemPromptOptions) => string
   memoryProvider?: () => string
   skillCatalogProvider?: () => SkillCatalogEntry[]
+  /** Skill currently activated for the parent run. Spawned subagents may opt to inherit it. */
+  activatedSkill?: SkillActivationResult
   emitEvent?: (event: AgentEvent) => void
 }
 

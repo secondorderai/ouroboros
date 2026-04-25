@@ -1,0 +1,4 @@
+interface:
+  display_name: "Meta Thinking"
+  short_description: "Apply the SecondOrder workflow to hard tasks"
+  default_prompt: "Use $meta-thinking to structure this task with a compact plan, critique, and trust signals where justified."

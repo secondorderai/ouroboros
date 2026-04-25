@@ -52,6 +52,14 @@ export interface BuildSystemPromptOptions {
   modeOverlay?: { section?: string; autoDetectionHints: string[] }
   /** Optional team reputation/advisor guidance from prior orchestration outcomes. */
   teamGuidance?: string
+  /** Full instructions for a skill explicitly selected for this run. */
+  activatedSkill?: {
+    name: string
+    instructions: string
+    references?: string[]
+    /** File names in the skill's `references/` and `scripts/` directories (advisory). */
+    fileList?: string[]
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +148,50 @@ function formatSkillsSection(skills: SkillEntry[]): string {
     return line
   })
 
-  return `## Skills\n\n${entries.join('\n')}`
+  return `## Skills
+
+Each skill below is a domain-specific instruction pack with a description that states when it applies. Treat the description as the activation criterion.
+
+When the current user request plausibly matches a skill's description, activate that skill BEFORE acting on the request by calling the \`skill-manager\` tool with \`{ "action": "activate", "skill": "<name>" }\`. The full SKILL.md body will be injected into context for the rest of the run, and you must follow it.
+
+Rules:
+- Check on every new user turn, not just the first one.
+- Even a partial match is enough to justify activation — when in doubt, activate.
+- Do not re-activate a skill that is already active for this run.
+- If no skill clearly fits, proceed without activating.
+- An activated skill's instructions override the default response style for that turn.
+
+${entries.join('\n')}`
+}
+
+function formatActivatedSkillSection(
+  skill: NonNullable<BuildSystemPromptOptions['activatedSkill']>,
+): string {
+  const parts = [
+    `## Activated Skill: ${skill.name}`,
+    'The user explicitly invoked this skill for the current request. Follow these instructions for this run.',
+    skill.instructions.trim(),
+  ]
+
+  if (skill.references && skill.references.length > 0) {
+    parts.push(
+      '### Skill References',
+      skill.references
+        .map((reference) => reference.trim())
+        .filter(Boolean)
+        .join('\n\n'),
+    )
+  }
+
+  if (skill.fileList && skill.fileList.length > 0) {
+    parts.push(
+      '### Skill Files',
+      'These files are bundled with the skill and may be read on demand:',
+      skill.fileList.map((path) => `- ${path}`).join('\n'),
+    )
+  }
+
+  return parts.filter((part) => part.trim().length > 0).join('\n\n')
 }
 
 function formatMemorySection(
@@ -243,6 +294,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
     responseStyle,
     modeOverlay,
     teamGuidance,
+    activatedSkill,
   } = options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
@@ -267,6 +319,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 
   if (skills && skills.length > 0) {
     sections.push(formatSkillsSection(skills))
+  }
+
+  if (activatedSkill) {
+    sections.push(formatActivatedSkillSection(activatedSkill))
   }
 
   if (teamGuidance?.trim()) {

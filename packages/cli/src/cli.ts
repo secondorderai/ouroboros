@@ -31,9 +31,10 @@ import { parseModelFlag } from '@src/cli/model-flag'
 import { startRepl } from '@src/cli/repl'
 import { createRSIEventHandler, writeRSIEvent } from '@src/cli/rsi-output'
 import { createSingleShotHandler } from '@src/cli/single-shot'
-import { loadConfig, resolveConfigDir } from '@src/config'
+import { loadConfig, resolveConfigDir, type OuroborosConfig } from '@src/config'
 import { startJsonRpcServer } from '@src/json-rpc/server'
 import { createProvider } from '@src/llm/provider'
+import { activateSkillForRun, resolveSlashSkillInvocation } from '@src/skills/skill-invocation'
 import { createRegistry } from '@src/tools/registry'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { RSIEvent } from '@src/rsi/types'
@@ -181,6 +182,7 @@ async function runMain(): Promise<void> {
   const verbose = opts.verbose === true
   const noStream = !opts.stream
   const prompt = await detectPrompt(opts.message)
+  const configDir = resolveConfigDir(opts.config)
 
   // Create LLM provider
   const providerResult = createProvider(config.model)
@@ -243,7 +245,7 @@ async function runMain(): Promise<void> {
     toolRegistry: registry,
     onEvent: eventProxy,
     config,
-    basePath: resolveConfigDir(opts.config),
+    basePath: configDir,
     rsiOrchestrator,
     modeManager,
   })
@@ -254,13 +256,31 @@ async function runMain(): Promise<void> {
     const { handler } = createSingleShotHandler({ verbose, noStream })
     currentHandler = handler
 
+    const parsedPrompt = parseSingleShotPrompt(prompt, config, configDir)
+    if (!parsedPrompt.ok) {
+      process.stderr.write(`${parsedPrompt.error.message}\n`)
+      process.exit(1)
+    }
+
+    const skillActivation = parsedPrompt.value.skillName
+      ? await activateSkillForRun(parsedPrompt.value.skillName, config, configDir)
+      : undefined
+    if (skillActivation && !skillActivation.ok) {
+      process.stderr.write(`${skillActivation.error.message}\n`)
+      process.exit(1)
+    }
+
     // If --plan flag is set, prepend plan mode trigger
-    const effectivePrompt = opts.plan ? `[User requests plan mode] ${prompt}` : prompt
+    const effectivePrompt =
+      opts.plan && !parsedPrompt.value.planMode
+        ? `[User requests plan mode] ${parsedPrompt.value.message}`
+        : parsedPrompt.value.message
 
     try {
       const result = await agent.run(effectivePrompt, {
         runProfile: 'singleShot',
         maxSteps: maxStepsOverride,
+        activatedSkill: skillActivation?.value,
       })
       // Ensure output ends with a newline
       process.stdout.write('\n')
@@ -284,6 +304,8 @@ async function runMain(): Promise<void> {
       agent,
       verbose,
       maxSteps: maxStepsOverride,
+      config,
+      basePath: configDir,
       setEventHandler: (handler: AgentEventHandler) => {
         currentHandler = handler
       },
@@ -304,6 +326,30 @@ function parseMaxStepsFlag(value: string | undefined): number | undefined | Erro
   }
 
   return parsed
+}
+
+type ParsedPromptResult =
+  | { ok: true; value: { message: string; skillName?: string; planMode?: boolean } }
+  | { ok: false; error: Error }
+
+function parseSingleShotPrompt(
+  prompt: string,
+  config: OuroborosConfig,
+  basePath: string,
+): ParsedPromptResult {
+  const trimmed = prompt.trimStart()
+  if (/^\/plan(?:\s|$)/.test(trimmed)) {
+    const planMessage = trimmed.slice(5).trim()
+    if (!planMessage) {
+      return { ok: false, error: new Error('Usage: /plan <task description>') }
+    }
+    return {
+      ok: true,
+      value: { message: `[User requests plan mode] ${planMessage}`, planMode: true },
+    }
+  }
+
+  return resolveSlashSkillInvocation(prompt, config, basePath)
 }
 
 /**

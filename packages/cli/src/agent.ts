@@ -40,7 +40,12 @@ import type { ReflectionCheckpoint, RSIEvent } from '@src/rsi/types'
 import { readReputationSnapshot } from '@src/team/reputation'
 import type { ToolRegistry } from '@src/tools/registry'
 import type { ToolExecutionContext } from '@src/tools/types'
-import { discoverSkills, getSkillCatalog, type SkillCatalogEntry } from '@src/tools/skill-manager'
+import {
+  discoverConfiguredSkills,
+  getSkillCatalog,
+  type SkillActivationResult,
+  type SkillCatalogEntry,
+} from '@src/tools/skill-manager'
 import type { TaskGraph, TaskGraphStore } from '@src/team/task-graph'
 import type { AgentDefinition } from '@src/types'
 import type { LanguageModel } from 'ai'
@@ -212,6 +217,7 @@ export interface AgentRunOptions {
   maxSteps?: number
   runProfile?: AgentRunProfile
   images?: LLMFilePart[]
+  activatedSkill?: SkillActivationResult
 }
 
 export type ContextBudgetThreshold = 'within-budget' | 'warn' | 'flush' | 'compact'
@@ -489,6 +495,11 @@ export class Agent {
   private permissionLease: PermissionLease | undefined
   private taskGraphStore: TaskGraphStore | undefined
 
+  /** Skills explicitly activated during the current run; reset at run() entry. */
+  private activeSkills: Set<string> = new Set()
+  /** Skill the current run started with (from AgentRunOptions.activatedSkill). */
+  private currentRunActivatedSkill: SkillActivationResult | undefined
+
   /** Conversation history persisted across run() calls within a session. */
   private conversationHistory: LLMMessage[] = []
   /** Number of history entries already captured into structured observations. */
@@ -584,6 +595,14 @@ export class Agent {
    * Multi-turn: conversation history persists between calls.
    */
   async run(userMessage: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
+    // Reset per-run skill state. The set tracks activations for this run only;
+    // spawn-agent reads currentRunActivatedSkill so subagents can opt to inherit.
+    this.activeSkills = new Set()
+    this.currentRunActivatedSkill = options.activatedSkill
+    if (options.activatedSkill) {
+      this.activeSkills.add(options.activatedSkill.name)
+    }
+
     // Append user message to conversation history
     this.conversationHistory.push({
       role: 'user',
@@ -942,7 +961,7 @@ export class Agent {
     const tools = this.toolRegistry.getTools()
     const agentsInstructions = getAgentsMdInstructions()
 
-    discoverSkills(this.config.skillDirectories, this.basePath)
+    discoverConfiguredSkills(this.config.skillDirectories, this.basePath)
 
     // Map skill catalog entries to the format expected by buildSystemPrompt
     const skillCatalog = this.skillCatalogProvider()
@@ -964,6 +983,7 @@ export class Agent {
       responseStyle: options.responseStyle,
       modeOverlay,
       teamGuidance,
+      activatedSkill: options.activatedSkill,
     })
 
     if (!this.agentDefinition?.prompt.trim()) {
@@ -1016,6 +1036,7 @@ export class Agent {
       systemPromptBuilder: this.systemPromptBuilder,
       memoryProvider: this.memoryProvider ?? undefined,
       skillCatalogProvider: this.skillCatalogProvider,
+      activatedSkill: this.currentRunActivatedSkill,
       emitEvent: (event) => this.emitEvent(event),
     }
   }
@@ -1567,6 +1588,34 @@ export class Agent {
           }
         }
 
+        // Dedup skill activations across the run: if the LLM tries to activate
+        // a skill that is already active for this run, return a no-op result
+        // instead of re-firing the activation (which would re-inject context
+        // and re-emit the activation handler notification).
+        if (tc.toolName === 'skill-manager') {
+          const input = tc.input as Record<string, unknown>
+          const action = typeof input.action === 'string' ? input.action : undefined
+          const skillName = typeof input.skill === 'string' ? input.skill : undefined
+          if (action === 'activate' && skillName && this.activeSkills.has(skillName)) {
+            const noop = {
+              name: skillName,
+              instructions: '',
+              references: [],
+              fileList: [],
+              alreadyActive: true,
+              message: `Skill "${skillName}" is already active for this run.`,
+            }
+            this.emitEvent({
+              type: 'tool-call-end',
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              result: noop,
+              isError: false,
+            })
+            return { toolCallId: tc.toolCallId, toolName: tc.toolName, result: noop }
+          }
+        }
+
         const execResult = await this.toolRegistry.executeTool(
           tc.toolName,
           tc.input,
@@ -1575,6 +1624,17 @@ export class Agent {
 
         const isError = !execResult.ok
         const resultValue = execResult.ok ? execResult.value : execResult.error.message
+
+        // Track activation/deactivation outcomes for the run-scoped dedup set.
+        if (tc.toolName === 'skill-manager' && execResult.ok) {
+          const input = tc.input as Record<string, unknown>
+          const action = typeof input.action === 'string' ? input.action : undefined
+          const skillName = typeof input.skill === 'string' ? input.skill : undefined
+          if (skillName) {
+            if (action === 'activate') this.activeSkills.add(skillName)
+            else if (action === 'deactivate') this.activeSkills.delete(skillName)
+          }
+        }
 
         this.emitEvent({
           type: 'tool-call-end',

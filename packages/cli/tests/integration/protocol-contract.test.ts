@@ -64,6 +64,8 @@ function createContext(): HandlerContext {
     getAgent: () => agent,
     config,
     configDir,
+    initialCwd: process.cwd(),
+    initialConfigDir: configDir,
     transcriptStore,
     currentRunAbort,
     setCurrentRunAbort: (a) => {

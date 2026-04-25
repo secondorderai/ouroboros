@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ImageAttachment, RejectedImageAttachment } from '../../shared/protocol'
+import type { ImageAttachment, RejectedImageAttachment, SkillInfo } from '../../shared/protocol'
 import { useConversationStore } from '../stores/conversationStore'
 import { getModeDisplayName, useModeStore } from '../stores/modeStore'
 
@@ -38,6 +38,11 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const [attachedImages, setAttachedImages] = useState<ImageAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
+  const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [skillsLoaded, setSkillsLoaded] = useState(false)
+  const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(null)
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
+  const [skillPickerIndex, setSkillPickerIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modeMenuRef = useRef<HTMLDivElement>(null)
 
@@ -91,26 +96,79 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       trimmed,
       attachedFiles.length > 0 ? attachedFiles : undefined,
       attachedImages.length > 0 ? attachedImages : undefined,
+      selectedSkill?.name,
     )
     setText('')
     setAttachedFiles([])
     setAttachedImages([])
+    setSelectedSkill(null)
+    setSkillPickerOpen(false)
     setAttachmentError(null)
     // Reset textarea height and re-focus
     if (textareaRef.current) {
       textareaRef.current.style.height = `${MIN_HEIGHT}px`
       textareaRef.current.focus()
     }
-  }, [text, attachedFiles, attachedImages, isEmpty, isAgentRunning, sendMessage])
+  }, [text, attachedFiles, attachedImages, selectedSkill, isEmpty, isAgentRunning, sendMessage])
+
+  const skillQuery = useMemo(() => getActiveSkillQuery(text), [text])
+
+  const filteredSkills = useMemo(() => {
+    const query = skillQuery?.toLowerCase() ?? ''
+    const source = query
+      ? skills.filter(
+          (skill) =>
+            skill.name.toLowerCase().includes(query) ||
+            skill.description.toLowerCase().includes(query),
+        )
+      : skills
+
+    return source.slice(0, 8)
+  }, [skillQuery, skills])
+
+  const selectSkill = useCallback((skill: SkillInfo) => {
+    setSelectedSkill(skill)
+    setText(removeActiveSkillQuery)
+    setSkillPickerOpen(false)
+    setSkillPickerIndex(0)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+    })
+  }, [])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (skillPickerOpen) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSkillPickerIndex((index) =>
+            Math.min(index + 1, Math.max(filteredSkills.length - 1, 0)),
+          )
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSkillPickerIndex((index) => Math.max(index - 1, 0))
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setSkillPickerOpen(false)
+          return
+        }
+        if (e.key === 'Enter' && filteredSkills.length > 0) {
+          e.preventDefault()
+          selectSkill(filteredSkills[skillPickerIndex] ?? filteredSkills[0])
+          return
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         handleSend()
       }
     },
-    [handleSend],
+    [filteredSkills, handleSend, selectSkill, skillPickerIndex, skillPickerOpen],
   )
 
   const handleStop = useCallback(() => {
@@ -176,6 +234,13 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     }
   }, [setWorkspace])
 
+  const handleWorkspaceClear = useCallback(() => {
+    setWorkspace(null)
+    window.ouroboros?.rpc('workspace/clear', {}).catch((err) => {
+      console.error('workspace/clear failed:', err)
+    })
+  }, [setWorkspace])
+
   const handleModeChipClick = useCallback(() => {
     clearModeError()
     setModeMenuOpen((open) => !open)
@@ -239,6 +304,35 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     }
   }, [modeState.status])
 
+  useEffect(() => {
+    if (!skillPickerOpen || skillsLoaded) return
+    window.ouroboros
+      ?.rpc('skills/list')
+      .then((result) => {
+        const list = (result as { skills?: SkillInfo[] } | undefined)?.skills
+        setSkills(Array.isArray(list) ? list : [])
+      })
+      .catch((err) => {
+        console.error('skills/list failed:', err)
+        setSkills([])
+      })
+      .finally(() => {
+        setSkillsLoaded(true)
+      })
+  }, [skillPickerOpen, skillsLoaded])
+
+  useEffect(() => {
+    if (selectedSkill) {
+      setSkillPickerOpen(false)
+      return
+    }
+    const shouldOpen = skillQuery !== null
+    setSkillPickerOpen(shouldOpen)
+    if (shouldOpen) {
+      setSkillPickerIndex(0)
+    }
+  }, [selectedSkill, skillQuery])
+
   const modeButtonLabel = useMemo(() => {
     if (modeBusy) return 'Mode: updating…'
     if (activeModeLabel) return `${activeModeLabel} mode active`
@@ -294,6 +388,16 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
         </div>
       )}
       {attachmentError && <div style={styles.attachmentError}>{attachmentError}</div>}
+
+      {skillPickerOpen && (
+        <SkillPicker
+          skills={filteredSkills}
+          selectedIndex={skillPickerIndex}
+          loading={!skillsLoaded}
+          hasInstalledSkills={skills.length > 0}
+          onSelect={selectSkill}
+        />
+      )}
 
       {/* Input area */}
       <div
@@ -399,17 +503,33 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
             )}
           </div>
 
-          <button
-            style={styles.workspaceButton}
-            onClick={handleWorkspaceClick}
-            title={workspace ?? 'Set workspace'}
-            aria-label='Change workspace'
-          >
-            <FolderIcon />
-            <span style={styles.workspacePath}>
-              {workspace ? truncatePath(workspace) : 'No workspace'}
-            </span>
-          </button>
+          {selectedSkill && (
+            <SkillChip skill={selectedSkill} onRemove={() => setSelectedSkill(null)} />
+          )}
+
+          <div style={styles.workspaceChip}>
+            <button
+              style={styles.workspaceButton}
+              onClick={handleWorkspaceClick}
+              title={workspace ?? 'Set workspace'}
+              aria-label='Change workspace'
+            >
+              <FolderIcon />
+              <span style={styles.workspacePath}>
+                {workspace ? truncatePath(workspace) : 'No workspace'}
+              </span>
+            </button>
+            {workspace && (
+              <button
+                style={styles.workspaceClearButton}
+                onClick={handleWorkspaceClear}
+                title='Clear workspace'
+                aria-label='Clear workspace'
+              >
+                <XIcon />
+              </button>
+            )}
+          </div>
         </div>
 
         <div style={styles.metaRight}>
@@ -499,9 +619,98 @@ function formatTokenCount(value: number): string {
   return value.toString()
 }
 
+function getActiveSkillQuery(input: string): string | null {
+  const leadingWhitespace = input.match(/^\s*/)?.[0] ?? ''
+  const text = input.slice(leadingWhitespace.length)
+  if (!text.startsWith('/')) return null
+
+  const token = text.slice(1)
+  if (token.includes(' ') || token.includes('\n') || token.includes('\t')) return null
+  return token
+}
+
+function removeActiveSkillQuery(input: string): string {
+  const leadingWhitespace = input.match(/^\s*/)?.[0] ?? ''
+  const text = input.slice(leadingWhitespace.length)
+  if (!text.startsWith('/')) return input
+  return leadingWhitespace + text.replace(/^\/[^\s]*/, '').replace(/^\s+/, '')
+}
+
 // ---------------------------------------------------------------------------
 // FileChip
 // ---------------------------------------------------------------------------
+
+function SkillPicker({
+  skills,
+  selectedIndex,
+  loading,
+  hasInstalledSkills,
+  onSelect,
+}: {
+  skills: SkillInfo[]
+  selectedIndex: number
+  loading: boolean
+  hasInstalledSkills: boolean
+  onSelect: (skill: SkillInfo) => void
+}): React.ReactElement {
+  return (
+    <div style={styles.skillPicker} role='listbox' aria-label='Skill picker'>
+      {loading ? (
+        <div style={styles.skillPickerEmpty}>Loading skills...</div>
+      ) : skills.length === 0 ? (
+        <div style={styles.skillPickerEmpty}>
+          {hasInstalledSkills
+            ? 'No matching skills'
+            : 'No skills installed in this workspace. Add a SKILL.md under skills/core or skills/generated.'}
+        </div>
+      ) : (
+        skills.map((skill, index) => (
+          <button
+            key={skill.name}
+            type='button'
+            role='option'
+            aria-selected={index === selectedIndex}
+            style={{
+              ...styles.skillPickerItem,
+              ...(index === selectedIndex ? styles.skillPickerItemSelected : {}),
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault()
+              onSelect(skill)
+            }}
+          >
+            <span style={styles.skillPickerName}>{skill.name}</span>
+            <span style={styles.skillPickerDescription}>
+              {skill.description || 'No description available.'}
+            </span>
+          </button>
+        ))
+      )}
+    </div>
+  )
+}
+
+function SkillChip({
+  skill,
+  onRemove,
+}: {
+  skill: SkillInfo
+  onRemove: () => void
+}): React.ReactElement {
+  return (
+    <span style={styles.skillChip}>
+      <span style={styles.skillChipLabel}>Skill: {skill.name}</span>
+      <button
+        style={styles.skillChipRemove}
+        onClick={onRemove}
+        aria-label={`Remove ${skill.name} skill`}
+        title={`Remove ${skill.name} skill`}
+      >
+        <XIcon />
+      </button>
+    </span>
+  )
+}
 
 function ImageChip({
   image,
@@ -771,6 +980,54 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     padding: '0 4px 8px',
   },
+  skillPicker: {
+    width: 420,
+    maxWidth: 'calc(100vw - 48px)',
+    maxHeight: 280,
+    overflowY: 'auto',
+    margin: '0 0 8px 34px',
+    borderRadius: 12,
+    border: '1px solid var(--border-light)',
+    backgroundColor: 'var(--bg-input)',
+    boxShadow: 'var(--shadow-lg)',
+    padding: 6,
+  },
+  skillPickerItem: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 3,
+    border: 'none',
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    color: 'var(--text-primary)',
+    padding: '8px 10px',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  skillPickerItemSelected: {
+    backgroundColor: 'var(--bg-hover)',
+  },
+  skillPickerName: {
+    fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1.3,
+  },
+  skillPickerDescription: {
+    fontSize: 12,
+    lineHeight: 1.35,
+    color: 'var(--text-secondary)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    width: '100%',
+  },
+  skillPickerEmpty: {
+    padding: '10px 12px',
+    fontSize: 12,
+    color: 'var(--text-tertiary)',
+  },
   fileChipName: {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -897,6 +1154,40 @@ const styles: Record<string, React.CSSProperties> = {
   modeButtonText: {
     lineHeight: 1,
   },
+  skillChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    minHeight: 24,
+    padding: '3px 4px 3px 9px',
+    borderRadius: 999,
+    backgroundColor: 'color-mix(in srgb, var(--accent-blue) 9%, var(--bg-secondary))',
+    border: '1px solid color-mix(in srgb, var(--accent-blue) 22%, var(--border-light))',
+    color: 'var(--accent-blue)',
+    maxWidth: 220,
+  },
+  skillChipLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    lineHeight: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  skillChipRemove: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 18,
+    height: 18,
+    border: 'none',
+    borderRadius: 999,
+    backgroundColor: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    padding: 0,
+    flexShrink: 0,
+  },
   activeModeChip: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -961,6 +1252,12 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.4,
     color: 'var(--text-tertiary)',
   },
+  workspaceChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 2,
+    minWidth: 0,
+  },
   workspaceButton: {
     display: 'flex',
     alignItems: 'center',
@@ -975,6 +1272,20 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-micro)',
     maxWidth: 220,
     minWidth: 0,
+  },
+  workspaceClearButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 18,
+    height: 18,
+    border: 'none',
+    borderRadius: 999,
+    backgroundColor: 'transparent',
+    color: 'var(--text-tertiary)',
+    cursor: 'pointer',
+    padding: 0,
+    flexShrink: 0,
   },
   workspacePath: {
     overflow: 'hidden',

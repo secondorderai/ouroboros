@@ -1761,3 +1761,39 @@ describe('spawn_agent tool', () => {
     }
   })
 })
+
+describe('spawn-agent skill propagation helpers', () => {
+  test('scopeSkillCatalogProvider passes through when no allowlist', () => {
+    const fullCatalog = [
+      { name: 'a', description: 'A', status: 'core' as const },
+      { name: 'b', description: 'B', status: 'core' as const },
+    ]
+    const wrapped = spawnAgentTool.scopeSkillCatalogProvider(() => fullCatalog, undefined)
+    expect(wrapped?.()).toEqual(fullCatalog)
+
+    const wrappedEmpty = spawnAgentTool.scopeSkillCatalogProvider(() => fullCatalog, [])
+    expect(wrappedEmpty?.()).toEqual(fullCatalog)
+  })
+
+  test('scopeSkillCatalogProvider filters to the allowed names', () => {
+    const fullCatalog = [
+      { name: 'a', description: 'A', status: 'core' as const },
+      { name: 'b', description: 'B', status: 'core' as const },
+      { name: 'c', description: 'C', status: 'core' as const },
+    ]
+    const wrapped = spawnAgentTool.scopeSkillCatalogProvider(() => fullCatalog, ['a', 'c'])
+    expect(wrapped?.().map((s) => s.name)).toEqual(['a', 'c'])
+  })
+
+  test('scopeSkillCatalogProvider returns undefined when parent provider is undefined', () => {
+    expect(spawnAgentTool.scopeSkillCatalogProvider(undefined, ['a'])).toBeUndefined()
+  })
+
+  test('resolveInheritedSkill returns undefined unless inheritSkill is true', () => {
+    const parent = { name: 'foo', instructions: '', references: [], fileList: [] }
+    expect(spawnAgentTool.resolveInheritedSkill(undefined, parent)).toBeUndefined()
+    expect(spawnAgentTool.resolveInheritedSkill(false, parent)).toBeUndefined()
+    expect(spawnAgentTool.resolveInheritedSkill(true, parent)).toBe(parent)
+    expect(spawnAgentTool.resolveInheritedSkill(true, undefined)).toBeUndefined()
+  })
+})
