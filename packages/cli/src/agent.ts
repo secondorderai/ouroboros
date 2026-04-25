@@ -10,7 +10,12 @@
  */
 
 import { getAgentsMdInstructions } from '@src/agents-md'
-import { BUILT_IN_AGENT_DEFINITIONS, loadConfig, type OuroborosConfig } from '@src/config'
+import {
+  BUILT_IN_AGENT_DEFINITIONS,
+  loadConfig,
+  type ContextWindowSource,
+  type OuroborosConfig,
+} from '@src/config'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
 import { streamResponse } from '@src/llm/streaming'
 import {
@@ -61,6 +66,8 @@ export type AgentEvent =
       contextWindowTokens: number | null
       usageRatio: number | null
       threshold: ContextBudgetThreshold
+      breakdown?: ContextUsageBreakdown
+      contextWindowSource?: ContextWindowSource
     }
   | {
       type: 'tool-call-start'
@@ -222,8 +229,19 @@ export interface AgentRunOptions {
 
 export type ContextBudgetThreshold = 'within-budget' | 'warn' | 'flush' | 'compact'
 
+export interface ContextUsageBreakdown {
+  systemPromptTokens: number
+  toolPromptTokens: number
+  agentsInstructionsTokens: number
+  memoryTokens: number
+  conversationTokens: number
+  toolResultTokens: number
+}
+
 export interface ContextUsageEstimate {
   systemPromptTokens: number
+  toolPromptTokens: number
+  agentsInstructionsTokens: number
   durableMemoryTokens: number
   checkpointMemoryTokens: number
   workingMemoryTokens: number
@@ -233,6 +251,7 @@ export interface ContextUsageEstimate {
   contextWindowTokens: number | null
   usageRatio: number | null
   threshold: ContextBudgetThreshold
+  breakdown: ContextUsageBreakdown
 }
 
 function isRecoverableLLMError(error: Error): boolean {
@@ -272,6 +291,15 @@ function estimateTextTokens(text: string): number {
   }
 
   return Math.ceil(normalized.length / 4)
+}
+
+function extractPromptSection(prompt: string, heading: string): string {
+  const start = prompt.indexOf(heading)
+  if (start === -1) return ''
+
+  const next = prompt.slice(start + heading.length).search(/\n## (?!#)/)
+  if (next === -1) return prompt.slice(start).trim()
+  return prompt.slice(start, start + heading.length + next).trim()
 }
 
 function serializeUnknown(value: unknown): string {
@@ -438,9 +466,16 @@ export function estimateContextUsage(options: {
   const allMemoryTokens = durableMemoryTokens + checkpointMemoryTokens + workingMemoryTokens
   const rawSystemTokens = estimateTextTokens(options.systemPrompt)
   const systemPromptTokens = Math.max(rawSystemTokens - allMemoryTokens, 0)
+  const toolPromptTokens = estimateTextTokens(
+    extractPromptSection(options.systemPrompt, '## Available Tools'),
+  )
+  const agentsInstructionsTokens = estimateTextTokens(
+    extractPromptSection(options.systemPrompt, '## AGENTS.md Instructions'),
+  )
   const conversationTokens = estimateConversationTokens(options.conversationHistory)
+  const liveConversationTokens = conversationTokens.live
   const estimatedTotalTokens =
-    systemPromptTokens + allMemoryTokens + conversationTokens.live + conversationTokens.toolResults
+    systemPromptTokens + allMemoryTokens + liveConversationTokens + conversationTokens.toolResults
 
   const contextWindowTokens =
     options.contextWindowTokens && options.contextWindowTokens > 0
@@ -461,15 +496,25 @@ export function estimateContextUsage(options: {
 
   return {
     systemPromptTokens,
+    toolPromptTokens,
+    agentsInstructionsTokens,
     durableMemoryTokens,
     checkpointMemoryTokens,
     workingMemoryTokens,
-    liveConversationTokens: conversationTokens.live,
+    liveConversationTokens,
     toolResultTokens: conversationTokens.toolResults,
     estimatedTotalTokens,
     contextWindowTokens,
     usageRatio,
     threshold,
+    breakdown: {
+      systemPromptTokens,
+      toolPromptTokens,
+      agentsInstructionsTokens,
+      memoryTokens: allMemoryTokens,
+      conversationTokens: liveConversationTokens,
+      toolResultTokens: conversationTokens.toolResults,
+    },
   }
 }
 
@@ -548,6 +593,7 @@ export class Agent {
               memory: {
                 consolidationSchedule: 'session-end',
                 contextWindowTokens: 200_000,
+                contextWindowSource: 'fallback',
                 warnRatio: 0.7,
                 flushRatio: 0.8,
                 compactRatio: 0.9,
@@ -1124,6 +1170,8 @@ export class Agent {
       contextWindowTokens: usage.contextWindowTokens,
       usageRatio: usage.usageRatio,
       threshold: usage.threshold,
+      breakdown: usage.breakdown,
+      contextWindowSource: this.config.memory.contextWindowSource,
     })
   }
 
@@ -1145,6 +1193,10 @@ export class Agent {
       estimatedTotalTokens,
       usageRatio,
       threshold: this.getContextBudgetThreshold(usageRatio),
+      breakdown: {
+        ...usage.breakdown,
+        conversationTokens: liveConversationTokens,
+      },
     }
   }
 

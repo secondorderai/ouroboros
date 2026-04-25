@@ -190,10 +190,35 @@ describe('Agent + Memory Integration', () => {
     expect(usage.workingMemoryTokens).toBeGreaterThan(0)
     expect(usage.liveConversationTokens).toBeGreaterThan(0)
     expect(usage.toolResultTokens).toBeGreaterThan(0)
+    expect(usage.breakdown.memoryTokens).toBe(
+      usage.durableMemoryTokens + usage.checkpointMemoryTokens + usage.workingMemoryTokens,
+    )
+    expect(usage.breakdown.conversationTokens).toBe(usage.liveConversationTokens)
+    expect(usage.breakdown.toolResultTokens).toBe(usage.toolResultTokens)
     expect(usage.estimatedTotalTokens).toBeGreaterThan(
       usage.durableMemoryTokens + usage.checkpointMemoryTokens,
     )
     expect(usage.usageRatio).not.toBeNull()
+  })
+
+  test('estimates prompt contribution from tool and AGENTS sections', () => {
+    const usage = estimateContextUsage({
+      systemPrompt: [
+        'Base guidance.',
+        '## Available Tools',
+        '- **bash** — Run commands',
+        '## AGENTS.md Instructions',
+        'Follow repo policy.',
+      ].join('\n\n'),
+      memorySections: {},
+      conversationHistory: [],
+      contextWindowTokens: 1000,
+    })
+
+    expect(usage.toolPromptTokens).toBeGreaterThan(0)
+    expect(usage.agentsInstructionsTokens).toBeGreaterThan(0)
+    expect(usage.breakdown.toolPromptTokens).toBe(usage.toolPromptTokens)
+    expect(usage.breakdown.agentsInstructionsTokens).toBe(usage.agentsInstructionsTokens)
   })
 
   test('flushes observations and rewrites the checkpoint before compaction', async () => {

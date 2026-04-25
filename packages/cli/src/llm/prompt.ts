@@ -60,6 +60,8 @@ export interface BuildSystemPromptOptions {
     /** File names in the skill's `references/` and `scripts/` directories (advisory). */
     fileList?: string[]
   }
+  /** Include full JSON schemas in the prompt. Native tool calls carry schemas separately. */
+  includeToolSchemasInPrompt?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -130,13 +132,17 @@ Guidelines:
 // Section formatters
 // ---------------------------------------------------------------------------
 
-function formatToolsSection(tools: ToolMetadata[]): string {
+function formatToolsSection(tools: ToolMetadata[], includeSchemas = false): string {
   const entries = tools.map((tool) => {
+    if (!includeSchemas) {
+      return `- **${tool.name}** — ${tool.description}`
+    }
+
     const schemaStr = JSON.stringify(tool.parameters, null, 2)
     return `### ${tool.name}\n\n${tool.description}\n\n**Parameters:**\n\`\`\`json\n${schemaStr}\n\`\`\``
   })
 
-  return `## Available Tools\n\n${entries.join('\n\n')}`
+  return `## Available Tools\n\nTool parameter schemas are provided through native tool definitions. Use this catalog to choose the right tool.\n\n${entries.join(includeSchemas ? '\n\n' : '\n')}`
 }
 
 function formatSkillsSection(skills: SkillEntry[]): string {
@@ -295,6 +301,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
     modeOverlay,
     teamGuidance,
     activatedSkill,
+    includeToolSchemasInPrompt,
   } = options
 
   const sections: string[] = [BASE_INSTRUCTIONS]
@@ -314,7 +321,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
   }
 
   if (tools && tools.length > 0) {
-    sections.push(formatToolsSection(tools))
+    sections.push(formatToolsSection(tools, includeToolSchemasInPrompt))
   }
 
   if (skills && skills.length > 0) {

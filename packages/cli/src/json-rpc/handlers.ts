@@ -205,6 +205,8 @@ export function bridgeAgentEvent(event: AgentEvent, sessionId: string | null = n
           contextWindowTokens: event.contextWindowTokens,
           usageRatio: event.usageRatio,
           threshold: event.threshold,
+          breakdown: event.breakdown,
+          contextWindowSource: event.contextWindowSource,
         }),
       )
       break

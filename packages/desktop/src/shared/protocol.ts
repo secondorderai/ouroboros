@@ -224,6 +224,15 @@ export interface AgentContextUsageParams {
   contextWindowTokens: number | null
   usageRatio: number | null
   threshold: 'within-budget' | 'warn' | 'flush' | 'compact'
+  breakdown?: {
+    systemPromptTokens: number
+    toolPromptTokens: number
+    agentsInstructionsTokens: number
+    memoryTokens: number
+    conversationTokens: number
+    toolResultTokens: number
+  }
+  contextWindowSource?: 'config' | 'model-registry' | 'fallback' | 'unknown'
 }
 
 export interface AgentToolCallStartParams {

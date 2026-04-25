@@ -42,10 +42,10 @@ describe('buildSystemPrompt', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Feature Test: Tool schemas are injected
+  // Feature Test: Tool catalog is injected without duplicating native schemas
   // -------------------------------------------------------------------------
 
-  test('tool schemas are injected', () => {
+  test('tool catalog is injected without JSON schemas by default', () => {
     const mockTool1: ToolMetadata = {
       name: 'file-read',
       description: 'Read the contents of a file',
@@ -81,12 +81,38 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Read the contents of a file')
     expect(prompt).toContain('Write content to a file')
 
-    // Parameter schemas are present
-    expect(prompt).toContain('"path"')
-    expect(prompt).toContain('"content"')
+    // Parameter schemas are intentionally omitted from the prompt because
+    // they are passed through native tool definitions.
+    expect(prompt).not.toContain('"path"')
+    expect(prompt).not.toContain('"content"')
 
     // Section header is present
     expect(prompt).toContain('## Available Tools')
+    expect(prompt).toContain('native tool definitions')
+  })
+
+  test('tool schemas can be included for fallback providers', () => {
+    const mockTool: ToolMetadata = {
+      name: 'file-write',
+      description: 'Write content to a file',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' },
+        },
+        required: ['path', 'content'],
+      },
+    }
+
+    const prompt = buildSystemPrompt({
+      tools: [mockTool],
+      includeToolSchemasInPrompt: true,
+    })
+
+    expect(prompt).toContain('"path"')
+    expect(prompt).toContain('"content"')
+    expect(prompt).toContain('Parameters')
   })
 
   // -------------------------------------------------------------------------

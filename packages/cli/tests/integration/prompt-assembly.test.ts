@@ -205,9 +205,9 @@ describe('Prompt + Tools + Skills Assembly', () => {
   })
 
   // -------------------------------------------------------------------
-  // Test: Tool metadata includes JSON Schema parameters
+  // Test: Tool metadata omits duplicate JSON Schema parameters
   // -------------------------------------------------------------------
-  test('tool metadata includes JSON Schema parameters in the prompt', () => {
+  test('tool metadata omits JSON Schema parameters from the prompt by default', () => {
     const registry = new ToolRegistry()
     registry.register({
       name: 'detailed-tool',
@@ -223,11 +223,11 @@ describe('Prompt + Tools + Skills Assembly', () => {
     const tools = registry.getTools()
     const prompt = buildSystemPrompt({ tools })
 
-    // Parameters should be serialized as JSON Schema
-    expect(prompt).toContain('"path"')
-    expect(prompt).toContain('"content"')
-    expect(prompt).toContain('"type"')
-    expect(prompt).toContain('Parameters')
+    // Parameters are passed to the provider through native tool definitions.
+    expect(prompt).not.toContain('"path"')
+    expect(prompt).not.toContain('"content"')
+    expect(prompt).not.toContain('Parameters')
+    expect(prompt).toContain('native tool definitions')
   })
 
   // -------------------------------------------------------------------
