@@ -48,6 +48,14 @@ const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
   'claude-3-haiku-20240307': { contextWindowTokens: 200_000, provider: 'anthropic' },
   'claude-3-haiku': { contextWindowTokens: 200_000, provider: 'anthropic' },
 
+  // ── OpenAI — GPT-5.5 series (1.05M context) ────────────────────────
+  'gpt-5.5': { contextWindowTokens: 1_050_000, provider: 'openai' },
+  'gpt-5.5-mini': { contextWindowTokens: 1_100_000, provider: 'openai' },
+  'gpt-5.5-mini-high': { contextWindowTokens: 1_100_000, provider: 'openai' },
+  'gpt-5.5-pro': { contextWindowTokens: 1_050_000, provider: 'openai' },
+  'gpt-5.5-medium': { contextWindowTokens: 1_100_000, provider: 'openai' },
+  'gpt-5.5-codex': { contextWindowTokens: 400_000, provider: 'openai' },
+
   // ── OpenAI — GPT-5 series (1.05M context) ──────────────────────────
   'gpt-5.4': { contextWindowTokens: 1_050_000, provider: 'openai' },
   'gpt-5.4-mini': { contextWindowTokens: 1_100_000, provider: 'openai' },
