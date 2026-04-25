@@ -55,6 +55,7 @@ function makeSession(
       toolName: m.toolName ?? null,
       toolArgs: null,
       createdAt: new Date().toISOString(),
+      metadata: null,
     })),
   }
 }

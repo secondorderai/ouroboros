@@ -30,6 +30,8 @@ export interface TranscriptMessage {
   toolName: string | null
   toolArgs: string | null
   createdAt: string
+  /** Decoded per-message extras. Null when no metadata blob was persisted. */
+  metadata: Record<string, unknown> | null
 }
 
 export interface Session {
@@ -72,6 +74,8 @@ export interface AddMessageInput {
   content: string
   toolName?: string
   toolArgs?: Record<string, unknown>
+  /** Optional per-message extras (e.g. activatedSkills). Persisted as JSON. */
+  metadata?: Record<string, unknown>
 }
 
 export type SubagentRunStatus = 'completed' | 'failed'
@@ -197,6 +201,7 @@ interface MessageRow {
   tool_name: string | null
   tool_args: string | null
   created_at: string
+  metadata: string | null
 }
 
 interface SearchRow {
@@ -301,6 +306,15 @@ export class TranscriptStore {
       this.db.run(
         "ALTER TABLE sessions ADD COLUMN title_source TEXT CHECK(title_source IN ('auto', 'manual'))",
       )
+    }
+
+    // Per-message JSON blob for ad-hoc extras (currently: activatedSkills).
+    // Generic so future per-turn metadata avoids another migration.
+    const messageColumns = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{
+      name: string
+    }>
+    if (!messageColumns.some((column) => column.name === 'metadata')) {
+      this.db.run('ALTER TABLE messages ADD COLUMN metadata TEXT')
     }
 
     this.db.run(`
@@ -427,11 +441,24 @@ export class TranscriptStore {
       const id = crypto.randomUUID()
       const createdAt = new Date().toISOString()
       const toolArgs = input.toolArgs ? JSON.stringify(input.toolArgs) : null
+      const metadata =
+        input.metadata && Object.keys(input.metadata).length > 0
+          ? JSON.stringify(input.metadata)
+          : null
       this.db
         .prepare(
-          'INSERT INTO messages (id, session_id, role, content, tool_name, tool_args, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO messages (id, session_id, role, content, tool_name, tool_args, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(id, sessionId, input.role, input.content, input.toolName ?? null, toolArgs, createdAt)
+        .run(
+          id,
+          sessionId,
+          input.role,
+          input.content,
+          input.toolName ?? null,
+          toolArgs,
+          createdAt,
+          metadata,
+        )
       return ok(id)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
@@ -722,6 +749,7 @@ export class TranscriptStore {
         toolName: row.tool_name,
         toolArgs: row.tool_args,
         createdAt: row.created_at,
+        metadata: parseMessageMetadata(row.metadata),
       }))
 
       return ok({
@@ -908,6 +936,21 @@ function parseJsonStringArray(value: string): string[] {
     return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
   } catch {
     return []
+  }
+}
+
+/**
+ * Decode the `metadata` JSON blob persisted on a message row. Returns `null`
+ * when the column is empty or the payload isn't a plain object — never throws.
+ */
+function parseMessageMetadata(value: string | null): Record<string, unknown> | null {
+  if (value === null || value === '') return null
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
   }
 }
 

@@ -282,4 +282,94 @@ describe('Layer 3 — Session Transcripts', () => {
     if (!runs.ok) return
     expect(runs.value).toEqual([])
   })
+
+  test('per-message metadata round-trips through SQLite', () => {
+    const created = store.createSession()
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const sessionId = created.value
+
+    const userId = store.addMessage(sessionId, { role: 'user', content: 'plan it' })
+    expect(userId.ok).toBe(true)
+
+    const assistantId = store.addMessage(sessionId, {
+      role: 'assistant',
+      content: 'Here is the plan.',
+      metadata: { activatedSkills: ['meta-thinking', 'self-test'], extra: 42 },
+    })
+    expect(assistantId.ok).toBe(true)
+
+    const loaded = store.getSession(sessionId)
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+
+    const userMsg = loaded.value.messages.find((m) => m.role === 'user')
+    expect(userMsg?.metadata).toBeNull()
+
+    const assistantMsg = loaded.value.messages.find((m) => m.role === 'assistant')
+    expect(assistantMsg?.metadata).toEqual({
+      activatedSkills: ['meta-thinking', 'self-test'],
+      extra: 42,
+    })
+  })
+
+  test('migrates pre-metadata databases by adding the metadata column', () => {
+    store.close()
+
+    const dbPath = join(tempDir, 'pre-metadata.db')
+    const legacyDb = new Database(dbPath)
+    legacyDb.run(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        summary TEXT
+      )
+    `)
+    legacyDb.run(`
+      CREATE TABLE messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('system', 'user', 'assistant', 'tool-call', 'tool-result')),
+        content TEXT NOT NULL,
+        tool_name TEXT,
+        tool_args TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      )
+    `)
+    legacyDb
+      .prepare('INSERT INTO sessions (id, started_at, summary) VALUES (?, ?, ?)')
+      .run('legacy', '2026-01-01T00:00:00.000Z', null)
+    legacyDb
+      .prepare(
+        'INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run('m1', 'legacy', 'assistant', 'old reply', '2026-01-01T00:00:01.000Z')
+    legacyDb.close()
+
+    const upgraded = new TranscriptStore(dbPath)
+    store = upgraded
+
+    // Existing rows should hydrate with metadata=null and not crash.
+    const loaded = upgraded.getSession('legacy')
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    expect(loaded.value.messages[0].metadata).toBeNull()
+
+    // And we can write metadata against the upgraded schema.
+    const created = upgraded.createSession()
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const sessionId = created.value
+    upgraded.addMessage(sessionId, {
+      role: 'assistant',
+      content: 'fresh reply',
+      metadata: { activatedSkills: ['meta-thinking'] },
+    })
+    const fresh = upgraded.getSession(sessionId)
+    expect(fresh.ok).toBe(true)
+    if (!fresh.ok) return
+    expect(fresh.value.messages[0].metadata).toEqual({ activatedSkills: ['meta-thinking'] })
+  })
 })
