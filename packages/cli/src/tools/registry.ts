@@ -15,6 +15,7 @@ const READ_ONLY_ALLOWED_TOOL_NAMES = new Set(['file-read', 'web-fetch', 'web-sea
 const READ_ONLY_DENIED_TOOL_REASONS = new Map<string, string>([
   ['ask-user', 'read-only child agents cannot block on interactive user input'],
   ['bash', 'read-only child agents cannot execute shell commands'],
+  ['code-exec', 'read-only child agents cannot execute generated code'],
   ['crystallize', 'read-only child agents cannot perform RSI crystallization'],
   ['dream', 'read-only child agents cannot perform RSI dream operations'],
   ['enter-mode', 'read-only child agents cannot change agent modes'],
@@ -42,6 +43,7 @@ const WORKER_ALLOWED_TOOL_NAMES = new Set([
   'file-write',
   'file-edit',
   'bash',
+  'code-exec',
   'web-fetch',
   'web-search',
 ])
