@@ -1,8 +1,8 @@
+import { err, ok, type Result } from '@src/types'
+import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { randomUUID } from 'node:crypto'
-import { spawn } from 'node:child_process'
-import { type Result, ok, err } from '@src/types'
 import { getAuth, isAuthExpired, removeAuth, setAuth, type AuthInfo } from './index'
 
 export const OPENAI_CHATGPT_PROVIDER = 'openai-chatgpt'
@@ -18,9 +18,11 @@ export const OPENAI_CHATGPT_SUPPORTED_MODELS = [
   'gpt-5.3-codex',
   'gpt-5.4',
   'gpt-5.4-mini',
+  'gpt-5.5',
+  'gpt-5.5-mini',
+  'gpt-5.5-codex',
 ] as const
 
-export const OPENAI_CHATGPT_DEFAULT_MODEL = 'gpt-5.4'
 export const OPENAI_CHATGPT_OAUTH_DUMMY_KEY = 'ouroboros-oauth-dummy-key'
 
 const ISSUER = 'https://auth.openai.com'

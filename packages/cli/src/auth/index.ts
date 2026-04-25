@@ -18,8 +18,10 @@ export type AuthInfo = z.infer<typeof authInfoSchema>
 const authStoreSchema = z.record(z.string(), authInfoSchema)
 type AuthStore = z.infer<typeof authStoreSchema>
 
-const DEFAULT_AUTH_DIR = join(homedir(), '.ouroboros')
-const DEFAULT_AUTH_FILE = join(DEFAULT_AUTH_DIR, 'auth.json')
+// `.ouroboros` itself is the runtime config file (see packages/cli/src/config.ts),
+// so the auth store lives as a sibling file alongside it — matching the existing
+// `.ouroboros-transcripts.db` / `.ouroboros_history` pattern.
+const DEFAULT_AUTH_FILE = join(homedir(), '.ouroboros-auth.json')
 
 export function getAuthFilePath(): string {
   return process.env.OUROBOROS_AUTH_FILE ?? DEFAULT_AUTH_FILE
