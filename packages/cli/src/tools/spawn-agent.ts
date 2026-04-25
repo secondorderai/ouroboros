@@ -801,6 +801,7 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
         maxSteps,
         runProfile: 'automation',
         ...(inheritedSkill ? { activatedSkill: inheritedSkill } : {}),
+        ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
       },
     )
     const normalized = normalizeSubAgentOutput(result.text)
@@ -1066,6 +1067,7 @@ async function executeWorkerAgent(
           maxSteps,
           runProfile: 'automation',
           ...(inheritedSkill ? { activatedSkill: inheritedSkill } : {}),
+          ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
         },
       )
       const normalized = normalizeSubAgentOutput(result.text)

@@ -243,6 +243,34 @@ export function bridgeAgentEvent(event: AgentEvent, sessionId: string | null = n
         }),
       )
       break
+    case 'steer-injected':
+      writeMessage(
+        makeNotification('agent/steerInjected', {
+          sessionId,
+          steerId: event.steerId,
+          iteration: event.iteration,
+          text: event.text,
+        }),
+      )
+      break
+    case 'steer-orphaned':
+      writeMessage(
+        makeNotification('agent/steerOrphaned', {
+          sessionId,
+          reason: event.reason,
+          steers: event.steers,
+        }),
+      )
+      break
+    case 'turn-aborted':
+      writeMessage(
+        makeNotification('agent/turnAborted', {
+          sessionId,
+          iterations: event.iterations,
+          partialText: event.partialText,
+        }),
+      )
+      break
     case 'mode-entered':
       writeMessage(
         makeNotification('mode/entered', {
@@ -558,6 +586,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
           maxSteps: maxSteps ?? ctx.maxStepsOverride,
           images,
           activatedSkill: activatedSkill?.value,
+          abortSignal: abort.signal,
         }),
       )
       if (sessionId) {
@@ -589,6 +618,52 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       ctx.setCurrentRunAbort(null)
       if (sessionId) ctx.registerSessionAbort?.(sessionId, null)
     }
+  })
+
+  handlers.set('agent/steer', async (params) => {
+    const message = params.message
+    if (typeof message !== 'string' || message.trim().length === 0) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.message is required and must be a non-empty string',
+      )
+    }
+    const requestId = params.requestId
+    if (typeof requestId !== 'string' || requestId.trim().length === 0) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.requestId is required and must be a non-empty string',
+      )
+    }
+    const explicitSessionId = params.sessionId
+    if (
+      explicitSessionId !== undefined &&
+      (typeof explicitSessionId !== 'string' || explicitSessionId.length === 0)
+    ) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.sessionId must be a non-empty string when provided',
+      )
+    }
+    const images = validateAndReadImageAttachments(params.images)
+    const sessionId: string | null =
+      (typeof explicitSessionId === 'string' && explicitSessionId) || ctx.currentSessionId
+    if (!sessionId) {
+      return { accepted: false, reason: 'no-active-run' }
+    }
+    const agent = ctx.getAgent(sessionId)
+    if (!agent.isRunning()) {
+      return { accepted: false, reason: 'no-active-run' }
+    }
+    const result = agent.enqueueSteer({
+      id: requestId,
+      text: message,
+      ...(images && images.length > 0 ? { images } : {}),
+    })
+    if (!result.accepted) {
+      return { accepted: false, reason: result.reason }
+    }
+    return { accepted: true, duplicate: result.duplicate ?? false }
   })
 
   handlers.set('agent/cancel', async (params) => {

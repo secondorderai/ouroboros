@@ -364,6 +364,11 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       if (!abort) return false
       abort.abort()
       abortsBySession.delete(sessionId)
+      // Steers queued before the user hit Cancel become orphans the desktop
+      // can offer to resend as a fresh turn — preserving intent without
+      // auto-starting a new run.
+      const agent = agentsBySession.get(sessionId)
+      agent?.flushPendingSteersAsOrphans('cancelled')
       return true
     },
     registerSessionAbort: (sessionId, abort) => {
