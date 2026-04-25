@@ -1,0 +1,259 @@
+<mxfile host="65bd71144e">
+    <diagram id="multi-agent-orchestration" name="Multi-Agent Orchestration Runtime">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1350" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+
+                <mxCell id="title" value="&lt;b&gt;Ouroboros — Multi-Agent Orchestration Runtime&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="460" y="20" width="880" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="Root agent runs a ReAct loop, spawns role-scoped sub-agents, streams events to the desktop over JSON-RPC, and feeds outcomes back through memory + RSI." style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="58" width="1240" height="20" as="geometry"/>
+                </mxCell>
+
+                <!-- ===================== ROW 1: SURFACES ===================== -->
+
+                <mxCell id="desktop-surface" value="&lt;b&gt;Desktop renderer + main process&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;ChatView · RSIDrawer · ApprovalQueue · TeamGraphCanvas · subagent threads&lt;br&gt;Calls window.ouroboros.rpc(); subscribes to notifications&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="100" width="560" height="85" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="rpc-bridge" value="&lt;b&gt;JSON-RPC server&lt;/b&gt; &lt;font style=&quot;font-size:10px&quot;&gt;packages/cli/src/json-rpc&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NDJSON over stdin/stdout · ~40 request methods · 10 notification streams&lt;br&gt;dispatcher → handlers · bridgeAgentEvent translates AgentEvent → notifications&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="680" y="100" width="540" height="85" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="cli-surface" value="&lt;b&gt;CLI REPL / one-shot mode&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Commander.js + Ink terminal UI&lt;br&gt;Same Agent core; renders AgentEvents inline (no JSON-RPC)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1260" y="100" width="460" height="85" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="surface-edge-1" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#666666;strokeWidth=1.5;" parent="1" source="desktop-surface" target="rpc-bridge" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- ===================== ROW 2: ORCHESTRATION CORE ===================== -->
+
+                <mxCell id="core-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffaf2;strokeColor=#d79b00;strokeWidth=2;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="210" width="1640" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="core-label" value="&lt;b&gt;Root / Parent Agent&lt;/b&gt; &lt;font color=&quot;#d79b00&quot;&gt;packages/cli/src/agent.ts&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=14;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="222" width="600" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="core-note" value="ReAct loop: plan → act → observe. Decoupled from any UI; emits a typed AgentEvent stream consumed by JSON-RPC, REPL, or tests." style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="246" width="1540" height="20" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="core-llm" value="&lt;b&gt;LLM client&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Vercel AI SDK (provider-agnostic)&lt;br&gt;Anthropic · OpenAI · Google&lt;br&gt;Streams text + tool calls&lt;br&gt;model-capabilities.ts gates features&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="280" width="240" height="210" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="core-prompt" value="&lt;b&gt;buildSystemPrompt&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;src/llm/prompt.ts&lt;br&gt;&lt;br&gt;• Durable memory context&lt;br&gt;• Last-session checkpoint&lt;br&gt;• Working memory budget&lt;br&gt;• Skill catalog descriptions (lazy)&lt;br&gt;• Agent persona + mode guidance&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="280" width="240" height="210" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="core-react" value="&lt;b&gt;ReAct tool loop&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Stream LLM response&lt;br&gt;Detect tool calls&lt;br&gt;Execute via registry&lt;br&gt;Append observation → loop&lt;br&gt;5-tier permission gating&lt;br&gt;Errors return Result&amp;lt;T,E&amp;gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="630" y="280" width="280" height="210" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="core-events" value="&lt;b&gt;AgentEvent emitter&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;text · tool-call-start/end · turn-complete&lt;br&gt;subagent-started / updated&lt;br&gt;subagent-completed / failed&lt;br&gt;team-graph-open / updated&lt;br&gt;rsi-reflection / crystallization / dream&lt;br&gt;permission-lease-check&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="930" y="280" width="280" height="210" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="core-registry" value="&lt;b&gt;Tool Registry — scoped&lt;/b&gt; &lt;font style=&quot;font-size:9px&quot;&gt;src/tools/registry.ts&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;&lt;b&gt;Parent (full):&lt;/b&gt; spawn_agent · team_graph · file-read · file-write · file-edit · bash · web-fetch · web-search · skill-manage · memory-* · ask-user&lt;br&gt;&lt;br&gt;&lt;b&gt;Read-only child:&lt;/b&gt; createReadOnlyToolRegistry → file-read · web-fetch · web-search&lt;br&gt;&lt;b&gt;Test child:&lt;/b&gt; createTestToolRegistry → adds bash with command whitelist&lt;br&gt;&lt;b&gt;Worker:&lt;/b&gt; createWorkerToolRegistry → write tools gated by permission lease&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;" parent="1" vertex="1">
+                    <mxGeometry x="1230" y="280" width="470" height="210" as="geometry"/>
+                </mxCell>
+
+                <!-- intra-core arrows -->
+                <mxCell id="e-prompt-react" style="endArrow=classic;html=1;strokeColor=#7d6608;" parent="1" source="core-prompt" target="core-react" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-llm-react" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#7d6608;" parent="1" source="core-llm" target="core-react" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-react-events" style="endArrow=classic;html=1;strokeColor=#7d6608;" parent="1" source="core-react" target="core-events" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-react-registry" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#7d6608;" parent="1" source="core-react" target="core-registry" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- Surface ↔ core arrows -->
+                <mxCell id="e-rpc-react" value="agent/run · ask-user · skill ops" style="endArrow=classic;html=1;strokeColor=#9673a6;strokeWidth=1.5;fontSize=10;" parent="1" source="rpc-bridge" target="core-react" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-events-rpc" value="bridgeAgentEvent → notifications" style="endArrow=classic;html=1;strokeColor=#9673a6;strokeWidth=1.5;dashed=1;fontSize=10;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.7;entryY=1;entryDx=0;entryDy=0;" parent="1" source="core-events" target="rpc-bridge" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1070" y="200"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+
+                <!-- ===================== ROW 3a: SPAWN_AGENT + WORKERS ===================== -->
+
+                <mxCell id="spawn-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#b85450;strokeWidth=2;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="540" width="820" height="340" as="geometry"/>
+                </mxCell>
+                <mxCell id="spawn-label" value="&lt;b&gt;spawn_agent&lt;/b&gt; &lt;font color=&quot;#b85450&quot;&gt;src/tools/spawn-agent.ts&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="552" width="500" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="spawn-note" value="Creates child Agent with bounded role · child TranscriptStore session · parent→child session link · returns SubAgentResult { claims, evidence, tests, uncertainty }" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="574" width="780" height="32" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="child-explore" value="&lt;b&gt;explore&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;&lt;i&gt;read-only&lt;/i&gt;&lt;br&gt;&lt;br&gt;Search · context synthesis · file/web reads&lt;br&gt;&lt;br&gt;Registry: file-read · web-fetch · web-search&lt;br&gt;&lt;br&gt;Returns evidence-rich SubAgentResult&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="615" width="180" height="245" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="child-review" value="&lt;b&gt;review&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;&lt;i&gt;read-only · red-team&lt;/i&gt;&lt;br&gt;&lt;br&gt;Code review with WorkerDiff context&lt;br&gt;&lt;br&gt;Same registry as explore&lt;br&gt;&lt;br&gt;Reports findings + confidence&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="290" y="615" width="180" height="245" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="child-test" value="&lt;b&gt;test&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;&lt;i&gt;read-only + bash whitelist&lt;/i&gt;&lt;br&gt;&lt;br&gt;Runs verification commands&lt;br&gt;&lt;br&gt;Registry: read tools + bash with allow-list&lt;br&gt;&lt;br&gt;Returns pass/fail + transcript&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="615" width="180" height="245" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="child-worker" value="&lt;b&gt;worker&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;&lt;i&gt;write · isolated git worktree&lt;/i&gt;&lt;br&gt;&lt;br&gt;Permission lease (allowed paths + commands) · enforcePermissionLease&lt;br&gt;&lt;br&gt;Verified build command before merge-back&lt;br&gt;&lt;br&gt;Returns diff + verification log&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="670" y="615" width="200" height="245" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="e-registry-spawn" value="spawn_agent" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=1.5;fontSize=10;exitX=0.4;exitY=1;exitDx=0;exitDy=0;entryX=0.4;entryY=0;entryDx=0;entryDy=0;" parent="1" source="core-registry" target="spawn-label" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- ===================== ROW 3b: TEAM GRAPH ===================== -->
+
+                <mxCell id="teamgraph-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf5ff;strokeColor=#6c8ebf;strokeWidth=2;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="540" width="800" height="340" as="geometry"/>
+                </mxCell>
+                <mxCell id="teamgraph-label" value="&lt;b&gt;team_graph&lt;/b&gt; &lt;font color=&quot;#6c8ebf&quot;&gt;src/tools/team-graph.ts · src/team/task-graph.ts&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="552" width="700" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="teamgraph-note" value="Persistent multi-task plans surfaced as a canvas in the desktop. Verbs: create · create-workflow · open · get · start · pause · fail · cancel · cleanup · add-task · assign-task · send-message" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="574" width="760" height="32" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="tg-store" value="&lt;b&gt;TaskGraphStore&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;In-memory + persisted state&lt;br&gt;&lt;br&gt;Indexed by graphId&lt;br&gt;Atomic mutations&lt;br&gt;Emits team-graph-updated&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="615" width="240" height="245" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="tg-graph" value="&lt;b&gt;TaskGraph&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Tasks: id · title · deps · assignedAgentId · displayLane · requiredArtifacts · qualityGates&lt;br&gt;&lt;br&gt;Agents: id · status · activeTaskIds · displayName (e.g. inspector-1)&lt;br&gt;&lt;br&gt;Messages between lanes&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1190" y="615" width="260" height="245" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="tg-templates" value="&lt;b&gt;Workflow templates&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Instantiated from taskContext&lt;br&gt;&lt;br&gt;• bootstrap&lt;br&gt;• debug&lt;br&gt;• refactor&lt;br&gt;• feature-review&lt;br&gt;&lt;br&gt;Topo-sorted into waves; lanes drive parallel dispatch&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1460" y="615" width="240" height="245" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="e-registry-tg" value="team_graph" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.5;fontSize=10;exitX=0.7;exitY=1;exitDx=0;exitDy=0;entryX=0.1;entryY=0;entryDx=0;entryDy=0;" parent="1" source="core-registry" target="teamgraph-label" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-tg-store-graph" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#6c8ebf;" parent="1" source="tg-store" target="tg-graph" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-tg-templates" style="endArrow=classic;html=1;strokeColor=#6c8ebf;" parent="1" source="tg-templates" target="tg-graph" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- ===================== ROW 4a: MEMORY ===================== -->
+
+                <mxCell id="mem-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ec;strokeColor=#d79b00;strokeWidth=2;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="900" width="1100" height="290" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem-label" value="&lt;b&gt;Memory + Skills&lt;/b&gt; &lt;font color=&quot;#d79b00&quot;&gt;packages/cli/src/memory · src/tools/skill-manager.ts&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="912" width="900" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem-note" value="LayeredMemorySections composes durable + checkpoint + working memory under per-section budgets, then injects into buildSystemPrompt." style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="934" width="1060" height="20" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="mem-durable" value="&lt;b&gt;Durable Memory&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Filesystem JSON&lt;br&gt;&lt;br&gt;Hand-curated long-term facts&lt;br&gt;Topic files indexed by MEMORY.md&lt;br&gt;Updated by RSI dream&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="965" width="240" height="200" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="mem-obs" value="&lt;b&gt;Observations&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;observations.ts&lt;br&gt;&lt;br&gt;Session-scoped, appended after tool calls&lt;br&gt;Indexed for crystallization source tracking&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="350" y="965" width="240" height="200" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="mem-trans" value="&lt;b&gt;TranscriptStore&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;bun:sqlite&lt;br&gt;&lt;br&gt;Full role/message/toolName/toolArgs history&lt;br&gt;&lt;br&gt;SubagentRun records:&lt;br&gt;parent ↔ child session link&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="600" y="965" width="240" height="200" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="mem-skills" value="&lt;b&gt;Skill Catalog&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;skill-manager.ts · agentskills.io&lt;br&gt;&lt;br&gt;SKILL.md + YAML frontmatter&lt;br&gt;Status: builtin · core · staging · generated&lt;br&gt;&lt;br&gt;Progressive disclosure:&lt;br&gt;descriptions in prompt; instructions lazy-loaded on activation&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="850" y="965" width="310" height="200" as="geometry"/>
+                </mxCell>
+
+                <!-- ===================== ROW 4b: RSI ===================== -->
+
+                <mxCell id="rsi-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f1ff;strokeColor=#9673a6;strokeWidth=2;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="1200" y="900" width="520" height="290" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-label" value="&lt;b&gt;RSI Orchestrator&lt;/b&gt; &lt;font color=&quot;#9673a6&quot;&gt;src/rsi/orchestrator.ts&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="1220" y="912" width="480" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="rsi-note" value="Post-task feedback loops · all stages error-isolated · emits RSIEvent stream" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="1220" y="934" width="480" height="20" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="rsi-reflect" value="&lt;b&gt;Reflect&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Score novelty + generalizability&lt;br&gt;&lt;br&gt;Append to evolution-log&lt;br&gt;&lt;br&gt;Threshold-gated trigger for crystallize&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1220" y="965" width="160" height="200" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="rsi-crystal" value="&lt;b&gt;Crystallize&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;LLM generates SKILL.md from reflection&lt;br&gt;&lt;br&gt;runSkillTests validates&lt;br&gt;&lt;br&gt;Promotes → core or stages → staging dir&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1390" y="965" width="160" height="200" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="rsi-dream" value="&lt;b&gt;Dream&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Session-end consolidation&lt;br&gt;&lt;br&gt;Merge / prune memory topics&lt;br&gt;&lt;br&gt;Resolve contradictions in durable memory&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1560" y="965" width="150" height="200" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="e-rsi-flow-1" style="endArrow=classic;html=1;strokeColor=#9673a6;" parent="1" source="rsi-reflect" target="rsi-crystal" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-rsi-flow-2" style="endArrow=classic;html=1;strokeColor=#9673a6;" parent="1" source="rsi-crystal" target="rsi-dream" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- Cross-section arrows -->
+                <mxCell id="e-prompt-mem" value="reads" style="endArrow=classic;html=1;strokeColor=#d79b00;dashed=1;fontSize=10;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" parent="1" source="core-prompt" target="mem-group" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-prompt-skills" value="skill descriptions" style="endArrow=classic;html=1;strokeColor=#d79b00;dashed=1;fontSize=10;" parent="1" source="core-prompt" target="mem-skills" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-children-trans" value="writes session" style="endArrow=classic;html=1;strokeColor=#d79b00;dashed=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="child-test" target="mem-trans" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-react-rsi" value="post-turn" style="endArrow=classic;html=1;strokeColor=#9673a6;strokeWidth=1.5;fontSize=10;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;" parent="1" source="core-react" target="rsi-reflect" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1210" y="600"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e-rsi-skills" value="writes skills" style="endArrow=classic;html=1;strokeColor=#9673a6;dashed=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="rsi-crystal" target="mem-skills" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e-rsi-durable" value="updates durable" style="endArrow=classic;html=1;strokeColor=#9673a6;dashed=1;fontSize=10;exitX=0;exitY=0.7;exitDx=0;exitDy=0;entryX=1;entryY=0.7;entryDx=0;entryDy=0;" parent="1" source="rsi-dream" target="mem-durable" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="345" y="1100"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+
+                <!-- ===================== FOOTER FLOW ===================== -->
+
+                <mxCell id="flow-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffdf2;strokeColor=#d6b656;strokeWidth=1;dashed=1;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="1210" width="1640" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow-label" value="&lt;b&gt;Runtime flow — happy path&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#7d6608;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="1218" width="300" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow-text" value="&lt;b&gt;1.&lt;/b&gt; Desktop / CLI sends agent/run via JSON-RPC. The handler spins up the Root Agent with TranscriptStore + ModeManager + RSIOrchestrator + skill catalog.&lt;br&gt;&lt;b&gt;2.&lt;/b&gt; buildSystemPrompt assembles durable memory, checkpoint, working memory, skill descriptions, persona, and mode guidance; ReAct loop streams the LLM response.&lt;br&gt;&lt;b&gt;3.&lt;/b&gt; When the model emits a tool call, the parent registry dispatches it. spawn_agent forks a role-scoped child Agent; team_graph commits state to TaskGraphStore.&lt;br&gt;&lt;b&gt;4.&lt;/b&gt; Children run with bounded registries (read-only / test / worker with permission lease). Each returns a SubAgentResult; lifecycle events stream up via AgentEvent → bridgeAgentEvent → JSON-RPC notifications.&lt;br&gt;&lt;b&gt;5.&lt;/b&gt; On turn-complete, the RSIOrchestrator reflects on novelty, optionally crystallizes a new skill (validated then promoted/staged), and at session-end dreams to consolidate durable memory." style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#444444;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="1240" width="1600" height="85" as="geometry"/>
+                </mxCell>
+
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
