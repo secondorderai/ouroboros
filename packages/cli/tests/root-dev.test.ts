@@ -15,7 +15,7 @@ function readJsonFile<T>(path: string): T {
   return JSON.parse(readFileSync(path, 'utf-8')) as T
 }
 
-async function runRootDevInPty(): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function runRootDevInPty(): Promise<{ output: string }> {
   const innerCmd = `cd "${REPO_ROOT}" && bun run dev`
   // BSD script (macOS) takes `[file] [command...]`; util-linux script (Linux)
   // requires `-c <command>` with the typescript file as the only positional.
@@ -30,17 +30,43 @@ async function runRootDevInPty(): Promise<{ stdout: string; stderr: string; exit
     stderr: 'pipe',
   })
 
-  const timeout = setTimeout(() => {
-    proc.kill()
-  }, 15_000)
+  // The REPL is interactive and only exits on stdin EOF. BSD `script`
+  // forwards EOF to its child; util-linux `script` does not, so the process
+  // would otherwise hang indefinitely on Linux. Drain output and, once the
+  // banner has been printed, give the REPL a beat to flush its `> ` prompt
+  // before killing it.
+  let output = ''
+  let killTimer: ReturnType<typeof setTimeout> | null = null
+  const decoder = new TextDecoder()
+  const drain = async (stream: ReadableStream<Uint8Array>) => {
+    const reader = stream.getReader()
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) return
+        if (value) output += decoder.decode(value, { stream: true })
+        if (killTimer === null && output.includes('Type your message')) {
+          killTimer = setTimeout(() => proc.kill(), 500)
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
 
-  const exitCode = await proc.exited
-  clearTimeout(timeout)
+  const deadline = setTimeout(() => proc.kill(), 10_000)
+  try {
+    await Promise.all([
+      drain(proc.stdout as ReadableStream<Uint8Array>),
+      drain(proc.stderr as ReadableStream<Uint8Array>),
+    ])
+    await proc.exited
+  } finally {
+    clearTimeout(deadline)
+    if (killTimer) clearTimeout(killTimer)
+  }
 
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-
-  return { stdout, stderr, exitCode }
+  return { output }
 }
 
 async function runCliPackageDevCommand(
@@ -100,17 +126,15 @@ describe('root dev workflow regressions', () => {
     expect(typeof provider).toBe('string')
     expect(typeof model).toBe('string')
 
-    const result = await runRootDevInPty()
-    const combined = result.stdout + result.stderr
+    const { output } = await runRootDevInPty()
 
-    expect(result.exitCode).toBe(0)
-    expect(combined).toContain('Ouroboros v0.1.0')
-    expect(combined).toContain(`Model: ${provider}/${model}`)
-    expect(combined).toContain('Type your message. Ctrl+C to cancel, Ctrl+C twice to exit.')
-    expect(combined).toContain('> ')
-    expect(combined).not.toContain('How can I help?')
-    expect(combined).not.toContain('Hi — what would you like me to do?')
-    expect(combined).not.toContain('Usage:')
+    expect(output).toContain('Ouroboros v0.1.0')
+    expect(output).toContain(`Model: ${provider}/${model}`)
+    expect(output).toContain('Type your message. Ctrl+C to cancel, Ctrl+C twice to exit.')
+    expect(output).toContain('> ')
+    expect(output).not.toContain('How can I help?')
+    expect(output).not.toContain('Hi — what would you like me to do?')
+    expect(output).not.toContain('Usage:')
   })
 
   test('packages/cli bun run dev -- auth list runs once instead of staying in watch mode', async () => {
