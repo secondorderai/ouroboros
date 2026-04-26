@@ -116,12 +116,7 @@ function getProviderPromptOptions(
   const provider = (model as { provider?: unknown }).provider
   const isChatgptResponses = provider === `${OPENAI_CHATGPT_PROVIDER}.responses`
 
-  const reasoning = buildReasoningProviderOptions(
-    model,
-    options?.thinkingBudgetTokens,
-    options?.reasoningEffort,
-    options?.maxTokens,
-  )
+  const reasoning = buildReasoningProviderOptions(model, options?.reasoningEffort)
 
   const providerOptions: Record<string, JSONObject> = {}
 
