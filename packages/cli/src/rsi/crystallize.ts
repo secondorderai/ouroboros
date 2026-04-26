@@ -1220,9 +1220,16 @@ export interface CrystallizeOptions {
 
 const execFileAsync = promisify(execFile)
 
-async function gitExec(args: string[], cwd: string): Promise<Result<string>> {
+export async function gitExec(args: string[], cwd: string): Promise<Result<string>> {
+  // Scrub GIT_* env vars so a stray GIT_DIR/GIT_WORK_TREE in the parent
+  // shell can't redirect commits into an unintended repository (e.g. during
+  // tests that run from a temp dir).
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('GIT_')) env[key] = value
+  }
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd })
+    const { stdout } = await execFileAsync('git', args, { cwd, env })
     return ok(stdout.trim())
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)

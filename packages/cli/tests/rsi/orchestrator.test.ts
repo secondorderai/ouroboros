@@ -246,6 +246,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const registry = new ToolRegistry()
@@ -296,6 +297,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const registry = new ToolRegistry()
@@ -343,6 +345,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const registry = new ToolRegistry()
@@ -387,6 +390,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const registry = new ToolRegistry()
@@ -481,6 +485,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const registry = new ToolRegistry()
@@ -530,6 +535,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const registry = new ToolRegistry()
@@ -573,6 +579,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const registry = new ToolRegistry()
@@ -614,6 +621,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     const result = await orchestrator.triggerDream({ mode: 'consolidate-only' })
@@ -642,6 +650,7 @@ describe('RSI Orchestrator', () => {
       llm: model,
       onEvent: (event) => rsiEvents.push(event),
       basePath: tempDir,
+      autoCommit: false,
     })
 
     // Directly call onTaskComplete — should be a no-op

@@ -36,6 +36,12 @@ export interface RSIOrchestratorOptions {
   llm: LanguageModel
   onEvent?: RSIEventHandler
   basePath?: string
+  /**
+   * Whether successful crystallization should auto-commit the new skill via
+   * git. Defaults to true for production use; tests should pass false to
+   * avoid spawning git subprocesses from a temp working directory.
+   */
+  autoCommit?: boolean
 }
 
 // ── Orchestrator ───────────────────────────────────────────────────
@@ -45,12 +51,14 @@ export class RSIOrchestrator {
   private llm: LanguageModel
   private onEvent: RSIEventHandler
   private basePath: string | undefined
+  private autoCommit: boolean
 
   constructor(options: RSIOrchestratorOptions) {
     this.config = options.config
     this.llm = options.llm
     this.onEvent = options.onEvent ?? (() => {})
     this.basePath = options.basePath
+    this.autoCommit = options.autoCommit ?? true
   }
 
   /**
@@ -163,6 +171,7 @@ export class RSIOrchestrator {
           core: resolve(cwd, 'skills/core'),
         },
         noveltyThreshold: this.config.rsi.noveltyThreshold,
+        autoCommit: this.autoCommit,
       })
 
       if (result.ok) {
