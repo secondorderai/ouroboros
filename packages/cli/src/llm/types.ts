@@ -129,6 +129,14 @@ export interface StreamResponse {
 }
 
 /**
+ * OpenAI reasoning effort levels for o-series and GPT-5 family models.
+ *
+ * Note: `'minimal'` is only supported by GPT-5 family. Sending `'minimal'`
+ * to o1/o3/o4-mini will result in an API error from OpenAI.
+ */
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high'
+
+/**
  * Options for LLM calls (both streaming and non-streaming).
  */
 export interface LLMCallOptions {
@@ -144,6 +152,16 @@ export interface LLMCallOptions {
   tools?: Record<string, LLMToolSpec>
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal
+  /**
+   * Anthropic extended-thinking budget in tokens. Ignored for non-Anthropic
+   * models. When set, temperature is forced to 1 (Anthropic API constraint).
+   */
+  thinkingBudgetTokens?: number
+  /**
+   * OpenAI reasoning effort. Ignored for models that don't support reasoning
+   * (e.g. gpt-4o). Note `'minimal'` is GPT-5-only.
+   */
+  reasoningEffort?: ReasoningEffort
 }
 
 /**

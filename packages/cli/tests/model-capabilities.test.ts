@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { getContextWindowTokens } from '@src/llm/model-capabilities'
+import { getContextWindowTokens, getReasoningSupport } from '@src/llm/model-capabilities'
 
 describe('getContextWindowTokens', () => {
   test('exact match for claude-sonnet-4-20250514', () => {
@@ -64,5 +64,65 @@ describe('getContextWindowTokens', () => {
 
   test('prefix match for openai-namespaced gpt-5.5', () => {
     expect(getContextWindowTokens('openai/gpt-5.5')).toBe(1_050_000)
+  })
+})
+
+describe('getReasoningSupport', () => {
+  test('o3 supports openai-reasoning', () => {
+    expect(getReasoningSupport('o3')).toEqual({ kind: 'openai-reasoning' })
+  })
+
+  test('o4-mini supports openai-reasoning', () => {
+    expect(getReasoningSupport('o4-mini')).toEqual({ kind: 'openai-reasoning' })
+  })
+
+  test('o1-mini snapshot supports openai-reasoning via prefix', () => {
+    expect(getReasoningSupport('o1-mini-2024-09-12')).toEqual({ kind: 'openai-reasoning' })
+  })
+
+  test('gpt-5.4-medium supports openai-reasoning', () => {
+    expect(getReasoningSupport('gpt-5.4-medium')).toEqual({ kind: 'openai-reasoning' })
+  })
+
+  test('gpt-5.5 supports openai-reasoning', () => {
+    expect(getReasoningSupport('gpt-5.5')).toEqual({ kind: 'openai-reasoning' })
+  })
+
+  test('claude-opus-4-7 supports anthropic-thinking', () => {
+    expect(getReasoningSupport('claude-opus-4-7')).toEqual({ kind: 'anthropic-thinking' })
+  })
+
+  test('claude-sonnet-4-6 supports anthropic-thinking', () => {
+    expect(getReasoningSupport('claude-sonnet-4-6')).toEqual({ kind: 'anthropic-thinking' })
+  })
+
+  test('claude-haiku-4-5 supports anthropic-thinking', () => {
+    expect(getReasoningSupport('claude-haiku-4-5')).toEqual({ kind: 'anthropic-thinking' })
+  })
+
+  test('claude-opus-4-7 snapshot resolves via prefix', () => {
+    expect(getReasoningSupport('claude-opus-4-7-20260101')).toEqual({ kind: 'anthropic-thinking' })
+  })
+
+  test('namespaced openai/gpt-5.4-medium resolves to openai-reasoning', () => {
+    expect(getReasoningSupport('openai/gpt-5.4-medium', 'openai')).toEqual({
+      kind: 'openai-reasoning',
+    })
+  })
+
+  test('claude-3-5-sonnet has no reasoning support', () => {
+    expect(getReasoningSupport('claude-3-5-sonnet')).toBeNull()
+  })
+
+  test('gpt-4o has no reasoning support', () => {
+    expect(getReasoningSupport('gpt-4o')).toBeNull()
+  })
+
+  test('unknown model has no reasoning support', () => {
+    expect(getReasoningSupport('unknown-xyz')).toBeNull()
+  })
+
+  test('empty string has no reasoning support', () => {
+    expect(getReasoningSupport('')).toBeNull()
   })
 })
