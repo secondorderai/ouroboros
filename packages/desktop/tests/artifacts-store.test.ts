@@ -188,4 +188,25 @@ describe('artifacts store', () => {
     expect(s.selectedSessionId).toBeNull()
     expect(s.followLatest).toBe(true)
   })
+
+  // Regression: returning a fresh `[]` literal from this selector triggers an
+  // infinite render loop in App.tsx (React error #185 -> blank screen on
+  // launch) because Zustand uses Object.is and every call sees a new ref.
+  test('selectCurrentArtifacts returns a stable reference when no session', () => {
+    useArtifactsStore.setState({
+      artifactsBySession: {},
+      selectedSessionId: null,
+    })
+    const s = useArtifactsStore.getState()
+    expect(selectCurrentArtifacts(s)).toBe(selectCurrentArtifacts(s))
+  })
+
+  test('selectCurrentArtifacts returns a stable reference when session has no entry', () => {
+    useArtifactsStore.setState({
+      artifactsBySession: {},
+      selectedSessionId: 'unknown-session',
+    })
+    const s = useArtifactsStore.getState()
+    expect(selectCurrentArtifacts(s)).toBe(selectCurrentArtifacts(s))
+  })
 })

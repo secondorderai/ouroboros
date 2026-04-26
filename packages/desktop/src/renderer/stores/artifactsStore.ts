@@ -170,9 +170,15 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
   },
 }))
 
+// Stable empty-array reference. `selectCurrentArtifacts` is used directly as a
+// Zustand selector; returning a fresh `[]` literal each call triggers an
+// infinite render loop (React error #185) because Object.is rejects every new
+// reference, causing the subscriber to re-render -> reselect -> new ref.
+const EMPTY_ARTIFACTS: Artifact[] = []
+
 export function selectCurrentArtifacts(state: ArtifactsState): Artifact[] {
-  if (!state.selectedSessionId) return []
-  return state.artifactsBySession[state.selectedSessionId] ?? []
+  if (!state.selectedSessionId) return EMPTY_ARTIFACTS
+  return state.artifactsBySession[state.selectedSessionId] ?? EMPTY_ARTIFACTS
 }
 
 export function selectCurrentArtifact(state: ArtifactsState): Artifact | null {
