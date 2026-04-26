@@ -28,6 +28,17 @@ async function runRootDevInPty(): Promise<{ output: string }> {
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
+    // The CLI exits before printing its banner if the configured provider
+    // has no API key. CI runs without a checked-in `.ouroboros`, so the
+    // default `anthropic` provider needs a stub key for the REPL to start.
+    // Existing keys from the parent env take precedence.
+    env: {
+      ...process.env,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? 'test-key',
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? 'test-key',
+      OUROBOROS_OPENAI_COMPATIBLE_API_KEY:
+        process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY ?? 'test-key',
+    },
   })
 
   // The REPL is interactive and only exits on stdin EOF. BSD `script`
