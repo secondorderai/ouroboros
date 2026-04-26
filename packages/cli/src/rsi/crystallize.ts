@@ -29,6 +29,7 @@ import { z } from 'zod'
 import type { LanguageModel } from 'ai'
 import { type Result, ok, err } from '@src/types'
 import { generateResponse } from '@src/llm'
+import { getReasoningSupport } from '@src/llm/model-capabilities'
 import type { LLMCallOptions } from '@src/llm/types'
 import type { SkillCatalogEntry } from '@src/tools/skill-manager'
 import { runSkillTests, type SkillTestResult } from '@src/rsi/validate'
@@ -128,20 +129,8 @@ export interface ObservationCrystallizationOptions {
 }
 
 function isOpenAIReasoningModel(llm: LanguageModel): boolean {
-  const modelInfo = llm as { provider?: string; modelId?: string }
-  const provider = modelInfo.provider?.toLowerCase()
-  const modelId = modelInfo.modelId?.toLowerCase()
-
-  if (!provider?.startsWith('openai') || !modelId) {
-    return false
-  }
-
-  return (
-    modelId.startsWith('o1') ||
-    modelId.startsWith('o3') ||
-    modelId.startsWith('o4-mini') ||
-    (modelId.startsWith('gpt-5') && !modelId.startsWith('gpt-5-chat'))
-  )
+  const info = llm as { provider?: string; modelId?: string }
+  return getReasoningSupport(info.modelId ?? '', info.provider)?.kind === 'openai-reasoning'
 }
 
 function buildRSILLMCallOptions(

@@ -149,4 +149,45 @@ describe('dist/ouroboros binary', () => {
     assertNoUsageText(result)
     expect(result.exitCode).toBe(0)
   })
+
+  test('--reasoning-effort flag accepts valid values without complaint', async () => {
+    // Drop into REPL and kill after a beat — by then Commander and our own
+    // validators have either rejected the flag (visible in stderr) or accepted it.
+    const result = await spawnBinary(['--reasoning-effort', 'medium'], {
+      leaveStdinOpen: true,
+      killAfterMs: 2000,
+    })
+    assertNoUsageText(result)
+    expect(result.stderr).not.toContain('Invalid --reasoning-effort')
+    expect(result.stderr).not.toContain('unknown option')
+  })
+
+  test('--reasoning-effort flag rejects unknown values with non-zero exit', async () => {
+    const result = await spawnBinary(['--reasoning-effort', 'bogus', '-m', 'hello'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('Invalid --reasoning-effort')
+    expect(result.stderr).toContain('minimal')
+  })
+
+  test('--thinking-budget-tokens flag accepts positive integer without complaint', async () => {
+    const result = await spawnBinary(['--thinking-budget-tokens', '4096'], {
+      leaveStdinOpen: true,
+      killAfterMs: 2000,
+    })
+    assertNoUsageText(result)
+    expect(result.stderr).not.toContain('Invalid --thinking-budget-tokens')
+    expect(result.stderr).not.toContain('unknown option')
+  })
+
+  test('--thinking-budget-tokens rejects non-integer with non-zero exit', async () => {
+    const result = await spawnBinary(['--thinking-budget-tokens', 'abc', '-m', 'hello'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('Invalid --thinking-budget-tokens')
+  })
+
+  test('--thinking-budget-tokens rejects zero with non-zero exit', async () => {
+    const result = await spawnBinary(['--thinking-budget-tokens', '0', '-m', 'hello'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('Invalid --thinking-budget-tokens')
+  })
 })

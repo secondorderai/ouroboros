@@ -456,6 +456,70 @@ describe('loadConfig', () => {
     expect(result.error.message).toContain('model.provider')
   })
 
+  test('defaults model.thinkingBudgetTokens and model.reasoningEffort to undefined', () => {
+    writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify({}))
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.model.thinkingBudgetTokens).toBeUndefined()
+    expect(result.value.model.reasoningEffort).toBeUndefined()
+  })
+
+  test('accepts valid thinkingBudgetTokens and reasoningEffort from .ouroboros', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: { thinkingBudgetTokens: 8192, reasoningEffort: 'high' },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.model.thinkingBudgetTokens).toBe(8192)
+    expect(result.value.model.reasoningEffort).toBe('high')
+  })
+
+  test('rejects non-positive thinkingBudgetTokens', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ model: { thinkingBudgetTokens: 0 } }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('Invalid .ouroboros configuration')
+  })
+
+  test('rejects non-integer thinkingBudgetTokens', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ model: { thinkingBudgetTokens: 1.5 } }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+  })
+
+  test('rejects unknown reasoningEffort value', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ model: { reasoningEffort: 'extreme' } }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('Invalid .ouroboros configuration')
+  })
+
   test('rejects invalid novelty threshold (out of range)', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),

@@ -523,6 +523,28 @@ describe('reflect()', () => {
     expect(doGenerateCalls).toHaveLength(1)
     expect(doGenerateCalls[0]?.temperature).toBe(0.2)
   })
+
+  test('omits temperature for o-series snapshot variants (registry prefix match)', async () => {
+    const mockResponse = JSON.stringify({
+      taskSummary: 'Created a new feature',
+      novelty: 0.9,
+      generalizability: 0.85,
+      reasoning: 'Completely new approach with no existing skills to compare.',
+      shouldCrystallize: false,
+    })
+
+    const { llm, doGenerateCalls } = createCapturingLLM({
+      provider: 'openai.responses',
+      modelId: 'o3-mini-2025-01-31',
+      responseText: mockResponse,
+    })
+
+    const result = await reflect('Created a new feature', [], llm)
+
+    expect(result.ok).toBe(true)
+    expect(doGenerateCalls).toHaveLength(1)
+    expect(doGenerateCalls[0]?.temperature).toBeUndefined()
+  })
 })
 
 describe('shouldCrystallize()', () => {

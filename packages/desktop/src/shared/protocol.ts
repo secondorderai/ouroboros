@@ -718,6 +718,10 @@ export interface OuroborosConfig {
     provider: 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
     name: string
     baseUrl?: string
+    /** Anthropic extended-thinking budget in tokens. Ignored for non-Anthropic models. */
+    thinkingBudgetTokens?: number
+    /** OpenAI reasoning effort. Ignored for non-OpenAI-reasoning models. */
+    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
   }
   permissions: { tier0: boolean; tier1: boolean; tier2: boolean; tier3: boolean; tier4: boolean }
   skillDirectories: string[]

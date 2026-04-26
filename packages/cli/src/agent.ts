@@ -766,6 +766,8 @@ export class Agent {
           system: systemPrompt,
           tools: Object.keys(toolDefs).length > 0 ? toolDefs : undefined,
           abortSignal: options.abortSignal,
+          thinkingBudgetTokens: this.config.model.thinkingBudgetTokens,
+          reasoningEffort: this.config.model.reasoningEffort,
         })
 
         if (!streamResult.ok) {
@@ -1063,6 +1065,8 @@ export class Agent {
 
     const streamResult = streamResponse(this.model, this.conversationHistory, {
       system: `${context.systemPrompt}\n\n${summaryInstruction}`,
+      thinkingBudgetTokens: this.config.model.thinkingBudgetTokens,
+      reasoningEffort: this.config.model.reasoningEffort,
     })
 
     if (!streamResult.ok) {

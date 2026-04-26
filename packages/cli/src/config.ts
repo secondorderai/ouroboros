@@ -188,6 +188,20 @@ export const configSchema = z.object({
         .optional()
         .describe('API style to use for OpenAI-compatible endpoints'),
       apiKey: z.string().min(1).optional().describe('Fallback API key for the selected provider'),
+      thinkingBudgetTokens: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          'Anthropic extended-thinking budget in tokens. Ignored for non-Anthropic models.',
+        ),
+      reasoningEffort: z
+        .enum(['minimal', 'low', 'medium', 'high'])
+        .optional()
+        .describe(
+          'OpenAI reasoning effort (minimal|low|medium|high). Ignored for non-OpenAI-reasoning models. "minimal" is GPT-5 only.',
+        ),
     })
     .default({ provider: 'anthropic' as const, name: 'claude-sonnet-4-20250514' }),
 

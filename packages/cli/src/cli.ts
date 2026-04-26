@@ -8,11 +8,13 @@
  * - Single-shot mode (piped input or `-m "prompt"`)
  *
  * CLI flags:
- *   --model <provider/model>  Override model selection
- *   --verbose / -v            Show tool call details
- *   --no-stream               Wait for full response before printing
- *   --config <path>           Path to directory containing .ouroboros config file
- *   --max-steps <steps>       Override autonomous step limit for this process
+ *   --model <provider/model>           Override model selection
+ *   --reasoning-effort <effort>        OpenAI reasoning effort (minimal|low|medium|high)
+ *   --thinking-budget-tokens <n>       Anthropic extended-thinking budget in tokens
+ *   --verbose / -v                     Show tool call details
+ *   --no-stream                        Wait for full response before printing
+ *   --config <path>                    Path to directory containing .ouroboros config file
+ *   --max-steps <steps>                Override autonomous step limit for this process
  */
 
 import { Agent, type AgentEvent, type AgentEventHandler } from '@src/agent'
@@ -49,6 +51,14 @@ program
   .description('Ouroboros — a recursive self-improving AI agent')
   .version('0.1.0')
   .option('--model <model>', 'Override model selection (e.g., openai/gpt-5.4)')
+  .option(
+    '--reasoning-effort <effort>',
+    'OpenAI reasoning effort (minimal|low|medium|high). Ignored for non-reasoning models.',
+  )
+  .option(
+    '--thinking-budget-tokens <n>',
+    'Anthropic extended-thinking budget in tokens (positive integer). Ignored for non-Anthropic models.',
+  )
   .option('-v, --verbose', 'Show tool call details (name, args, result)')
   .option('--no-stream', 'Wait for full response before printing')
   .option('--config <path>', 'Path to .ouroboros config file directory')
@@ -127,6 +137,8 @@ program
 async function runMain(): Promise<void> {
   const opts = program.opts<{
     model?: string
+    reasoningEffort?: string
+    thinkingBudgetTokens?: string
     verbose?: boolean
     stream: boolean
     config?: string
@@ -166,6 +178,37 @@ async function runMain(): Promise<void> {
         provider: parseResult.value.provider,
         name: parseResult.value.name,
       },
+    }
+  }
+
+  // Apply --reasoning-effort override
+  if (opts.reasoningEffort !== undefined) {
+    const validEfforts = ['minimal', 'low', 'medium', 'high'] as const
+    type Effort = (typeof validEfforts)[number]
+    if (!validEfforts.includes(opts.reasoningEffort as Effort)) {
+      process.stderr.write(
+        `Invalid --reasoning-effort "${opts.reasoningEffort}". Valid values: ${validEfforts.join(', ')}.\n`,
+      )
+      process.exit(1)
+    }
+    config = {
+      ...config,
+      model: { ...config.model, reasoningEffort: opts.reasoningEffort as Effort },
+    }
+  }
+
+  // Apply --thinking-budget-tokens override
+  if (opts.thinkingBudgetTokens !== undefined) {
+    const parsed = Number(opts.thinkingBudgetTokens)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      process.stderr.write(
+        `Invalid --thinking-budget-tokens "${opts.thinkingBudgetTokens}". Expected a positive integer.\n`,
+      )
+      process.exit(1)
+    }
+    config = {
+      ...config,
+      model: { ...config.model, thinkingBudgetTokens: parsed },
     }
   }
 
