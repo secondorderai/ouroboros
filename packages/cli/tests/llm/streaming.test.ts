@@ -513,6 +513,159 @@ describe('streamResponse', () => {
       },
     })
   })
+
+  test('passes anthropic thinking provider options and forces temperature=1', async () => {
+    let capturedOptions: Record<string, unknown> | undefined
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: 'anthropic.messages',
+      modelId: 'claude-opus-4-7',
+      supportedUrls: {},
+      doGenerate: async () => {
+        throw new Error('Not implemented')
+      },
+      doStream: async (options: Record<string, unknown>) => {
+        capturedOptions = options
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
+            },
+          }),
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = streamResponse(model, testMessages, {
+      thinkingBudgetTokens: 8192,
+      temperature: 0.2, // should be overridden to 1
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    for await (const _ of result.value.stream) void _
+
+    expect(capturedOptions?.providerOptions).toEqual({
+      anthropic: { thinking: { type: 'enabled', budgetTokens: 8192 } },
+    })
+    expect(capturedOptions?.temperature).toBe(1)
+  })
+
+  test('passes openai reasoning effort through providerOptions for o-series', async () => {
+    let capturedOptions: Record<string, unknown> | undefined
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: 'openai.responses',
+      modelId: 'o3',
+      supportedUrls: {},
+      doGenerate: async () => {
+        throw new Error('Not implemented')
+      },
+      doStream: async (options: Record<string, unknown>) => {
+        capturedOptions = options
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
+            },
+          }),
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = streamResponse(model, testMessages, {
+      reasoningEffort: 'high',
+      temperature: 0.4,
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    for await (const _ of result.value.stream) void _
+
+    expect(capturedOptions?.providerOptions).toEqual({
+      openai: { reasoningEffort: 'high' },
+    })
+    expect(capturedOptions?.temperature).toBe(0.4)
+  })
+
+  test('merges chatgpt openai options with reasoning effort', async () => {
+    let capturedProviderOptions: unknown
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.4-medium',
+      supportedUrls: {},
+      doGenerate: async () => {
+        throw new Error('Not implemented')
+      },
+      doStream: async (options: Record<string, unknown>) => {
+        capturedProviderOptions = options.providerOptions
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
+            },
+          }),
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = streamResponse(model, testMessages, {
+      system: 'Be precise.',
+      reasoningEffort: 'medium',
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    for await (const _ of result.value.stream) void _
+
+    expect(capturedProviderOptions).toEqual({
+      openai: {
+        store: false,
+        instructions: 'Be precise.',
+        reasoningEffort: 'medium',
+      },
+    })
+  })
+
+  test('does not inject providerOptions for models without reasoning support', async () => {
+    let capturedOptions: Record<string, unknown> | undefined
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: 'openai.chat',
+      modelId: 'gpt-4o',
+      supportedUrls: {},
+      doGenerate: async () => {
+        throw new Error('Not implemented')
+      },
+      doStream: async (options: Record<string, unknown>) => {
+        capturedOptions = options
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
+            },
+          }),
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = streamResponse(model, testMessages, { reasoningEffort: 'high' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    for await (const _ of result.value.stream) void _
+
+    expect(capturedOptions?.providerOptions).toBeUndefined()
+  })
 })
 
 describe('generateResponse', () => {
@@ -706,6 +859,86 @@ describe('generateResponse', () => {
       openai: {
         store: false,
       },
+    })
+  })
+
+  test('passes anthropic thinking and forces temperature=1 in non-streaming path', async () => {
+    let capturedOptions: Record<string, unknown> | undefined
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: 'anthropic.messages',
+      modelId: 'claude-opus-4-7',
+      supportedUrls: {},
+      doStream: async () => {
+        throw new Error('Not implemented')
+      },
+      doGenerate: async (options: Record<string, unknown>) => {
+        capturedOptions = options
+        return {
+          content: [{ type: 'text', id: 'gen', text: 'ok' }],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: {
+            inputTokens: {
+              total: 1,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 1, text: undefined, reasoning: undefined },
+          },
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = await generateResponse(model, [{ role: 'user', content: 'hello' }], {
+      thinkingBudgetTokens: 4096,
+      temperature: 0.5,
+    })
+    expect(result.ok).toBe(true)
+    expect(capturedOptions?.providerOptions).toEqual({
+      anthropic: { thinking: { type: 'enabled', budgetTokens: 4096 } },
+    })
+    expect(capturedOptions?.temperature).toBe(1)
+  })
+
+  test('passes openai reasoning effort in non-streaming path', async () => {
+    let capturedOptions: Record<string, unknown> | undefined
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: 'openai.responses',
+      modelId: 'o3',
+      supportedUrls: {},
+      doStream: async () => {
+        throw new Error('Not implemented')
+      },
+      doGenerate: async (options: Record<string, unknown>) => {
+        capturedOptions = options
+        return {
+          content: [{ type: 'text', id: 'gen', text: 'ok' }],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: {
+            inputTokens: {
+              total: 1,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 1, text: undefined, reasoning: undefined },
+          },
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = await generateResponse(model, [{ role: 'user', content: 'hello' }], {
+      reasoningEffort: 'low',
+    })
+    expect(result.ok).toBe(true)
+    expect(capturedOptions?.providerOptions).toEqual({
+      openai: { reasoningEffort: 'low' },
     })
   })
 })

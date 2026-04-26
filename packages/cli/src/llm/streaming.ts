@@ -13,8 +13,10 @@ import {
   type ModelMessage,
   type ToolSet,
 } from 'ai'
+import type { JSONObject } from '@ai-sdk/provider'
 import { type Result, ok, err } from '@src/types'
 import { OPENAI_CHATGPT_PROVIDER } from '@src/auth/openai-chatgpt'
+import { buildReasoningProviderOptions } from './reasoning'
 import type {
   LLMMessage,
   LLMCallOptions,
@@ -100,31 +102,57 @@ function toToolSet(tools?: Record<string, LLMToolSpec>): ToolSet | undefined {
   return toolSet
 }
 
+interface PreparedPromptOptions {
+  system?: string
+  providerOptions?: Record<string, JSONObject>
+  /** When set, callers must use this temperature in place of `options.temperature`. */
+  effectiveTemperature?: number
+}
+
 function getProviderPromptOptions(
   model: LanguageModel,
   options?: LLMCallOptions,
-): Pick<LLMCallOptions, 'system'> & {
-  providerOptions?: {
-    openai: {
-      store: boolean
-      instructions?: string
+): PreparedPromptOptions {
+  const provider = (model as { provider?: unknown }).provider
+  const isChatgptResponses = provider === `${OPENAI_CHATGPT_PROVIDER}.responses`
+
+  const reasoning = buildReasoningProviderOptions(
+    model,
+    options?.thinkingBudgetTokens,
+    options?.reasoningEffort,
+    options?.maxTokens,
+  )
+
+  const providerOptions: Record<string, JSONObject> = {}
+
+  if (isChatgptResponses) {
+    providerOptions.openai = {
+      store: false,
+      ...(options?.system ? { instructions: options.system } : {}),
     }
   }
-} {
-  const provider = (model as { provider?: unknown }).provider
 
-  if (provider !== `${OPENAI_CHATGPT_PROVIDER}.responses`) {
-    return options?.system ? { system: options.system } : {}
+  if (reasoning.providerOptions) {
+    for (const [key, value] of Object.entries(reasoning.providerOptions)) {
+      providerOptions[key] = { ...(providerOptions[key] ?? {}), ...value }
+    }
   }
 
-  return {
-    providerOptions: {
-      openai: {
-        store: false,
-        ...(options?.system ? { instructions: options.system } : {}),
-      },
-    },
+  const result: PreparedPromptOptions = {}
+
+  if (!isChatgptResponses && options?.system) {
+    result.system = options.system
   }
+
+  if (Object.keys(providerOptions).length > 0) {
+    result.providerOptions = providerOptions
+  }
+
+  if (reasoning.forceTemperatureOne) {
+    result.effectiveTemperature = 1
+  }
+
+  return result
 }
 
 /**
@@ -304,13 +332,13 @@ export function streamResponse(
   try {
     const modelMessages = toModelMsgs(messages)
     const tools = toToolSet(options?.tools)
-    const promptOptions = getProviderPromptOptions(model, options)
+    const { effectiveTemperature, ...promptOptions } = getProviderPromptOptions(model, options)
 
     const result = streamText({
       model,
       ...promptOptions,
       messages: modelMessages,
-      temperature: options?.temperature,
+      temperature: effectiveTemperature ?? options?.temperature,
       maxOutputTokens: options?.maxTokens,
       stopSequences: options?.stopSequences,
       tools,
@@ -416,13 +444,13 @@ export async function generateResponse(
   try {
     const modelMessages = toModelMsgs(messages)
     const tools = toToolSet(options?.tools)
-    const promptOptions = getProviderPromptOptions(model, options)
+    const { effectiveTemperature, ...promptOptions } = getProviderPromptOptions(model, options)
 
     const result = await generateText({
       model,
       ...promptOptions,
       messages: modelMessages,
-      temperature: options?.temperature,
+      temperature: effectiveTemperature ?? options?.temperature,
       maxOutputTokens: options?.maxTokens,
       stopSequences: options?.stopSequences,
       tools,
