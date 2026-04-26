@@ -37,6 +37,10 @@ jobs:
         working-directory: packages/desktop
         run: bash scripts/build-cli.sh
 
+      - name: Build desktop bundles (for E2E)
+        working-directory: packages/desktop
+        run: bun run build:vite
+
       - name: Desktop E2E (Playwright + Electron)
         working-directory: packages/desktop
         run: xvfb-run --auto-servernum bun run test:e2e
