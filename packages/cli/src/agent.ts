@@ -155,6 +155,17 @@ export type AgentEvent =
       graph: TaskGraph
       reason?: string
     }
+  | {
+      type: 'artifact-created'
+      artifactId: string
+      version: number
+      sessionId: string
+      title: string
+      description?: string
+      path: string
+      bytes: number
+      createdAt: string
+    }
   | RSIEvent
 
 /** Callback function for agent events. */
