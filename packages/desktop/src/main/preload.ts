@@ -10,6 +10,8 @@ import {
   type RpcArgs,
   type RpcMethod,
   type RpcMethodMap,
+  type SaveArtifactArgs,
+  type SaveArtifactResult,
   type Theme,
 } from '../shared/protocol'
 
@@ -48,6 +50,9 @@ const electronAPI: ElectronAPI = {
   },
   openExternal: (url: string) => {
     ipcRenderer.send('shell:openExternal', url)
+  },
+  openArtifact: (path: string) => {
+    ipcRenderer.send('shell:openArtifact', path)
   },
   getHomeDirectory: () => ipcRenderer.invoke('app:getHomeDirectory'),
   onUpdateDownloaded: (callback: (version: string) => void) => {
@@ -100,6 +105,10 @@ const ouroborosAPI: OuroborosAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.SHOW_OPEN_DIALOG, options) as Promise<
       string | string[] | null
     >
+  },
+
+  saveArtifact: async (args: SaveArtifactArgs) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SAVE_ARTIFACT, args) as Promise<SaveArtifactResult>
   },
 
   validateImageAttachments: async (paths: string[]) => {

@@ -7,8 +7,8 @@
  */
 
 import { ipcMain, dialog, type BrowserWindow, type OpenDialogOptions } from 'electron'
-import { basename, extname } from 'node:path'
-import { readFileSync, statSync } from 'node:fs'
+import { basename, dirname, extname } from 'node:path'
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import type Store from 'electron-store'
 import type { RpcClient } from './rpc-client'
 import type { CLIProcessManager } from './cli-process'
@@ -18,10 +18,12 @@ import {
   type ImageAttachment,
   type ImageAttachmentValidationResult,
   type NotificationMethod,
+  type SaveArtifactArgs,
+  type SaveArtifactResult,
   type SupportedImageMediaType,
   type Theme,
 } from '../shared/protocol'
-import { TEST_DIALOG_RESPONSES_PATH } from './test-paths'
+import { TEST_DIALOG_RESPONSES_PATH, TEST_SAVE_ARTIFACT_LOG_PATH } from './test-paths'
 
 const TEST_IPC_CHANNELS = {
   SET_RPC_OVERRIDE: 'ouroboros:test:set-rpc-override',
@@ -63,6 +65,7 @@ export interface IpcHandlerContext {
 export function registerIpcHandlers(ctx: IpcHandlerContext): void {
   registerRpcHandler(ctx)
   registerDialogHandlers()
+  registerArtifactSaveHandler()
   registerImageAttachmentHandlers()
   registerNotificationForwarding(ctx)
   registerCLIStatusForwarding(ctx)
@@ -128,6 +131,70 @@ function registerDialogHandlers(): void {
     }
     return result.filePaths[0]
   })
+}
+
+function sanitizeArtifactFilename(name: string): string {
+  const trimmed = name.trim().toLowerCase()
+  const replaced = trimmed.replace(/\s+/g, '-').replace(/[^a-z0-9._-]+/g, '')
+  const stripped = replaced.replace(/^[.-]+/, '')
+  return stripped.length > 0 ? stripped : 'artifact'
+}
+
+function registerArtifactSaveHandler(): void {
+  ipcMain.handle(
+    IPC_CHANNELS.SAVE_ARTIFACT,
+    async (_event, args: SaveArtifactArgs): Promise<SaveArtifactResult> => {
+      if (
+        !args ||
+        typeof args.html !== 'string' ||
+        typeof args.defaultName !== 'string' ||
+        args.defaultName.trim().length === 0
+      ) {
+        recordSaveArtifact({ saved: false, reason: 'invalid-args' })
+        throw new Error('saveArtifact: html and defaultName are required')
+      }
+
+      const baseName = sanitizeArtifactFilename(args.defaultName)
+      const defaultFilename = baseName.endsWith('.html') ? baseName : `${baseName}.html`
+
+      const override = consumeDialogResponse()
+      let chosenPath: string | null
+      if (override !== undefined) {
+        chosenPath = typeof override === 'string' ? override : null
+      } else {
+        const result = await dialog.showSaveDialog({
+          defaultPath: defaultFilename,
+          filters: [{ name: 'HTML', extensions: ['html'] }],
+        })
+        chosenPath = result.canceled || !result.filePath ? null : result.filePath
+      }
+
+      if (!chosenPath) {
+        recordSaveArtifact({ saved: false, reason: 'cancelled' })
+        return { saved: false }
+      }
+
+      try {
+        writeFileSync(chosenPath, args.html, 'utf8')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        recordSaveArtifact({ saved: false, reason: message, path: chosenPath })
+        throw new Error(`Failed to write artifact: ${message}`)
+      }
+
+      recordSaveArtifact({ saved: true, path: chosenPath, bytes: args.html.length })
+      return { saved: true, path: chosenPath }
+    },
+  )
+}
+
+function recordSaveArtifact(record: Record<string, unknown>): void {
+  const logPath =
+    process.env.OUROBOROS_TEST_SAVE_ARTIFACT_LOG_PATH ??
+    (process.env.NODE_ENV === 'test' ? TEST_SAVE_ARTIFACT_LOG_PATH : undefined)
+  if (!logPath) return
+  mkdirSync(dirname(logPath), { recursive: true })
+  appendFileSync(logPath, JSON.stringify(record) + '\n')
 }
 
 function registerImageAttachmentHandlers(): void {

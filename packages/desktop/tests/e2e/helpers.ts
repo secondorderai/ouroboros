@@ -81,6 +81,8 @@ export interface LaunchedApp {
     mockLogPath: string
     installUpdateLogPath: string
     externalUrlLogPath: string
+    openArtifactLogPath: string
+    saveArtifactLogPath: string
     bootLogPath: string
   }
 }
@@ -96,6 +98,8 @@ export async function launchTestApp(
   const testMockLogPath = path.join(runtimeDir, 'mock-cli.log')
   const testInstallUpdateLogPath = path.join(runtimeDir, 'install-update.log')
   const testExternalUrlLogPath = path.join(runtimeDir, 'external-url.log')
+  const testOpenArtifactLogPath = path.join(runtimeDir, 'open-artifact.log')
+  const testSaveArtifactLogPath = path.join(runtimeDir, 'save-artifact.log')
   const testBootLogPath = path.join(runtimeDir, 'boot.log')
   const testUpdateDownloadedPath = path.join(runtimeDir, 'update-downloaded.txt')
   const testUserDataDir = path.join(runtimeDir, 'user-data')
@@ -124,6 +128,8 @@ export async function launchTestApp(
       OUROBOROS_TEST_MOCK_LOG_PATH: testMockLogPath,
       OUROBOROS_TEST_INSTALL_UPDATE_LOG_PATH: testInstallUpdateLogPath,
       OUROBOROS_TEST_EXTERNAL_URL_LOG_PATH: testExternalUrlLogPath,
+      OUROBOROS_TEST_OPEN_ARTIFACT_LOG_PATH: testOpenArtifactLogPath,
+      OUROBOROS_TEST_SAVE_ARTIFACT_LOG_PATH: testSaveArtifactLogPath,
       OUROBOROS_TEST_BOOT_LOG_PATH: testBootLogPath,
       OUROBOROS_TEST_UPDATE_DOWNLOADED_PATH: testUpdateDownloadedPath,
       OUROBOROS_TEST_UPDATE_DOWNLOADED_DELAY_MS:
@@ -147,6 +153,8 @@ export async function launchTestApp(
       mockLogPath: testMockLogPath,
       installUpdateLogPath: testInstallUpdateLogPath,
       externalUrlLogPath: testExternalUrlLogPath,
+      openArtifactLogPath: testOpenArtifactLogPath,
+      saveArtifactLogPath: testSaveArtifactLogPath,
       bootLogPath: testBootLogPath,
     },
   }

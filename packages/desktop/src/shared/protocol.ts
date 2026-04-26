@@ -21,6 +21,13 @@ export interface ElectronAPI {
   getPlatform: () => Promise<string>
   toggleSidebar: (callback: () => void) => () => void
   openExternal: (url: string) => void
+  /**
+   * Open a local artifact file in the OS default application. Path must be an
+   * absolute filesystem path returned by the CLI (e.g. via `artifacts/list`);
+   * the main process validates it lives under a `memory/sessions/*\/artifacts/`
+   * directory and ends in `.html` before invoking `shell.openPath`.
+   */
+  openArtifact: (path: string) => void
   getHomeDirectory: () => Promise<string>
   onUpdateDownloaded: (callback: (version: string) => void) => () => void
   installUpdate: () => void
@@ -41,6 +48,27 @@ export interface OuroborosAPI {
   validateImageAttachments(paths: string[]): Promise<ImageAttachmentValidationResult>
   /** Subscribe to CLI status changes. Returns an unsubscribe function. */
   onCLIStatus(callback: (status: CLIStatus) => void): () => void
+  /**
+   * Show a native save-file dialog and write the artifact's HTML to the
+   * chosen path. Returns `{ saved: false }` if the user cancels.
+   */
+  saveArtifact(args: SaveArtifactArgs): Promise<SaveArtifactResult>
+}
+
+export interface SaveArtifactArgs {
+  /** Full HTML content to write to disk. */
+  html: string
+  /**
+   * Suggested filename (without extension). Will be sanitized in main and
+   * paired with `.html` as the dialog's default name.
+   */
+  defaultName: string
+}
+
+export interface SaveArtifactResult {
+  saved: boolean
+  /** Absolute path the file was written to. Present iff `saved === true`. */
+  path?: string
 }
 
 export type RpcArgs<M extends RpcMethod> = [params?: RpcMethodMap[M]['params']]
@@ -1299,4 +1327,5 @@ export const IPC_CHANNELS = {
   CLI_STATUS: 'ouroboros:cli-status',
   SHOW_OPEN_DIALOG: 'ouroboros:show-open-dialog',
   VALIDATE_IMAGE_ATTACHMENTS: 'ouroboros:validate-image-attachments',
+  SAVE_ARTIFACT: 'ouroboros:save-artifact',
 } as const

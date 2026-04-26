@@ -1,24 +1,46 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   selectCurrentArtifact,
   selectCurrentArtifacts,
   selectCurrentHtml,
   useArtifactsStore,
 } from '../stores/artifactsStore'
+import { buildArtifactProtocolUrl } from '../../shared/artifact-url'
 import { ArtifactFrame } from './ArtifactFrame'
 
 interface ArtifactPanelProps {
   width: number
+  onResize?: (width: number) => void
+  isFullscreen?: boolean
+  onToggleFullscreen?: () => void
+  minWidth?: number
+  maxWidth?: number
 }
 
 const styles: Record<string, React.CSSProperties> = {
   panel: {
+    position: 'relative',
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
     backgroundColor: 'var(--bg-surface)',
     borderLeft: '1px solid var(--border-light)',
     overflow: 'hidden',
+  },
+  panelFullscreen: {
+    flex: 1,
+    width: 'auto',
+    borderLeft: 'none',
+  },
+  resizeHandle: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 6,
+    height: '100%',
+    cursor: 'col-resize',
+    zIndex: 2,
+    background: 'transparent',
   },
   header: {
     display: 'flex',
@@ -55,6 +77,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     padding: '2px 8px',
   },
+  iconOnlyButton: {
+    background: 'transparent',
+    border: '1px solid var(--border-light)',
+    borderRadius: 4,
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    padding: '4px 6px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    lineHeight: 0,
+  },
   toggle: {
     display: 'flex',
     alignItems: 'center',
@@ -88,17 +122,80 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 24,
     textAlign: 'center' as const,
   },
+  saveStatus: {
+    fontSize: 11,
+    color: 'var(--text-tertiary)',
+    marginLeft: 4,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: 160,
+  },
 }
 
-export function ArtifactPanel({ width }: ArtifactPanelProps): React.ReactElement | null {
+const SAVE_STATUS_RESET_MS = 4000
+
+export function ArtifactPanel({
+  width,
+  onResize,
+  isFullscreen = false,
+  onToggleFullscreen,
+  minWidth = 280,
+  maxWidth = 900,
+}: ArtifactPanelProps): React.ReactElement | null {
   const artifacts = useArtifactsStore(selectCurrentArtifacts)
   const current = useArtifactsStore(selectCurrentArtifact)
   const html = useArtifactsStore(selectCurrentHtml)
   const followLatest = useArtifactsStore((s) => s.followLatest)
-  const loadingHtml = useArtifactsStore((s) => s.loadingHtml)
   const errorMessage = useArtifactsStore((s) => s.errorMessage)
   const selectArtifact = useArtifactsStore((s) => s.selectArtifact)
   const setFollowLatest = useArtifactsStore((s) => s.setFollowLatest)
+
+  const [saveStatus, setSaveStatus] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      const state = resizeStateRef.current
+      if (!state || !onResize) return
+      // Drag direction is inverted vs. the sidebar: dragging LEFT widens this
+      // panel because its right edge is pinned to the window edge.
+      onResize(state.startWidth - (e.clientX - state.startX))
+    }
+    const stopResizing = () => {
+      resizeStateRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResizing)
+    window.addEventListener('pointercancel', stopResizing)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResizing)
+      window.removeEventListener('pointercancel', stopResizing)
+      stopResizing()
+    }
+  }, [onResize])
+
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!onResize || isFullscreen) return
+      resizeStateRef.current = { startX: e.clientX, startWidth: width }
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      e.currentTarget.setPointerCapture(e.pointerId)
+      e.preventDefault()
+    },
+    [onResize, isFullscreen, width],
+  )
+
+  useEffect(() => {
+    if (!saveStatus) return
+    const timer = window.setTimeout(() => setSaveStatus(null), SAVE_STATUS_RESET_MS)
+    return () => window.clearTimeout(timer)
+  }, [saveStatus])
 
   const versionsForCurrent = useMemo(() => {
     if (!current) return []
@@ -112,7 +209,7 @@ export function ArtifactPanel({ width }: ArtifactPanelProps): React.ReactElement
 
   const onOpenExternally = (): void => {
     if (!current) return
-    window.electronAPI.openExternal(`file://${current.path}`)
+    window.electronAPI.openArtifact(current.path)
   }
 
   const onPickArtifact = (event: React.ChangeEvent<HTMLSelectElement>): void => {
@@ -127,12 +224,51 @@ export function ArtifactPanel({ width }: ArtifactPanelProps): React.ReactElement
     void selectArtifact(current.artifactId, version)
   }
 
+  const onDownload = async (): Promise<void> => {
+    if (!current || !html || saving) return
+    setSaving(true)
+    setSaveStatus(null)
+    try {
+      const versionedName =
+        versionsForCurrent.length > 1 ? `${current.title}-v${current.version}` : current.title
+      const result = await window.ouroboros.saveArtifact({
+        html,
+        defaultName: versionedName,
+      })
+      if (result.saved) {
+        setSaveStatus('Saved')
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Save failed'
+      setSaveStatus(message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const distinctArtifacts = Array.from(
     new Map(artifacts.map((a) => [a.artifactId, a])).values(),
   )
 
+  const panelStyle: React.CSSProperties = isFullscreen
+    ? { ...styles.panel, ...styles.panelFullscreen }
+    : { ...styles.panel, width }
+
   return (
-    <div style={{ ...styles.panel, width }} data-testid='artifact-panel'>
+    <div style={panelStyle} data-testid='artifact-panel'>
+      {!isFullscreen && onResize && (
+        <div
+          style={styles.resizeHandle}
+          role='separator'
+          aria-orientation='vertical'
+          aria-label='Resize artifact panel'
+          aria-valuemin={minWidth}
+          aria-valuemax={maxWidth}
+          aria-valuenow={width}
+          onPointerDown={handleResizeStart}
+          data-testid='artifact-panel-resize-handle'
+        />
+      )}
       <div style={styles.header}>
         <select
           value={current?.artifactId ?? ''}
@@ -161,6 +297,11 @@ export function ArtifactPanel({ width }: ArtifactPanelProps): React.ReactElement
           </select>
         )}
         <span style={styles.title}>{current?.description ?? ''}</span>
+        {saveStatus && (
+          <span style={styles.saveStatus} data-testid='artifact-save-status'>
+            {saveStatus}
+          </span>
+        )}
         <label style={styles.toggle}>
           <input
             type='checkbox'
@@ -171,6 +312,17 @@ export function ArtifactPanel({ width }: ArtifactPanelProps): React.ReactElement
         </label>
         <button
           type='button'
+          onClick={() => void onDownload()}
+          style={styles.iconOnlyButton}
+          disabled={!current || !html || saving}
+          aria-label='Download artifact'
+          title='Download artifact'
+          data-testid='artifact-download'
+        >
+          <DownloadIcon />
+        </button>
+        <button
+          type='button'
           onClick={onOpenExternally}
           style={styles.iconButton}
           disabled={!current}
@@ -178,6 +330,19 @@ export function ArtifactPanel({ width }: ArtifactPanelProps): React.ReactElement
         >
           Open externally
         </button>
+        {onToggleFullscreen && (
+          <button
+            type='button'
+            onClick={onToggleFullscreen}
+            style={styles.iconOnlyButton}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen (Esc to exit)'}
+            data-testid='artifact-fullscreen-toggle'
+            aria-pressed={isFullscreen}
+          >
+            {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+          </button>
+        )}
       </div>
       <div style={styles.body}>
         {errorMessage ? (
@@ -186,12 +351,72 @@ export function ArtifactPanel({ width }: ArtifactPanelProps): React.ReactElement
           </div>
         ) : !current ? (
           <div style={styles.emptyState}>Select an artifact</div>
-        ) : loadingHtml || !html ? (
-          <div style={styles.emptyState}>Loading…</div>
         ) : (
-          <ArtifactFrame html={html} title={current.title} />
+          <ArtifactFrame src={buildArtifactProtocolUrl(current.path)} title={current.title} />
         )}
       </div>
     </div>
+  )
+}
+
+function MaximizeIcon(): React.ReactElement {
+  return (
+    <svg
+      width='14'
+      height='14'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden='true'
+    >
+      <path d='M4 9V5a1 1 0 0 1 1-1h4' />
+      <path d='M20 9V5a1 1 0 0 0-1-1h-4' />
+      <path d='M4 15v4a1 1 0 0 0 1 1h4' />
+      <path d='M20 15v4a1 1 0 0 1-1 1h-4' />
+    </svg>
+  )
+}
+
+function MinimizeIcon(): React.ReactElement {
+  return (
+    <svg
+      width='14'
+      height='14'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden='true'
+    >
+      <path d='M9 4v4a1 1 0 0 1-1 1H4' />
+      <path d='M15 4v4a1 1 0 0 0 1 1h4' />
+      <path d='M9 20v-4a1 1 0 0 0-1-1H4' />
+      <path d='M15 20v-4a1 1 0 0 1 1-1h4' />
+    </svg>
+  )
+}
+
+function DownloadIcon(): React.ReactElement {
+  return (
+    <svg
+      width='14'
+      height='14'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden='true'
+    >
+      <path d='M12 3v12' />
+      <path d='m7 10 5 5 5-5' />
+      <path d='M5 21h14' />
+    </svg>
   )
 }

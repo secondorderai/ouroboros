@@ -46,6 +46,16 @@ function clampSidebarWidth(width: number, viewportWidth: number): number {
   return Math.min(Math.max(width, MIN_SIDEBAR_WIDTH), maxAllowedWidth)
 }
 
+function clampArtifactPanelWidth(width: number, viewportWidth: number): number {
+  // Leave at least ~280px for the sidebar+chat columns combined when sidebar
+  // is open; the main flex column can compress further if needed.
+  const maxAllowed = Math.max(
+    MIN_ARTIFACT_PANEL_WIDTH,
+    Math.min(MAX_ARTIFACT_PANEL_WIDTH, viewportWidth - 280),
+  )
+  return Math.min(Math.max(width, MIN_ARTIFACT_PANEL_WIDTH), maxAllowed)
+}
+
 export function App(): React.ReactElement {
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme()
 
@@ -111,16 +121,18 @@ export function App(): React.ReactElement {
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
   const currentArtifacts = useArtifactsStore(selectCurrentArtifacts)
 
-  const [artifactPanelWidth] = useState<number>(() => {
+  const [artifactPanelWidth, setArtifactPanelWidth] = useState<number>(() => {
     try {
       const stored = localStorage.getItem(ARTIFACT_PANEL_WIDTH_KEY)
       const parsed = stored ? Number.parseInt(stored, 10) : DEFAULT_ARTIFACT_PANEL_WIDTH
       const initial = Number.isFinite(parsed) ? parsed : DEFAULT_ARTIFACT_PANEL_WIDTH
-      return Math.min(Math.max(initial, MIN_ARTIFACT_PANEL_WIDTH), MAX_ARTIFACT_PANEL_WIDTH)
+      return clampArtifactPanelWidth(initial, window.innerWidth)
     } catch {
       return DEFAULT_ARTIFACT_PANEL_WIDTH
     }
   })
+
+  const [artifactFullscreen, setArtifactFullscreen] = useState(false)
 
   useEffect(() => {
     void useArtifactsStore.getState().setSession(currentSessionId)
@@ -181,6 +193,43 @@ export function App(): React.ReactElement {
     setSidebarWidth(clampSidebarWidth(width, window.innerWidth))
   }, [])
 
+  const resizeArtifactPanel = useCallback((width: number) => {
+    setArtifactPanelWidth(clampArtifactPanelWidth(width, window.innerWidth))
+  }, [])
+
+  const toggleArtifactFullscreen = useCallback(() => {
+    setArtifactFullscreen((prev) => !prev)
+  }, [])
+
+  // Persist artifact panel width.
+  useEffect(() => {
+    try {
+      localStorage.setItem(ARTIFACT_PANEL_WIDTH_KEY, String(artifactPanelWidth))
+    } catch {
+      // ignore
+    }
+  }, [artifactPanelWidth])
+
+  // Auto-exit fullscreen when no artifact is available (session change, etc).
+  useEffect(() => {
+    if (artifactFullscreen && currentArtifacts.length === 0) {
+      setArtifactFullscreen(false)
+    }
+  }, [artifactFullscreen, currentArtifacts.length])
+
+  // ESC exits artifact fullscreen.
+  useEffect(() => {
+    if (!artifactFullscreen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setArtifactFullscreen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [artifactFullscreen])
+
   // Listen for sidebar toggle from menu accelerator (Cmd/Ctrl+B)
   useEffect(() => {
     const unsubscribe = window.electronAPI.toggleSidebar(() => {
@@ -208,6 +257,7 @@ export function App(): React.ReactElement {
   useEffect(() => {
     const handleResize = () => {
       setSidebarWidth((prev) => clampSidebarWidth(prev, window.innerWidth))
+      setArtifactPanelWidth((prev) => clampArtifactPanelWidth(prev, window.innerWidth))
     }
 
     window.addEventListener('resize', handleResize)
@@ -380,39 +430,52 @@ export function App(): React.ReactElement {
           ['--sidebar-width' as string]: `${sidebarWidth}px`,
         }}
       >
-        <Sidebar
-          isOpen={sidebarOpen}
-          width={sidebarWidth}
-          onResize={resizeSidebar}
-          onOpenSettings={() => openSettings()}
-        />
-        <div
-          style={styles.main}
-          onDragEnter={handleDragEnter}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          {hasContent ? (
-            <ChatView
-              crystallizations={rsi.crystallizations}
-              onDismissCrystallization={rsi.dismissCrystallization}
-              onOpenTeamGraph={openTeamGraph}
-            />
-          ) : (
-            <div style={styles.content}>
-              <div style={styles.placeholder}>
-                <div style={styles.logoContainer}>
-                  <OuroborosLogo />
+        {!artifactFullscreen && (
+          <Sidebar
+            isOpen={sidebarOpen}
+            width={sidebarWidth}
+            onResize={resizeSidebar}
+            onOpenSettings={() => openSettings()}
+          />
+        )}
+        {!artifactFullscreen && (
+          <div
+            style={styles.main}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {hasContent ? (
+              <ChatView
+                crystallizations={rsi.crystallizations}
+                onDismissCrystallization={rsi.dismissCrystallization}
+                onOpenTeamGraph={openTeamGraph}
+              />
+            ) : (
+              <div style={styles.content}>
+                <div style={styles.placeholder}>
+                  <div style={styles.logoContainer}>
+                    <OuroborosLogo />
+                  </div>
+                  <h1 style={styles.title}>Ouroboros</h1>
+                  <p style={styles.subtitle}>Self-improving AI agent</p>
                 </div>
-                <h1 style={styles.title}>Ouroboros</h1>
-                <p style={styles.subtitle}>Self-improving AI agent</p>
               </div>
-            </div>
-          )}
-          <InputBar isDragOver={isDragOver} />
-        </div>
-        {currentArtifacts.length > 0 && <ArtifactPanel width={artifactPanelWidth} />}
+            )}
+            <InputBar isDragOver={isDragOver} />
+          </div>
+        )}
+        {currentArtifacts.length > 0 && (
+          <ArtifactPanel
+            width={artifactPanelWidth}
+            onResize={resizeArtifactPanel}
+            isFullscreen={artifactFullscreen}
+            onToggleFullscreen={toggleArtifactFullscreen}
+            minWidth={MIN_ARTIFACT_PANEL_WIDTH}
+            maxWidth={MAX_ARTIFACT_PANEL_WIDTH}
+          />
+        )}
       </div>
 
       {/* Overlays & modals */}

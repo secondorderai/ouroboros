@@ -1,7 +1,7 @@
 import React from 'react'
 
 interface ArtifactFrameProps {
-  html: string
+  src: string
   title: string
 }
 
@@ -14,14 +14,28 @@ const styles: Record<string, React.CSSProperties> = {
   },
 }
 
-export function ArtifactFrame({ html, title }: ArtifactFrameProps): React.ReactElement {
+// `allow-same-origin` is safe because the iframe loads from the
+// `ouroboros-artifact://` scheme, which is a different origin from the
+// renderer — it grants the artifact access to its own storage only.
+const ARTIFACT_SANDBOX = [
+  'allow-scripts',
+  'allow-same-origin',
+  'allow-forms',
+  'allow-modals',
+  'allow-popups',
+  'allow-popups-to-escape-sandbox',
+  'allow-downloads',
+  'allow-pointer-lock',
+].join(' ')
+
+export function ArtifactFrame({ src, title }: ArtifactFrameProps): React.ReactElement {
   return (
     <iframe
       data-testid='artifact-frame'
       title={title}
-      sandbox='allow-scripts'
+      sandbox={ARTIFACT_SANDBOX}
       referrerPolicy='no-referrer'
-      srcDoc={html}
+      src={src}
       style={styles.frame}
     />
   )

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, Menu, shell } from 'electron'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import { appendFileSync, existsSync, mkdirSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, statSync } from 'fs'
 import Store from 'electron-store'
 import { createWindowOptions, saveBounds, restoreMaximized } from './window'
 import { CLIProcessManager } from './cli-process'
@@ -10,12 +10,25 @@ import { registerIpcHandlers } from './ipc-handlers'
 import { handleInstallUpdate, initAutoUpdater } from './auto-updater'
 import { initCrashRollback } from './crash-rollback'
 import { writeTestLog } from './test-logging'
-import { TEST_EXTERNAL_URL_LOG_PATH, TEST_USER_DATA_DIR } from './test-paths'
+import { isSafeArtifactPath } from './artifact-paths'
+import {
+  registerArtifactProtocolHandler,
+  registerArtifactProtocolScheme,
+} from './artifact-protocol'
+import {
+  TEST_EXTERNAL_URL_LOG_PATH,
+  TEST_OPEN_ARTIFACT_LOG_PATH,
+  TEST_USER_DATA_DIR,
+} from './test-paths'
 import type { Theme } from '../shared/protocol'
 
 const APP_NAME = 'Ouroboros'
 
 app.setName(APP_NAME)
+
+// Privileged scheme for embedding HTML artifacts in the renderer's iframe.
+// Must be registered synchronously before app.whenReady() resolves.
+registerArtifactProtocolScheme()
 
 const hideTestWindow =
   process.env.NODE_ENV === 'test' && process.env.OUROBOROS_TEST_HIDE_WINDOW === '1'
@@ -49,6 +62,9 @@ if (!gotTheLock) {
     // Crash rollback runs first, before heavy init
     initCrashRollback()
     writeTestLog('crash rollback initialized')
+
+    registerArtifactProtocolHandler()
+    writeTestLog('artifact protocol registered')
 
     registerThemeIpcHandlers()
     writeTestLog('theme ipc registered')
@@ -293,6 +309,10 @@ function registerThemeIpcHandlers(): void {
     openExternalUrl(url)
   })
 
+  ipcMain.on('shell:openArtifact', (_event, rawPath: string) => {
+    openArtifactPath(rawPath)
+  })
+
   ipcMain.on('update:install', () => {
     handleInstallUpdate()
   })
@@ -330,4 +350,45 @@ function recordExternalUrl(url: string, allowed: boolean): void {
 
   mkdirSync(dirname(logPath), { recursive: true })
   appendFileSync(logPath, JSON.stringify({ url, allowed }) + '\n')
+}
+
+function openArtifactPath(rawPath: string): void {
+  if (!isSafeArtifactPath(rawPath)) {
+    recordOpenArtifact(rawPath, false, 'invalid-path')
+    console.error(`[main] Blocked openArtifact for unsafe path: ${rawPath}`)
+    return
+  }
+
+  try {
+    const stats = statSync(rawPath)
+    if (!stats.isFile()) {
+      recordOpenArtifact(rawPath, false, 'not-a-file')
+      console.error(`[main] openArtifact: not a file: ${rawPath}`)
+      return
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    recordOpenArtifact(rawPath, false, message)
+    console.error(`[main] openArtifact stat failed: ${message}`)
+    return
+  }
+
+  recordOpenArtifact(rawPath, true)
+  if (process.env.NODE_ENV === 'test') return
+  void shell.openPath(rawPath).then((errorMessage) => {
+    if (errorMessage) {
+      console.error(`[main] shell.openPath failed: ${errorMessage}`)
+    }
+  })
+}
+
+function recordOpenArtifact(path: string, allowed: boolean, reason?: string): void {
+  const logPath = process.env.OUROBOROS_TEST_OPEN_ARTIFACT_LOG_PATH ?? (
+    process.env.NODE_ENV === 'test' ? TEST_OPEN_ARTIFACT_LOG_PATH : undefined
+  )
+  if (!logPath) return
+  mkdirSync(dirname(logPath), { recursive: true })
+  const record: Record<string, unknown> = { path, allowed }
+  if (reason) record.reason = reason
+  appendFileSync(logPath, JSON.stringify(record) + '\n')
 }
