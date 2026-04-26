@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { type Result, ok, err } from '@src/types'
+import { ok, err } from '@src/types'
 import type { TypedToolExecute } from './types'
 import { hardenHtml, DEFAULT_CDN_ALLOWLIST } from '@src/artifacts/csp'
 import { nextVersionFor, writeArtifact, type ArtifactMetadata } from '@src/artifacts/storage'

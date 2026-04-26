@@ -51,6 +51,11 @@ function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
     },
     memory: { ...base.memory, ...overrides?.memory },
     rsi: { ...base.rsi, ...overrides?.rsi },
+    artifacts: {
+      ...base.artifacts,
+      ...overrides?.artifacts,
+      cdnAllowlist: overrides?.artifacts?.cdnAllowlist ?? base.artifacts.cdnAllowlist,
+    },
   }
 }
 
