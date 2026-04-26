@@ -16,14 +16,19 @@ function readJsonFile<T>(path: string): T {
 }
 
 async function runRootDevInPty(): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(
-    ['script', '-q', '/dev/null', 'sh', '-lc', `cd "${REPO_ROOT}" && bun run dev`],
-    {
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'pipe',
-    },
-  )
+  const innerCmd = `cd "${REPO_ROOT}" && bun run dev`
+  // BSD script (macOS) takes `[file] [command...]`; util-linux script (Linux)
+  // requires `-c <command>` with the typescript file as the only positional.
+  const args =
+    process.platform === 'darwin'
+      ? ['script', '-q', '/dev/null', 'sh', '-lc', innerCmd]
+      : ['script', '-qfc', `sh -lc ${JSON.stringify(innerCmd)}`, '/dev/null']
+
+  const proc = Bun.spawn(args, {
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
 
   const timeout = setTimeout(() => {
     proc.kill()
