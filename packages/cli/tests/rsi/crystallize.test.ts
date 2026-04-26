@@ -1,5 +1,4 @@
 import { describe, test, it, expect, beforeEach, afterEach } from 'bun:test'
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
@@ -12,7 +11,6 @@ import {
   proposeCrystallizationsFromObservations,
   reflectFromObservationPatterns,
   generateSkill,
-  gitExec,
   writeSkillToStaging,
   parseSkillResponse,
   validateSkillName,
@@ -999,7 +997,6 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       const result = await crystallize('Repeated payment webhook incidents', {
         llm,
         observationSessions,
-        autoCommit: false,
         noveltyThreshold: 0.7,
         existingSkills: [],
         skillDirs: {
@@ -1334,33 +1331,6 @@ description: A test skill
 
       const result = await execute(input)
       expect(result.ok).toBe(true)
-    })
-  })
-
-  describe('gitExec env scrubbing', () => {
-    // Regression test for the incident where a stray GIT_DIR in the parent
-    // process redirected crystallize's auto-commit into the wrong repo
-    // (corrupting .git/config of the host repo). gitExec must ignore any
-    // inherited GIT_* env so it operates only on its `cwd` argument.
-    it('ignores inherited GIT_DIR and operates on cwd', async () => {
-      const repoDir = makeTempDir('crystallize-gitexec')
-      execFileSync('git', ['init'], { cwd: repoDir, stdio: 'ignore' })
-
-      const originalGitDir = process.env.GIT_DIR
-      process.env.GIT_DIR = '/non/existent/should-be-ignored'
-      try {
-        const result = await gitExec(['rev-parse', '--git-dir'], repoDir)
-        expect(result.ok).toBe(true)
-        if (result.ok) {
-          // Should resolve to the tempdir's .git, not the bogus GIT_DIR.
-          expect(result.value).not.toContain('/non/existent')
-          expect(result.value.includes('.git') || result.value === '.git').toBe(true)
-        }
-      } finally {
-        if (originalGitDir === undefined) delete process.env.GIT_DIR
-        else process.env.GIT_DIR = originalGitDir
-        cleanupTempDir(repoDir)
-      }
     })
   })
 })

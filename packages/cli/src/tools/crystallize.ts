@@ -29,17 +29,12 @@ export const schema = z.object({
     .string()
     .optional()
     .describe('Optional conversation transcript for richer reflection'),
-  autoCommit: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Whether to git commit on successful promotion (default true)'),
 })
 
 export const execute: TypedToolExecute<typeof schema, CrystallizationResult> = async (
   args,
 ): Promise<Result<CrystallizationResult>> => {
-  const { taskSummary, transcript, autoCommit } = args
+  const { taskSummary, transcript } = args
 
   // Load config to get LLM provider and skill directories
   const configResult = loadConfig()
@@ -69,7 +64,6 @@ export const execute: TypedToolExecute<typeof schema, CrystallizationResult> = a
     transcript,
     llm,
     skillDirs,
-    autoCommit,
     noveltyThreshold: config.rsi.noveltyThreshold,
   })
 }

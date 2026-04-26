@@ -23,8 +23,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
@@ -1203,41 +1201,18 @@ export interface CrystallizationResult {
   skillName?: string
   skillPath?: string
   testResult?: SkillTestResult
-  commitHash?: string
 }
 
 export interface CrystallizeOptions {
   transcript?: string
   llm: LanguageModel
   skillDirs: { staging: string; generated: string; core: string }
-  autoCommit?: boolean
   noveltyThreshold?: number
   existingSkills?: SkillCatalogEntry[]
   observationSessions?: ObservationCrystallizationSession[]
 }
 
-// ── Git helper ──────────────────────────────────────────────────────
-
-const execFileAsync = promisify(execFile)
-
-export async function gitExec(args: string[], cwd: string): Promise<Result<string>> {
-  // Scrub GIT_* env vars so a stray GIT_DIR/GIT_WORK_TREE in the parent
-  // shell can't redirect commits into an unintended repository (e.g. during
-  // tests that run from a temp dir).
-  const env: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith('GIT_')) env[key] = value
-  }
-  try {
-    const { stdout } = await execFileAsync('git', args, { cwd, env })
-    return ok(stdout.trim())
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    return err(new Error(message))
-  }
-}
-
-// ── Crystallization pipeline ──��─────────────────────────────────────
+// ── Crystallization pipeline ─────────────────────────────────────────
 
 /**
  * Orchestrate the full crystallization pipeline:
@@ -1245,7 +1220,7 @@ export async function gitExec(args: string[], cwd: string): Promise<Result<strin
  *   2. Generate — Produce a skill directory in staging
  *   3. Validate — Check SKILL.md against requirements
  *   4. Test — Run skill tests
- *   5. Promote — Move to generated/ and git commit
+ *   5. Promote — Move to generated/
  *
  * If any stage fails, the pipeline stops and reports the failure.
  */
@@ -1257,7 +1232,6 @@ export async function crystallize(
     transcript,
     llm,
     skillDirs,
-    autoCommit = true,
     noveltyThreshold = 0.7,
     existingSkills = [],
     observationSessions = [],
@@ -1388,35 +1362,11 @@ export async function crystallize(
 
   process.stderr.write(`[crystallize] Skill promoted to ${generatedPath}\n`)
 
-  let commitHash: string | undefined
-  if (autoCommit) {
-    const cwd = join(skillDirs.generated, '..')
-    const addResult = await gitExec(['add', generatedPath], cwd)
-    if (addResult.ok) {
-      const commitMsg = `rsi: crystallize skill '${skill.name}' — ${skill.frontmatter.description}`
-      const commitResult = await gitExec(['commit', '-m', commitMsg], cwd)
-      if (commitResult.ok) {
-        const hashResult = await gitExec(['rev-parse', 'HEAD'], cwd)
-        if (hashResult.ok) {
-          commitHash = hashResult.value
-        }
-        process.stderr.write(`[crystallize] Git commit: ${commitHash ?? '(hash unavailable)'}\n`)
-      } else {
-        process.stderr.write(
-          `[crystallize] Warning: Git commit failed: ${commitResult.error.message}\n`,
-        )
-      }
-    } else {
-      process.stderr.write(`[crystallize] Warning: Git add failed: ${addResult.error.message}\n`)
-    }
-  }
-
   return ok({
     outcome: 'promoted',
     reflection,
     skillName: skill.name,
     skillPath: generatedPath,
     testResult: testResult.value,
-    commitHash,
   })
 }

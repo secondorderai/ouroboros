@@ -11,8 +11,7 @@ describe('CrystallizeTool', () => {
     expect(description).toContain('crystallization pipeline')
     expect(schema.safeParse({ taskSummary: 'Finished a task' }).success).toBe(true)
     expect(
-      schema.safeParse({ taskSummary: 'Finished a task', transcript: 'details', autoCommit: false })
-        .success,
+      schema.safeParse({ taskSummary: 'Finished a task', transcript: 'details' }).success,
     ).toBe(true)
     expect(schema.safeParse({}).success).toBe(false)
   })
@@ -36,7 +35,6 @@ describe('CrystallizeTool', () => {
     try {
       const result = await execute({
         taskSummary: 'Task that cannot reach an LLM',
-        autoCommit: false,
       })
 
       expect(result.ok).toBe(false)
