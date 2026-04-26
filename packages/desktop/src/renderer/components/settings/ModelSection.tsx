@@ -11,8 +11,8 @@ interface ModelSectionProps {
 }
 
 type Provider = 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
-type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high'
-type ReasoningKind = 'anthropic-thinking' | 'openai-reasoning'
+type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'max'
+type ReasoningKind = 'anthropic-adaptive' | 'openai-reasoning'
 
 const PROVIDERS: Array<{ value: Provider; label: string }> = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -21,14 +21,11 @@ const PROVIDERS: Array<{ value: Provider; label: string }> = [
   { value: 'openai-compatible', label: 'OpenAI-compatible' },
 ]
 
-const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high']
+const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'max']
 
-// Keep this list in sync with packages/cli/src/llm/model-capabilities.ts.
-const ANTHROPIC_THINKING_PREFIXES = [
-  'claude-opus-4',
-  'claude-sonnet-4',
-  'claude-haiku-4',
-]
+// Keep this list in sync with packages/cli/src/llm/model-capabilities.ts —
+// only Claude 4.6+ supports adaptive thinking; older Claude 4.x is excluded.
+const ANTHROPIC_ADAPTIVE_PREFIXES = ['claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6']
 
 /**
  * Detect which reasoning style (if any) the given model supports. Pure
@@ -38,8 +35,8 @@ function reasoningKindFor(modelName: string): ReasoningKind | null {
   if (!modelName) return null
   const id = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName
 
-  for (const prefix of ANTHROPIC_THINKING_PREFIXES) {
-    if (id.startsWith(prefix)) return 'anthropic-thinking'
+  for (const prefix of ANTHROPIC_ADAPTIVE_PREFIXES) {
+    if (id.startsWith(prefix)) return 'anthropic-adaptive'
   }
 
   if (id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4-mini')) {
@@ -71,7 +68,6 @@ export function ModelSection({
   const modelName = config?.model?.name ?? ''
   const baseUrl = config?.model?.baseUrl ?? ''
   const reasoningEffort = config?.model?.reasoningEffort
-  const thinkingBudgetTokens = config?.model?.thinkingBudgetTokens
   const isChatGPTProvider = provider === 'openai-chatgpt'
   const reasoningKind = reasoningKindFor(modelName)
 
@@ -117,21 +113,6 @@ export function ModelSection({
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const next = e.target.value
       onConfigChange('model.reasoningEffort', next === '' ? undefined : (next as ReasoningEffort))
-    },
-    [onConfigChange]
-  )
-
-  const handleThinkingBudgetChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value.trim()
-      if (raw === '') {
-        onConfigChange('model.thinkingBudgetTokens', undefined)
-        return
-      }
-      const parsed = Number(raw)
-      if (Number.isInteger(parsed) && parsed > 0) {
-        onConfigChange('model.thinkingBudgetTokens', parsed)
-      }
     },
     [onConfigChange]
   )
@@ -340,26 +321,7 @@ export function ModelSection({
         )}
       </div>
 
-      {reasoningKind === 'anthropic-thinking' && (
-        <div style={styles.field}>
-          <label style={styles.label}>Thinking budget (tokens)</label>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            style={styles.input}
-            placeholder="e.g. 4096 — leave empty to disable"
-            value={thinkingBudgetTokens ?? ''}
-            onChange={handleThinkingBudgetChange}
-          />
-          <div style={styles.helperText}>
-            Enables Anthropic extended thinking. Temperature is forced to 1 when set. Leave empty to
-            disable.
-          </div>
-        </div>
-      )}
-
-      {reasoningKind === 'openai-reasoning' && (
+      {reasoningKind !== null && (
         <div style={styles.field}>
           <label style={styles.label}>Reasoning effort</label>
           <select
@@ -375,7 +337,9 @@ export function ModelSection({
             ))}
           </select>
           <div style={styles.helperText}>
-            "minimal" is supported by GPT-5 family only; o-series models accept low/medium/high.
+            {reasoningKind === 'anthropic-adaptive'
+              ? 'Anthropic adaptive thinking. "minimal" clamps to "low" for Anthropic.'
+              : 'OpenAI reasoning. "max" clamps to "high" for OpenAI; "minimal" is GPT-5-only.'}
           </div>
         </div>
       )}
