@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import type { LaunchedApp, LaunchScenario } from './helpers'
-import { completeOnboarding, emitNotification, launchTestApp, setRpcOverride } from './helpers'
+import {
+  completeOnboarding,
+  emitNotification,
+  emitUpdateDownloaded,
+  launchTestApp,
+  setRpcOverride,
+} from './helpers'
 
 let launched: LaunchedApp | null = null
 const modKey = process.platform === 'darwin' ? 'metaKey' : 'ctrlKey'
@@ -96,8 +102,9 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
       ['/tmp/spec.md', '/tmp/spec.md', '/tmp/notes.txt'],
       '/tmp/next-workspace',
     ],
-    updateDownloadedVersion: '9.9.9',
-    updateDownloadedDelayMs: 2_500,
+    // Fire the update banner explicitly later via emitUpdateDownloaded
+    // instead of racing the auto-updater's setTimeout against the
+    // renderer's IPC subscription on slow CI.
   })
 
   await completeOnboarding(launched.page, {
@@ -158,6 +165,7 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
   await launched.page.getByRole('button', { name: 'Change workspace' }).click()
   await expect(launched.page.getByText('/tmp/next-workspace')).toBeVisible()
 
+  await emitUpdateDownloaded(launched.page, '9.9.9')
   await expect(launched.page.getByRole('alert')).toContainText(
     'Update available (v9.9.9). Restart to apply.',
   )
