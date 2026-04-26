@@ -4,6 +4,9 @@ const MEMORY_DIR = 'memory'
 const OBSERVATIONS_DIR = 'observations'
 const CHECKPOINTS_DIR = 'checkpoints'
 const DAILY_DIR = 'daily'
+const SESSIONS_DIR = 'sessions'
+const ARTIFACTS_DIR = 'artifacts'
+const ARTIFACTS_INDEX_FILE = 'index.json'
 
 function resolveMemoryDir(basePath?: string): string {
   const base = basePath ?? process.cwd()
@@ -70,4 +73,29 @@ export function resolveDailyMemoryDir(basePath?: string): string {
  */
 export function resolveDailyMemoryPath(date: Date | string, basePath?: string): string {
   return resolve(resolveDailyMemoryDir(basePath), `${formatDailyMemoryDate(date)}.md`)
+}
+
+export function resolveSessionsDir(basePath?: string): string {
+  return resolve(resolveMemoryDir(basePath), SESSIONS_DIR)
+}
+
+export function resolveSessionDir(sessionId: string, basePath?: string): string {
+  return resolve(resolveSessionsDir(basePath), sessionId)
+}
+
+export function resolveArtifactsDir(sessionId: string, basePath?: string): string {
+  return resolve(resolveSessionDir(sessionId, basePath), ARTIFACTS_DIR)
+}
+
+export function resolveArtifactPath(
+  sessionId: string,
+  artifactId: string,
+  version: number,
+  basePath?: string,
+): string {
+  return resolve(resolveArtifactsDir(sessionId, basePath), `${artifactId}.v${version}.html`)
+}
+
+export function resolveArtifactsIndexPath(sessionId: string, basePath?: string): string {
+  return resolve(resolveArtifactsDir(sessionId, basePath), ARTIFACTS_INDEX_FILE)
 }
