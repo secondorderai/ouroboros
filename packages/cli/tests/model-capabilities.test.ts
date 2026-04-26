@@ -88,26 +88,40 @@ describe('getReasoningSupport', () => {
     expect(getReasoningSupport('gpt-5.5')).toEqual({ kind: 'openai-reasoning' })
   })
 
-  test('claude-opus-4-7 supports anthropic-thinking', () => {
-    expect(getReasoningSupport('claude-opus-4-7')).toEqual({ kind: 'anthropic-thinking' })
+  test('claude-opus-4-7 supports anthropic-adaptive', () => {
+    expect(getReasoningSupport('claude-opus-4-7')).toEqual({ kind: 'anthropic-adaptive' })
   })
 
-  test('claude-sonnet-4-6 supports anthropic-thinking', () => {
-    expect(getReasoningSupport('claude-sonnet-4-6')).toEqual({ kind: 'anthropic-thinking' })
+  test('claude-opus-4-6 supports anthropic-adaptive', () => {
+    expect(getReasoningSupport('claude-opus-4-6')).toEqual({ kind: 'anthropic-adaptive' })
   })
 
-  test('claude-haiku-4-5 supports anthropic-thinking', () => {
-    expect(getReasoningSupport('claude-haiku-4-5')).toEqual({ kind: 'anthropic-thinking' })
+  test('claude-sonnet-4-6 supports anthropic-adaptive', () => {
+    expect(getReasoningSupport('claude-sonnet-4-6')).toEqual({ kind: 'anthropic-adaptive' })
   })
 
   test('claude-opus-4-7 snapshot resolves via prefix', () => {
-    expect(getReasoningSupport('claude-opus-4-7-20260101')).toEqual({ kind: 'anthropic-thinking' })
+    expect(getReasoningSupport('claude-opus-4-7-20260101')).toEqual({ kind: 'anthropic-adaptive' })
   })
 
   test('namespaced openai/gpt-5.4-medium resolves to openai-reasoning', () => {
     expect(getReasoningSupport('openai/gpt-5.4-medium', 'openai')).toEqual({
       kind: 'openai-reasoning',
     })
+  })
+
+  // Pre-4.6 Claude models don't support adaptive thinking. The deprecated
+  // `thinking.type: 'enabled'` path is no longer wired up, so reasoning is null.
+  test('claude-sonnet-4-5 has no reasoning support (pre-adaptive)', () => {
+    expect(getReasoningSupport('claude-sonnet-4-5')).toBeNull()
+  })
+
+  test('claude-opus-4-1 has no reasoning support (pre-adaptive)', () => {
+    expect(getReasoningSupport('claude-opus-4-1')).toBeNull()
+  })
+
+  test('claude-haiku-4-5 has no reasoning support (pre-adaptive)', () => {
+    expect(getReasoningSupport('claude-haiku-4-5')).toBeNull()
   })
 
   test('claude-3-5-sonnet has no reasoning support', () => {

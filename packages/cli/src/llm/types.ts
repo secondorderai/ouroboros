@@ -129,12 +129,15 @@ export interface StreamResponse {
 }
 
 /**
- * OpenAI reasoning effort levels for o-series and GPT-5 family models.
+ * Unified reasoning effort levels across providers.
  *
- * Note: `'minimal'` is only supported by GPT-5 family. Sending `'minimal'`
- * to o1/o3/o4-mini will result in an API error from OpenAI.
+ * - `'minimal'` is OpenAI GPT-5 only. On Anthropic adaptive thinking, it is
+ *   clamped to `'low'`.
+ * - `'max'` is Anthropic adaptive only. On OpenAI reasoning models, it is
+ *   clamped to `'high'`.
+ * - `'low' | 'medium' | 'high'` are accepted by both providers as-is.
  */
-export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high'
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'max'
 
 /**
  * Options for LLM calls (both streaming and non-streaming).
@@ -153,13 +156,11 @@ export interface LLMCallOptions {
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal
   /**
-   * Anthropic extended-thinking budget in tokens. Ignored for non-Anthropic
-   * models. When set, temperature is forced to 1 (Anthropic API constraint).
-   */
-  thinkingBudgetTokens?: number
-  /**
-   * OpenAI reasoning effort. Ignored for models that don't support reasoning
-   * (e.g. gpt-4o). Note `'minimal'` is GPT-5-only.
+   * Reasoning effort for capable models. Maps to Anthropic adaptive thinking
+   * (`thinking.type: 'adaptive'` + `effort`) on Claude Opus 4.6/4.7 and Sonnet
+   * 4.6, or to OpenAI `reasoningEffort` on o-series and GPT-5 models. Silently
+   * ignored on models that don't support reasoning. Values outside a provider's
+   * accepted set are clamped to the closest level.
    */
   reasoningEffort?: ReasoningEffort
 }
