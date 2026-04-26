@@ -23,7 +23,8 @@ import { saveConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { activateSkillForRun } from '@src/skills/skill-invocation'
 import { readCheckpoint } from '@src/memory/checkpoints'
-import { resolveCheckpointsDir } from '@src/memory/paths'
+import { resolveCheckpointsDir, resolveArtifactPath } from '@src/memory/paths'
+import { listArtifacts, readArtifact } from '@src/artifacts/storage'
 import type { SessionSummary, SessionWithMessages, TranscriptStore } from '@src/memory/transcripts'
 import type { PermissionLeaseApprovalDetails } from '@src/permission-lease'
 import type { WorkerDiffApprovalDetails } from '@src/tools/worker-diff-approval'
@@ -262,6 +263,20 @@ export function bridgeAgentEvent(event: AgentEvent, sessionId: string | null = n
       break
     case 'plan-submitted':
       writeMessage(makeNotification('mode/planSubmitted', { plan: event.plan }))
+      break
+    case 'artifact-created':
+      writeMessage(
+        makeNotification('agent/artifactCreated', {
+          sessionId,
+          artifactId: event.artifactId,
+          version: event.version,
+          title: event.title,
+          description: event.description,
+          path: event.path,
+          bytes: event.bytes,
+          createdAt: event.createdAt,
+        }),
+      )
       break
     case 'error':
       writeMessage(
@@ -1224,6 +1239,71 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         JSON_RPC_ERRORS.INTERNAL_ERROR.code,
         `Failed to change directory: ${message}`,
       )
+    }
+  })
+
+  // ── artifacts/* ──────────────────────────────────────────────────
+
+  handlers.set('artifacts/list', async (params) => {
+    const sessionId = params.sessionId
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.sessionId is required')
+    }
+    const result = listArtifacts(sessionId)
+    if (!result.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    }
+    return {
+      artifacts: result.value.map((meta) => ({
+        artifactId: meta.artifactId,
+        version: meta.version,
+        sessionId,
+        title: meta.title,
+        description: meta.description,
+        path: resolveArtifactPath(sessionId, meta.artifactId, meta.version),
+        bytes: meta.bytes,
+        createdAt: meta.createdAt,
+      })),
+    }
+  })
+
+  handlers.set('artifacts/read', async (params) => {
+    const sessionId = params.sessionId
+    const artifactId = params.artifactId
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.sessionId is required')
+    }
+    if (typeof artifactId !== 'string' || artifactId.length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.artifactId is required')
+    }
+    const versionParam = params.version
+    let version: number | undefined
+    if (versionParam !== undefined) {
+      if (typeof versionParam !== 'number' || !Number.isInteger(versionParam) || versionParam < 1) {
+        throw new HandlerError(
+          JSON_RPC_ERRORS.INVALID_PARAMS.code,
+          'params.version must be a positive integer when provided',
+        )
+      }
+      version = versionParam
+    }
+    const result = readArtifact(sessionId, artifactId, version)
+    if (!result.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    }
+    const meta = result.value.metadata
+    return {
+      html: result.value.html,
+      artifact: {
+        artifactId: meta.artifactId,
+        version: meta.version,
+        sessionId,
+        title: meta.title,
+        description: meta.description,
+        path: resolveArtifactPath(sessionId, meta.artifactId, meta.version),
+        bytes: meta.bytes,
+        createdAt: meta.createdAt,
+      },
     }
   })
 
