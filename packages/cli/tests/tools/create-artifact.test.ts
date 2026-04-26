@@ -110,6 +110,37 @@ describe('create-artifact tool', () => {
     expect(result.ok).toBe(false)
   })
 
+  test('treats empty-string supersedes as a new artifact (regression: desktop create-artifact loop)', async () => {
+    const emitted: unknown[] = []
+    const result = await execute(
+      schema.parse({
+        title: 'Solar System',
+        html: '<html><head></head><body>sun</body></html>',
+        supersedes: '',
+      }),
+      makeContext(basePath, sessionId, emitted),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.version).toBe(1)
+    expect(result.value.artifactId).toMatch(/^[0-9a-f]+$/)
+  })
+
+  test('treats whitespace-only supersedes as a new artifact', async () => {
+    const emitted: unknown[] = []
+    const result = await execute(
+      schema.parse({
+        title: 't',
+        html: '<html><head></head><body>x</body></html>',
+        supersedes: '   ',
+      }),
+      makeContext(basePath, sessionId, emitted),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.version).toBe(1)
+  })
+
   test('versioning: supersedes bumps version on the same artifactId', async () => {
     const emitted: unknown[] = []
     const ctx = makeContext(basePath, sessionId, emitted)

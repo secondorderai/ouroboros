@@ -102,7 +102,7 @@ export function nextVersionFor(
   supersedes: string | undefined,
   basePath?: string,
 ): Result<{ artifactId: string; version: number }> {
-  if (supersedes === undefined) {
+  if (supersedes === undefined || supersedes.trim() === '') {
     return ok({ artifactId: generateArtifactId(), version: 1 })
   }
   const indexResult = loadIndex(sessionId, basePath)

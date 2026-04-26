@@ -13,7 +13,8 @@ export const description =
   'allowlisted CDNs (https://cdn.jsdelivr.net, https://unpkg.com, https://cdnjs.cloudflare.com); ' +
   'all other network access is blocked. The artifact is sandboxed (no same-origin, no fetch, no eval). ' +
   'Do not use \'eval\', dynamic function constructors, or <script type="text/babel"> -- the CSP omits unsafe-eval. ' +
-  'Set `supersedes` to an existing artifactId to publish a new version of that artifact.'
+  'Omit `supersedes` for a brand-new artifact; set it only to an artifactId from a previous ' +
+  'create-artifact response to publish a new version of that artifact.'
 
 export const schema = z.object({
   title: z.string().min(1).max(120).describe('Short title shown in the panel tab'),
@@ -23,7 +24,14 @@ export const schema = z.object({
     .max(500)
     .optional()
     .describe('One-line summary of what the artifact does'),
-  supersedes: z.string().optional().describe('Existing artifactId to replace with a new version'),
+  supersedes: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() !== '' ? v : undefined))
+    .describe(
+      'Optional. Omit entirely when creating a brand-new artifact. ' +
+        'Set only to an existing artifactId returned by a previous create-artifact call to publish a new version.',
+    ),
 })
 
 export interface CreateArtifactResult {

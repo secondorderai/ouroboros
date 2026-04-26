@@ -95,6 +95,21 @@ describe('artifacts storage', () => {
     expect(result.ok).toBe(false)
   })
 
+  test('nextVersionFor treats empty-string supersedes as new artifact (regression: desktop create-artifact loop)', () => {
+    const result = nextVersionFor(sessionId, '', basePath)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.version).toBe(1)
+    expect(result.value.artifactId).toMatch(/^[0-9a-f]+$/)
+  })
+
+  test('nextVersionFor treats whitespace-only supersedes as new artifact', () => {
+    const result = nextVersionFor(sessionId, '   ', basePath)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.version).toBe(1)
+  })
+
   test('listArtifacts returns all versions sorted by createdAt', async () => {
     writeArtifact({
       sessionId,
