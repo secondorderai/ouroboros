@@ -63,3 +63,4 @@ packages/desktop/.ouroboros-transcripts.db-shm
 **/*/.ouroboros*
 packages/desktop/resources/cli/**/*
 packages/desktop/skills/**/*
+packages/desktop/memory/**/*
