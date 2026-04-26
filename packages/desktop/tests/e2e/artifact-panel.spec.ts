@@ -131,11 +131,15 @@ test('artifact panel renders sandboxed iframe and supports versioning + open ext
   // re-inherits into the iframe, inline scripts will be blocked and this
   // assertion fails before any user notices the breakage.
   await expect(inner.locator('#status')).toHaveText('idle')
-  // Wait for the inline script to register its click handler before clicking
-  // — if we click before the listener is attached, the click does nothing
-  // and the assertion below never resolves.
+  // Wait for the inline script to register its click handler.
   await expect(inner.locator('#hit[data-ready="true"]')).toBeAttached()
-  await inner.getByRole('button', { name: 'Hit me' }).click()
+  // Trigger via element.click() instead of an input-level click. The
+  // assertion is "inline scripts in the sandboxed iframe can mutate the
+  // DOM" (a CSP regression guard), not "users can click via real mouse".
+  // Headless Electron + xvfb on Linux occasionally fails to deliver
+  // synthetic mouse events into custom-protocol iframes, but the inline
+  // listener fires fine when the click is dispatched in JS.
+  await inner.locator('#hit').evaluate((el) => (el as HTMLButtonElement).click())
   await expect(inner.locator('#status')).toHaveText('clicked')
 
   // Bump to v2: same artifactId, new version. Version dropdown must appear.

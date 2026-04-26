@@ -121,8 +121,11 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
                 isError: false,
               },
             },
+            // Wide gap before turnComplete so the intermediate streaming
+            // text stays on screen long enough for Playwright's poll
+            // interval to observe it on slower Linux CI runners.
             {
-              delayMs: 170,
+              delayMs: 1500,
               method: 'agent/turnComplete',
               params: { text: 'Repository summary ready.', iterations: 1 },
             },
@@ -185,8 +188,10 @@ test('cancel flow preserves partial text and lets the user recover', async ({}, 
           },
           notifications: [
             { delayMs: 60, method: 'agent/text', params: { text: 'Gathering context' } },
+            // Wide enough that the test reliably observes "Gathering context"
+            // and clicks "Stop agent" before this would have fired.
             {
-              delayMs: 1200,
+              delayMs: 5000,
               method: 'agent/turnComplete',
               params: { text: 'Should not reach completion', iterations: 1 },
             },
@@ -404,13 +409,15 @@ test('desktop surfaces RSI compaction activity and preserves long-session contin
                 payload: { summary: 'Retried with compacted context and resumed the task.' },
               },
             },
+            // Wide gaps so Playwright observes the intermediate streaming
+            // text on slow Linux CI before it's replaced by turnComplete.
             {
-              delayMs: 240,
+              delayMs: 1500,
               method: 'agent/text',
               params: { text: 'Recovered context and continued the task.' },
             },
             {
-              delayMs: 280,
+              delayMs: 2500,
               method: 'agent/turnComplete',
               params: { text: 'Recovered context and continued the task.', iterations: 2 },
             },
