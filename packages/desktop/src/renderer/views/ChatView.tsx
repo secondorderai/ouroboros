@@ -32,80 +32,6 @@ const listContainerStyle: React.CSSProperties = {
   overflow: 'hidden',
 }
 
-const processingBannerStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 12,
-  margin: '12px 18px 0',
-  padding: '9px 12px',
-  border: '1px solid var(--border-light)',
-  borderRadius: 8,
-  background: 'var(--bg-primary)',
-  color: 'var(--text-secondary)',
-  boxShadow: 'var(--shadow-subtle)',
-  flexShrink: 0,
-}
-
-const processingBannerContentStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 9,
-  minWidth: 0,
-  fontSize: 13,
-  fontWeight: 500,
-}
-
-const processingBannerSpinnerStyle: React.CSSProperties = {
-  width: 14,
-  height: 14,
-  borderRadius: '50%',
-  border: '2px solid var(--border-light)',
-  borderTopColor: 'var(--accent-amber)',
-  animation: 'ob-spin 0.7s linear infinite',
-  flexShrink: 0,
-}
-
-const processingBannerTextStyle: React.CSSProperties = {
-  overflow: 'hidden',
-  whiteSpace: 'nowrap',
-  textOverflow: 'ellipsis',
-}
-
-const processingBannerStopStyle: React.CSSProperties = {
-  border: '1px solid var(--border-light)',
-  background: 'transparent',
-  color: 'var(--text-secondary)',
-  borderRadius: 6,
-  padding: '4px 9px',
-  fontSize: 12,
-  fontWeight: 600,
-  fontFamily: 'var(--font-sans)',
-  cursor: 'pointer',
-  flexShrink: 0,
-}
-
-function getProcessingLabel(toolName?: string): string {
-  switch (toolName) {
-    case 'bash':
-      return 'Running a command'
-    case 'file-read':
-      return 'Reading files'
-    case 'file-write':
-      return 'Creating files'
-    case 'file-edit':
-      return 'Editing files'
-    case 'web-fetch':
-      return 'Fetching a page'
-    case 'web-search':
-      return 'Searching the web'
-    case 'self-test':
-      return 'Running tests'
-    default:
-      return 'Ouroboros is still working in this session'
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Message renderer
 // ---------------------------------------------------------------------------
@@ -212,12 +138,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const pendingToolCalls = useConversationStore((s) => s.pendingToolCalls)
   const pendingSubagentRuns = useConversationStore((s) => s.pendingSubagentRuns)
   const pendingActivatedSkills = useConversationStore((s) => s.pendingActivatedSkills)
-  const sessions = useConversationStore((s) => s.sessions)
-  const cancelRun = useConversationStore((s) => s.cancelRun)
   const bufferedText = useStreamingBuffer()
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
-  const currentSession = sessions.find((session) => session.id === currentSessionId)
-  const isCurrentSessionProcessing = currentSession?.runStatus === 'running'
 
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -315,24 +237,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   return (
     <div style={chatAreaStyle}>
-      {isCurrentSessionProcessing && (
-        <div style={processingBannerStyle} role='status' aria-live='polite'>
-          <div style={processingBannerContentStyle}>
-            <span style={processingBannerSpinnerStyle} aria-hidden='true' />
-            <span style={processingBannerTextStyle}>
-              {getProcessingLabel(currentSession?.activeToolName)}
-            </span>
-          </div>
-          <button
-            style={processingBannerStopStyle}
-            onClick={cancelRun}
-            title='Stop session run'
-            aria-label='Stop session run'
-          >
-            Stop
-          </button>
-        </div>
-      )}
       <div style={listContainerStyle}>
         <Virtuoso
           ref={virtuosoRef}

@@ -158,10 +158,22 @@ function makeExplodingFileWriteTool(onExecute: () => void): ToolDefinition {
   }
 }
 
+// Scrub inherited GIT_* env vars so scratch-repo `git` calls don't get
+// hijacked by an outer git context (e.g. when these tests run inside a
+// pre-push hook, `GIT_DIR` / `GIT_WORK_TREE` point at the parent repo).
+function scratchGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('GIT_')) env[key] = value
+  }
+  return env
+}
+
 function runGit(cwd: string, args: string[]): void {
   execFileSync('git', args, {
     cwd,
     stdio: 'ignore',
+    env: scratchGitEnv(),
   })
 }
 
@@ -170,6 +182,7 @@ function gitOutput(cwd: string, args: string[]): string {
     cwd,
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'ignore'],
+    env: scratchGitEnv(),
   }).trim()
 }
 

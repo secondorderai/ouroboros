@@ -1229,7 +1229,6 @@ test('running sessions show sidebar and chat processing indicators', async ({}, 
 
   await expect(launched.page.getByLabel('Session is still processing')).toBeVisible()
   await expect(launched.page.getByText('Working', { exact: true })).toBeVisible()
-  await expect(launched.page.getByText('Ouroboros is still working in this session')).toBeVisible()
 
   await emitNotification(launched.page, 'agent/toolCallStart', {
     toolCallId: 'tool-processing-1',
@@ -1238,7 +1237,6 @@ test('running sessions show sidebar and chat processing indicators', async ({}, 
   })
 
   await expect(launched.page.getByText('Running command')).toBeVisible()
-  await expect(launched.page.getByText('Running a command', { exact: true })).toBeVisible()
 
   await emitNotification(launched.page, 'agent/turnComplete', {
     text: 'Done',
