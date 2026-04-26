@@ -11,6 +11,8 @@ interface ModelSectionProps {
 }
 
 type Provider = 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
+type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high'
+type ReasoningKind = 'anthropic-thinking' | 'openai-reasoning'
 
 const PROVIDERS: Array<{ value: Provider; label: string }> = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -18,6 +20,37 @@ const PROVIDERS: Array<{ value: Provider; label: string }> = [
   { value: 'openai-chatgpt', label: 'ChatGPT Subscription' },
   { value: 'openai-compatible', label: 'OpenAI-compatible' },
 ]
+
+const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high']
+
+// Keep this list in sync with packages/cli/src/llm/model-capabilities.ts.
+const ANTHROPIC_THINKING_PREFIXES = [
+  'claude-opus-4',
+  'claude-sonnet-4',
+  'claude-haiku-4',
+]
+
+/**
+ * Detect which reasoning style (if any) the given model supports. Pure
+ * prefix-based check that mirrors `getReasoningSupport` in the CLI registry.
+ */
+function reasoningKindFor(modelName: string): ReasoningKind | null {
+  if (!modelName) return null
+  const id = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName
+
+  for (const prefix of ANTHROPIC_THINKING_PREFIXES) {
+    if (id.startsWith(prefix)) return 'anthropic-thinking'
+  }
+
+  if (id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4-mini')) {
+    return 'openai-reasoning'
+  }
+  if (id.startsWith('gpt-5') && !id.startsWith('gpt-5-chat')) {
+    return 'openai-reasoning'
+  }
+
+  return null
+}
 
 export function ModelSection({
   config,
@@ -37,7 +70,10 @@ export function ModelSection({
   const provider = config?.model?.provider ?? 'anthropic'
   const modelName = config?.model?.name ?? ''
   const baseUrl = config?.model?.baseUrl ?? ''
+  const reasoningEffort = config?.model?.reasoningEffort
+  const thinkingBudgetTokens = config?.model?.thinkingBudgetTokens
   const isChatGPTProvider = provider === 'openai-chatgpt'
+  const reasoningKind = reasoningKindFor(modelName)
 
   const loadAuthStatus = useCallback(async () => {
     if (provider !== 'openai-chatgpt') {
@@ -73,6 +109,29 @@ export function ModelSection({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setTestResult(null)
       onConfigChange('model.baseUrl', e.target.value)
+    },
+    [onConfigChange]
+  )
+
+  const handleReasoningEffortChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const next = e.target.value
+      onConfigChange('model.reasoningEffort', next === '' ? undefined : (next as ReasoningEffort))
+    },
+    [onConfigChange]
+  )
+
+  const handleThinkingBudgetChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value.trim()
+      if (raw === '') {
+        onConfigChange('model.thinkingBudgetTokens', undefined)
+        return
+      }
+      const parsed = Number(raw)
+      if (Number.isInteger(parsed) && parsed > 0) {
+        onConfigChange('model.thinkingBudgetTokens', parsed)
+      }
     },
     [onConfigChange]
   )
@@ -280,6 +339,46 @@ export function ModelSection({
           />
         )}
       </div>
+
+      {reasoningKind === 'anthropic-thinking' && (
+        <div style={styles.field}>
+          <label style={styles.label}>Thinking budget (tokens)</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            style={styles.input}
+            placeholder="e.g. 4096 — leave empty to disable"
+            value={thinkingBudgetTokens ?? ''}
+            onChange={handleThinkingBudgetChange}
+          />
+          <div style={styles.helperText}>
+            Enables Anthropic extended thinking. Temperature is forced to 1 when set. Leave empty to
+            disable.
+          </div>
+        </div>
+      )}
+
+      {reasoningKind === 'openai-reasoning' && (
+        <div style={styles.field}>
+          <label style={styles.label}>Reasoning effort</label>
+          <select
+            style={styles.select}
+            value={reasoningEffort ?? ''}
+            onChange={handleReasoningEffortChange}
+          >
+            <option value="">(disabled)</option>
+            {REASONING_EFFORT_OPTIONS.map((effort) => (
+              <option key={effort} value={effort}>
+                {effort}
+              </option>
+            ))}
+          </select>
+          <div style={styles.helperText}>
+            "minimal" is supported by GPT-5 family only; o-series models accept low/medium/high.
+          </div>
+        </div>
+      )}
 
       {isChatGPTProvider && (
         <div style={styles.field}>
