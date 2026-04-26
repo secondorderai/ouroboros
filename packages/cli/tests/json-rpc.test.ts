@@ -3244,6 +3244,89 @@ description: Bundled meta-thinking skill
   })
 
   // -------------------------------------------------------------------
+  // -------------------------------------------------------------------
+  // Test: artifacts/* handlers and artifact-created event bridge
+  // -------------------------------------------------------------------
+  describe('artifacts handlers', () => {
+    test('bridges artifact-created events into agent/artifactCreated notifications', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'artifact-created',
+            artifactId: 'abc',
+            version: 1,
+            sessionId: 'session-art',
+            title: 'Sine',
+            description: 'wave',
+            path: '/tmp/sample.html',
+            bytes: 42,
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+          'session-art',
+        )
+      })
+
+      expect(parseNdjson(output)).toEqual([
+        {
+          jsonrpc: '2.0',
+          method: 'agent/artifactCreated',
+          params: {
+            sessionId: 'session-art',
+            artifactId: 'abc',
+            version: 1,
+            title: 'Sine',
+            description: 'wave',
+            path: '/tmp/sample.html',
+            bytes: 42,
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+      ])
+    })
+
+    test('artifacts/list returns empty array for a fresh session', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const handler = handlers.get('artifacts/list')!
+      expect(handler).toBeDefined()
+      const result = (await handler({ sessionId: 'no-such-session' })) as {
+        artifacts: unknown[]
+      }
+      expect(Array.isArray(result.artifacts)).toBe(true)
+      expect(result.artifacts).toHaveLength(0)
+      ctx.transcriptStore.close()
+    })
+
+    test('artifacts/list rejects missing sessionId with INVALID_PARAMS', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+      const handler = handlers.get('artifacts/list')!
+      try {
+        await handler({})
+        expect.unreachable('expected HandlerError')
+      } catch (e) {
+        expect(e).toBeInstanceOf(HandlerError)
+        expect((e as HandlerError).code).toBe(JSON_RPC_ERRORS.INVALID_PARAMS.code)
+      }
+      ctx.transcriptStore.close()
+    })
+
+    test('artifacts/read errors on unknown artifactId with INTERNAL_ERROR', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+      const handler = handlers.get('artifacts/read')!
+      try {
+        await handler({ sessionId: 'sess-x', artifactId: 'nope' })
+        expect.unreachable('expected HandlerError')
+      } catch (e) {
+        expect(e).toBeInstanceOf(HandlerError)
+      }
+      ctx.transcriptStore.close()
+    })
+  })
+
+  // -------------------------------------------------------------------
   // Test: writeMessage outputs valid NDJSON
   // -------------------------------------------------------------------
   describe('NDJSON output format', () => {

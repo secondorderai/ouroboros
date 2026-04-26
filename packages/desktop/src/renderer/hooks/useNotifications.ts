@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
 import { addApproval, loadApprovals, toPendingApproval } from '../stores/approvalStore'
 import { addAskUserRequest, clearAskUserRequests } from '../stores/askUserStore'
+import { useArtifactsStore } from '../stores/artifactsStore'
 import type { ApprovalRequestNotification } from '../../shared/protocol'
 
 /**
@@ -95,6 +96,9 @@ export function useNotifications(): void {
       }),
       api.onNotification('askUser/request', (params) => {
         addAskUserRequest(params)
+      }),
+      api.onNotification('agent/artifactCreated', (params) => {
+        useArtifactsStore.getState().handleArtifactCreated(params)
       }),
       api.onCLIStatus((status) => {
         if (status === 'error' || status === 'restarting') {

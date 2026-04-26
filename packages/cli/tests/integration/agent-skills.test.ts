@@ -276,6 +276,14 @@ Apply the SecondOrder method.`,
             durablePromotionThreshold: 0.8,
             crystallizeFromRepeatedPatternsOnly: true,
           },
+          artifacts: {
+            cdnAllowlist: [
+              'https://cdn.jsdelivr.net',
+              'https://unpkg.com',
+              'https://cdnjs.cloudflare.com',
+            ],
+            maxBytes: 1_048_576,
+          },
         },
       })
 

@@ -231,6 +231,7 @@ function registerNotificationForwarding(ctx: IpcHandlerContext): void {
     'mode/entered',
     'mode/exited',
     'mode/planSubmitted',
+    'agent/artifactCreated',
   ]
 
   for (const method of notificationMethods) {

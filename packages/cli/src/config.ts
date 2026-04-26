@@ -39,6 +39,15 @@ export const DEFAULT_AGENT_CONFIG = {
   allowedTestCommands: [] as string[],
 }
 
+export const DEFAULT_ARTIFACTS_CONFIG = {
+  cdnAllowlist: [
+    'https://cdn.jsdelivr.net',
+    'https://unpkg.com',
+    'https://cdnjs.cloudflare.com',
+  ] as string[],
+  maxBytes: 1_048_576,
+}
+
 const READ_ONLY_PERMISSIONS: PermissionConfig = {
   tier0: true,
   tier1: false,
@@ -341,6 +350,21 @@ export const configSchema = z.object({
         .describe('Whether crystallization should require repeated evidence across observations'),
     })
     .default(DEFAULT_RSI_CONFIG),
+
+  artifacts: z
+    .object({
+      cdnAllowlist: z
+        .array(z.string().url())
+        .default(DEFAULT_ARTIFACTS_CONFIG.cdnAllowlist)
+        .describe('Allowed CDN origins for artifact <script>/<link> sources'),
+      maxBytes: z
+        .number()
+        .int()
+        .positive()
+        .default(DEFAULT_ARTIFACTS_CONFIG.maxBytes)
+        .describe('Maximum size in bytes for an HTML artifact'),
+    })
+    .default(DEFAULT_ARTIFACTS_CONFIG),
 })
 
 export type OuroborosConfig = z.infer<typeof configSchema>

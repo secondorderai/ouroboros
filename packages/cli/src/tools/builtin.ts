@@ -3,6 +3,7 @@ import type { ToolDefinition } from './types'
 import * as askUserTool from './ask-user'
 import * as bashTool from './bash'
 import * as codeExecTool from './code-exec'
+import * as createArtifactTool from './create-artifact'
 import * as crystallizeTool from './crystallize'
 import * as dreamTool from './dream'
 import * as evolutionTool from './evolution'
@@ -31,6 +32,7 @@ export const BUILTIN_TOOLS: ToolDefinition[] = [
   askUserTool,
   bashTool,
   codeExecTool,
+  createArtifactTool,
   crystallizeTool,
   dreamTool,
   evolutionTool,

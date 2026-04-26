@@ -909,6 +909,35 @@ export interface ModeGetPlanParams {
   [key: string]: never
 }
 
+// ── Artifacts ───────────────────────────────────────────────────────
+
+export interface Artifact {
+  artifactId: string
+  version: number
+  sessionId: string
+  title: string
+  description?: string
+  path: string
+  bytes: number
+  createdAt: string
+}
+
+export interface ArtifactsListParams {
+  sessionId: string
+}
+export interface ArtifactsListResult {
+  artifacts: Artifact[]
+}
+export interface ArtifactsReadParams {
+  sessionId: string
+  artifactId: string
+  version?: number
+}
+export interface ArtifactsReadResult {
+  html: string
+  artifact: Artifact
+}
+
 // ── Method Map (method name -> params & result types) ──────────────
 
 export interface RpcMethodMap {
@@ -958,6 +987,8 @@ export interface RpcMethodMap {
   'mode/enter': { params: ModeEnterParams; result: ModeEnterResult }
   'mode/exit': { params: ModeExitParams; result: ModeExitResult }
   'mode/getPlan': { params: ModeGetPlanParams; result: Plan | null }
+  'artifacts/list': { params: ArtifactsListParams; result: ArtifactsListResult }
+  'artifacts/read': { params: ArtifactsReadParams; result: ArtifactsReadResult }
 }
 
 export type RpcMethod = keyof RpcMethodMap
@@ -1012,6 +1043,8 @@ export const RPC_METHOD_NAMES = [
   'mode/enter',
   'mode/exit',
   'mode/getPlan',
+  'artifacts/list',
+  'artifacts/read',
 ] as const satisfies readonly RpcMethod[]
 
 /** Compile-time check that `RPC_METHOD_NAMES` covers every key of `RpcMethodMap`. */
@@ -1161,6 +1194,16 @@ export interface ModePlanSubmittedNotification {
   plan: Plan
 }
 
+export interface AgentArtifactCreatedNotification extends AgentRunSessionScoped {
+  artifactId: string
+  version: number
+  title: string
+  description?: string
+  path: string
+  bytes: number
+  createdAt: string
+}
+
 export interface NotificationMap {
   'agent/contextUsage': AgentContextUsageNotification
   'agent/text': AgentTextNotification
@@ -1192,6 +1235,7 @@ export interface NotificationMap {
   'mode/entered': ModeEnteredNotification
   'mode/exited': ModeExitedNotification
   'mode/planSubmitted': ModePlanSubmittedNotification
+  'agent/artifactCreated': AgentArtifactCreatedNotification
 }
 
 export type NotificationMethod = keyof NotificationMap
@@ -1233,6 +1277,7 @@ export const NOTIFICATION_METHOD_NAMES = [
   'mode/entered',
   'mode/exited',
   'mode/planSubmitted',
+  'agent/artifactCreated',
 ] as const satisfies readonly NotificationMethod[]
 
 /** Compile-time check that `NOTIFICATION_METHOD_NAMES` covers every key of `NotificationMap`. */

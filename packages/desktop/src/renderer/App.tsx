@@ -19,17 +19,24 @@ import { useModeSync } from './hooks/useModeSync'
 import { useRSI } from './hooks/useRSI'
 import { useConversationStore } from './stores/conversationStore'
 import { useApprovals } from './stores/approvalStore'
+import { useArtifactsStore, selectCurrentArtifacts } from './stores/artifactsStore'
+import { ArtifactPanel } from './components/ArtifactPanel'
 import type { SettingsSectionId } from './views/SettingsOverlay'
 import type { TeamGraphNotification } from '../shared/protocol'
 
 // Keys for persisting state
 const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
 const SIDEBAR_WIDTH_KEY = 'ouroboros:sidebar-width'
+const ARTIFACT_PANEL_WIDTH_KEY = 'ouroboros:artifact-panel-width'
 const ONBOARDING_DONE_KEY = 'ouroboros:onboarding-done'
 
 const DEFAULT_SIDEBAR_WIDTH = 250
 const MIN_SIDEBAR_WIDTH = 250
 const MAX_SIDEBAR_WIDTH = 560
+
+const DEFAULT_ARTIFACT_PANEL_WIDTH = 480
+const MIN_ARTIFACT_PANEL_WIDTH = 280
+const MAX_ARTIFACT_PANEL_WIDTH = 900
 
 function clampSidebarWidth(width: number, viewportWidth: number): number {
   const maxAllowedWidth = Math.max(
@@ -101,6 +108,23 @@ export function App(): React.ReactElement {
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const setModelName = useConversationStore((s) => s.setModelName)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
+  const currentSessionId = useConversationStore((s) => s.currentSessionId)
+  const currentArtifacts = useArtifactsStore(selectCurrentArtifacts)
+
+  const [artifactPanelWidth] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(ARTIFACT_PANEL_WIDTH_KEY)
+      const parsed = stored ? Number.parseInt(stored, 10) : DEFAULT_ARTIFACT_PANEL_WIDTH
+      const initial = Number.isFinite(parsed) ? parsed : DEFAULT_ARTIFACT_PANEL_WIDTH
+      return Math.min(Math.max(initial, MIN_ARTIFACT_PANEL_WIDTH), MAX_ARTIFACT_PANEL_WIDTH)
+    } catch {
+      return DEFAULT_ARTIFACT_PANEL_WIDTH
+    }
+  })
+
+  useEffect(() => {
+    void useArtifactsStore.getState().setSession(currentSessionId)
+  }, [currentSessionId])
   const hasSubagentActivity =
     pendingSubagentRuns.length > 0 ||
     messages.some((message) => message.role === 'agent' && (message.subagentRuns?.length ?? 0) > 0)
@@ -388,6 +412,7 @@ export function App(): React.ReactElement {
           )}
           <InputBar isDragOver={isDragOver} />
         </div>
+        {currentArtifacts.length > 0 && <ArtifactPanel width={artifactPanelWidth} />}
       </div>
 
       {/* Overlays & modals */}

@@ -171,6 +171,17 @@ export type AgentEvent =
       graph: TaskGraph
       reason?: string
     }
+  | {
+      type: 'artifact-created'
+      artifactId: string
+      version: number
+      sessionId: string
+      title: string
+      description?: string
+      path: string
+      bytes: number
+      createdAt: string
+    }
   | RSIEvent
 
 /** Callback function for agent events. */
@@ -655,6 +666,14 @@ export class Agent {
                 checkpointEveryTurns: 6,
                 durablePromotionThreshold: 0.8,
                 crystallizeFromRepeatedPatternsOnly: true,
+              },
+              artifacts: {
+                cdnAllowlist: [
+                  'https://cdn.jsdelivr.net',
+                  'https://unpkg.com',
+                  'https://cdnjs.cloudflare.com',
+                ],
+                maxBytes: 1_048_576,
               },
             } satisfies OuroborosConfig)
       })()
