@@ -45,6 +45,15 @@ jobs:
         working-directory: packages/desktop
         run: xvfb-run --auto-servernum bun run test:e2e
 
+      - name: Upload Playwright test-results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: packages/desktop/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
   build:
     needs: verify
     runs-on: macos-latest

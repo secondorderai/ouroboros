@@ -33,9 +33,11 @@ const ARTIFACT_HTML_V1 = `<!DOCTYPE html><html><head><title>Hello</title></head>
 <button id="hit" type="button">Hit me</button>
 <p id="status">idle</p>
 <script>
-document.getElementById('hit').addEventListener('click', function () {
+var hit = document.getElementById('hit')
+hit.addEventListener('click', function () {
   document.getElementById('status').textContent = 'clicked'
 })
+hit.dataset.ready = 'true'
 </script>
 </body></html>`
 const ARTIFACT_HTML_V2 =
@@ -129,6 +131,10 @@ test('artifact panel renders sandboxed iframe and supports versioning + open ext
   // re-inherits into the iframe, inline scripts will be blocked and this
   // assertion fails before any user notices the breakage.
   await expect(inner.locator('#status')).toHaveText('idle')
+  // Wait for the inline script to register its click handler before clicking
+  // — if we click before the listener is attached, the click does nothing
+  // and the assertion below never resolves.
+  await expect(inner.locator('#hit[data-ready="true"]')).toBeAttached()
   await inner.getByRole('button', { name: 'Hit me' }).click()
   await expect(inner.locator('#status')).toHaveText('clicked')
 

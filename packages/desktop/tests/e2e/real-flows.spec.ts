@@ -148,6 +148,9 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
   await expect(launched.page.getByText('/tmp/ouroboros-workspace')).toBeVisible()
 
   await launched.page.getByLabel('Message input').fill('Summarize the repo')
+  // Wait for React to enable Send so the Enter keydown hits the handler
+  // bound to the latest text — slow CI runners drop the send otherwise.
+  await expect(launched.page.getByRole('button', { name: 'Send message' })).toBeEnabled()
   await launched.page.getByLabel('Message input').press('Enter')
 
   await expect(launched.page.getByText('Inspecting the repository…')).toBeVisible()
@@ -195,6 +198,7 @@ test('cancel flow preserves partial text and lets the user recover', async ({}, 
 
   await completeOnboarding(launched.page)
   await launched.page.getByLabel('Message input').fill('Run a long task')
+  await expect(launched.page.getByRole('button', { name: 'Send message' })).toBeEnabled()
   await launched.page.getByLabel('Message input').press('Enter')
 
   await expect(launched.page.getByText('Gathering context')).toBeVisible()
@@ -421,6 +425,7 @@ test('desktop surfaces RSI compaction activity and preserves long-session contin
   await launched.page
     .getByLabel('Message input')
     .fill('Keep going even if the context gets compacted')
+  await expect(launched.page.getByRole('button', { name: 'Send message' })).toBeEnabled()
   await launched.page.getByLabel('Message input').press('Enter')
 
   await expect(launched.page.getByText('Working through a long session…')).toBeVisible()
