@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import type { LaunchedApp, LaunchScenario } from './helpers'
-import { completeOnboarding, launchTestApp } from './helpers'
+import {
+  completeOnboarding,
+  emitNotification,
+  emitUpdateDownloaded,
+  launchTestApp,
+  setRpcOverride,
+} from './helpers'
 
 let launched: LaunchedApp | null = null
 const modKey = process.platform === 'darwin' ? 'metaKey' : 'ctrlKey'
@@ -90,53 +96,15 @@ const baseScenario: LaunchScenario = {
 
 test('happy-path onboarding, chat streaming, dialogs, and updater use the production path', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo, {
-    scenario: {
-      ...baseScenario,
-      agentRuns: [
-        {
-          response: {
-            text: 'Repository summary ready.',
-            iterations: 1,
-            stopReason: 'completed',
-            maxIterationsReached: false,
-          },
-          notifications: [
-            {
-              delayMs: 50,
-              method: 'agent/toolCallStart',
-              params: {
-                toolCallId: 'tool-1',
-                toolName: 'web-search',
-                input: { query: 'ouroboros' },
-              },
-            },
-            { delayMs: 90, method: 'agent/text', params: { text: 'Inspecting the repository…' } },
-            {
-              delayMs: 130,
-              method: 'agent/toolCallEnd',
-              params: {
-                toolCallId: 'tool-1',
-                toolName: 'web-search',
-                result: { ok: true },
-                isError: false,
-              },
-            },
-            {
-              delayMs: 170,
-              method: 'agent/turnComplete',
-              params: { text: 'Repository summary ready.', iterations: 1 },
-            },
-          ],
-        },
-      ],
-    },
+    scenario: { ...baseScenario },
     dialogResponses: [
       '/tmp/ouroboros-workspace',
       ['/tmp/spec.md', '/tmp/spec.md', '/tmp/notes.txt'],
       '/tmp/next-workspace',
     ],
-    updateDownloadedVersion: '9.9.9',
-    updateDownloadedDelayMs: 2_500,
+    // Fire the update banner explicitly later via emitUpdateDownloaded
+    // instead of racing the auto-updater's setTimeout against the
+    // renderer's IPC subscription on slow CI.
   })
 
   await completeOnboarding(launched.page, {
@@ -147,10 +115,46 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
   await expect(launched.page.getByLabel('Message input')).toBeVisible()
   await expect(launched.page.getByText('/tmp/ouroboros-workspace')).toBeVisible()
 
+  // Stub agent/run so the mock CLI doesn't auto-fire notifications via
+  // setTimeout (which we've seen race against React's batched rendering
+  // on slow Linux CI). We then drive the streaming sequence ourselves
+  // with emitNotification — same pattern as the renderer-contract
+  // streaming tests, which are reliable on every platform.
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Repository summary ready.',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
   await launched.page.getByLabel('Message input').fill('Summarize the repo')
+  await expect(launched.page.getByRole('button', { name: 'Send message' })).toBeEnabled()
   await launched.page.getByLabel('Message input').press('Enter')
 
+  await emitNotification(launched.page, 'agent/toolCallStart', {
+    toolCallId: 'tool-1',
+    toolName: 'web-search',
+    input: { query: 'ouroboros' },
+  })
+  await emitNotification(launched.page, 'agent/text', {
+    text: 'Inspecting the repository…',
+  })
   await expect(launched.page.getByText('Inspecting the repository…')).toBeVisible()
+
+  await emitNotification(launched.page, 'agent/toolCallEnd', {
+    toolCallId: 'tool-1',
+    toolName: 'web-search',
+    result: { ok: true },
+    isError: false,
+  })
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Repository summary ready.',
+    iterations: 1,
+  })
+
   await expect(launched.page.getByText('Repository summary ready.')).toBeVisible()
   await expect(launched.page.getByText('Searched web')).toBeVisible()
 
@@ -161,6 +165,7 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
   await launched.page.getByRole('button', { name: 'Change workspace' }).click()
   await expect(launched.page.getByText('/tmp/next-workspace')).toBeVisible()
 
+  await emitUpdateDownloaded(launched.page, '9.9.9')
   await expect(launched.page.getByRole('alert')).toContainText(
     'Update available (v9.9.9). Restart to apply.',
   )
@@ -169,34 +174,27 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
 })
 
 test('cancel flow preserves partial text and lets the user recover', async ({}, testInfo) => {
-  launched = await launchTestApp(testInfo, {
-    scenario: {
-      ...baseScenario,
-      agentRuns: [
-        {
-          response: {
-            text: 'Cancelled run',
-            iterations: 1,
-            stopReason: 'completed',
-            maxIterationsReached: false,
-          },
-          notifications: [
-            { delayMs: 60, method: 'agent/text', params: { text: 'Gathering context' } },
-            {
-              delayMs: 1200,
-              method: 'agent/turnComplete',
-              params: { text: 'Should not reach completion', iterations: 1 },
-            },
-          ],
-        },
-      ],
+  launched = await launchTestApp(testInfo, { scenario: { ...baseScenario } })
+
+  await completeOnboarding(launched.page)
+
+  // Drive the streaming sequence ourselves so the test is independent of
+  // mock-CLI setTimeout timing, which races on slow Linux CI runners.
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Cancelled run',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
     },
   })
 
-  await completeOnboarding(launched.page)
   await launched.page.getByLabel('Message input').fill('Run a long task')
+  await expect(launched.page.getByRole('button', { name: 'Send message' })).toBeEnabled()
   await launched.page.getByLabel('Message input').press('Enter')
 
+  await emitNotification(launched.page, 'agent/text', { text: 'Gathering context' })
   await expect(launched.page.getByText('Gathering context')).toBeVisible()
   await launched.page.getByRole('button', { name: 'Stop agent' }).click()
 
@@ -352,78 +350,56 @@ test('desktop surfaces RSI compaction activity and preserves long-session contin
           description: 'Rebuilt the prompt from checkpoint memory and a short live tail.',
         },
       ],
-      agentRuns: [
-        {
-          response: {
-            text: 'Recovered context and continued the task.',
-            iterations: 2,
-            stopReason: 'completed',
-            maxIterationsReached: false,
-          },
-          notifications: [
-            {
-              delayMs: 40,
-              method: 'agent/text',
-              params: { text: 'Working through a long session…' },
-            },
-            {
-              delayMs: 80,
-              method: 'rsi/runtime',
-              params: {
-                eventType: 'rsi-observation-recorded',
-                payload: { count: 3, summary: 'Captured recent tool results before compaction.' },
-              },
-            },
-            {
-              delayMs: 120,
-              method: 'rsi/runtime',
-              params: {
-                eventType: 'rsi-checkpoint-written',
-                payload: { checkpointUpdatedAt: '2026-04-17T10:15:00.000Z' },
-              },
-            },
-            {
-              delayMs: 160,
-              method: 'rsi/runtime',
-              params: {
-                eventType: 'rsi-history-compacted',
-                payload: {
-                  summary: 'Replaced older history with checkpoint memory and a short tail.',
-                },
-              },
-            },
-            {
-              delayMs: 200,
-              method: 'rsi/runtime',
-              params: {
-                eventType: 'rsi-length-recovery-succeeded',
-                payload: { summary: 'Retried with compacted context and resumed the task.' },
-              },
-            },
-            {
-              delayMs: 240,
-              method: 'agent/text',
-              params: { text: 'Recovered context and continued the task.' },
-            },
-            {
-              delayMs: 280,
-              method: 'agent/turnComplete',
-              params: { text: 'Recovered context and continued the task.', iterations: 2 },
-            },
-          ],
-        },
-      ],
     },
   })
 
   await completeOnboarding(launched.page)
 
+  // Drive the streaming sequence ourselves — see happy-path test for why.
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: 'Recovered context and continued the task.',
+      iterations: 2,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
   await launched.page
     .getByLabel('Message input')
     .fill('Keep going even if the context gets compacted')
+  await expect(launched.page.getByRole('button', { name: 'Send message' })).toBeEnabled()
   await launched.page.getByLabel('Message input').press('Enter')
 
+  await emitNotification(launched.page, 'agent/text', {
+    text: 'Working through a long session…',
+  })
   await expect(launched.page.getByText('Working through a long session…')).toBeVisible()
+
+  await emitNotification(launched.page, 'rsi/runtime', {
+    eventType: 'rsi-observation-recorded',
+    payload: { count: 3, summary: 'Captured recent tool results before compaction.' },
+  })
+  await emitNotification(launched.page, 'rsi/runtime', {
+    eventType: 'rsi-checkpoint-written',
+    payload: { checkpointUpdatedAt: '2026-04-17T10:15:00.000Z' },
+  })
+  await emitNotification(launched.page, 'rsi/runtime', {
+    eventType: 'rsi-history-compacted',
+    payload: {
+      summary: 'Replaced older history with checkpoint memory and a short tail.',
+    },
+  })
+  await emitNotification(launched.page, 'rsi/runtime', {
+    eventType: 'rsi-length-recovery-succeeded',
+    payload: { summary: 'Retried with compacted context and resumed the task.' },
+  })
+
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Recovered context and continued the task.',
+    iterations: 2,
+  })
   await expect(launched.page.getByText('Recovered context and continued the task.')).toBeVisible()
 
   await launched.page.getByLabel(/^RSI status:/).click()

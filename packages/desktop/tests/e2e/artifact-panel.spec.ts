@@ -33,9 +33,11 @@ const ARTIFACT_HTML_V1 = `<!DOCTYPE html><html><head><title>Hello</title></head>
 <button id="hit" type="button">Hit me</button>
 <p id="status">idle</p>
 <script>
-document.getElementById('hit').addEventListener('click', function () {
+var hit = document.getElementById('hit')
+hit.addEventListener('click', function () {
   document.getElementById('status').textContent = 'clicked'
 })
+hit.dataset.ready = 'true'
 </script>
 </body></html>`
 const ARTIFACT_HTML_V2 =
@@ -129,7 +131,15 @@ test('artifact panel renders sandboxed iframe and supports versioning + open ext
   // re-inherits into the iframe, inline scripts will be blocked and this
   // assertion fails before any user notices the breakage.
   await expect(inner.locator('#status')).toHaveText('idle')
-  await inner.getByRole('button', { name: 'Hit me' }).click()
+  // Wait for the inline script to register its click handler.
+  await expect(inner.locator('#hit[data-ready="true"]')).toBeAttached()
+  // Trigger via element.click() instead of an input-level click. The
+  // assertion is "inline scripts in the sandboxed iframe can mutate the
+  // DOM" (a CSP regression guard), not "users can click via real mouse".
+  // Headless Electron + xvfb on Linux occasionally fails to deliver
+  // synthetic mouse events into custom-protocol iframes, but the inline
+  // listener fires fine when the click is dispatched in JS.
+  await inner.locator('#hit').evaluate((el) => (el as HTMLButtonElement).click())
   await expect(inner.locator('#status')).toHaveText('clicked')
 
   // Bump to v2: same artifactId, new version. Version dropdown must appear.

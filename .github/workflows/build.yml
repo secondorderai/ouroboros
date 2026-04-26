@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -37,9 +37,22 @@ jobs:
         working-directory: packages/desktop
         run: bash scripts/build-cli.sh
 
+      - name: Build desktop bundles (for E2E)
+        working-directory: packages/desktop
+        run: bun run build:vite
+
       - name: Desktop E2E (Playwright + Electron)
         working-directory: packages/desktop
         run: xvfb-run --auto-servernum bun run test:e2e
+
+      - name: Upload Playwright test-results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: packages/desktop/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   build:
     needs: verify
@@ -47,7 +60,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -68,7 +81,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-macos
           path: packages/desktop/release/*

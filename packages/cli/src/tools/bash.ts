@@ -57,7 +57,20 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
       cwd: cwd ?? process.cwd(),
       env: filteredEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
     })
+
+    // SIGKILL on the shell alone leaves orphaned grandchildren holding the
+    // stdio pipes open, so 'close' never fires. detached + negative pid
+    // signals the whole process group.
+    const killGroup = (signal: NodeJS.Signals) => {
+      if (child.pid === undefined) return
+      try {
+        process.kill(-child.pid, signal)
+      } catch {
+        // Process group already gone — nothing to do.
+      }
+    }
 
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString()
@@ -68,12 +81,12 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
 
     const timer = setTimeout(() => {
       killed = true
-      child.kill('SIGKILL')
+      killGroup('SIGKILL')
     }, timeoutMs)
 
     const onAbort = () => {
       aborted = true
-      child.kill('SIGKILL')
+      killGroup('SIGKILL')
     }
     context?.abortSignal?.addEventListener('abort', onAbort, { once: true })
 
