@@ -514,7 +514,7 @@ describe('streamResponse', () => {
     })
   })
 
-  test('passes anthropic thinking provider options and forces temperature=1', async () => {
+  test('passes anthropic adaptive thinking + effort and forces temperature=1', async () => {
     let capturedOptions: Record<string, unknown> | undefined
 
     const model = {
@@ -540,7 +540,7 @@ describe('streamResponse', () => {
     } as unknown as LanguageModel
 
     const result = streamResponse(model, testMessages, {
-      thinkingBudgetTokens: 8192,
+      reasoningEffort: 'medium',
       temperature: 0.2, // should be overridden to 1
     })
     expect(result.ok).toBe(true)
@@ -548,7 +548,7 @@ describe('streamResponse', () => {
     for await (const _ of result.value.stream) void _
 
     expect(capturedOptions?.providerOptions).toEqual({
-      anthropic: { thinking: { type: 'enabled', budgetTokens: 8192 } },
+      anthropic: { thinking: { type: 'adaptive' }, effort: 'medium' },
     })
     expect(capturedOptions?.temperature).toBe(1)
   })
@@ -862,7 +862,7 @@ describe('generateResponse', () => {
     })
   })
 
-  test('passes anthropic thinking and forces temperature=1 in non-streaming path', async () => {
+  test('passes anthropic adaptive thinking and forces temperature=1 in non-streaming path', async () => {
     let capturedOptions: Record<string, unknown> | undefined
 
     const model = {
@@ -893,12 +893,12 @@ describe('generateResponse', () => {
     } as unknown as LanguageModel
 
     const result = await generateResponse(model, [{ role: 'user', content: 'hello' }], {
-      thinkingBudgetTokens: 4096,
+      reasoningEffort: 'high',
       temperature: 0.5,
     })
     expect(result.ok).toBe(true)
     expect(capturedOptions?.providerOptions).toEqual({
-      anthropic: { thinking: { type: 'enabled', budgetTokens: 4096 } },
+      anthropic: { thinking: { type: 'adaptive' }, effort: 'high' },
     })
     expect(capturedOptions?.temperature).toBe(1)
   })

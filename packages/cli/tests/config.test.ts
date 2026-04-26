@@ -456,55 +456,27 @@ describe('loadConfig', () => {
     expect(result.error.message).toContain('model.provider')
   })
 
-  test('defaults model.thinkingBudgetTokens and model.reasoningEffort to undefined', () => {
+  test('defaults model.reasoningEffort to undefined', () => {
     writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify({}))
 
     const result = loadConfig(tempDir)
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.model.thinkingBudgetTokens).toBeUndefined()
     expect(result.value.model.reasoningEffort).toBeUndefined()
   })
 
-  test('accepts valid thinkingBudgetTokens and reasoningEffort from .ouroboros', () => {
-    writeFileSync(
-      join(tempDir, '.ouroboros'),
-      JSON.stringify({
-        model: { thinkingBudgetTokens: 8192, reasoningEffort: 'high' },
-      }),
-    )
-
-    const result = loadConfig(tempDir)
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.value.model.thinkingBudgetTokens).toBe(8192)
-    expect(result.value.model.reasoningEffort).toBe('high')
-  })
-
-  test('rejects non-positive thinkingBudgetTokens', () => {
-    writeFileSync(
-      join(tempDir, '.ouroboros'),
-      JSON.stringify({ model: { thinkingBudgetTokens: 0 } }),
-    )
-
-    const result = loadConfig(tempDir)
-
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.error.message).toContain('Invalid .ouroboros configuration')
-  })
-
-  test('rejects non-integer thinkingBudgetTokens', () => {
-    writeFileSync(
-      join(tempDir, '.ouroboros'),
-      JSON.stringify({ model: { thinkingBudgetTokens: 1.5 } }),
-    )
-
-    const result = loadConfig(tempDir)
-
-    expect(result.ok).toBe(false)
+  test('accepts every valid reasoningEffort level (minimal/low/medium/high/max)', () => {
+    for (const effort of ['minimal', 'low', 'medium', 'high', 'max'] as const) {
+      writeFileSync(
+        join(tempDir, '.ouroboros'),
+        JSON.stringify({ model: { reasoningEffort: effort } }),
+      )
+      const result = loadConfig(tempDir)
+      expect(result.ok).toBe(true)
+      if (!result.ok) continue
+      expect(result.value.model.reasoningEffort).toBe(effort)
+    }
   })
 
   test('rejects unknown reasoningEffort value', () => {
@@ -518,6 +490,20 @@ describe('loadConfig', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.message).toContain('Invalid .ouroboros configuration')
+  })
+
+  test('rejects deprecated thinkingBudgetTokens field (hard break)', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ model: { thinkingBudgetTokens: 4096 } }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('Invalid .ouroboros configuration')
+    expect(result.error.message).toContain('thinkingBudgetTokens')
   })
 
   test('rejects invalid novelty threshold (out of range)', () => {

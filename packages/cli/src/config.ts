@@ -176,7 +176,7 @@ const agentDefinitionSchema = z.object({
  */
 export const configSchema = z.object({
   model: z
-    .object({
+    .strictObject({
       provider: z
         .enum(['anthropic', 'openai', 'openai-compatible', 'openai-chatgpt'])
         .default('anthropic')
@@ -188,19 +188,11 @@ export const configSchema = z.object({
         .optional()
         .describe('API style to use for OpenAI-compatible endpoints'),
       apiKey: z.string().min(1).optional().describe('Fallback API key for the selected provider'),
-      thinkingBudgetTokens: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe(
-          'Anthropic extended-thinking budget in tokens. Ignored for non-Anthropic models.',
-        ),
       reasoningEffort: z
-        .enum(['minimal', 'low', 'medium', 'high'])
+        .enum(['minimal', 'low', 'medium', 'high', 'max'])
         .optional()
         .describe(
-          'OpenAI reasoning effort (minimal|low|medium|high). Ignored for non-OpenAI-reasoning models. "minimal" is GPT-5 only.',
+          'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on o-series and GPT-5. Silently ignored on unsupported models. "minimal" is OpenAI-only; "max" is Anthropic-only — clamped to the closest supported level.',
         ),
     })
     .default({ provider: 'anthropic' as const, name: 'claude-sonnet-4-20250514' }),

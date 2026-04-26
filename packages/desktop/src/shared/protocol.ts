@@ -718,10 +718,13 @@ export interface OuroborosConfig {
     provider: 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
     name: string
     baseUrl?: string
-    /** Anthropic extended-thinking budget in tokens. Ignored for non-Anthropic models. */
-    thinkingBudgetTokens?: number
-    /** OpenAI reasoning effort. Ignored for non-OpenAI-reasoning models. */
-    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
+    /**
+     * Reasoning effort. Maps to Anthropic adaptive thinking on Claude 4.6+ or
+     * to OpenAI reasoning_effort on o-series and GPT-5. Silently ignored on
+     * unsupported models. `minimal` is OpenAI-only; `max` is Anthropic-only —
+     * out-of-range values are clamped to the closest supported level.
+     */
+    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'max'
   }
   permissions: { tier0: boolean; tier1: boolean; tier2: boolean; tier3: boolean; tier4: boolean }
   skillDirectories: string[]

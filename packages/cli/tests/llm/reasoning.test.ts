@@ -7,135 +7,84 @@ function fakeModel(provider: string, modelId: string): LanguageModel {
 }
 
 describe('buildReasoningProviderOptions', () => {
-  test('no-op when both knobs undefined', () => {
+  test('no-op when reasoningEffort undefined', () => {
     const result = buildReasoningProviderOptions(
       fakeModel('anthropic.messages', 'claude-opus-4-7'),
-      undefined,
-      undefined,
       undefined,
     )
     expect(result.providerOptions).toBeUndefined()
     expect(result.forceTemperatureOne).toBe(false)
   })
 
-  test('no-op when model has no reasoning support, even if knobs are set', () => {
+  test('no-op when model has no reasoning support, even if effort is set', () => {
+    const result = buildReasoningProviderOptions(fakeModel('openai.chat', 'gpt-4o'), 'high')
+    expect(result.providerOptions).toBeUndefined()
+    expect(result.forceTemperatureOne).toBe(false)
+  })
+
+  test('no-op for older Claude models (pre-adaptive)', () => {
     const result = buildReasoningProviderOptions(
-      fakeModel('openai.chat', 'gpt-4o'),
-      8192,
+      fakeModel('anthropic.messages', 'claude-sonnet-4-5'),
       'high',
-      undefined,
     )
     expect(result.providerOptions).toBeUndefined()
     expect(result.forceTemperatureOne).toBe(false)
   })
 
-  test('Anthropic mapping: thinkingBudgetTokens passes through and forces temperature=1', () => {
+  test('Anthropic adaptive: medium passes through and forces temperature=1', () => {
     const result = buildReasoningProviderOptions(
       fakeModel('anthropic.messages', 'claude-opus-4-7'),
-      4096,
-      undefined,
-      undefined,
+      'medium',
     )
     expect(result.providerOptions).toEqual({
-      anthropic: { thinking: { type: 'enabled', budgetTokens: 4096 } },
+      anthropic: {
+        thinking: { type: 'adaptive' },
+        effort: 'medium',
+      },
     })
     expect(result.forceTemperatureOne).toBe(true)
   })
 
-  test('Anthropic clamp: budget >= maxOutputTokens clamps to max-1024', () => {
+  test('Anthropic adaptive: max passes through unchanged', () => {
     const result = buildReasoningProviderOptions(
-      fakeModel('anthropic.messages', 'claude-opus-4-7'),
-      16384,
-      undefined,
-      4096,
+      fakeModel('anthropic.messages', 'claude-sonnet-4-6'),
+      'max',
     )
     expect(result.providerOptions?.anthropic).toEqual({
-      thinking: { type: 'enabled', budgetTokens: 3072 },
+      thinking: { type: 'adaptive' },
+      effort: 'max',
     })
     expect(result.forceTemperatureOne).toBe(true)
   })
 
-  test('Anthropic floor: clamp falls back to 1024 minimum', () => {
+  test('Anthropic adaptive clamp: minimal becomes low', () => {
     const result = buildReasoningProviderOptions(
       fakeModel('anthropic.messages', 'claude-opus-4-7'),
-      16384,
-      undefined,
-      1500,
+      'minimal',
     )
     expect(result.providerOptions?.anthropic).toEqual({
-      thinking: { type: 'enabled', budgetTokens: 1024 },
+      thinking: { type: 'adaptive' },
+      effort: 'low',
     })
   })
 
-  test('Anthropic ignores non-positive or non-integer thinkingBudgetTokens', () => {
-    expect(
-      buildReasoningProviderOptions(
-        fakeModel('anthropic.messages', 'claude-opus-4-7'),
-        0,
-        undefined,
-        undefined,
-      ).providerOptions,
-    ).toBeUndefined()
-
-    expect(
-      buildReasoningProviderOptions(
-        fakeModel('anthropic.messages', 'claude-opus-4-7'),
-        -10,
-        undefined,
-        undefined,
-      ).providerOptions,
-    ).toBeUndefined()
-
-    expect(
-      buildReasoningProviderOptions(
-        fakeModel('anthropic.messages', 'claude-opus-4-7'),
-        4096.5,
-        undefined,
-        undefined,
-      ).providerOptions,
-    ).toBeUndefined()
-  })
-
-  test('OpenAI mapping: reasoningEffort passes through, no forced temperature', () => {
-    const result = buildReasoningProviderOptions(
-      fakeModel('openai.responses', 'o3'),
-      undefined,
-      'medium',
-      undefined,
-    )
+  test('OpenAI reasoning: medium passes through, no forced temperature', () => {
+    const result = buildReasoningProviderOptions(fakeModel('openai.responses', 'o3'), 'medium')
     expect(result.providerOptions).toEqual({ openai: { reasoningEffort: 'medium' } })
     expect(result.forceTemperatureOne).toBe(false)
   })
 
-  test('OpenAI mapping accepts minimal for gpt-5 family', () => {
+  test('OpenAI reasoning: minimal passes through for gpt-5 family', () => {
     const result = buildReasoningProviderOptions(
       fakeModel('openai.responses', 'gpt-5.4-medium'),
-      undefined,
       'minimal',
-      undefined,
     )
     expect(result.providerOptions).toEqual({ openai: { reasoningEffort: 'minimal' } })
   })
 
-  test('cross-knob: thinkingBudgetTokens on OpenAI reasoning model is ignored', () => {
-    const result = buildReasoningProviderOptions(
-      fakeModel('openai.responses', 'o3'),
-      8192,
-      undefined,
-      undefined,
-    )
-    expect(result.providerOptions).toBeUndefined()
-    expect(result.forceTemperatureOne).toBe(false)
-  })
-
-  test('cross-knob: reasoningEffort on Anthropic thinking model is ignored', () => {
-    const result = buildReasoningProviderOptions(
-      fakeModel('anthropic.messages', 'claude-opus-4-7'),
-      undefined,
-      'high',
-      undefined,
-    )
-    expect(result.providerOptions).toBeUndefined()
+  test('OpenAI reasoning clamp: max becomes high', () => {
+    const result = buildReasoningProviderOptions(fakeModel('openai.responses', 'o3'), 'max')
+    expect(result.providerOptions).toEqual({ openai: { reasoningEffort: 'high' } })
     expect(result.forceTemperatureOne).toBe(false)
   })
 })

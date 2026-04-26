@@ -14,10 +14,14 @@
 /**
  * Reasoning style supported by a model.
  *
- *  - `anthropic-thinking`: Anthropic extended thinking (`providerOptions.anthropic.thinking`).
- *  - `openai-reasoning`: OpenAI reasoning effort (`providerOptions.openai.reasoningEffort`).
+ *  - `anthropic-adaptive`: Anthropic adaptive thinking with effort parameter
+ *    (`providerOptions.anthropic = { thinking: { type: 'adaptive' }, effort }`).
+ *    Available on Opus 4.6+, Sonnet 4.6+. Replaces the deprecated
+ *    `thinking.type: 'enabled'` + `budget_tokens` shape.
+ *  - `openai-reasoning`: OpenAI reasoning effort
+ *    (`providerOptions.openai.reasoningEffort`).
  */
-export type ReasoningKind = 'anthropic-thinking' | 'openai-reasoning'
+export type ReasoningKind = 'anthropic-adaptive' | 'openai-reasoning'
 
 interface ModelCapability {
   /** Context window size in tokens. */
@@ -28,7 +32,7 @@ interface ModelCapability {
   reasoning?: { kind: ReasoningKind }
 }
 
-const ANTHROPIC_THINKING: { kind: ReasoningKind } = { kind: 'anthropic-thinking' }
+const ANTHROPIC_ADAPTIVE: { kind: ReasoningKind } = { kind: 'anthropic-adaptive' }
 const OPENAI_REASONING: { kind: ReasoningKind } = { kind: 'openai-reasoning' }
 
 const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
@@ -36,65 +40,35 @@ const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
   'claude-opus-4-7': {
     contextWindowTokens: 1_000_000,
     provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
+    reasoning: ANTHROPIC_ADAPTIVE,
   },
   'claude-opus-4-6': {
     contextWindowTokens: 1_000_000,
     provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
+    reasoning: ANTHROPIC_ADAPTIVE,
   },
   'claude-opus-4-6-thinking': {
     contextWindowTokens: 1_000_000,
     provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
+    reasoning: ANTHROPIC_ADAPTIVE,
   },
   'claude-sonnet-4-6': {
     contextWindowTokens: 1_000_000,
     provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
+    reasoning: ANTHROPIC_ADAPTIVE,
   },
 
   // ── Anthropic — 200K context (Opus 4.x, Sonnet 4.x, Haiku 4.x) ─────
-  'claude-opus-4-5': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
-  'claude-opus-4-1': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
-  'claude-opus-4': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
-  'claude-sonnet-4-5': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
-  'claude-sonnet-4': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
-  'claude-sonnet-4-20250514': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
-  'claude-haiku-4-5': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
-  'claude-haiku-4': {
-    contextWindowTokens: 200_000,
-    provider: 'anthropic',
-    reasoning: ANTHROPIC_THINKING,
-  },
+  // Pre-4.6 models only support the deprecated `thinking.type: 'enabled'` +
+  // `budget_tokens` shape, which we no longer wire up. Reasoning is a no-op.
+  'claude-opus-4-5': { contextWindowTokens: 200_000, provider: 'anthropic' },
+  'claude-opus-4-1': { contextWindowTokens: 200_000, provider: 'anthropic' },
+  'claude-opus-4': { contextWindowTokens: 200_000, provider: 'anthropic' },
+  'claude-sonnet-4-5': { contextWindowTokens: 200_000, provider: 'anthropic' },
+  'claude-sonnet-4': { contextWindowTokens: 200_000, provider: 'anthropic' },
+  'claude-sonnet-4-20250514': { contextWindowTokens: 200_000, provider: 'anthropic' },
+  'claude-haiku-4-5': { contextWindowTokens: 200_000, provider: 'anthropic' },
+  'claude-haiku-4': { contextWindowTokens: 200_000, provider: 'anthropic' },
 
   // ── Anthropic — legacy 200K (Claude 3 series) ──────────────────────
   'claude-3-5-sonnet-20241022': { contextWindowTokens: 200_000, provider: 'anthropic' },
@@ -332,7 +306,7 @@ export function getContextWindowTokens(modelName: string, _provider?: string): n
 /**
  * Look up reasoning support for a given model ID.
  *
- * Returns the reasoning kind (`anthropic-thinking` or `openai-reasoning`) the
+ * Returns the reasoning kind (`anthropic-adaptive` or `openai-reasoning`) the
  * model supports, or `null` if it does not support reasoning at all.
  *
  * @param modelName — The model identifier
