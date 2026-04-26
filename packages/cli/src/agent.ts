@@ -84,6 +84,22 @@ export type AgentEvent =
     }
   | { type: 'turn-complete'; text: string; iterations: number }
   | { type: 'error'; error: Error; recoverable: boolean }
+  | {
+      type: 'steer-injected'
+      steerId: string
+      iteration: number
+      text: string
+    }
+  | {
+      type: 'steer-orphaned'
+      reason: 'cancelled' | 'turn-completed'
+      steers: Array<{ id: string; text: string }>
+    }
+  | {
+      type: 'turn-aborted'
+      iterations: number
+      partialText: string
+    }
   | { type: 'mode-entered'; modeId: string; displayName: string; reason: string }
   | { type: 'mode-exited'; modeId: string; reason: string }
   | { type: 'plan-submitted'; plan: Plan }
@@ -228,7 +244,7 @@ export interface AgentRunResult {
 }
 
 export type AgentRunProfile = 'interactive' | 'desktop' | 'singleShot' | 'automation'
-export type AgentStopReason = 'completed' | 'max_steps' | 'error'
+export type AgentStopReason = 'completed' | 'max_steps' | 'error' | 'cancelled'
 
 export interface AgentRunOptions {
   responseStyle?: 'default' | 'desktop-readable'
@@ -236,7 +252,29 @@ export interface AgentRunOptions {
   runProfile?: AgentRunProfile
   images?: LLMFilePart[]
   activatedSkill?: SkillActivationResult
+  /**
+   * Aborts the in-flight run when fired. Threaded into the LLM stream and
+   * checked at iteration boundaries; tools that opt in via
+   * `ToolExecutionContext.abortSignal` can also bail mid-execution.
+   */
+  abortSignal?: AbortSignal
 }
+
+/**
+ * A user message enqueued mid-run via {@link Agent.enqueueSteer}. It is drained
+ * at the top of the next ReAct iteration and pushed to `conversationHistory`
+ * as a `role: 'user'` message.
+ */
+export interface PendingSteerInput {
+  /** Caller-supplied id used for idempotency. */
+  id: string
+  text: string
+  images?: LLMFilePart[]
+}
+
+export type EnqueueSteerResult =
+  | { accepted: true; duplicate?: boolean }
+  | { accepted: false; reason: 'no-active-run' }
 
 export type ContextBudgetThreshold = 'within-budget' | 'warn' | 'flush' | 'compact'
 
@@ -563,6 +601,13 @@ export class Agent {
   /** History length at which the checkpoint was last refreshed by the context manager. */
   private checkpointedHistoryLength = 0
 
+  /** Steer messages typed by the user mid-run; drained at the top of each ReAct iteration. */
+  private pendingSteer: PendingSteerInput[] = []
+  /** Idempotency set so repeated `enqueueSteer` calls with the same id are no-ops. */
+  private seenSteerRequestIds: Set<string> = new Set()
+  /** True between the start and end of {@link Agent.run}. */
+  private isCurrentlyRunning = false
+
   constructor(options: AgentOptions) {
     this.model = options.model
     this.toolRegistry = options.toolRegistry
@@ -679,30 +724,137 @@ export class Agent {
     let finalText = ''
     let lengthRecoveryAttempted = false
 
-    while (iterations < maxSteps) {
-      iterations++
+    this.isCurrentlyRunning = true
+    try {
+      while (iterations < maxSteps) {
+        iterations++
 
-      // Build system prompt with current state, observing/compacting if needed first.
-      const context = this.prepareContextForCall(options)
-      const systemPrompt = context.systemPrompt
-      this.emitContextUsage(context.usage)
+        // Cancellation check at the top of each iteration. This is the only
+        // place an in-flight run is interrupted between LLM/tool steps; tools
+        // that respect ToolExecutionContext.abortSignal can also bail mid-call.
+        if (options.abortSignal?.aborted) {
+          const completedIterations = iterations - 1
+          this.emitEvent({
+            type: 'turn-aborted',
+            iterations: completedIterations,
+            partialText: finalText,
+          })
+          this.flushPendingSteersAsOrphans('cancelled')
+          return {
+            text: finalText,
+            iterations: completedIterations,
+            stopReason: 'cancelled',
+            maxIterationsReached: false,
+          }
+        }
 
-      // Build tool definitions for the LLM
-      const toolDefs = this.buildToolDefinitions()
+        // Drain any steer messages enqueued via enqueueSteer() during the
+        // previous iteration's LLM stream / tool execution. They become
+        // user-role turns in conversationHistory before the next LLM call.
+        this.drainPendingSteers(iterations)
 
-      // Stream the LLM response
-      const streamResult = streamResponse(this.model, this.conversationHistory, {
-        system: systemPrompt,
-        tools: Object.keys(toolDefs).length > 0 ? toolDefs : undefined,
-      })
+        // Build system prompt with current state, observing/compacting if needed first.
+        const context = this.prepareContextForCall(options)
+        const systemPrompt = context.systemPrompt
+        this.emitContextUsage(context.usage)
 
-      if (!streamResult.ok) {
-        // Setup error — retry only transient failures.
-        const error = streamResult.error
-        const recoverable = isRecoverableLLMError(error)
-        this.emitEvent({ type: 'error', error, recoverable })
+        // Build tool definitions for the LLM
+        const toolDefs = this.buildToolDefinitions()
 
-        if (!recoverable) {
+        // Stream the LLM response
+        const streamResult = streamResponse(this.model, this.conversationHistory, {
+          system: systemPrompt,
+          tools: Object.keys(toolDefs).length > 0 ? toolDefs : undefined,
+          abortSignal: options.abortSignal,
+        })
+
+        if (!streamResult.ok) {
+          // Setup error — retry only transient failures.
+          const error = streamResult.error
+          const recoverable = isRecoverableLLMError(error)
+          this.emitEvent({ type: 'error', error, recoverable })
+
+          if (!recoverable) {
+            return {
+              text: finalText,
+              iterations,
+              stopReason: 'error',
+              maxIterationsReached: false,
+            }
+          }
+
+          this.conversationHistory.push({
+            role: 'user',
+            content: `[System: LLM call failed: ${error.message}. Please try again or adjust your approach.]`,
+          })
+          continue
+        }
+
+        // Process the stream
+        const turnResult = await this.processStream(streamResult.value.stream)
+
+        if (turnResult.error) {
+          // Stream error — retry only transient failures.
+          const recoverable = isRecoverableLLMError(turnResult.error)
+          this.emitEvent({ type: 'error', error: turnResult.error, recoverable })
+
+          if (!recoverable) {
+            return {
+              text: turnResult.text,
+              iterations,
+              stopReason: 'error',
+              maxIterationsReached: false,
+            }
+          }
+
+          this.conversationHistory.push({
+            role: 'user',
+            content: `[System: LLM streaming error: ${turnResult.error.message}. Please try again or adjust your approach.]`,
+          })
+          continue
+        }
+
+        if (turnResult.finishReason === 'length') {
+          if (!lengthRecoveryAttempted) {
+            lengthRecoveryAttempted = true
+            this.performEmergencyRecovery(turnResult.text)
+            continue
+          }
+
+          const error = new Error(
+            'LLM output reached the context window limit after one recovery attempt',
+          )
+          if (this.sessionId) {
+            this.logAndEmitRSIEvent(
+              {
+                type: 'rsi-length-recovery-failed',
+                sessionId: this.sessionId,
+                partialResponseLength: turnResult.text.length,
+                metrics: {
+                  repeatedWorkDetected: false,
+                },
+              },
+              {
+                type: 'length-recovery-failed',
+                summary: `Length recovery failed for ${this.sessionId}`,
+                details: {
+                  sessionId: this.sessionId,
+                  partialResponseLength: turnResult.text.length,
+                  repeatedWorkDetected: false,
+                },
+                motivation:
+                  'The model exhausted the context window again after one recovery attempt.',
+              },
+            )
+          }
+          this.emitEvent({ type: 'error', error, recoverable: false })
+          finalText = turnResult.text
+          this.emitEvent({
+            type: 'turn-complete',
+            text: finalText,
+            iterations,
+          })
+
           return {
             text: finalText,
             iterations,
@@ -711,181 +863,181 @@ export class Agent {
           }
         }
 
-        this.conversationHistory.push({
-          role: 'user',
-          content: `[System: LLM call failed: ${error.message}. Please try again or adjust your approach.]`,
-        })
-        continue
-      }
+        // Accumulate text from the assistant
+        const assistantText = turnResult.text
+        const toolCalls = turnResult.toolCalls
 
-      // Process the stream
-      const turnResult = await this.processStream(streamResult.value.stream)
-
-      if (turnResult.error) {
-        // Stream error — retry only transient failures.
-        const recoverable = isRecoverableLLMError(turnResult.error)
-        this.emitEvent({ type: 'error', error: turnResult.error, recoverable })
-
-        if (!recoverable) {
-          return {
-            text: turnResult.text,
-            iterations,
-            stopReason: 'error',
-            maxIterationsReached: false,
-          }
-        }
-
-        this.conversationHistory.push({
-          role: 'user',
-          content: `[System: LLM streaming error: ${turnResult.error.message}. Please try again or adjust your approach.]`,
-        })
-        continue
-      }
-
-      if (turnResult.finishReason === 'length') {
-        if (!lengthRecoveryAttempted) {
-          lengthRecoveryAttempted = true
-          this.performEmergencyRecovery(turnResult.text)
-          continue
-        }
-
-        const error = new Error(
-          'LLM output reached the context window limit after one recovery attempt',
-        )
-        if (this.sessionId) {
+        if (lengthRecoveryAttempted && this.sessionId) {
           this.logAndEmitRSIEvent(
             {
-              type: 'rsi-length-recovery-failed',
+              type: 'rsi-length-recovery-succeeded',
               sessionId: this.sessionId,
-              partialResponseLength: turnResult.text.length,
+              partialResponseLength: assistantText.length,
               metrics: {
                 repeatedWorkDetected: false,
               },
             },
             {
-              type: 'length-recovery-failed',
-              summary: `Length recovery failed for ${this.sessionId}`,
+              type: 'length-recovery-succeeded',
+              summary: `Length recovery succeeded for ${this.sessionId}`,
               details: {
                 sessionId: this.sessionId,
-                partialResponseLength: turnResult.text.length,
+                partialResponseLength: assistantText.length,
                 repeatedWorkDetected: false,
               },
               motivation:
-                'The model exhausted the context window again after one recovery attempt.',
+                'The agent resumed successfully after rebuilding context from checkpoint state.',
             },
           )
         }
-        this.emitEvent({ type: 'error', error, recoverable: false })
-        finalText = turnResult.text
+
+        lengthRecoveryAttempted = false
+
+        if (toolCalls.length > 0) {
+          // Assistant message with tool calls
+          this.conversationHistory.push({
+            role: 'assistant',
+            content: assistantText,
+            toolCalls,
+          })
+
+          // Execute tool calls (in parallel where possible). The abortSignal is
+          // forwarded to each tool via ToolExecutionContext so opt-in tools
+          // (bash, web-fetch, spawn-agent) can short-circuit on cancel.
+          const toolResults = await this.executeToolCalls(toolCalls, options.abortSignal)
+
+          // Inject tool results into conversation
+          this.conversationHistory.push({
+            role: 'tool',
+            content: toolResults,
+          })
+
+          // Loop — send updated conversation back to LLM
+          continue
+        }
+
+        // No tool calls — turn is complete
+        if (assistantText) {
+          this.conversationHistory.push({
+            role: 'assistant',
+            content: assistantText,
+          })
+        }
+
+        finalText = assistantText
+        this.emitContextUsage(this.appendAssistantTextToUsage(context.usage, assistantText))
+
+        // A steer that arrived while the LLM was streaming the final answer has
+        // no safe injection seam — surface it as orphaned so the desktop can
+        // offer to resend it as a new message.
+        this.flushPendingSteersAsOrphans('turn-completed')
+
         this.emitEvent({
           type: 'turn-complete',
           text: finalText,
           iterations,
         })
 
+        // Post-task RSI reflection (non-blocking, error-isolated)
+        if (this.rsiOrchestrator) {
+          this.runRSIPostTask(finalText).catch(() => {
+            // Swallowed — RSI errors must never propagate to the caller.
+          })
+        }
+
         return {
           text: finalText,
           iterations,
-          stopReason: 'error',
+          stopReason: 'completed',
           maxIterationsReached: false,
         }
       }
 
-      // Accumulate text from the assistant
-      const assistantText = turnResult.text
-      const toolCalls = turnResult.toolCalls
-
-      if (lengthRecoveryAttempted && this.sessionId) {
-        this.logAndEmitRSIEvent(
-          {
-            type: 'rsi-length-recovery-succeeded',
-            sessionId: this.sessionId,
-            partialResponseLength: assistantText.length,
-            metrics: {
-              repeatedWorkDetected: false,
-            },
-          },
-          {
-            type: 'length-recovery-succeeded',
-            summary: `Length recovery succeeded for ${this.sessionId}`,
-            details: {
-              sessionId: this.sessionId,
-              partialResponseLength: assistantText.length,
-              repeatedWorkDetected: false,
-            },
-            motivation:
-              'The agent resumed successfully after rebuilding context from checkpoint state.',
-          },
-        )
-      }
-
-      lengthRecoveryAttempted = false
-
-      if (toolCalls.length > 0) {
-        // Assistant message with tool calls
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: assistantText,
-          toolCalls,
-        })
-
-        // Execute tool calls (in parallel where possible)
-        const toolResults = await this.executeToolCalls(toolCalls)
-
-        // Inject tool results into conversation
-        this.conversationHistory.push({
-          role: 'tool',
-          content: toolResults,
-        })
-
-        // Loop — send updated conversation back to LLM
-        continue
-      }
-
-      // No tool calls — turn is complete
-      if (assistantText) {
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: assistantText,
-        })
-      }
-
-      finalText = assistantText
-      this.emitContextUsage(this.appendAssistantTextToUsage(context.usage, assistantText))
-
+      this.flushPendingSteersAsOrphans('turn-completed')
+      const limitMessage = await this.summarizeAfterStepLimit(maxSteps, iterations, options)
       this.emitEvent({
         type: 'turn-complete',
-        text: finalText,
+        text: limitMessage,
         iterations,
       })
 
-      // Post-task RSI reflection (non-blocking, error-isolated)
-      if (this.rsiOrchestrator) {
-        this.runRSIPostTask(finalText).catch(() => {
-          // Swallowed — RSI errors must never propagate to the caller.
-        })
-      }
-
       return {
-        text: finalText,
+        text: limitMessage,
         iterations,
-        stopReason: 'completed',
-        maxIterationsReached: false,
+        stopReason: 'max_steps',
+        maxIterationsReached: true,
       }
+    } finally {
+      // Safety net: any error / non-recoverable early-return path that didn't
+      // explicitly orphan its pending steers does so here.
+      this.flushPendingSteersAsOrphans('turn-completed')
+      this.isCurrentlyRunning = false
     }
+  }
 
-    const limitMessage = await this.summarizeAfterStepLimit(maxSteps, iterations, options)
+  /**
+   * Enqueue a user message to be injected into the in-flight run at the next
+   * safe seam (the top of the next ReAct iteration). Called by the JSON-RPC
+   * `agent/steer` handler when the user types while the agent is processing.
+   *
+   * Returns `{ accepted: false, reason: 'no-active-run' }` if no run is in
+   * flight, or `{ accepted: true, duplicate: true }` for a repeated id.
+   */
+  enqueueSteer(input: PendingSteerInput): EnqueueSteerResult {
+    if (!this.isCurrentlyRunning) {
+      return { accepted: false, reason: 'no-active-run' }
+    }
+    if (this.seenSteerRequestIds.has(input.id)) {
+      return { accepted: true, duplicate: true }
+    }
+    this.seenSteerRequestIds.add(input.id)
+    this.pendingSteer.push(input)
+    return { accepted: true }
+  }
+
+  /**
+   * True between the start and end of {@link Agent.run}. The JSON-RPC steer
+   * handler reads this to decide whether to accept or reject the steer.
+   */
+  isRunning(): boolean {
+    return this.isCurrentlyRunning
+  }
+
+  /**
+   * Drain any un-injected steers and emit a `steer-orphaned` event so the
+   * desktop can surface them as a "send as new message" prompt. Idempotent:
+   * a no-op when the queue is empty.
+   */
+  flushPendingSteersAsOrphans(reason: 'cancelled' | 'turn-completed'): PendingSteerInput[] {
+    if (this.pendingSteer.length === 0) return []
+    const drained = this.pendingSteer.splice(0)
     this.emitEvent({
-      type: 'turn-complete',
-      text: limitMessage,
-      iterations,
+      type: 'steer-orphaned',
+      reason,
+      steers: drained.map((steer) => ({ id: steer.id, text: steer.text })),
     })
+    return drained
+  }
 
-    return {
-      text: limitMessage,
-      iterations,
-      stopReason: 'max_steps',
-      maxIterationsReached: true,
+  /**
+   * Pop all queued steers and append each as a user-role message. Synchronous —
+   * no `await` between read and push so the JS event loop guarantees no race
+   * with concurrent `enqueueSteer` calls dispatched from the JSON-RPC handler.
+   */
+  private drainPendingSteers(iteration: number): void {
+    if (this.pendingSteer.length === 0) return
+    const drained = this.pendingSteer.splice(0)
+    for (const steer of drained) {
+      this.conversationHistory.push({
+        role: 'user',
+        content: createUserContent(steer.text, steer.images),
+      })
+      this.emitEvent({
+        type: 'steer-injected',
+        steerId: steer.id,
+        iteration,
+        text: steer.text,
+      })
     }
   }
 
@@ -1087,7 +1239,7 @@ export class Agent {
     ].join('\n')
   }
 
-  private buildToolExecutionContext(): ToolExecutionContext {
+  private buildToolExecutionContext(abortSignal?: AbortSignal): ToolExecutionContext {
     return {
       model: this.model,
       toolRegistry: this.toolRegistry,
@@ -1103,6 +1255,7 @@ export class Agent {
       skillCatalogProvider: this.skillCatalogProvider,
       activatedSkill: this.currentRunActivatedSkill,
       emitEvent: (event) => this.emitEvent(event),
+      abortSignal,
     }
   }
 
@@ -1635,9 +1788,15 @@ export class Agent {
 
   /**
    * Execute tool calls in parallel and return tool results.
+   *
+   * The abortSignal is passed through ToolExecutionContext so cancellation-
+   * aware tools (bash, web-fetch, spawn-agent) can short-circuit. Tools that
+   * ignore it run to completion; the loop check at the next iteration's top
+   * still aborts the agent loop in that case.
    */
   private async executeToolCalls(
     toolCalls: ToolCall[],
+    abortSignal?: AbortSignal,
   ): Promise<Array<{ toolCallId: string; toolName: string; result: unknown }>> {
     const results = await Promise.all(
       toolCalls.map(async (tc) => {
@@ -1690,7 +1849,7 @@ export class Agent {
         const execResult = await this.toolRegistry.executeTool(
           tc.toolName,
           tc.input,
-          this.buildToolExecutionContext(),
+          this.buildToolExecutionContext(abortSignal),
         )
 
         const isError = !execResult.ok

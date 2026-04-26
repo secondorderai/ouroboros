@@ -46,5 +46,9 @@ export function useStreamingBuffer(): string | null {
     };
   }, []);
 
-  return buffered;
+  // Short-circuit: when the store has cleared streamingText (turn-complete /
+  // cancel), hide the buffer immediately even though setBuffered(null) only
+  // applies on the next render. Otherwise the completed agent message and
+  // the streaming row briefly render the same final text twice.
+  return streamingText === null ? null : buffered;
 }

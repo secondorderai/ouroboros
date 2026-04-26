@@ -26,6 +26,12 @@ export interface ToolExecutionContext {
   /** Skill currently activated for the parent run. Spawned subagents may opt to inherit it. */
   activatedSkill?: SkillActivationResult
   emitEvent?: (event: AgentEvent) => void
+  /**
+   * Fires when the user cancels the in-flight agent run. Cancellation-aware
+   * tools (bash, web-fetch, spawn-agent) should listen and bail with a
+   * `Result.err` so the loop can return a `cancelled` stop reason promptly.
+   */
+  abortSignal?: AbortSignal
 }
 
 /**

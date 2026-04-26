@@ -503,6 +503,9 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
       clearScheduledAgentNotifications()
       writeResult(request.id, { cancelled: true })
       return
+    case 'agent/steer':
+      writeResult(request.id, { accepted: true, duplicate: false })
+      return
     default:
       writeResponse({
         jsonrpc: '2.0',

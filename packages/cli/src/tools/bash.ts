@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { spawn } from 'node:child_process'
 import { type Result, ok, err } from '@src/types'
 import type { TypedToolExecute } from './types'
+import type { ToolExecutionContext } from './types'
 
 export const name = 'bash'
 
@@ -32,9 +33,14 @@ export const SENSITIVE_ENV_KEYS = [
 
 export const execute: TypedToolExecute<typeof schema, BashResult> = async (
   args,
+  context?: ToolExecutionContext,
 ): Promise<Result<BashResult>> => {
   const { command, timeout, cwd } = args
   const timeoutMs = timeout * 1000
+
+  if (context?.abortSignal?.aborted) {
+    return err(new Error('Command cancelled by user before it could start'))
+  }
 
   const filteredEnv = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !SENSITIVE_ENV_KEYS.includes(key)),
@@ -44,6 +50,7 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
     let stdout = ''
     let stderr = ''
     let killed = false
+    let aborted = false
     let settled = false
 
     const child = spawn('sh', ['-c', command], {
@@ -64,10 +71,17 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
       child.kill('SIGKILL')
     }, timeoutMs)
 
+    const onAbort = () => {
+      aborted = true
+      child.kill('SIGKILL')
+    }
+    context?.abortSignal?.addEventListener('abort', onAbort, { once: true })
+
     child.on('error', (error) => {
       if (!settled) {
         settled = true
         clearTimeout(timer)
+        context?.abortSignal?.removeEventListener('abort', onAbort)
         resolve(err(new Error(`Failed to spawn command: ${error.message}`)))
       }
     })
@@ -76,7 +90,10 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
       if (!settled) {
         settled = true
         clearTimeout(timer)
-        if (killed) {
+        context?.abortSignal?.removeEventListener('abort', onAbort)
+        if (aborted) {
+          resolve(err(new Error('Command cancelled by user')))
+        } else if (killed) {
           resolve(err(new Error(`Command timed out after ${timeout}s and was killed`)))
         } else {
           resolve(ok({ stdout, stderr, exitCode: code ?? 1 }))

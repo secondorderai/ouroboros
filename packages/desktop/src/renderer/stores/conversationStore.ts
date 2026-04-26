@@ -10,6 +10,9 @@ import type {
   AgentToolCallEndParams,
   AgentTurnCompleteParams,
   AgentErrorParams,
+  AgentSteerInjectedNotification,
+  AgentSteerOrphanedNotification,
+  AgentTurnAbortedNotification,
   AgentSubagentStartedNotification,
   AgentSubagentUpdatedNotification,
   AgentSubagentCompletedNotification,
@@ -111,6 +114,22 @@ export interface ConversationState {
     skillName?: string,
   ) => void
 
+  /**
+   * Inject a "steer" message into the in-flight agent run. Only valid while
+   * `isAgentRunning === true`. The message is optimistically added to the
+   * transcript with `kind: 'steer'` and `steerStatus: 'pending'`, then sent
+   * over RPC; the status flips to `'injected'` (next iteration drained it),
+   * `'orphaned'` (run ended before injection), or back to a normal failure
+   * if the CLI rejects the steer.
+   */
+  steerCurrentRun: (text: string, images?: ImageAttachment[]) => void
+
+  /** Resend an orphaned steer as a brand-new user message + new agent run. */
+  resendOrphanedSteer: (steerRequestId: string) => void
+
+  /** Hide an orphaned steer banner without resending. */
+  dismissOrphanedSteer: (steerRequestId: string) => void
+
   /** Cancel the current agent run. */
   cancelRun: () => void
 
@@ -134,6 +153,15 @@ export interface ConversationState {
 
   /** Handle an incoming `agent/error` notification. */
   handleAgentError: (params: AgentErrorParams) => void
+
+  /** Handle an incoming `agent/steerInjected` notification. */
+  handleSteerInjected: (params: AgentSteerInjectedNotification) => void
+
+  /** Handle an incoming `agent/steerOrphaned` notification. */
+  handleSteerOrphaned: (params: AgentSteerOrphanedNotification) => void
+
+  /** Handle an incoming `agent/turnAborted` notification. */
+  handleTurnAborted: (params: AgentTurnAbortedNotification) => void
 
   /** Handle an incoming `agent/subagentStarted` notification. */
   handleSubagentStarted: (params: AgentSubagentStartedNotification) => void
@@ -1009,6 +1037,182 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     })
   },
 
+  steerCurrentRun(text: string, images?: ImageAttachment[]) {
+    const state = get()
+    if (!state.isAgentRunning) return
+    const trimmed = text.trim()
+    if (trimmed.length === 0) return
+
+    const requestId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `steer-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const id = makeId('steer', state.nextId)
+    const sentAt = new Date().toISOString()
+    const steerMessage: Message = {
+      id,
+      role: 'user',
+      text: trimmed,
+      timestamp: sentAt,
+      imageAttachments: images,
+      kind: 'steer',
+      steerStatus: 'pending',
+      steerRequestId: requestId,
+    }
+
+    const sessionId = state.activeRunSessionId
+
+    set({
+      messages: [...state.messages, steerMessage],
+      nextId: state.nextId + 1,
+    })
+
+    void (async () => {
+      const api = window.ouroboros
+      if (!api) return
+      try {
+        const result = (await api.rpc('agent/steer', {
+          message: trimmed,
+          requestId,
+          ...(sessionId ? { sessionId } : {}),
+          images: images?.map(stripImagePreviewData),
+        })) as { accepted: boolean; reason?: string; duplicate?: boolean }
+        if (!result?.accepted) {
+          // The CLI rejected the steer (no active run). Mark the bubble as
+          // orphaned so the user can resend it as a normal message.
+          set((s) => ({
+            messages: s.messages.map((m) =>
+              m.steerRequestId === requestId ? { ...m, steerStatus: 'orphaned' as const } : m,
+            ),
+          }))
+        }
+      } catch (err) {
+        console.error('agent/steer RPC failed:', err)
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.steerRequestId === requestId ? { ...m, steerStatus: 'orphaned' as const } : m,
+          ),
+        }))
+      }
+    })()
+  },
+
+  resendOrphanedSteer(steerRequestId: string) {
+    const state = get()
+    const orphan = state.messages.find(
+      (m) => m.steerRequestId === steerRequestId && m.steerStatus === 'orphaned',
+    )
+    if (!orphan) return
+    set((s) => ({
+      messages: s.messages.filter((m) => m.steerRequestId !== steerRequestId),
+    }))
+    get().sendMessage(orphan.text, orphan.files, orphan.imageAttachments)
+  },
+
+  dismissOrphanedSteer(steerRequestId: string) {
+    set((s) => ({
+      messages: s.messages.filter((m) => m.steerRequestId !== steerRequestId),
+    }))
+  },
+
+  handleSteerInjected(params: AgentSteerInjectedNotification) {
+    const state = get()
+    const runSessionId = resolveRunSessionId(params, state)
+    const updateMessages = (messages: Message[]): Message[] =>
+      messages.map((m) =>
+        m.steerRequestId === params.steerId && m.steerStatus !== 'orphaned'
+          ? { ...m, steerStatus: 'injected' as const }
+          : m,
+      )
+
+    if (!runSessionId) {
+      set({ messages: updateMessages(state.messages) })
+      return
+    }
+    set(
+      updateRunState(state, runSessionId, (snap) => ({
+        ...snap,
+        messages: updateMessages(snap.messages),
+      })),
+    )
+  },
+
+  handleSteerOrphaned(params: AgentSteerOrphanedNotification) {
+    const state = get()
+    const runSessionId = resolveRunSessionId(params, state)
+    const orphanIds = new Set(params.steers.map((s) => s.id))
+    if (orphanIds.size === 0) return
+
+    const updateMessages = (messages: Message[]): Message[] =>
+      messages.map((m) =>
+        m.steerRequestId && orphanIds.has(m.steerRequestId)
+          ? { ...m, steerStatus: 'orphaned' as const }
+          : m,
+      )
+
+    if (!runSessionId) {
+      set({ messages: updateMessages(state.messages) })
+      return
+    }
+    set(
+      updateRunState(state, runSessionId, (snap) => ({
+        ...snap,
+        messages: updateMessages(snap.messages),
+      })),
+    )
+  },
+
+  handleTurnAborted(params: AgentTurnAbortedNotification) {
+    const state = get()
+    const runSessionId = resolveRunSessionId(params, state)
+    const sessions = runSessionId
+      ? state.sessions.map((s) =>
+          s.id === runSessionId
+            ? { ...s, runStatus: 'idle' as const, activeToolName: undefined }
+            : s,
+        )
+      : state.sessions
+
+    if (!runSessionId) {
+      set({
+        sessions,
+        isAgentRunning: false,
+        activeRunSessionId: null,
+        streamingText: null,
+        activeToolCalls: new Map(),
+        pendingToolCalls: [],
+        pendingSubagentRuns: [],
+      })
+      return
+    }
+
+    // The aborted run owned `activeRunSessionId`; the flat run-state mirror
+    // tracks that run regardless of which session is currently viewed, so
+    // clear it eagerly here even if the user has switched away.
+    const ownedActiveRun = state.activeRunSessionId === runSessionId
+    set({
+      sessions,
+      ...updateRunState(state, runSessionId, (snap) => ({
+        ...snap,
+        isAgentRunning: false,
+        streamingText: null,
+        activeToolCalls: new Map(),
+        pendingToolCalls: [],
+        pendingSubagentRuns: [],
+      })),
+      ...(ownedActiveRun
+        ? {
+            activeRunSessionId: null,
+            isAgentRunning: false,
+            streamingText: null,
+            activeToolCalls: new Map(),
+            pendingToolCalls: [],
+            pendingSubagentRuns: [],
+          }
+        : {}),
+    })
+  },
+
   handleAgentText(params: AgentTextParams) {
     const state = get()
     const runSessionId = resolveRunSessionId(params, state)
@@ -1501,17 +1705,27 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     // / pending state is more recent. Otherwise build fresh from the CLI
     // payload so cold loads work.
     const existing = snapshots.get(id)
+    // When the CLI's persisted message list is longer than the local snapshot,
+    // a run for this session has completed and persisted in the background —
+    // any streamed/pending state from the existing snapshot is stale and must
+    // be dropped, otherwise the streaming row keeps rendering after the
+    // completed assistant message has already been finalized.
+    const cliRunCompleted = !!existing && messages.length > existing.messages.length
     const incoming: SessionRunSnapshot =
       existing && existing.messages.length >= messages.length
         ? existing
         : {
             messages,
-            streamingText: existing?.streamingText ?? null,
-            activeToolCalls: existing?.activeToolCalls ?? new Map(),
-            pendingToolCalls: existing?.pendingToolCalls ?? [],
-            pendingSubagentRuns: existing?.pendingSubagentRuns ?? [],
-            pendingActivatedSkills: existing?.pendingActivatedSkills ?? [],
-            isAgentRunning: state.activeRunSessionId === id,
+            streamingText: cliRunCompleted ? null : (existing?.streamingText ?? null),
+            activeToolCalls: cliRunCompleted
+              ? new Map()
+              : (existing?.activeToolCalls ?? new Map()),
+            pendingToolCalls: cliRunCompleted ? [] : (existing?.pendingToolCalls ?? []),
+            pendingSubagentRuns: cliRunCompleted ? [] : (existing?.pendingSubagentRuns ?? []),
+            pendingActivatedSkills: cliRunCompleted
+              ? []
+              : (existing?.pendingActivatedSkills ?? []),
+            isAgentRunning: cliRunCompleted ? false : state.activeRunSessionId === id,
             contextUsage: existing?.contextUsage ?? null,
             nextId: messages.length + 1,
           }

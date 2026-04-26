@@ -1016,6 +1016,142 @@ describe('JSON-RPC', () => {
       }
     })
 
+    test('agent/steer rejects with no-active-run when no run is in flight', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('agent/steer')!({
+        message: 'pivot',
+        requestId: 'req-1',
+      })) as { accepted: boolean; reason?: string }
+
+      expect(result.accepted).toBe(false)
+      expect(result.reason).toBe('no-active-run')
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/steer injects user message into in-flight run and emits agent/steerInjected', async () => {
+      const registry = new ToolRegistry()
+      let steerHandler: (params: Record<string, unknown>) => Promise<unknown>
+      let agentRef: Agent | null = null
+
+      // Tool fires once during turn 1 and uses the agent/steer JSON-RPC handler
+      // to inject a steer; turn 2 (the post-tool LLM call) must see it.
+      registry.register({
+        name: 'noop',
+        description: 'no-op',
+        schema: z.object({}),
+        execute: async () => {
+          // Capture the agent right before calling the steer handler so the
+          // handler resolves the same agent instance via getAgent().
+          if (steerHandler) {
+            const result = await steerHandler({
+              message: 'pivot to plan B',
+              requestId: 'req-mid',
+            })
+            expect(result).toMatchObject({ accepted: true })
+          }
+          return ok({ ok: true })
+        },
+      })
+
+      const model = createMockModel([
+        // Turn 1: tool call
+        [
+          { type: 'tool-input-start', id: 'call_1', toolName: 'noop' },
+          { type: 'tool-input-end', id: 'call_1' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call_1',
+            toolName: 'noop',
+            input: '{}',
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: {
+              inputTokens: {
+                total: 5,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 1, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        // Turn 2: final text after seeing the steer
+        [
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'okay, pivoted' },
+          { type: 'text-end', id: 'tx1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 5,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 1, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+
+      const ctx = createTestContext({ model, registry })
+      const handlers = createHandlers(ctx)
+      steerHandler = handlers.get('agent/steer')!
+      agentRef = ctx.getAgent()
+
+      // Pin a session so currentSessionId is set; the steer handler falls back to it.
+      const sessionResult = ctx.transcriptStore.createSession(null)
+      if (!sessionResult.ok) throw sessionResult.error
+      ctx.setCurrentSessionId(sessionResult.value)
+
+      const output = await captureStdout(async () => {
+        await handlers.get('agent/run')!({ message: 'go' })
+      })
+
+      const messages = parseNdjson(output)
+      const injected = messages.find(
+        (m) => (m as Record<string, unknown>).method === 'agent/steerInjected',
+      ) as Record<string, unknown> | undefined
+      expect(injected).toBeDefined()
+      expect((injected!.params as Record<string, unknown>).steerId).toBe('req-mid')
+
+      const userTurns = agentRef.getConversationHistory().filter((m) => m.role === 'user')
+      expect(userTurns).toHaveLength(2)
+      const steerContent = userTurns[1]!.content
+      const text =
+        typeof steerContent === 'string'
+          ? steerContent
+          : steerContent
+              .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+              .map((p) => p.text)
+              .join('')
+      expect(text).toBe('pivot to plan B')
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/steer rejects malformed params', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      await expect(handlers.get('agent/steer')!({ requestId: 'r' })).rejects.toBeInstanceOf(
+        HandlerError,
+      )
+      await expect(handlers.get('agent/steer')!({ message: 'hi' })).rejects.toBeInstanceOf(
+        HandlerError,
+      )
+
+      ctx.transcriptStore.close()
+    })
+
     test('agent/run remains backward compatible when response-style hints are omitted', async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const ctx = createTestContext({

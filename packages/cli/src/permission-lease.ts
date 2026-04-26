@@ -150,6 +150,7 @@ export function approvePermissionLease(
 function classifyPermissionLeaseRisk(lease: PermissionLease): PermissionLeaseApprovalRisk {
   if (
     lease.allowedTools.includes('bash') ||
+    lease.allowedTools.includes('code-exec') ||
     lease.allowedTools.some((tool) => tool.includes('write') || tool.includes('edit'))
   ) {
     return lease.allowedBash.length > 0 || lease.allowedPaths.length > 0 ? 'high' : 'medium'

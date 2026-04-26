@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { type Result, ok, err } from '@src/types'
-import type { TypedToolExecute } from './types'
+import type { TypedToolExecute, ToolExecutionContext } from './types'
 
 export const name = 'web-fetch'
 
@@ -81,20 +81,33 @@ export function htmlToMarkdown(html: string): string {
 
 export const execute: TypedToolExecute<typeof schema, WebFetchResult> = async (
   args,
+  context?: ToolExecutionContext,
 ): Promise<Result<WebFetchResult>> => {
   const { url, extractMarkdown } = args
+
+  if (context?.abortSignal?.aborted) {
+    return err(new Error('Fetch cancelled by user'))
+  }
 
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 30_000)
 
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Ouroboros/0.1 (AI Agent)',
-        Accept: 'text/html, application/json, text/plain, */*',
-      },
-    })
+    const onUserAbort = () => controller.abort()
+    context?.abortSignal?.addEventListener('abort', onUserAbort, { once: true })
+
+    let response: Response
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Ouroboros/0.1 (AI Agent)',
+          Accept: 'text/html, application/json, text/plain, */*',
+        },
+      })
+    } finally {
+      context?.abortSignal?.removeEventListener('abort', onUserAbort)
+    }
 
     clearTimeout(timeout)
 
@@ -138,6 +151,9 @@ export const execute: TypedToolExecute<typeof schema, WebFetchResult> = async (
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     if (message.includes('abort')) {
+      if (context?.abortSignal?.aborted) {
+        return err(new Error(`Fetch of "${url}" cancelled by user`))
+      }
       return err(new Error(`Request to "${url}" timed out after 30 s`))
     }
     return err(new Error(`Failed to fetch "${url}": ${message}`))

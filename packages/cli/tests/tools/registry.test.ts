@@ -36,6 +36,7 @@ describe('ToolRegistry', () => {
       'apply_worker_diff',
       'ask-user',
       'bash',
+      'code-exec',
       'create-artifact',
       'crystallize',
       'dream',
@@ -55,7 +56,7 @@ describe('ToolRegistry', () => {
       'web-fetch',
       'web-search',
     ])
-    expect(registry.size).toBe(21)
+    expect(registry.size).toBe(22)
   })
 
   test('getTools() returns metadata with name, description, and parameters', async () => {
@@ -132,7 +133,7 @@ describe('ToolRegistry', () => {
     expect(parent.getTool('file-write')).toBeDefined()
     expect(parent.getTool('file-edit')).toBeDefined()
     expect(parent.getTool('bash')).toBeDefined()
-    expect(parent.size).toBe(24)
+    expect(parent.size).toBe(25)
     expect(child.getTool('file-write')).toBeUndefined()
     expect(child.size).toBe(3)
   })
@@ -229,6 +230,7 @@ describe('ToolRegistry', () => {
       'apply_worker_diff',
       'ask-user',
       'bash',
+      'code-exec',
       'create-artifact',
       'crystallize',
       'dream',
@@ -251,7 +253,7 @@ describe('ToolRegistry', () => {
       'web-fetch',
       'web-search',
     ])
-    expect(bundledRegistry.size).toBe(24)
+    expect(bundledRegistry.size).toBe(25)
   })
 
   test('all built-in tools produce JSON Schema with type: "object" (AI SDK requirement)', async () => {

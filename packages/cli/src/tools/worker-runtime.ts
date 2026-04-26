@@ -60,6 +60,7 @@ export function createWorkerRuntime(
     execFileSync('git', ['worktree', 'add', '-b', spec.branchName, worktreePath, 'HEAD'], {
       cwd: parentRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: scrubbedGitEnv(),
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -162,10 +163,23 @@ function gitOutput(args: string[], cwd: string): string {
       cwd,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: scrubbedGitEnv(),
     }).trim()
   } catch {
     return ''
   }
+}
+
+// Strip inherited GIT_* env so child `git` invocations always operate on
+// `cwd`, not on whatever repo the parent process was bound to (e.g. when
+// ouroboros runs inside a git hook, GIT_DIR / GIT_WORK_TREE point at the
+// hook's repo and would hijack worktree creation here).
+function scrubbedGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('GIT_')) env[key] = value
+  }
+  return env
 }
 
 function diffUntrackedFile(worktreePath: string, path: string): string {
@@ -177,6 +191,7 @@ function diffUntrackedFile(worktreePath: string, path: string): string {
       cwd: worktreePath,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: scrubbedGitEnv(),
     })
   } catch (e) {
     const output = (e as { stdout?: Buffer | string }).stdout

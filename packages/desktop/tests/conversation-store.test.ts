@@ -880,3 +880,206 @@ describe('loadSession image preview hydration', () => {
     expect(aMessages[0]?.imageAttachments?.[0].previewDataUrl).toBeUndefined()
   })
 })
+
+describe('mid-flight steering', () => {
+  test('steerCurrentRun is a no-op when the agent is idle', () => {
+    resetStore()
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: { rpc: () => Promise.resolve({ accepted: true }) },
+    }
+
+    useConversationStore.getState().steerCurrentRun('hi')
+    expect(useConversationStore.getState().messages).toEqual([])
+  })
+
+  test('steerCurrentRun adds a pending steer bubble and fires agent/steer over RPC', async () => {
+    resetStore()
+    useConversationStore.setState({ isAgentRunning: true, activeRunSessionId: 'session-x' })
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({ accepted: true })
+        },
+      },
+    }
+
+    useConversationStore.getState().steerCurrentRun('actually pivot')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const messages = useConversationStore.getState().messages
+    expect(messages).toHaveLength(1)
+    const bubble = messages[0]!
+    expect(bubble.kind).toBe('steer')
+    expect(bubble.steerStatus).toBe('pending')
+    expect(bubble.text).toBe('actually pivot')
+    expect(typeof bubble.steerRequestId).toBe('string')
+
+    const steerCall = calls.find((c) => c.method === 'agent/steer')
+    expect(steerCall).toBeDefined()
+    expect(steerCall?.params).toEqual(
+      expect.objectContaining({
+        message: 'actually pivot',
+        sessionId: 'session-x',
+        requestId: bubble.steerRequestId,
+      }),
+    )
+  })
+
+  test('handleSteerInjected flips a matching bubble from pending to injected', () => {
+    resetStore()
+    useConversationStore.setState({
+      messages: [
+        {
+          id: 's1',
+          role: 'user',
+          text: 'pivot',
+          timestamp: '2026-04-25T00:00:00Z',
+          kind: 'steer',
+          steerStatus: 'pending',
+          steerRequestId: 'req-42',
+        },
+      ],
+    })
+
+    useConversationStore
+      .getState()
+      .handleSteerInjected({ sessionId: null, steerId: 'req-42', iteration: 2, text: 'pivot' })
+
+    expect(useConversationStore.getState().messages[0]!.steerStatus).toBe('injected')
+  })
+
+  test('handleSteerOrphaned flags every matching bubble', () => {
+    resetStore()
+    useConversationStore.setState({
+      messages: [
+        {
+          id: 's1',
+          role: 'user',
+          text: 'pivot 1',
+          timestamp: '2026-04-25T00:00:00Z',
+          kind: 'steer',
+          steerStatus: 'pending',
+          steerRequestId: 'req-1',
+        },
+        {
+          id: 's2',
+          role: 'user',
+          text: 'pivot 2',
+          timestamp: '2026-04-25T00:00:01Z',
+          kind: 'steer',
+          steerStatus: 'pending',
+          steerRequestId: 'req-2',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleSteerOrphaned({
+      sessionId: null,
+      reason: 'cancelled',
+      steers: [
+        { id: 'req-1', text: 'pivot 1' },
+        { id: 'req-2', text: 'pivot 2' },
+      ],
+    })
+
+    const messages = useConversationStore.getState().messages
+    expect(messages[0]!.steerStatus).toBe('orphaned')
+    expect(messages[1]!.steerStatus).toBe('orphaned')
+  })
+
+  test('resendOrphanedSteer replaces the orphan with a normal user message and fires agent/run', async () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'sess-r',
+      sessions: [
+        {
+          id: 'sess-r',
+          createdAt: '2026-04-25T00:00:00Z',
+          lastActive: '2026-04-25T00:00:00Z',
+          messageCount: 0,
+        },
+      ],
+      messages: [
+        {
+          id: 's1',
+          role: 'user',
+          text: 'do this instead',
+          timestamp: '2026-04-25T00:00:00Z',
+          kind: 'steer',
+          steerStatus: 'orphaned',
+          steerRequestId: 'orphan-req',
+        },
+      ],
+    })
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({})
+        },
+      },
+    }
+
+    useConversationStore.getState().resendOrphanedSteer('orphan-req')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const messages = useConversationStore.getState().messages
+    expect(messages.find((m) => m.steerRequestId === 'orphan-req')).toBeUndefined()
+    expect(messages.some((m) => m.text === 'do this instead' && !m.kind)).toBe(true)
+
+    const runCall = calls.find((c) => c.method === 'agent/run')
+    expect(runCall).toBeDefined()
+    expect((runCall!.params as Record<string, unknown>).message).toBe('do this instead')
+  })
+
+  test('dismissOrphanedSteer removes the bubble without sending anything', () => {
+    resetStore()
+    useConversationStore.setState({
+      messages: [
+        {
+          id: 's1',
+          role: 'user',
+          text: 'forget me',
+          timestamp: '2026-04-25T00:00:00Z',
+          kind: 'steer',
+          steerStatus: 'orphaned',
+          steerRequestId: 'gone',
+        },
+      ],
+    })
+    useConversationStore.getState().dismissOrphanedSteer('gone')
+    expect(useConversationStore.getState().messages).toEqual([])
+  })
+
+  test('handleTurnAborted clears the streaming state', () => {
+    resetStore()
+    useConversationStore.setState({
+      isAgentRunning: true,
+      activeRunSessionId: 'session-q',
+      streamingText: 'partial...',
+      sessions: [
+        {
+          id: 'session-q',
+          createdAt: '2026-04-25T00:00:00Z',
+          lastActive: '2026-04-25T00:00:00Z',
+          messageCount: 0,
+          runStatus: 'running',
+        },
+      ],
+    })
+    useConversationStore
+      .getState()
+      .handleTurnAborted({ sessionId: 'session-q', iterations: 1, partialText: 'partial...' })
+    const state = useConversationStore.getState()
+    expect(state.isAgentRunning).toBe(false)
+    expect(state.streamingText).toBeNull()
+    expect(state.sessions[0]!.runStatus).toBe('idle')
+  })
+})
