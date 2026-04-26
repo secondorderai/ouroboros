@@ -9,8 +9,7 @@
  *
  * CLI flags:
  *   --model <provider/model>           Override model selection
- *   --reasoning-effort <effort>        OpenAI reasoning effort (minimal|low|medium|high)
- *   --thinking-budget-tokens <n>       Anthropic extended-thinking budget in tokens
+ *   --reasoning-effort <effort>        Reasoning effort (minimal|low|medium|high|max)
  *   --verbose / -v                     Show tool call details
  *   --no-stream                        Wait for full response before printing
  *   --config <path>                    Path to directory containing .ouroboros config file
@@ -53,11 +52,7 @@ program
   .option('--model <model>', 'Override model selection (e.g., openai/gpt-5.4)')
   .option(
     '--reasoning-effort <effort>',
-    'OpenAI reasoning effort (minimal|low|medium|high). Ignored for non-reasoning models.',
-  )
-  .option(
-    '--thinking-budget-tokens <n>',
-    'Anthropic extended-thinking budget in tokens (positive integer). Ignored for non-Anthropic models.',
+    'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on o-series and GPT-5. Ignored for unsupported models.',
   )
   .option('-v, --verbose', 'Show tool call details (name, args, result)')
   .option('--no-stream', 'Wait for full response before printing')
@@ -138,7 +133,6 @@ async function runMain(): Promise<void> {
   const opts = program.opts<{
     model?: string
     reasoningEffort?: string
-    thinkingBudgetTokens?: string
     verbose?: boolean
     stream: boolean
     config?: string
@@ -183,7 +177,7 @@ async function runMain(): Promise<void> {
 
   // Apply --reasoning-effort override
   if (opts.reasoningEffort !== undefined) {
-    const validEfforts = ['minimal', 'low', 'medium', 'high'] as const
+    const validEfforts = ['minimal', 'low', 'medium', 'high', 'max'] as const
     type Effort = (typeof validEfforts)[number]
     if (!validEfforts.includes(opts.reasoningEffort as Effort)) {
       process.stderr.write(
@@ -194,21 +188,6 @@ async function runMain(): Promise<void> {
     config = {
       ...config,
       model: { ...config.model, reasoningEffort: opts.reasoningEffort as Effort },
-    }
-  }
-
-  // Apply --thinking-budget-tokens override
-  if (opts.thinkingBudgetTokens !== undefined) {
-    const parsed = Number(opts.thinkingBudgetTokens)
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      process.stderr.write(
-        `Invalid --thinking-budget-tokens "${opts.thinkingBudgetTokens}". Expected a positive integer.\n`,
-      )
-      process.exit(1)
-    }
-    config = {
-      ...config,
-      model: { ...config.model, thinkingBudgetTokens: parsed },
     }
   }
 

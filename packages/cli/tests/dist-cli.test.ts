@@ -166,28 +166,26 @@ describe('dist/ouroboros binary', () => {
     const result = await spawnBinary(['--reasoning-effort', 'bogus', '-m', 'hello'])
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toContain('Invalid --reasoning-effort')
+    // Error message should list the full enum including the new "max" level.
     expect(result.stderr).toContain('minimal')
+    expect(result.stderr).toContain('max')
   })
 
-  test('--thinking-budget-tokens flag accepts positive integer without complaint', async () => {
-    const result = await spawnBinary(['--thinking-budget-tokens', '4096'], {
+  test('--reasoning-effort accepts the new "max" level', async () => {
+    const result = await spawnBinary(['--reasoning-effort', 'max'], {
       leaveStdinOpen: true,
       killAfterMs: 2000,
     })
     assertNoUsageText(result)
-    expect(result.stderr).not.toContain('Invalid --thinking-budget-tokens')
+    expect(result.stderr).not.toContain('Invalid --reasoning-effort')
     expect(result.stderr).not.toContain('unknown option')
   })
 
-  test('--thinking-budget-tokens rejects non-integer with non-zero exit', async () => {
-    const result = await spawnBinary(['--thinking-budget-tokens', 'abc', '-m', 'hello'])
+  test('--thinking-budget-tokens flag is no longer recognised (removed)', async () => {
+    const result = await spawnBinary(['--thinking-budget-tokens', '4096', '-m', 'hello'])
+    // Commander rejects unknown options with a non-zero exit and an
+    // "unknown option" message — confirms the flag is fully removed.
     expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain('Invalid --thinking-budget-tokens')
-  })
-
-  test('--thinking-budget-tokens rejects zero with non-zero exit', async () => {
-    const result = await spawnBinary(['--thinking-budget-tokens', '0', '-m', 'hello'])
-    expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain('Invalid --thinking-budget-tokens')
+    expect(result.stderr).toContain('unknown option')
   })
 })
