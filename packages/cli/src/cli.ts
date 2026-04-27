@@ -38,6 +38,7 @@ import { startJsonRpcServer } from '@src/json-rpc/server'
 import { createProvider } from '@src/llm/provider'
 import { activateSkillForRun, resolveSlashSkillInvocation } from '@src/skills/skill-invocation'
 import { createRegistry } from '@src/tools/registry'
+import { McpManager } from '@src/mcp/manager'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { RSIEvent } from '@src/rsi/types'
 import { Command } from 'commander'
@@ -236,6 +237,22 @@ async function runMain(): Promise<void> {
 
   // Create tool registry with built-in tools pre-registered
   const registry = await createRegistry()
+
+  // Connect any MCP servers configured in .ouroboros and register their tools.
+  const mcpManager = new McpManager({
+    config: config.mcp,
+    registry,
+    log: (message) => {
+      if (verbose) process.stderr.write(`${message}\n`)
+    },
+  })
+  await mcpManager.start()
+  const stopMcp = (): void => {
+    void mcpManager.stop()
+  }
+  process.once('SIGTERM', stopMcp)
+  process.once('SIGINT', stopMcp)
+  process.once('beforeExit', stopMcp)
 
   if (opts.debugTools === true) {
     const toolNames = registry

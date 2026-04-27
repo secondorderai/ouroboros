@@ -10,6 +10,12 @@ import type { TestCommandResult } from './subagent-result'
 /** Files that should never be loaded as tools. */
 const SKIP_FILES = new Set(['types.ts', 'registry.ts', '.gitkeep'])
 
+/** Prefix used for every MCP-adapted tool name (e.g. `mcp__github__search`). */
+export const MCP_TOOL_PREFIX = 'mcp__'
+
+/** Reason returned when an MCP tool is requested from a child registry. */
+const MCP_DENIAL_REASON = 'MCP tools are unavailable in child agent registries'
+
 const READ_ONLY_ALLOWED_TOOL_NAMES = new Set(['file-read', 'web-fetch', 'web-search'])
 
 const READ_ONLY_DENIED_TOOL_REASONS = new Map<string, string>([
@@ -218,6 +224,15 @@ function isToolDefinition(obj: unknown): obj is ToolDefinition {
 }
 
 function toMetadata(tool: ToolDefinition): ToolMetadata {
+  // MCP-adapted tools carry a pre-built JSON Schema; pass it through verbatim
+  // so the server-supplied parameter shape reaches the LLM unchanged.
+  if (tool.jsonParameters) {
+    return {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.jsonParameters,
+    }
+  }
   // Use zodToJsonSchema-compatible approach: Zod's .shape gives us the raw
   // shape. For a lightweight conversion we just describe the schema fields.
   let parameters: Record<string, unknown>
@@ -337,6 +352,10 @@ export function createReadOnlyToolRegistry(parent: ToolRegistry): ToolRegistry {
   const registry = new ToolRegistry()
 
   for (const [toolName, tool] of parent.entries()) {
+    if (toolName.startsWith(MCP_TOOL_PREFIX)) {
+      registry.denyTool(toolName, MCP_DENIAL_REASON)
+      continue
+    }
     if (READ_ONLY_ALLOWED_TOOL_NAMES.has(toolName)) {
       registry.register(tool)
     } else {
@@ -502,6 +521,10 @@ export function createTestToolRegistry(
   const registry = new ToolRegistry()
 
   for (const [toolName, tool] of parent.entries()) {
+    if (toolName.startsWith(MCP_TOOL_PREFIX)) {
+      registry.denyTool(toolName, MCP_DENIAL_REASON)
+      continue
+    }
     if (toolName === 'bash') {
       registry.register(createRestrictedTestBashTool(tool, options))
     } else if (TEST_AGENT_ALLOWED_TOOL_NAMES.has(toolName)) {
@@ -542,6 +565,10 @@ export function createWorkerToolRegistry(
   const registry = new ToolRegistry()
 
   for (const [toolName, tool] of parent.entries()) {
+    if (toolName.startsWith(MCP_TOOL_PREFIX)) {
+      registry.denyTool(toolName, MCP_DENIAL_REASON)
+      continue
+    }
     if (!WORKER_ALLOWED_TOOL_NAMES.has(toolName)) {
       registry.denyTool(
         toolName,
