@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach } from 'bun:test'
-import { ToolRegistry, createReadOnlyToolRegistry } from '@src/tools/registry'
+import {
+  ToolRegistry,
+  createReadOnlyToolRegistry,
+  createTestToolRegistry,
+  createWorkerToolRegistry,
+} from '@src/tools/registry'
 import { z } from 'zod'
 import { ok } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
@@ -136,6 +141,51 @@ describe('ToolRegistry', () => {
     expect(parent.size).toBe(25)
     expect(child.getTool('file-write')).toBeUndefined()
     expect(child.size).toBe(3)
+  })
+
+  test('toMetadata uses tool.jsonParameters verbatim when present', () => {
+    const customSchema = {
+      type: 'object',
+      properties: { q: { type: 'string', description: 'free text' } },
+      required: ['q'],
+      additionalProperties: false,
+    } as const
+    registry.register({
+      name: 'mcp__test__search',
+      description: 'mcp',
+      schema: z.any(),
+      jsonParameters: customSchema as unknown as Record<string, unknown>,
+      execute: async () => ok({}),
+    })
+    const meta = registry.getTools().find((t) => t.name === 'mcp__test__search')
+    expect(meta).toBeDefined()
+    expect(meta?.parameters).toEqual(customSchema)
+  })
+
+  test('child registries deny MCP-prefixed tools so subagents never see them', async () => {
+    const parent = new ToolRegistry()
+    parent.register(makeTool('mcp__example__search'))
+    parent.register(makeTool('file-read'))
+
+    const readOnly = createReadOnlyToolRegistry(parent)
+    expect(readOnly.getTool('mcp__example__search')).toBeUndefined()
+    const readOnlyResult = await readOnly.executeTool('mcp__example__search', { input: 'x' })
+    expect(readOnlyResult.ok).toBe(false)
+    if (!readOnlyResult.ok) {
+      expect(readOnlyResult.error.message).toContain('MCP tools are unavailable')
+    }
+
+    parent.register({
+      name: 'bash',
+      description: 'shell',
+      schema: z.object({ command: z.string() }),
+      execute: async () => ok({}),
+    })
+    const test = createTestToolRegistry(parent, { allowedCommands: ['echo'] })
+    expect(test.getTool('mcp__example__search')).toBeUndefined()
+
+    const worker = createWorkerToolRegistry(parent, { worktreePath: '/tmp/w' })
+    expect(worker.getTool('mcp__example__search')).toBeUndefined()
   })
 
   test('read-only registry returns clear denied errors for blocked built-in tools', async () => {

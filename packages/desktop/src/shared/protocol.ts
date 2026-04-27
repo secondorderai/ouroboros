@@ -1024,6 +1024,35 @@ export interface RpcMethodMap {
   'mode/getPlan': { params: ModeGetPlanParams; result: Plan | null }
   'artifacts/list': { params: ArtifactsListParams; result: ArtifactsListResult }
   'artifacts/read': { params: ArtifactsReadParams; result: ArtifactsReadResult }
+  'mcp/list': { params: Record<string, never>; result: McpListResult }
+  'mcp/restart': { params: McpRestartParams; result: McpRestartResult }
+}
+
+// ── MCP (Model Context Protocol) — desktop visibility types ────────
+
+/** Lifecycle status of one MCP server. */
+export type McpServerStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
+
+export interface McpServerEntry {
+  name: string
+  type: 'local' | 'remote'
+  status: McpServerStatus
+  toolCount: number
+  errorMessage?: string
+  pid?: number
+}
+
+export interface McpListResult {
+  servers: McpServerEntry[]
+}
+
+export interface McpRestartParams {
+  name: string
+}
+
+export interface McpRestartResult {
+  ok: boolean
+  errorMessage?: string
 }
 
 export type RpcMethod = keyof RpcMethodMap
@@ -1080,6 +1109,8 @@ export const RPC_METHOD_NAMES = [
   'mode/getPlan',
   'artifacts/list',
   'artifacts/read',
+  'mcp/list',
+  'mcp/restart',
 ] as const satisfies readonly RpcMethod[]
 
 /** Compile-time check that `RPC_METHOD_NAMES` covers every key of `RpcMethodMap`. */
@@ -1239,6 +1270,22 @@ export interface AgentArtifactCreatedNotification extends AgentRunSessionScoped 
   createdAt: string
 }
 
+export interface McpServerConnectedNotification {
+  name: string
+  toolCount: number
+}
+
+export interface McpServerDisconnectedNotification {
+  name: string
+  reason?: string
+}
+
+export interface McpServerErrorNotification {
+  name: string
+  message: string
+  willRetry: boolean
+}
+
 export interface NotificationMap {
   'agent/contextUsage': AgentContextUsageNotification
   'agent/text': AgentTextNotification
@@ -1271,6 +1318,9 @@ export interface NotificationMap {
   'mode/exited': ModeExitedNotification
   'mode/planSubmitted': ModePlanSubmittedNotification
   'agent/artifactCreated': AgentArtifactCreatedNotification
+  'mcp/serverConnected': McpServerConnectedNotification
+  'mcp/serverDisconnected': McpServerDisconnectedNotification
+  'mcp/serverError': McpServerErrorNotification
 }
 
 export type NotificationMethod = keyof NotificationMap
@@ -1313,6 +1363,9 @@ export const NOTIFICATION_METHOD_NAMES = [
   'mode/exited',
   'mode/planSubmitted',
   'agent/artifactCreated',
+  'mcp/serverConnected',
+  'mcp/serverDisconnected',
+  'mcp/serverError',
 ] as const satisfies readonly NotificationMethod[]
 
 /** Compile-time check that `NOTIFICATION_METHOD_NAMES` covers every key of `NotificationMap`. */

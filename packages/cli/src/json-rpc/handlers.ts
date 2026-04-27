@@ -44,6 +44,8 @@ import {
 } from '@src/tools/skill-manager'
 import { JSON_RPC_ERRORS, makeNotification } from './types'
 import { writeMessage } from './transport'
+import type { McpManager } from '@src/mcp/manager'
+import type { McpServerStatusEntry } from '@src/mcp/types'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -132,6 +134,12 @@ export interface HandlerContext {
    * by session — fine for tests since they don't exercise multi-session.
    */
   runWithSessionScope?: <T>(sessionId: string, fn: () => Promise<T>) => Promise<T>
+  /**
+   * MCP server manager. Optional so unit tests that don't exercise MCP
+   * can omit it. The `mcp/list` and `mcp/restart` handlers report a clear
+   * error when this is undefined.
+   */
+  mcpManager?: McpManager
 }
 
 export interface ApprovalItem {
@@ -1415,6 +1423,24 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         `Failed to clear workspace: ${message}`,
       )
     }
+  })
+
+  handlers.set('mcp/list', async (): Promise<{ servers: McpServerStatusEntry[] }> => {
+    if (!ctx.mcpManager) return { servers: [] }
+    return { servers: ctx.mcpManager.getServerStatuses() }
+  })
+
+  handlers.set('mcp/restart', async (params) => {
+    const name = typeof params.name === 'string' ? params.name : ''
+    if (!name) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'mcp/restart requires "name"')
+    }
+    if (!ctx.mcpManager) {
+      return { ok: false, errorMessage: 'MCP manager not available' }
+    }
+    const result = await ctx.mcpManager.restartServer(name)
+    if (result.ok) return { ok: true }
+    return { ok: false, errorMessage: result.error.message }
   })
 
   return handlers

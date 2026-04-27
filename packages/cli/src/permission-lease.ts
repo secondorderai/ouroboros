@@ -155,6 +155,7 @@ function classifyPermissionLeaseRisk(lease: PermissionLease): PermissionLeaseApp
   ) {
     return lease.allowedBash.length > 0 || lease.allowedPaths.length > 0 ? 'high' : 'medium'
   }
+  if (lease.allowedTools.some((tool) => tool.startsWith('mcp__'))) return 'medium'
   if (lease.allowedPaths.length > 0) return 'medium'
   return 'low'
 }

@@ -49,6 +49,7 @@ function makeConfig(): OuroborosConfig {
       ],
       maxBytes: 1_048_576,
     },
+    mcp: { servers: [] },
   }
 }
 

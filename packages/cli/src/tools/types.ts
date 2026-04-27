@@ -50,6 +50,15 @@ export interface ToolDefinition {
   schema: z.ZodType<any>
 
   /**
+   * Pre-built JSON Schema for the tool's parameters.
+   *
+   * When set, `ToolRegistry.getTools()` returns this verbatim instead of
+   * deriving JSON Schema from `schema`. MCP-adapted tools use this so the
+   * server-supplied schema flows to the LLM unchanged. Local tools omit it.
+   */
+  jsonParameters?: Record<string, unknown>
+
+  /**
    * Execute the tool. The registry always calls `schema.parse(args)` first,
    * so the value passed here is guaranteed to be valid at runtime.
    * Must never throw — return a Result instead.

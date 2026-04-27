@@ -33,6 +33,7 @@ import {
   type SkillApprovalRequest,
 } from '@src/tools/skill-manager'
 import { createRegistry } from '@src/tools/registry'
+import { McpManager } from '@src/mcp/manager'
 import {
   setWorkerDiffApprovalHandler,
   type WorkerDiffApprovalRequest,
@@ -108,6 +109,36 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
 
   // Create tool registry
   const registry = await createRegistry()
+
+  // Connect any MCP servers configured in .ouroboros and register their tools.
+  const mcpManager = new McpManager({
+    config: config.mcp,
+    registry,
+    handlers: {
+      onServerConnected: ({ name, toolCount }) => {
+        writeMessage(makeNotification('mcp/serverConnected', { name, toolCount }))
+      },
+      onServerDisconnected: ({ name, reason }) => {
+        writeMessage(
+          makeNotification('mcp/serverDisconnected', {
+            name,
+            ...(reason ? { reason } : {}),
+          }),
+        )
+      },
+      onServerError: ({ name, message, willRetry }) => {
+        writeMessage(makeNotification('mcp/serverError', { name, message, willRetry }))
+      },
+    },
+    log: (message) => debugLog(message),
+  })
+  await mcpManager.start()
+  const stopMcp = (): void => {
+    void mcpManager.stop()
+  }
+  process.once('SIGTERM', stopMcp)
+  process.once('SIGINT', stopMcp)
+  process.once('beforeExit', stopMcp)
 
   // ── Per-session run state ────────────────────────────────────────
   //
@@ -416,6 +447,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     authManager: new OpenAIChatGPTAuthManager(),
     modeManager,
     taskGraphStore,
+    mcpManager,
     takeSkillActivations: (sessionId) => {
       const list = skillActivationsBySession.get(sessionId)
       if (!list || list.length === 0) return []
