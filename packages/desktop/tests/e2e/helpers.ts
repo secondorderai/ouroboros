@@ -84,6 +84,7 @@ export interface LaunchedApp {
     openArtifactLogPath: string
     saveArtifactLogPath: string
     bootLogPath: string
+    userDataDir: string
   }
 }
 
@@ -156,6 +157,7 @@ export async function launchTestApp(
       openArtifactLogPath: testOpenArtifactLogPath,
       saveArtifactLogPath: testSaveArtifactLogPath,
       bootLogPath: testBootLogPath,
+      userDataDir: testUserDataDir,
     },
   }
 }

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import type { LaunchedApp } from './helpers'
 import { completeOnboarding, launchTestApp } from './helpers'
 
@@ -57,6 +58,18 @@ test('main process does not inject stale stored API keys into CLI environment', 
 
   const log = await readFile(launched.paths.mockLogPath, 'utf8')
   expect(log).toContain('"hasOpenAICompatibleApiKey":false')
+})
+
+test('main process launches the CLI from a writable desktop runtime directory', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  const runtimeDir = realpathSync(launched.paths.userDataDir)
+
+  await expect.poll(async () => readFile(launched!.paths.mockLogPath, 'utf8')).toContain(
+    `"cwd":"${runtimeDir}"`,
+  )
+
+  const bootLog = await readFile(launched.paths.bootLogPath, 'utf8')
+  expect(bootLog).toContain(`cwd=${launched.paths.userDataDir}`)
 })
 
 test('the main process reports restarting when the CLI crashes and recovers on the next spawn', async ({}, testInfo) => {

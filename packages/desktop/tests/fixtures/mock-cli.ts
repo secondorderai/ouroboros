@@ -120,6 +120,13 @@ logLine(
     hasOpenAICompatibleApiKey: Boolean(process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY),
   }),
 )
+logLine(
+  'process',
+  JSON.stringify({
+    cwd: process.cwd(),
+    argv: process.argv.slice(2),
+  }),
+)
 const persistedState = loadState()
 persistedState.launchCount += 1
 saveState(persistedState)

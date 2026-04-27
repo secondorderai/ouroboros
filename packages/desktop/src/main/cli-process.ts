@@ -7,7 +7,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog } from 'electron'
 import { EventEmitter } from 'node:events'
@@ -131,7 +131,10 @@ export class CLIProcessManager extends EventEmitter {
     }
 
     if (app.isPackaged) {
-      return { command: this.resolvePackagedCliPath(), args: ['--json-rpc'] }
+      return {
+        command: this.resolvePackagedCliPath(),
+        args: ['--json-rpc', '--config', this.getPackagedCliConfigDir()],
+      }
     }
 
     return {
@@ -142,10 +145,13 @@ export class CLIProcessManager extends EventEmitter {
 
   private spawnProcess(): void {
     const { command, args } = this.getCliPath()
-    writeTestLog(`spawning cli: ${command} ${args.join(' ')}`)
+    const cwd = this.getCliWorkingDirectory()
+    mkdirSync(cwd, { recursive: true })
+    writeTestLog(`spawning cli: ${command} ${args.join(' ')} cwd=${cwd}`)
     try {
       this.process = spawn(command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        cwd,
         env: {
           ...process.env,
           ...this.extraEnv,
@@ -237,6 +243,20 @@ export class CLIProcessManager extends EventEmitter {
     // app.getAppPath() resolves to packages/desktop in dev (same anchor used
     // by getCliPath above when locating the CLI binary).
     return join(app.getAppPath(), 'resources', 'skills', 'builtin')
+  }
+
+  private getCliWorkingDirectory(): string {
+    if (process.env.NODE_ENV === 'test') {
+      return app.getPath('userData')
+    }
+    if (app.isPackaged) {
+      return app.getPath('home')
+    }
+    return process.cwd()
+  }
+
+  private getPackagedCliConfigDir(): string {
+    return app.getPath('userData')
   }
 
   private resolvePackagedCliPath(): string {
