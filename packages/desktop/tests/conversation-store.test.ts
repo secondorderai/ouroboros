@@ -120,6 +120,90 @@ describe('conversation store sessions', () => {
     )
   })
 
+  test('updates the session title immediately when sendMessage is called on a "New conversation" session', async () => {
+    resetStore()
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({ text: 'ok' })
+        },
+      },
+    }
+
+    // Simulate a session that was just created (title is "New conversation")
+    useConversationStore.setState({
+      currentSessionId: 'session-new-title',
+      sessions: [
+        {
+          id: 'session-new-title',
+          title: 'New conversation',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 0,
+          runStatus: 'idle',
+        },
+      ],
+    })
+
+    // Send the very first message — the title should update immediately,
+    // not wait for handleTurnComplete.
+    useConversationStore.getState().sendMessage('How to fix the login bug?')
+
+    const state = useConversationStore.getState()
+    expect(state.sessions[0]).toEqual(
+      expect.objectContaining({
+        id: 'session-new-title',
+        title: 'Fix the login bug',
+        titleSource: 'auto',
+        runStatus: 'running',
+      }),
+    )
+  })
+
+  test('does NOT overwrite a meaningful auto title on subsequent sendMessage', async () => {
+    resetStore()
+
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: { rpc: () => Promise.resolve({ text: 'ok' }) },
+    }
+
+    // Simulate a session that already has a derived title from a prior turn
+    useConversationStore.setState({
+      currentSessionId: 'session-existing',
+      sessions: [
+        {
+          id: 'session-existing',
+          title: 'Login bug fix',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 2,
+          runStatus: 'idle',
+        },
+      ],
+      messages: [
+        { id: 'user-1', role: 'user', text: 'How to fix the login bug?', timestamp: '2026-04-23T00:00:00.000Z' },
+        { id: 'agent-1', role: 'agent', text: 'Here is the fix.', timestamp: '2026-04-23T00:00:01.000Z' },
+      ],
+    })
+
+    useConversationStore.getState().sendMessage('Now do the logout')
+
+    const state = useConversationStore.getState()
+    // Title should remain the existing one — it's not "New conversation"
+    expect(state.sessions[0]).toEqual(
+      expect.objectContaining({
+        id: 'session-existing',
+        title: 'Login bug fix',
+        runStatus: 'running',
+      }),
+    )
+  })
+
   test('seeds pendingActivatedSkills from sendMessage and folds into the assistant turn', () => {
     resetStore()
 
@@ -329,6 +413,48 @@ describe('conversation store sessions', () => {
         runStatus: 'running',
       }),
     ])
+  })
+
+  test('setSessions preserves desktop-derived title for running sessions, preventing fallback to CLI default', () => {
+    // Regression: when session/list returns with "New conversation" title (CLI
+    // only refreshes titles after runs complete via refreshAutoSessionTitle),
+    // the desktop's locally-derived title from sendMessage must not be
+    // overwritten.
+    resetStore()
+
+    useConversationStore.setState({
+      currentSessionId: 'sess-1',
+      activeRunSessionId: 'sess-1',
+      sessions: [
+        {
+          id: 'sess-1',
+          title: 'Add input validation',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 1,
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    // Simulate session/list arriving with the CLI's stale "New conversation"
+    useConversationStore.getState().setSessions([
+      {
+        id: 'sess-1',
+        title: 'New conversation',
+        titleSource: 'auto',
+        createdAt: '2026-04-23T00:00:00.000Z',
+        lastActive: '2026-04-23T00:00:00.000Z',
+        messageCount: 0,
+      },
+    ])
+
+    const { sessions } = useConversationStore.getState()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].title).toBe('Add input validation')
+    expect(sessions[0].titleSource).toBe('auto')
+    expect(sessions[0].runStatus).toBe('running')
   })
 })
 

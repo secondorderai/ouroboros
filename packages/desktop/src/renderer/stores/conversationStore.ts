@@ -207,6 +207,12 @@ export interface ConversationState {
 
   /** Set the model name. */
   setModelName: (name: string | null) => void
+
+  /** Current reasoning effort level for the active model (if supported). */
+  reasoningEffort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null
+
+  /** Set the reasoning effort level. */
+  setReasoningEffort: (effort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -880,6 +886,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   sessions: [],
   workspace: null,
   modelName: null,
+  reasoningEffort: null,
   contextUsage: null,
 
   // ---- Actions -------------------------------------------------------------
@@ -913,16 +920,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: runSessionId
-        ? state.sessions.map((s) =>
-            s.id === runSessionId
-              ? {
-                  ...s,
-                  runStatus: 'running' as const,
-                  activeToolName: undefined,
-                  lastActive: sentAt,
-                }
-              : s,
-          )
+        ? state.sessions.map((s) => {
+            if (s.id !== runSessionId) return s
+            const title =
+              s.title && s.title !== 'New conversation'
+                ? s.title
+                : deriveSessionTitle(text)
+            return {
+              ...s,
+              title,
+              titleSource: 'auto' as const,
+              runStatus: 'running' as const,
+              activeToolName: undefined,
+              lastActive: sentAt,
+            }
+          })
         : state.sessions,
     })
 
@@ -1634,11 +1646,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       sessions: sessions
         .map((session) => {
           const existing = state.sessions.find((s) => s.id === session.id)
-          if (existing?.runStatus === 'running' || state.activeRunSessionId === session.id) {
+          const isRunningSession =
+            existing?.runStatus === 'running' ||
+            (!existing && state.activeRunSessionId === session.id) ||
+            (existing && state.activeRunSessionId === session.id)
+          if (isRunningSession) {
             return {
               ...session,
               runStatus: 'running' as const,
               activeToolName: existing?.activeToolName,
+              // Preserve the desktop's derived title — the CLI's title is only
+              // refreshed after the run completes (refreshAutoSessionTitle in
+              // agent/run handler), so during processing the desktop's locally
+              // derived title from sendMessage is more accurate.
+              title: existing?.title ?? session.title,
+              titleSource: existing?.titleSource ?? session.titleSource,
             }
           }
           if (existing?.runStatus === 'error') {
@@ -1814,5 +1836,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   setModelName(name: string | null) {
     set({ modelName: name })
+  },
+
+  setReasoningEffort(effort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null) {
+    set({ reasoningEffort: effort })
   },
 }))
