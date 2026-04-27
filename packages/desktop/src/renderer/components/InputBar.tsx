@@ -43,8 +43,11 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(null)
   const [skillPickerOpen, setSkillPickerOpen] = useState(false)
   const [skillPickerIndex, setSkillPickerIndex] = useState(0)
+  const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false)
+  const [savingReasoning, setSavingReasoning] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modeMenuRef = useRef<HTMLDivElement>(null)
+  const reasoningMenuRef = useRef<HTMLDivElement>(null)
 
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const sendMessage = useConversationStore((s) => s.sendMessage)
@@ -52,6 +55,8 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const cancelRun = useConversationStore((s) => s.cancelRun)
   const workspace = useConversationStore((s) => s.workspace)
   const modelName = useConversationStore((s) => s.modelName)
+  const reasoningEffort = useConversationStore((s) => s.reasoningEffort)
+  const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
   const contextUsage = useConversationStore((s) => s.contextUsage)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
   const modeState = useModeStore((s) => s.modeState)
@@ -323,6 +328,22 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   }, [modeMenuOpen])
 
   useEffect(() => {
+    if (!reasoningMenuOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!reasoningMenuRef.current?.contains(event.target as Node)) {
+        setReasoningMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [reasoningMenuOpen])
+
+  useEffect(() => {
     if (modeState.status === 'active') {
       setModeMenuOpen(false)
     }
@@ -407,6 +428,62 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       threshold: contextUsage.threshold,
     }
   }, [contextUsage])
+
+  // ---- Reasoning effort helpers --------------------------------------------
+
+  const reasoningKind = useMemo(
+    () => reasoningKindForModel(modelName),
+    [modelName],
+  )
+
+  const REASONING_EFFORT_OPTIONS = useMemo(() => {
+    if (reasoningKind === 'anthropic-adaptive') {
+      // Anthropic: low, medium, high, max (minimal not supported)
+      return ['low', 'medium', 'high', 'max'] as const
+    }
+    // OpenAI: minimal, low, medium, high (max clamped to high)
+    return ['minimal', 'low', 'medium', 'high'] as const
+  }, [reasoningKind])
+
+  const handleReasoningChipClick = useCallback(() => {
+    setReasoningMenuOpen((open) => !open)
+  }, [])
+
+  const handleReasoningSelect = useCallback(
+    async (effort: string) => {
+      const next = effort as 'minimal' | 'low' | 'medium' | 'high' | 'max'
+      setSavingReasoning(true)
+      setReasoningMenuOpen(false)
+      setReasoningEffort(next)
+      try {
+        await window.ouroboros?.rpc('config/set', {
+          path: 'model.reasoningEffort',
+          value: next,
+        })
+      } catch (err) {
+        console.error('config/set reasoningEffort failed:', err)
+      } finally {
+        setSavingReasoning(false)
+      }
+    },
+    [setReasoningEffort],
+  )
+
+  const handleReasoningClear = useCallback(async () => {
+    setSavingReasoning(true)
+    setReasoningMenuOpen(false)
+    setReasoningEffort(null)
+    try {
+      await window.ouroboros?.rpc('config/set', {
+        path: 'model.reasoningEffort',
+        value: undefined,
+      })
+    } catch (err) {
+      console.error('config/set reasoningEffort clear failed:', err)
+    } finally {
+      setSavingReasoning(false)
+    }
+  }, [setReasoningEffort])
 
   // ---- Render --------------------------------------------------------------
 
@@ -609,6 +686,48 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
               {contextUsageDisplay.label}
             </span>
           )}
+          {reasoningKind && (
+            <div style={styles.reasoningArea} ref={reasoningMenuRef}>
+              <button
+                style={styles.reasoningChip}
+                onClick={handleReasoningChipClick}
+                disabled={savingReasoning}
+                aria-label={`Reasoning effort: ${reasoningEffort ?? 'off'}`}
+                title='Change reasoning effort'
+              >
+                <ReasoningIcon />
+                <span style={styles.reasoningChipLabel}>{reasoningEffort ?? 'off'}</span>
+              </button>
+              {reasoningMenuOpen && (
+                <div style={styles.reasoningMenu} role='menu' aria-label='Reasoning effort picker'>
+                  {REASONING_EFFORT_OPTIONS.map((effort) => (
+                    <button
+                      key={effort}
+                      style={{
+                        ...styles.reasoningMenuItem,
+                        ...(reasoningEffort === effort ? styles.reasoningMenuItemSelected : {}),
+                      }}
+                      onClick={() => handleReasoningSelect(effort)}
+                      role='menuitem'
+                      disabled={savingReasoning}
+                    >
+                      {effort}
+                    </button>
+                  ))}
+                  {reasoningEffort && (
+                    <button
+                      style={styles.reasoningMenuClear}
+                      onClick={handleReasoningClear}
+                      role='menuitem'
+                      disabled={savingReasoning}
+                    >
+                      {savingReasoning ? 'saving…' : 'Clear'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {modelName && <span style={styles.modelBadge}>{modelName}</span>}
         </div>
       </div>
@@ -619,6 +738,29 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 // ---------------------------------------------------------------------------
 // Helper: truncate path for display
 // ---------------------------------------------------------------------------
+
+/**
+ * Detect which reasoning style (if any) the given model supports.
+ * Mirrors the logic in ModelSection.tsx and model-capabilities.ts.
+ */
+function reasoningKindForModel(modelName: string | null): 'anthropic-adaptive' | 'openai-reasoning' | null {
+  if (!modelName) return null
+  const id = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName
+
+  const anthropicPrefixes = ['claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6']
+  for (const prefix of anthropicPrefixes) {
+    if (id.startsWith(prefix)) return 'anthropic-adaptive'
+  }
+
+  if (id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4-mini')) {
+    return 'openai-reasoning'
+  }
+  if (id.startsWith('gpt-5') && !id.startsWith('gpt-5-chat')) {
+    return 'openai-reasoning'
+  }
+
+  return null
+}
 
 function truncatePath(fullPath: string): string {
   // Replace home dir with ~
@@ -999,6 +1141,24 @@ function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
       }}
     >
       <polyline points='6 9 12 15 18 9' />
+    </svg>
+  )
+}
+
+function ReasoningIcon(): React.ReactElement {
+  return (
+    <svg
+      width='12'
+      height='12'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <path d='M12 2a10 10 0 1 0 10 10' />
+      <path d='M12 6v6l4 2' />
     </svg>
   )
 }
@@ -1413,5 +1573,82 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary))',
     border: '1px solid color-mix(in srgb, var(--accent-red) 28%, transparent)',
     color: 'var(--accent-red)',
+  },
+  reasoningArea: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  reasoningChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '2px 8px',
+    backgroundColor: 'var(--bg-secondary)',
+    border: '1px solid var(--border-light)',
+    borderRadius: 'var(--radius-standard)',
+    fontSize: 10,
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+    minHeight: 20,
+    lineHeight: 1,
+  },
+  reasoningChipLabel: {
+    lineHeight: 1,
+  },
+  reasoningMenu: {
+    position: 'absolute',
+    right: 0,
+    bottom: 'calc(100% + 8px)',
+    minWidth: 120,
+    borderRadius: 10,
+    border: '1px solid var(--border-light)',
+    backgroundColor: 'var(--bg-primary)',
+    boxShadow: 'var(--shadow-lg)',
+    padding: 4,
+    zIndex: 20,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  reasoningMenuItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    border: 'none',
+    backgroundColor: 'transparent',
+    color: 'var(--text-primary)',
+    fontSize: 11,
+    fontFamily: 'var(--font-mono)',
+    padding: '6px 10px',
+    borderRadius: 6,
+    cursor: 'pointer',
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+  },
+  reasoningMenuItemSelected: {
+    backgroundColor: 'var(--accent-amber-bg)',
+    color: 'var(--accent-amber)',
+    fontWeight: 700,
+  },
+  reasoningMenuClear: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    border: 'none',
+    borderTop: '1px solid var(--border-light)',
+    backgroundColor: 'transparent',
+    color: 'var(--text-tertiary)',
+    fontSize: 11,
+    fontFamily: 'var(--font-sans)',
+    padding: '6px 10px',
+    borderRadius: 6,
+    cursor: 'pointer',
+    textAlign: 'left',
+    marginTop: 2,
+    whiteSpace: 'nowrap',
   },
 }
