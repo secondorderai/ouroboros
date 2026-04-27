@@ -330,7 +330,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
    */
   let anonymousAgent: Agent | null = null
   function buildAgent(): Agent {
-    const providerResult = createProvider(config.model)
+    const providerResult = createProvider(config.model, configDir)
     if (!providerResult.ok) {
       throw new Error(providerResult.error.message)
     }

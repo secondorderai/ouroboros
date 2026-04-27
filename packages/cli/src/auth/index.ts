@@ -18,17 +18,20 @@ export type AuthInfo = z.infer<typeof authInfoSchema>
 const authStoreSchema = z.record(z.string(), authInfoSchema)
 type AuthStore = z.infer<typeof authStoreSchema>
 
-// `.ouroboros` itself is the runtime config file (see packages/cli/src/config.ts),
-// so the auth store lives as a sibling file alongside it — matching the existing
-// `.ouroboros-transcripts.db` / `.ouroboros_history` pattern.
+// When `configDir` is provided (e.g. from the JSON-RPC server or CLI), the auth
+// store lives as a sibling to `.ouroboros` and `.ouroboros-transcripts.db`.
+// Falls back to `homedir()` when no `configDir` is given (CLI `auth` subcommands).
 const DEFAULT_AUTH_FILE = join(homedir(), '.ouroboros-auth.json')
 
-export function getAuthFilePath(): string {
-  return process.env.OUROBOROS_AUTH_FILE ?? DEFAULT_AUTH_FILE
+export function getAuthFilePath(configDir?: string): string {
+  return (
+    process.env.OUROBOROS_AUTH_FILE ??
+    (configDir ? join(configDir, '.ouroboros-auth.json') : DEFAULT_AUTH_FILE)
+  )
 }
 
-function loadAuthStore(): Result<AuthStore> {
-  const authPath = getAuthFilePath()
+function loadAuthStore(configDir?: string): Result<AuthStore> {
+  const authPath = getAuthFilePath(configDir)
 
   if (!existsSync(authPath)) {
     return ok({})
@@ -51,8 +54,8 @@ function loadAuthStore(): Result<AuthStore> {
   }
 }
 
-function saveAuthStore(store: AuthStore): Result<void> {
-  const authPath = getAuthFilePath()
+function saveAuthStore(store: AuthStore, configDir?: string): Result<void> {
+  const authPath = getAuthFilePath(configDir)
   const authDir = dirname(authPath)
 
   try {
@@ -69,12 +72,12 @@ function saveAuthStore(store: AuthStore): Result<void> {
   }
 }
 
-export function listAuth(): Result<Record<string, AuthInfo>> {
-  return loadAuthStore()
+export function listAuth(configDir?: string): Result<Record<string, AuthInfo>> {
+  return loadAuthStore(configDir)
 }
 
-export function getAuth(provider: string): Result<AuthInfo | undefined> {
-  const storeResult = loadAuthStore()
+export function getAuth(provider: string, configDir?: string): Result<AuthInfo | undefined> {
+  const storeResult = loadAuthStore(configDir)
   if (!storeResult.ok) {
     return storeResult
   }
@@ -82,27 +85,30 @@ export function getAuth(provider: string): Result<AuthInfo | undefined> {
   return ok(storeResult.value[provider])
 }
 
-export function setAuth(provider: string, info: AuthInfo): Result<void> {
-  const storeResult = loadAuthStore()
+export function setAuth(provider: string, info: AuthInfo, configDir?: string): Result<void> {
+  const storeResult = loadAuthStore(configDir)
   if (!storeResult.ok) {
     return storeResult
   }
 
-  return saveAuthStore({
-    ...storeResult.value,
-    [provider]: info,
-  })
+  return saveAuthStore(
+    {
+      ...storeResult.value,
+      [provider]: info,
+    },
+    configDir,
+  )
 }
 
-export function removeAuth(provider: string): Result<void> {
-  const storeResult = loadAuthStore()
+export function removeAuth(provider: string, configDir?: string): Result<void> {
+  const storeResult = loadAuthStore(configDir)
   if (!storeResult.ok) {
     return storeResult
   }
 
   const nextStore = { ...storeResult.value }
   delete nextStore[provider]
-  return saveAuthStore(nextStore)
+  return saveAuthStore(nextStore, configDir)
 }
 
 export function isAuthExpired(auth: Pick<AuthInfo, 'expires'>, now = Date.now()): boolean {

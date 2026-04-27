@@ -98,7 +98,8 @@ program
     }
 
     const config = configResult.value
-    const providerResult = createProvider(config.model)
+    const configDir = resolveConfigDir(dreamOpts.config)
+    const providerResult = createProvider(config.model, configDir)
     if (!providerResult.ok) {
       process.stderr.write(`${providerResult.error.message}\n`)
       process.exit(1)
@@ -208,7 +209,7 @@ async function runMain(): Promise<void> {
   const configDir = resolveConfigDir(opts.config)
 
   // Create LLM provider
-  const providerResult = createProvider(config.model)
+  const providerResult = createProvider(config.model, configDir)
   if (!providerResult.ok) {
     process.stderr.write(`${providerResult.error.message}\n`)
     process.exit(1)
@@ -400,7 +401,8 @@ function parseSingleShotPrompt(
  *   "claude-sonnet-4-20250514"            → provider=anthropic (default), name=claude-sonnet-4-20250514
  */
 async function runAuthList(): Promise<void> {
-  const authResult = listAuth()
+  const configDir = resolveConfigDir()
+  const authResult = listAuth(configDir)
   if (!authResult.ok) {
     process.stderr.write(`${authResult.error.message}\n`)
     process.exit(1)

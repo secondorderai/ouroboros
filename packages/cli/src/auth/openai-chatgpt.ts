@@ -259,8 +259,8 @@ async function probeOpenAIChatGPTAuth(accessToken: string, accountId?: string): 
   }
 }
 
-export async function ensureOpenAIChatGPTAuth(): Promise<Result<AuthInfo>> {
-  const authResult = getAuth(OPENAI_CHATGPT_PROVIDER)
+export async function ensureOpenAIChatGPTAuth(configDir?: string): Promise<Result<AuthInfo>> {
+  const authResult = getAuth(OPENAI_CHATGPT_PROVIDER, configDir)
   if (!authResult.ok) {
     return authResult
   }
@@ -287,7 +287,7 @@ export async function ensureOpenAIChatGPTAuth(): Promise<Result<AuthInfo>> {
       expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
       accountId: extractAccountId(tokens) ?? auth.accountId,
     }
-    const saveResult = setAuth(OPENAI_CHATGPT_PROVIDER, nextAuth)
+    const saveResult = setAuth(OPENAI_CHATGPT_PROVIDER, nextAuth, configDir)
     if (!saveResult.ok) {
       return saveResult
     }
@@ -305,10 +305,13 @@ function removeAuthorizationHeader(init?: RequestInit): Headers {
   return headers
 }
 
-export function createOpenAIChatGPTFetch(baseFetch: typeof fetch = fetch): typeof fetch {
+export function createOpenAIChatGPTFetch(
+  baseFetch: typeof fetch = fetch,
+  configDir?: string,
+): typeof fetch {
   const authFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     void input
-    const authResult = await ensureOpenAIChatGPTAuth()
+    const authResult = await ensureOpenAIChatGPTAuth(configDir)
     if (!authResult.ok) {
       throw authResult.error
     }

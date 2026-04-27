@@ -35,7 +35,10 @@ type OpenAIFetch = NonNullable<Parameters<typeof createOpenAI>[0]>['fetch']
  *
  * @returns A Result containing either a LanguageModel or a descriptive error
  */
-export function createProvider(modelConfig: ModelConfig): Result<LanguageModel> {
+export function createProvider(
+  modelConfig: ModelConfig,
+  configDir?: string,
+): Result<LanguageModel> {
   const { provider, name: modelId } = modelConfig
 
   switch (provider) {
@@ -110,7 +113,7 @@ export function createProvider(modelConfig: ModelConfig): Result<LanguageModel> 
           ),
         )
       }
-      const authResult = getAuth(OPENAI_CHATGPT_PROVIDER)
+      const authResult = getAuth(OPENAI_CHATGPT_PROVIDER, configDir)
       if (!authResult.ok) {
         return authResult
       }
@@ -125,7 +128,7 @@ export function createProvider(modelConfig: ModelConfig): Result<LanguageModel> 
       const openai = createOpenAI({
         name: OPENAI_CHATGPT_PROVIDER,
         apiKey: OPENAI_CHATGPT_OAUTH_DUMMY_KEY,
-        fetch: createOpenAIChatGPTFetch(createProviderFetch(OPENAI_CHATGPT_PROVIDER)),
+        fetch: createOpenAIChatGPTFetch(createProviderFetch(OPENAI_CHATGPT_PROVIDER), configDir),
       })
       return ok(openai.responses(modelId))
     }
