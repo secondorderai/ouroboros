@@ -229,6 +229,13 @@ export function ModelSection({
     }
   }, [])
 
+  // Populate API key from config when settings load or provider changes;
+  // the key is stored in model.apiKey in the persisted config.
+  useEffect(() => {
+    setApiKey(config?.model?.apiKey ?? '')
+    setShowKey(false)
+  }, [provider, config?.model?.apiKey])
+
   // Reset test result when provider changes
   useEffect(() => {
     setTestResult(null)

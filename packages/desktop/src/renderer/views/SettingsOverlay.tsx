@@ -6,6 +6,7 @@ import { PermissionsSection } from '../components/settings/PermissionsSection'
 import { RsiSection } from '../components/settings/RsiSection'
 import { MemorySection } from '../components/settings/MemorySection'
 import { ModeSection } from '../components/settings/ModeSection'
+import { useConversationStore } from '../stores/conversationStore'
 import type { Theme, OuroborosConfig } from '../../shared/protocol'
 
 interface SettingsOverlayProps {
@@ -131,6 +132,8 @@ export function SettingsOverlay({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, handleClose])
 
+  const setModelName = useConversationStore((s) => s.setModelName)
+
   const handleConfigChange = useCallback(
     async (path: string, value: unknown) => {
       if (!config) return
@@ -142,13 +145,16 @@ export function SettingsOverlay({
       try {
         const savedConfig = await window.ouroboros.rpc('config/set', { path, value })
         setConfig(savedConfig)
+        if (path === 'model.name') {
+          setModelName(String(value))
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to save settings'
         setConfig(previousConfig)
         setSaveError(message)
       }
     },
-    [config]
+    [config, setModelName]
   )
 
   if (!isOpen && !exiting) return null

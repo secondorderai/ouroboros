@@ -117,6 +117,7 @@ export function App(): React.ReactElement {
   const pendingSubagentRuns = useConversationStore((s) => s.pendingSubagentRuns)
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const setModelName = useConversationStore((s) => s.setModelName)
+  const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
   const currentArtifacts = useArtifactsStore(selectCurrentArtifacts)
@@ -264,22 +265,25 @@ export function App(): React.ReactElement {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // Fetch config on mount to populate model name
+  // Fetch config on mount to populate model name and reasoning effort
   useEffect(() => {
     const api = window.ouroboros
     if (!api) return
     api
       .rpc('config/get', {})
       .then((result) => {
-        const config = result as { model?: { name?: string } }
+        const config = result as { model?: { name?: string; reasoningEffort?: string } }
         if (config?.model?.name) {
           setModelName(config.model.name)
+        }
+        if (config?.model?.reasoningEffort) {
+          setReasoningEffort(config.model.reasoningEffort as 'minimal' | 'low' | 'medium' | 'high' | 'max')
         }
       })
       .catch((err) => {
         console.error('config/get failed:', err)
       })
-  }, [setModelName])
+  }, [setModelName, setReasoningEffort])
 
   // ---- Command palette overlay callbacks ------------------------------------
 

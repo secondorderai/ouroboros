@@ -1122,3 +1122,52 @@ test('switching mid-processing preserves the in-flight chat (user message + part
     chatList.getByText('Slow reply for A').or(chatList.getByText('Slow reply')),
   ).toBeVisible()
 })
+
+test('model badge updates when model name changes in settings', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      config: {
+        model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+        permissions: {},
+        rsi: { autoReflect: true, noveltyThreshold: 0.7 },
+        memory: { consolidationSchedule: 'manual' },
+      },
+    },
+  })
+  await openMainApp()
+
+  // Verify initial model badge
+  await expect(launched.page.getByText('claude-sonnet-4-20250514')).toBeVisible()
+
+  // Open settings with Cmd+,
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  // Verify settings opened and shows current model
+  await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+
+  // Mock config/set to return the updated model name
+  await setRpcOverride(launched.page, 'config/set', {
+    ok: true,
+    result: {
+      model: { provider: 'anthropic', name: 'claude-opus-4-20250514' },
+      permissions: {},
+      rsi: { autoReflect: true, noveltyThreshold: 0.7 },
+      memory: { consolidationSchedule: 'manual' },
+    },
+  })
+
+  // Change the model name input
+  const modelInput = launched.page.getByLabel('Model').locator('input')
+  await modelInput.fill('claude-opus-4-20250514')
+
+  // Close settings
+  await launched.page.getByLabel('Close settings').click()
+  await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
+
+  // Verify the model badge has updated
+  await expect(launched.page.getByText('claude-opus-4-20250514')).toBeVisible()
+})
