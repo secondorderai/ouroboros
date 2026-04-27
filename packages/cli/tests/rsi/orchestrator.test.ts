@@ -56,6 +56,9 @@ function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
       ...overrides?.artifacts,
       cdnAllowlist: overrides?.artifacts?.cdnAllowlist ?? base.artifacts.cdnAllowlist,
     },
+    mcp: {
+      servers: overrides?.mcp?.servers ?? base.mcp.servers,
+    },
   }
 }
 

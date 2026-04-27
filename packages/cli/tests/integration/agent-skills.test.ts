@@ -284,6 +284,7 @@ Apply the SecondOrder method.`,
             ],
             maxBytes: 1_048_576,
           },
+          mcp: { servers: [] },
         },
       })
 

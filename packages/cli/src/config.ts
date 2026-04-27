@@ -171,6 +171,66 @@ const agentDefinitionSchema = z.object({
   maxSteps: z.number().int().positive().optional(),
 })
 
+// ---------------------------------------------------------------------------
+// MCP (Model Context Protocol) — client config
+// ---------------------------------------------------------------------------
+
+const mcpServerNameRegex = /^[a-z][a-z0-9-]*$/
+
+const mcpRequireApprovalSchema = z
+  .union([z.literal('always'), z.literal('first-call'), z.literal(false)])
+  .default('first-call')
+  .describe(
+    'When to prompt the user before MCP tool calls. "first-call" prompts once per tool per session.',
+  )
+
+const mcpLocalServerSchema = z.object({
+  type: z.literal('local'),
+  name: z
+    .string()
+    .regex(mcpServerNameRegex, 'MCP server name must be lowercase alphanumeric with hyphens')
+    .describe('Server identifier; used as the prefix in mcp__<server>__<tool> tool names'),
+  command: z.string().min(1).describe('Executable to spawn for this stdio MCP server'),
+  args: z.array(z.string()).default([]).describe('Arguments passed to the spawned command'),
+  env: z
+    .record(z.string(), z.string())
+    .default({})
+    .describe('Environment variables for the spawned process'),
+  cwd: z.string().optional().describe('Working directory for the spawned process'),
+  timeout: z
+    .number()
+    .int()
+    .positive()
+    .default(30000)
+    .describe('Per-tool-call timeout in milliseconds'),
+  requireApproval: mcpRequireApprovalSchema,
+})
+
+const mcpRemoteServerSchema = z.object({
+  type: z.literal('remote'),
+  name: z
+    .string()
+    .regex(mcpServerNameRegex, 'MCP server name must be lowercase alphanumeric with hyphens'),
+  url: z.string().url().describe('Streamable HTTP endpoint for the remote MCP server'),
+  headers: z.record(z.string(), z.string()).default({}).describe('Static request headers'),
+  timeout: z.number().int().positive().default(30000),
+  requireApproval: mcpRequireApprovalSchema,
+})
+
+export const mcpServerSchema = z.discriminatedUnion('type', [
+  mcpLocalServerSchema,
+  mcpRemoteServerSchema,
+])
+
+export const mcpConfigSchema = z.object({
+  servers: z.array(mcpServerSchema).default([]),
+})
+
+export type McpServerConfig = z.infer<typeof mcpServerSchema>
+export type McpLocalServerConfig = z.infer<typeof mcpLocalServerSchema>
+export type McpRemoteServerConfig = z.infer<typeof mcpRemoteServerSchema>
+export type McpConfig = z.infer<typeof mcpConfigSchema>
+
 /**
  * Zod schema for the .ouroboros configuration file.
  */
@@ -379,6 +439,8 @@ export const configSchema = z.object({
         .describe('Maximum size in bytes for an HTML artifact'),
     })
     .default(DEFAULT_ARTIFACTS_CONFIG),
+
+  mcp: mcpConfigSchema.default({ servers: [] }),
 })
 
 export type OuroborosConfig = z.infer<typeof configSchema>

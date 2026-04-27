@@ -24,6 +24,7 @@
     "@ai-sdk/anthropic": "3.0.66",
     "@ai-sdk/openai": "3.0.50",
     "@ai-sdk/provider": "*",
+    "@modelcontextprotocol/sdk": "^1.20.0",
     "@ouroboros/shared": "workspace:*",
     "ai": "6.0.146",
     "better-sqlite3": "12.8.0",

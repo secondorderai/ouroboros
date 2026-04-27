@@ -675,6 +675,7 @@ export class Agent {
                 ],
                 maxBytes: 1_048_576,
               },
+              mcp: { servers: [] },
             } satisfies OuroborosConfig)
       })()
     this.rsiOrchestrator = options.rsiOrchestrator ?? null
