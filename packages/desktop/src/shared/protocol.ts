@@ -718,6 +718,7 @@ export interface OuroborosConfig {
     provider: 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
     name: string
     baseUrl?: string
+    apiKey?: string
     /**
      * Reasoning effort. Maps to Anthropic adaptive thinking on Claude 4.6+ or
      * to OpenAI reasoning_effort on o-series and GPT-5. Silently ignored on
