@@ -329,7 +329,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
    * working; production multi-session use always passes a sessionId.
    */
   let anonymousAgent: Agent | null = null
-  function buildAgent(): Agent {
+  function buildAgent(basePath = configDir): Agent {
     const providerResult = createProvider(config.model, configDir)
     if (!providerResult.ok) {
       throw new Error(providerResult.error.message)
@@ -338,7 +338,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       config,
       llm: providerResult.value,
       onEvent: eventProxy,
-      basePath: configDir,
+      basePath,
     })
     return new Agent({
       model: providerResult.value,
@@ -346,7 +346,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       onEvent: eventProxy,
       config,
       transcriptStore,
-      basePath: configDir,
+      basePath,
       rsiOrchestrator,
       modeManager,
       taskGraphStore,
@@ -362,11 +362,13 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     const existing = agentsBySession.get(targetSessionId)
     if (existing) return existing
 
-    const a = buildAgent()
-    a.setSessionId(targetSessionId)
     // Hydrate the agent's conversation history from SQLite so subsequent
     // turns build on the prior conversation.
     const sessionData = transcriptStore.getSession(targetSessionId)
+    const a = buildAgent(
+      sessionData.ok ? (sessionData.value.workspacePath ?? configDir) : configDir,
+    )
+    a.setSessionId(targetSessionId)
     if (sessionData.ok) {
       a.setConversationHistory(toConversationHistory(sessionData.value))
     }

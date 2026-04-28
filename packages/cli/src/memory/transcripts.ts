@@ -21,6 +21,7 @@ import { type Result, ok, err } from '@src/types'
 // ── Types ──────────────────────────────────────────────────────────
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool-call' | 'tool-result'
+export type WorkspaceMode = 'simple' | 'workspace'
 
 export interface TranscriptMessage {
   id: string
@@ -42,6 +43,7 @@ export interface Session {
   title: string | null
   titleSource: 'auto' | 'manual' | null
   workspacePath: string | null
+  workspaceMode: WorkspaceMode
 }
 
 export interface SessionWithMessages extends Session {
@@ -57,6 +59,7 @@ export interface SessionSummary {
   titleSource: 'auto' | 'manual' | null
   messageCount: number
   workspacePath: string | null
+  workspaceMode: WorkspaceMode
 }
 
 export interface SearchResult {
@@ -118,7 +121,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   summary TEXT,
   title TEXT,
   title_source TEXT CHECK(title_source IN ('auto', 'manual')),
-  workspace_path TEXT
+  workspace_path TEXT,
+  workspace_mode TEXT NOT NULL DEFAULT 'workspace' CHECK(workspace_mode IN ('simple', 'workspace'))
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -191,6 +195,7 @@ interface SessionRow {
   title?: string | null
   title_source?: string | null
   workspace_path?: string | null
+  workspace_mode?: string | null
 }
 
 interface MessageRow {
@@ -223,6 +228,7 @@ interface SessionSummaryRow {
   title_source?: string | null
   message_count: number
   workspace_path?: string | null
+  workspace_mode?: string | null
 }
 
 interface SubagentRunRow {
@@ -298,6 +304,11 @@ export class TranscriptStore {
     const columns = this.db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
     if (!columns.some((column) => column.name === 'workspace_path')) {
       this.db.run('ALTER TABLE sessions ADD COLUMN workspace_path TEXT')
+    }
+    if (!columns.some((column) => column.name === 'workspace_mode')) {
+      this.db.run(
+        "ALTER TABLE sessions ADD COLUMN workspace_mode TEXT NOT NULL DEFAULT 'workspace' CHECK(workspace_mode IN ('simple', 'workspace'))",
+      )
     }
     if (!columns.some((column) => column.name === 'title')) {
       this.db.run('ALTER TABLE sessions ADD COLUMN title TEXT')
@@ -375,13 +386,18 @@ export class TranscriptStore {
   /**
    * Create a new session and return its ID.
    */
-  createSession(workspacePath?: string | null): Result<string> {
+  createSession(
+    workspacePath?: string | null,
+    workspaceMode: WorkspaceMode = 'workspace',
+  ): Result<string> {
     try {
       const id = crypto.randomUUID()
       const startedAt = new Date().toISOString()
       this.db
-        .prepare('INSERT INTO sessions (id, started_at, workspace_path) VALUES (?, ?, ?)')
-        .run(id, startedAt, workspacePath ?? null)
+        .prepare(
+          'INSERT INTO sessions (id, started_at, workspace_path, workspace_mode) VALUES (?, ?, ?, ?)',
+        )
+        .run(id, startedAt, workspacePath ?? null, normalizeWorkspaceMode(workspaceMode))
       return ok(id)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
@@ -760,6 +776,7 @@ export class TranscriptStore {
         title: session.title ?? null,
         titleSource: normalizeTitleSource(session.title_source),
         workspacePath: session.workspace_path ?? null,
+        workspaceMode: normalizeWorkspaceMode(session.workspace_mode),
         messages,
       })
     } catch (e) {
@@ -810,7 +827,7 @@ export class TranscriptStore {
     try {
       const rows = this.db
         .prepare(
-          `SELECT s.id, s.started_at, s.ended_at, s.summary, s.workspace_path,
+          `SELECT s.id, s.started_at, s.ended_at, s.summary, s.workspace_path, s.workspace_mode,
                   s.title, s.title_source,
                   (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
            FROM sessions s
@@ -828,6 +845,7 @@ export class TranscriptStore {
         titleSource: normalizeTitleSource(row.title_source),
         messageCount: row.message_count,
         workspacePath: row.workspace_path ?? null,
+        workspaceMode: normalizeWorkspaceMode(row.workspace_mode),
       }))
 
       return ok(sessions)
@@ -911,6 +929,10 @@ function toSubagentRun(row: SubagentRunRow): SubagentRun {
 
 function normalizeTitleSource(value: string | null | undefined): 'auto' | 'manual' | null {
   return value === 'auto' || value === 'manual' ? value : null
+}
+
+function normalizeWorkspaceMode(value: string | null | undefined): WorkspaceMode {
+  return value === 'simple' ? 'simple' : 'workspace'
 }
 
 function toPermissionLease(row: PermissionLeaseRow): PermissionLease {

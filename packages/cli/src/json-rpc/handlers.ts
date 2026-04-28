@@ -6,8 +6,8 @@
  * throws an error (caught by the dispatcher).
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { basename, extname } from 'node:path'
+import { mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { basename, extname, resolve } from 'node:path'
 import type { Agent, AgentEvent } from '@src/agent'
 import type { ModeManager } from '@src/modes/manager'
 import type { ModeId } from '@src/modes/types'
@@ -25,7 +25,12 @@ import { activateSkillForRun } from '@src/skills/skill-invocation'
 import { readCheckpoint } from '@src/memory/checkpoints'
 import { resolveCheckpointsDir, resolveArtifactPath } from '@src/memory/paths'
 import { listArtifacts, readArtifact } from '@src/artifacts/storage'
-import type { SessionSummary, SessionWithMessages, TranscriptStore } from '@src/memory/transcripts'
+import type {
+  SessionSummary,
+  SessionWithMessages,
+  TranscriptStore,
+  WorkspaceMode,
+} from '@src/memory/transcripts'
 import type { PermissionLeaseApprovalDetails } from '@src/permission-lease'
 import type { WorkerDiffApprovalDetails } from '@src/tools/worker-diff-approval'
 import { getEntries, getStats } from '@src/rsi/evolution-log'
@@ -778,17 +783,45 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     return toDesktopSessionData(result.value)
   })
 
-  handlers.set('session/new', async () => {
+  handlers.set('session/new', async (params) => {
     // Create a fresh session in SQLite. We deliberately do NOT touch any
     // existing agent: a run from another session can still be in flight,
     // and clobbering its history mid-stream is what caused the original
     // "chats lost on switch back" bug. The new session's agent is
     // materialized on first agent/run via getAgent(sessionId).
-    const result = ctx.transcriptStore.createSession(process.cwd())
+    const explicitWorkspaceMode = params.workspaceMode !== undefined
+    const workspaceMode = parseWorkspaceMode(params.workspaceMode)
+    const requestedWorkspace = parseOptionalString(params.workspacePath, 'params.workspacePath')
+    let workspacePath: string | null = null
+
+    if (workspaceMode === 'workspace') {
+      if (requestedWorkspace === undefined && explicitWorkspaceMode) {
+        throw new HandlerError(
+          JSON_RPC_ERRORS.INVALID_PARAMS.code,
+          'params.workspacePath is required when workspaceMode is "workspace"',
+        )
+      }
+      workspacePath =
+        requestedWorkspace !== undefined
+          ? validateWorkspaceDirectory(requestedWorkspace)
+          : process.cwd()
+    }
+
+    const result = ctx.transcriptStore.createSession(workspacePath, workspaceMode)
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+
+    if (workspaceMode === 'simple') {
+      workspacePath = resolve(ctx.configDir, '.ouroboros-simple-sessions', result.value)
+      mkdirSync(workspacePath, { recursive: true })
+      const updateResult = ctx.transcriptStore.updateSessionWorkspace(result.value, workspacePath)
+      if (!updateResult.ok) {
+        throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, updateResult.error.message)
+      }
+    }
+
     ctx.setCurrentSessionId(result.value)
-    return { sessionId: result.value }
+    return { sessionId: result.value, workspacePath, workspaceMode }
   })
 
   handlers.set('session/delete', async (params) => {
@@ -1458,6 +1491,7 @@ function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: Transcri
         title: summary.title ?? summary.summary ?? undefined,
         titleSource: summary.titleSource ?? undefined,
         workspacePath: summary.workspacePath,
+        workspaceMode: summary.workspaceMode,
       },
     }
   }
@@ -1482,7 +1516,47 @@ function toDesktopSessionInfo(summary: SessionSummary, transcriptStore: Transcri
         undefined,
       titleSource: sessionResult.value.titleSource ?? undefined,
       workspacePath: summary.workspacePath,
+      workspaceMode: summary.workspaceMode,
     },
+  }
+}
+
+function parseWorkspaceMode(value: unknown): WorkspaceMode {
+  if (value === undefined) return 'workspace'
+  if (value === 'simple' || value === 'workspace') return value
+  throw new HandlerError(
+    JSON_RPC_ERRORS.INVALID_PARAMS.code,
+    'params.workspaceMode must be "simple" or "workspace" when provided',
+  )
+}
+
+function parseOptionalString(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value === 'string' && value.trim().length > 0) return value
+  throw new HandlerError(
+    JSON_RPC_ERRORS.INVALID_PARAMS.code,
+    `${label} must be a non-empty string when provided`,
+  )
+}
+
+function validateWorkspaceDirectory(path: string): string {
+  const resolved = resolve(path)
+  try {
+    const stats = statSync(resolved)
+    if (!stats.isDirectory()) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.workspacePath must be a directory',
+      )
+    }
+    return resolved
+  } catch (error) {
+    if (error instanceof HandlerError) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    throw new HandlerError(
+      JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      `params.workspacePath must be an existing directory: ${message}`,
+    )
   }
 }
 
@@ -1824,6 +1898,7 @@ function toDesktopSessionData(session: SessionWithMessages) {
     id: session.id,
     createdAt: session.startedAt,
     workspacePath: session.workspacePath,
+    workspaceMode: session.workspaceMode,
     messages,
   }
 }

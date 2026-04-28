@@ -379,6 +379,7 @@ export type AuthMethod = 'browser' | 'headless'
 export type AgentClient = 'desktop' | 'cli'
 export type AgentResponseStyle = 'default' | 'desktop-readable'
 export type AgentStopReason = 'completed' | 'max_steps' | 'error'
+export type WorkspaceMode = 'simple' | 'workspace'
 
 export interface AgentRunParams {
   message: string
@@ -429,7 +430,10 @@ export interface SessionListParams {
 export interface SessionLoadParams {
   id: string
 }
-export type SessionNewParams = Record<string, never>
+export interface SessionNewParams {
+  workspaceMode?: WorkspaceMode
+  workspacePath?: string
+}
 export interface SessionDeleteParams {
   id: string
 }
@@ -679,6 +683,7 @@ export interface SessionInfo {
   title?: string
   titleSource?: 'auto' | 'manual'
   workspacePath?: string | null
+  workspaceMode?: WorkspaceMode
   runStatus?: 'idle' | 'running' | 'error'
   activeToolName?: string
 }
@@ -699,10 +704,13 @@ export interface SessionData {
   id: string
   createdAt: string
   workspacePath?: string | null
+  workspaceMode?: WorkspaceMode
   messages: SessionMessage[]
 }
 export interface SessionNewResult {
   sessionId: string
+  workspacePath?: string | null
+  workspaceMode?: WorkspaceMode
 }
 export interface SessionDeleteResult {
   deleted: boolean
