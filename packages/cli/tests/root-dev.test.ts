@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadConfig } from '@src/config'
+import { buildVerifyPlan } from '../../../scripts/verify'
 
 const REPO_ROOT = join(import.meta.dir, '..', '..', '..')
 const ROOT_PACKAGE_JSON = join(REPO_ROOT, 'package.json')
@@ -165,5 +166,37 @@ describe('root dev workflow regressions', () => {
     expect(combined).toContain('No stored provider authentication.')
     expect(combined).not.toContain('Ouroboros v0.1.0')
     expect(combined).not.toContain('Type your message. Ctrl+C to cancel, Ctrl+C twice to exit.')
+  })
+})
+
+describe('root verify workflow regressions', () => {
+  test('root verify script uses the Bun runner so extra args are not forwarded to Playwright', () => {
+    const pkg = readJsonFile<RootPackageJson>(ROOT_PACKAGE_JSON)
+    const verifyScript = pkg.scripts?.verify
+
+    expect(verifyScript).toBe('bun scripts/verify.ts')
+
+    const plan = buildVerifyPlan(['test:desktop'])
+
+    expect(plan.ignoredArgs).toEqual(['test:desktop'])
+    expect(plan.steps.map((step) => step.command.join(' '))).toEqual([
+      'bun run lint',
+      'bun run ts-check',
+      'bun run test:all',
+    ])
+  })
+
+  test('root desktop tests build the Electron app before launching Playwright', () => {
+    const pkg = readJsonFile<RootPackageJson>(ROOT_PACKAGE_JSON)
+    const desktopTestScript = pkg.scripts?.['test:desktop']
+
+    expect(typeof desktopTestScript).toBe('string')
+    if (typeof desktopTestScript !== 'string') return
+
+    expect(desktopTestScript).toContain('build:vite')
+    expect(desktopTestScript).toContain('test:e2e')
+    expect(desktopTestScript.indexOf('build:vite')).toBeLessThan(
+      desktopTestScript.indexOf('test:e2e'),
+    )
   })
 })

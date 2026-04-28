@@ -254,8 +254,11 @@ export function ModelSection({
 
       {/* Provider selector */}
       <div style={styles.field}>
-        <label style={styles.label}>Provider</label>
+        <label style={styles.label} htmlFor="settings-provider">
+          Provider
+        </label>
         <select
+          id="settings-provider"
           style={styles.select}
           value={provider}
           onChange={handleProviderChange}
@@ -270,9 +273,12 @@ export function ModelSection({
 
       {!isChatGPTProvider && (
         <div style={styles.field}>
-          <label style={styles.label}>API Key</label>
+          <label style={styles.label} htmlFor="settings-api-key">
+            API Key
+          </label>
           <div style={styles.inputRow}>
             <input
+              id="settings-api-key"
               type={showKey ? 'text' : 'password'}
               style={styles.input}
               placeholder="Enter your API key..."
@@ -295,8 +301,11 @@ export function ModelSection({
 
       {provider === 'openai-compatible' && (
         <div style={styles.field}>
-          <label style={styles.label}>Base URL</label>
+          <label style={styles.label} htmlFor="settings-base-url">
+            Base URL
+          </label>
           <input
+            id="settings-base-url"
             type="text"
             style={styles.input}
             placeholder="https://api.example.com/v1"
@@ -308,9 +317,16 @@ export function ModelSection({
 
       {/* Model selector */}
       <div style={styles.field}>
-        <label style={styles.label}>Model</label>
+        <label style={styles.label} htmlFor="settings-model">
+          Model
+        </label>
         {isChatGPTProvider ? (
-          <select style={styles.select} value={modelName} onChange={handleModelChange}>
+          <select
+            id="settings-model"
+            style={styles.select}
+            value={modelName}
+            onChange={handleModelChange}
+          >
             {(authStatus?.models.length ? authStatus.models : ['gpt-5.4']).map((model) => (
               <option key={model} value={model}>
                 {model}
@@ -319,6 +335,7 @@ export function ModelSection({
           </select>
         ) : (
           <input
+            id="settings-model"
             type="text"
             style={styles.input}
             placeholder="e.g. claude-3-opus-20240229"
@@ -330,8 +347,11 @@ export function ModelSection({
 
       {reasoningKind !== null && (
         <div style={styles.field}>
-          <label style={styles.label}>Reasoning effort</label>
+          <label style={styles.label} htmlFor="settings-reasoning-effort">
+            Reasoning effort
+          </label>
           <select
+            id="settings-reasoning-effort"
             style={styles.select}
             value={reasoningEffort ?? ''}
             onChange={handleReasoningEffortChange}

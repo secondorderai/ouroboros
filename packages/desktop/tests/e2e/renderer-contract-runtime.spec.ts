@@ -1161,7 +1161,7 @@ test('model badge updates when model name changes in settings', async ({}, testI
   })
 
   // Change the model name input
-  const modelInput = launched.page.getByLabel('Model').locator('input')
+  const modelInput = launched.page.getByLabel('Model')
   await modelInput.fill('claude-opus-4-20250514')
 
   // Close settings

@@ -12,11 +12,11 @@
     "test": "bun run --filter @ouroboros/cli test",
     "test:cli": "bun run --filter @ouroboros/cli test",
     "test:cli:live": "bun run --filter @ouroboros/cli test:live",
-    "test:desktop": "bun run --filter @ouroboros/desktop test:e2e",
+    "test:desktop": "bun run --filter @ouroboros/desktop build:vite && bun run --filter @ouroboros/desktop test:e2e",
     "test:all": "bun run test:cli && bun run test:desktop",
     "lint": "bun run --filter '*' lint",
     "ts-check": "bun run --filter '*' ts-check",
-    "verify": "bun run lint && bun run ts-check && bun run test:all",
+    "verify": "bun scripts/verify.ts",
     "prepare": "husky || true"
   },
   "devDependencies": {
