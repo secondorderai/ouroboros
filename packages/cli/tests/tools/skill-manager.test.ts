@@ -846,17 +846,24 @@ describe('SkillManager', () => {
   })
 
   test('OUROBOROS_USER_SKILLS_DIRS=empty disables user-global discovery', () => {
-    const previous = process.env.OUROBOROS_USER_SKILLS_DIRS
+    const previousUser = process.env.OUROBOROS_USER_SKILLS_DIRS
+    const previousBuiltin = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
     process.env.OUROBOROS_USER_SKILLS_DIRS = ''
+    delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
     try {
       // No project, no builtin, no user roots — empty catalog.
       discoverConfiguredSkills([])
       expect(getSkillCatalog()).toHaveLength(0)
     } finally {
-      if (previous === undefined) {
+      if (previousUser === undefined) {
         delete process.env.OUROBOROS_USER_SKILLS_DIRS
       } else {
-        process.env.OUROBOROS_USER_SKILLS_DIRS = previous
+        process.env.OUROBOROS_USER_SKILLS_DIRS = previousUser
+      }
+      if (previousBuiltin === undefined) {
+        delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+      } else {
+        process.env.OUROBOROS_BUILTIN_SKILLS_DIR = previousBuiltin
       }
     }
   })

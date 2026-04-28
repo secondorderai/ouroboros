@@ -47,6 +47,7 @@ function makeSession(
     title: null,
     titleSource: null,
     workspacePath: null,
+    workspaceMode: 'workspace',
     messages: messages.map((m, i) => ({
       id: `msg-${id}-${i}`,
       sessionId: id,

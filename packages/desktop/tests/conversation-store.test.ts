@@ -18,6 +18,9 @@ function resetStore(): void {
     currentSessionId: null,
     sessions: [],
     workspace: null,
+    workspaceMode: 'simple',
+    selectedWorkspacePath: null,
+    workspaceModeError: null,
     modelName: null,
     contextUsage: null,
   })
@@ -107,6 +110,7 @@ describe('conversation store sessions', () => {
     await Promise.resolve()
 
     expect(calls.map((call) => call.method)).toEqual(['session/new', 'agent/run'])
+    expect(calls[0].params).toEqual({ workspaceMode: 'simple' })
     expect(useConversationStore.getState().currentSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().activeRunSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().sessions[0]).toEqual(
@@ -160,6 +164,70 @@ describe('conversation store sessions', () => {
         title: 'Fix the login bug',
         titleSource: 'auto',
         runStatus: 'running',
+      }),
+    )
+  })
+
+  test('workspace mode requires a selected folder before first send', async () => {
+    resetStore()
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({ text: 'ok' })
+        },
+      },
+    }
+
+    useConversationStore.getState().setWorkspaceMode('workspace')
+    useConversationStore.getState().sendMessage('Start in a workspace')
+
+    await Promise.resolve()
+
+    expect(calls).toEqual([])
+    expect(useConversationStore.getState().workspaceModeError).toBe(
+      'Select a workspace folder before starting a Workspace chat.',
+    )
+  })
+
+  test('workspace mode sends selected folder to session/new', async () => {
+    resetStore()
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          if (method === 'session/new') {
+            return Promise.resolve({
+              sessionId: 'session-workspace',
+              workspacePath: '/tmp/project',
+              workspaceMode: 'workspace',
+            })
+          }
+          return Promise.resolve({ text: 'ok' })
+        },
+      },
+    }
+
+    useConversationStore.getState().setSelectedWorkspacePath('/tmp/project')
+    useConversationStore.getState().setWorkspaceMode('workspace')
+    useConversationStore.getState().sendMessage('Start in project')
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls[0]).toEqual({
+      method: 'session/new',
+      params: { workspaceMode: 'workspace', workspacePath: '/tmp/project' },
+    })
+    expect(useConversationStore.getState().sessions[0]).toEqual(
+      expect.objectContaining({
+        id: 'session-workspace',
+        workspacePath: '/tmp/project',
+        workspaceMode: 'workspace',
       }),
     )
   })

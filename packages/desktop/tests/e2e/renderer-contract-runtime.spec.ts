@@ -952,40 +952,23 @@ test('update banner can be exercised without leaving the renderer contract suite
   await expect.poll(async () => getInstallUpdateCount(launched!.page)).toBe(1)
 })
 
-test('workspace chip can be cleared via the dismiss button', async ({}, testInfo) => {
-  const workspacePath = '/tmp/ouroboros-test-workspace-clear'
+test('top bar workspace mode selector picks a workspace folder', async ({}, testInfo) => {
+  const workspacePath = '/tmp/ouroboros-test-workspace-select'
   launched = await launchTestApp(testInfo, {
     dialogResponses: [workspacePath],
   })
   await openMainApp()
 
-  // Initial state: no workspace selected.
-  const workspaceButton = launched.page.getByRole('button', { name: 'Change workspace' })
-  await expect(workspaceButton).toBeVisible()
-  await expect(workspaceButton).toContainText('No workspace')
-  await expect(launched.page.getByRole('button', { name: 'Clear workspace' })).toHaveCount(0)
+  await expect(launched.page.getByRole('button', { name: 'Change workspace' })).toHaveCount(0)
 
-  // Pick a workspace via the mocked open dialog.
-  await workspaceButton.click()
+  const modeButton = launched.page.getByRole('button', { name: 'Workspace mode' })
+  await expect(modeButton).toBeVisible()
+  await expect(modeButton).toContainText('Simple')
 
-  await expect(workspaceButton).toContainText('ouroboros-test-workspace-clear')
+  await modeButton.click()
+  await launched.page.getByRole('menuitem', { name: /Workspace/ }).click()
 
-  const clearButton = launched.page.getByRole('button', { name: 'Clear workspace' })
-  await expect(clearButton).toBeVisible()
-
-  await expect
-    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
-    .toContain('"method":"workspace/set"')
-
-  // Clear it.
-  await clearButton.click()
-
-  await expect(workspaceButton).toContainText('No workspace')
-  await expect(launched.page.getByRole('button', { name: 'Clear workspace' })).toHaveCount(0)
-
-  await expect
-    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
-    .toContain('"method":"workspace/clear"')
+  await expect(modeButton).toContainText('ouroboros-test-workspace-select')
 })
 
 test('chats persist when switching between sessions — regression for "chats lost on switch back"', async ({}, testInfo) => {

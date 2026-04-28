@@ -54,6 +54,7 @@ interface MockSession {
   title?: string
   titleSource?: 'auto' | 'manual'
   workspacePath?: string | null
+  workspaceMode?: 'simple' | 'workspace'
   messages: MockSessionMessage[]
 }
 
@@ -306,6 +307,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         id: session.id,
         createdAt: session.createdAt,
         workspacePath: session.workspacePath ?? runtime.workspace,
+        workspaceMode: session.workspaceMode ?? 'workspace',
         messages: session.messages,
       })
       return
@@ -319,11 +321,22 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         lastActive: now,
         title: 'New conversation',
         titleSource: 'auto',
+        workspacePath:
+          request.params?.workspaceMode === 'simple'
+            ? `/tmp/ouroboros-simple/${runtime.sessionCounter}`
+            : typeof request.params?.workspacePath === 'string'
+              ? request.params.workspacePath
+              : runtime.workspace,
+        workspaceMode: request.params?.workspaceMode === 'simple' ? 'simple' : 'workspace',
         messages: [],
       }
       runtime.sessions.unshift(newSession)
       runtime.currentSessionId = newSession.id
-      writeResult(request.id, { sessionId: newSession.id })
+      writeResult(request.id, {
+        sessionId: newSession.id,
+        workspacePath: newSession.workspacePath,
+        workspaceMode: newSession.workspaceMode,
+      })
       return
     }
     case 'session/delete': {
@@ -656,6 +669,8 @@ function toSessionInfo(session: MockSession): Json {
     messageCount: session.messages.length,
     title: session.title,
     titleSource: session.titleSource,
+    workspacePath: session.workspacePath,
+    workspaceMode: session.workspaceMode ?? 'workspace',
   }
 }
 

@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { Agent, type AgentOptions } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import { z } from 'zod'
@@ -28,7 +29,15 @@ import { ModeManager } from '@src/modes/manager'
 import { TaskGraphStore, type TaskGraph } from '@src/team/task-graph'
 import { execute as executeAskUser, setAskUserPromptHandler } from '@src/tools/ask-user'
 import * as spawnAgentTool from '@src/tools/spawn-agent'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { ReflectionCheckpoint } from '@src/rsi/types'
@@ -398,6 +407,93 @@ describe('JSON-RPC', () => {
       expect(ctx.currentSessionId).toBe(result.sessionId)
 
       ctx.transcriptStore.close()
+    })
+
+    test('session/new simple mode creates a retained session folder', async () => {
+      const configDir = mkdtempSync(join(tmpdir(), 'ouroboros-simple-session-'))
+      const ctx = createTestContext({ configDir })
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('session/new')!({ workspaceMode: 'simple' })) as {
+        sessionId: string
+        workspacePath: string
+        workspaceMode: 'simple'
+      }
+
+      expect(result.workspaceMode).toBe('simple')
+      expect(result.workspacePath).toBe(
+        join(configDir, '.ouroboros-simple-sessions', result.sessionId),
+      )
+      expect(existsSync(result.workspacePath)).toBe(true)
+
+      const loaded = ctx.transcriptStore.getSession(result.sessionId)
+      expect(loaded.ok).toBe(true)
+      if (loaded.ok) {
+        expect(loaded.value.workspaceMode).toBe('simple')
+        expect(loaded.value.workspacePath).toBe(result.workspacePath)
+      }
+
+      ctx.transcriptStore.close()
+      rmSync(configDir, { recursive: true, force: true })
+    })
+
+    test('session/new workspace mode requires an existing workspace folder', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      await expect(handlers.get('session/new')!({ workspaceMode: 'workspace' })).rejects.toThrow(
+        'params.workspacePath is required',
+      )
+      await expect(
+        handlers.get('session/new')!({
+          workspaceMode: 'workspace',
+          workspacePath: join(tmpdir(), `missing-${crypto.randomUUID()}`),
+        }),
+      ).rejects.toThrow('params.workspacePath must be an existing directory')
+
+      ctx.transcriptStore.close()
+    })
+
+    test('existing sessions without workspace_mode load as workspace mode', async () => {
+      const configDir = mkdtempSync(join(tmpdir(), 'ouroboros-legacy-session-'))
+      const dbPath = join(configDir, 'legacy.db')
+      const legacy = new Database(dbPath)
+      legacy.run(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          started_at TEXT NOT NULL,
+          ended_at TEXT,
+          summary TEXT,
+          title TEXT,
+          title_source TEXT,
+          workspace_path TEXT
+        )
+      `)
+      legacy.run(`
+        CREATE TABLE messages (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          tool_name TEXT,
+          tool_args TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      legacy
+        .prepare('INSERT INTO sessions (id, started_at, workspace_path) VALUES (?, ?, ?)')
+        .run('legacy-session', new Date().toISOString(), configDir)
+      legacy.close()
+
+      const store = new TranscriptStore(dbPath)
+      const loaded = store.getSession('legacy-session')
+      expect(loaded.ok).toBe(true)
+      if (loaded.ok) {
+        expect(loaded.value.workspaceMode).toBe('workspace')
+      }
+
+      store.close()
+      rmSync(configDir, { recursive: true, force: true })
     })
   })
 

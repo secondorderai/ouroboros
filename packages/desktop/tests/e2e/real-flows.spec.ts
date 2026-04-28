@@ -113,7 +113,9 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
   })
 
   await expect(launched.page.getByLabel('Message input')).toBeVisible()
-  await expect(launched.page.getByText('/tmp/ouroboros-workspace')).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: 'Workspace mode' })).toContainText(
+    'ouroboros-workspace',
+  )
 
   // Stub agent/run so the mock CLI doesn't auto-fire notifications via
   // setTimeout (which we've seen race against React's batched rendering
@@ -162,8 +164,11 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
   await expect(launched.page.getByRole('button', { name: 'Remove spec.md' })).toHaveCount(1)
   await expect(launched.page.getByRole('button', { name: 'Remove notes.txt' })).toHaveCount(1)
 
-  await launched.page.getByRole('button', { name: 'Change workspace' }).click()
-  await expect(launched.page.getByText('/tmp/next-workspace')).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Workspace mode' }).click()
+  await launched.page.getByRole('menuitem', { name: /Workspace/ }).click()
+  await expect(launched.page.getByRole('button', { name: 'Workspace mode' })).toContainText(
+    'next-workspace',
+  )
 
   await emitUpdateDownloaded(launched.page, '9.9.9')
   await expect(launched.page.getByRole('alert')).toContainText(
