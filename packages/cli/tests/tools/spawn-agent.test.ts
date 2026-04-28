@@ -462,6 +462,54 @@ describe('spawn_agent tool', () => {
     })
   })
 
+  test('defaults child maxSteps to the configured automation limit instead of the legacy 8-step fallback', async () => {
+    registry.register(fileReadTool)
+    writeFileSync(join(tempDir, 'notes.md'), '# Notes\n\nImportant context.', 'utf-8')
+
+    const exploratoryReads = Array.from({ length: 9 }, (_, index) => [
+      ...toolCallBlock(`read_${index}`, 'file-read', { path: 'notes.md' }),
+      finishToolCalls(),
+    ])
+    const model = createMockModel([
+      ...exploratoryReads,
+      [
+        ...textBlock(
+          validSubagentResultText({ summary: 'Exploration survived a long read pass.' }),
+        ),
+        finishStop(),
+      ],
+    ])
+    const config = makeConfig([primaryAgent(['explore'])])
+
+    const result = await registry.executeTool(
+      'spawn_agent',
+      {
+        agentId: 'explore',
+        task: 'Inspect enough files to require more than eight child steps.',
+        outputFormat: 'summary',
+      },
+      {
+        model,
+        toolRegistry: registry,
+        config,
+        basePath: tempDir,
+        agentId: 'planner',
+        systemPromptBuilder: () => 'Base child prompt.',
+        memoryProvider: () => '',
+        skillCatalogProvider: () => [],
+      },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toMatchObject({
+      status: 'completed',
+      iterations: 10,
+      stopReason: 'completed',
+      structuredResult: { summary: 'Exploration survived a long read pass.' },
+    })
+  })
+
   test('maps generated inspector lane ids to the read-only explore agent', async () => {
     const model = createMockModel([
       [

@@ -202,8 +202,16 @@ function hasOnlyReadOnlyPermissions(permissions: PermissionConfig | undefined): 
   )
 }
 
-function resolveMaxSteps(argsMaxSteps: number | undefined, targetAgent: AgentDefinition): number {
-  return Math.min(argsMaxSteps ?? targetAgent.maxSteps ?? 8, 25)
+function resolveMaxSteps(
+  argsMaxSteps: number | undefined,
+  targetAgent: AgentDefinition,
+  configuredAutomationMaxSteps: number,
+): number {
+  if (argsMaxSteps !== undefined) {
+    return Math.min(argsMaxSteps, 25)
+  }
+
+  return targetAgent.maxSteps ?? configuredAutomationMaxSteps
 }
 
 function readContextFiles(
@@ -717,7 +725,11 @@ export const execute: TypedToolExecute<typeof schema, SpawnAgentResult> = async 
     contextFileRequest.title,
   )
   const linkedTeamAgentId = resolvedAgent.requestedAgentId ?? targetAgent.id
-  const maxSteps = resolveMaxSteps(args.maxSteps, targetAgent)
+  const maxSteps = resolveMaxSteps(
+    args.maxSteps,
+    targetAgent,
+    context.config.agent.maxSteps.automation,
+  )
   const transcriptStore = context.transcriptStore
   const parentSessionId = context.sessionId
   const runId = crypto.randomUUID()
@@ -991,7 +1003,11 @@ async function executeWorkerAgent(
     contextFileRequest.basePath,
     contextFileRequest.title,
   )
-  const maxSteps = resolveMaxSteps(args.maxSteps, targetAgent)
+  const maxSteps = resolveMaxSteps(
+    args.maxSteps,
+    targetAgent,
+    context.config.agent.maxSteps.automation,
+  )
   const transcriptStore = context.transcriptStore
   const parentSessionId = context.sessionId
   const runId = crypto.randomUUID()
