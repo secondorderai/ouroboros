@@ -324,10 +324,25 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const actions = useMemo(() => {
     return createDefaultActions({
       onNewConversation: () => {
-        resetConversation()
-        window.ouroboros?.rpc('session/new', {}).catch((err: unknown) => {
-          console.error('session/new failed:', err)
-        })
+        const store = useConversationStore.getState()
+        if (store.workspaceMode === 'workspace' && !store.selectedWorkspacePath) {
+          store.setWorkspaceMode('workspace')
+          return
+        }
+        window.ouroboros
+          ?.rpc(
+            'session/new',
+            store.workspaceMode === 'workspace'
+              ? { workspaceMode: 'workspace', workspacePath: store.selectedWorkspacePath! }
+              : { workspaceMode: 'simple' },
+          )
+          .then((result) => {
+            resetConversation()
+            store.createNewSession(result.sessionId, result.workspacePath, result.workspaceMode)
+          })
+          .catch((err: unknown) => {
+            console.error('session/new failed:', err)
+          })
       },
       onTriggerDream: () => {
         window.ouroboros?.rpc('rsi/dream', {}).catch((err: unknown) => {
@@ -341,9 +356,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         }).then((dir) => {
           const directory = Array.isArray(dir) ? dir[0] : dir
           if (directory) {
-            window.ouroboros?.rpc('workspace/set', { directory }).catch((err: unknown) => {
-              console.error('workspace/set failed:', err)
-            })
+            const store = useConversationStore.getState()
+            store.setSelectedWorkspacePath(directory)
+            store.setWorkspaceMode('workspace')
           }
         })
       },

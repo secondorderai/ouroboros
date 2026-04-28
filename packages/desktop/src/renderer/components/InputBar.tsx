@@ -53,12 +53,10 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const sendMessage = useConversationStore((s) => s.sendMessage)
   const steerCurrentRun = useConversationStore((s) => s.steerCurrentRun)
   const cancelRun = useConversationStore((s) => s.cancelRun)
-  const workspace = useConversationStore((s) => s.workspace)
   const modelName = useConversationStore((s) => s.modelName)
   const reasoningEffort = useConversationStore((s) => s.reasoningEffort)
   const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
   const contextUsage = useConversationStore((s) => s.contextUsage)
-  const setWorkspace = useConversationStore((s) => s.setWorkspace)
   const modeState = useModeStore((s) => s.modeState)
   const modeBusy = useModeStore((s) => s.isHydrating || s.isMutating)
   const modeError = useModeStore((s) => s.error)
@@ -244,31 +242,6 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const removeImage = useCallback((filePath: string) => {
     setAttachedImages((prev) => prev.filter((image) => image.path !== filePath))
   }, [])
-
-  const handleWorkspaceClick = useCallback(async () => {
-    const api = window.ouroboros
-    if (!api) return
-    const result = await api.showOpenDialog({
-      title: 'Select workspace folder',
-      properties: ['openDirectory'],
-    })
-    if (result) {
-      const dir = Array.isArray(result) ? result[0] : result
-      if (dir) {
-        setWorkspace(dir)
-        api.rpc('workspace/set', { directory: dir }).catch((err) => {
-          console.error('workspace/set failed:', err)
-        })
-      }
-    }
-  }, [setWorkspace])
-
-  const handleWorkspaceClear = useCallback(() => {
-    setWorkspace(null)
-    window.ouroboros?.rpc('workspace/clear', {}).catch((err) => {
-      console.error('workspace/clear failed:', err)
-    })
-  }, [setWorkspace])
 
   const handleModeChipClick = useCallback(() => {
     clearModeError()
@@ -589,7 +562,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
         )}
       </div>
 
-      {/* Bottom meta row: workspace indicator + model badge */}
+      {/* Bottom meta row: mode, selected skill, context, reasoning, model */}
       <div style={styles.metaRow}>
         <div style={styles.metaLeft}>
           <div style={styles.modeArea} ref={modeMenuRef}>
@@ -643,29 +616,6 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
             <SkillChip skill={selectedSkill} onRemove={() => setSelectedSkill(null)} />
           )}
 
-          <div style={styles.workspaceChip}>
-            <button
-              style={styles.workspaceButton}
-              onClick={handleWorkspaceClick}
-              title={workspace ?? 'Set workspace'}
-              aria-label='Change workspace'
-            >
-              <FolderIcon />
-              <span style={styles.workspacePath}>
-                {workspace ? truncatePath(workspace) : 'No workspace'}
-              </span>
-            </button>
-            {workspace && (
-              <button
-                style={styles.workspaceClearButton}
-                onClick={handleWorkspaceClear}
-                title='Clear workspace'
-                aria-label='Clear workspace'
-              >
-                <XIcon />
-              </button>
-            )}
-          </div>
         </div>
 
         <div style={styles.metaRight}>
@@ -760,17 +710,6 @@ function reasoningKindForModel(modelName: string | null): 'anthropic-adaptive' |
   }
 
   return null
-}
-
-function truncatePath(fullPath: string): string {
-  // Replace home dir with ~
-  const home = fullPath.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')
-  // If still long, show last 2 segments
-  const segments = home.split('/')
-  if (segments.length > 3) {
-    return '.../' + segments.slice(-2).join('/')
-  }
-  return home
 }
 
 function mergeUniquePaths(existingPaths: string[], nextPaths: string[]): string[] {
@@ -1028,23 +967,6 @@ function AttachIcon(): React.ReactElement {
       strokeLinejoin='round'
     >
       <path d='M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48' />
-    </svg>
-  )
-}
-
-function FolderIcon(): React.ReactElement {
-  return (
-    <svg
-      width='12'
-      height='12'
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-    >
-      <path d='M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z' />
     </svg>
   )
 }
@@ -1489,46 +1411,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     lineHeight: 1.4,
     color: 'var(--text-tertiary)',
-  },
-  workspaceChip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 2,
-    minWidth: 0,
-  },
-  workspaceButton: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    border: 'none',
-    background: 'transparent',
-    color: 'var(--text-tertiary)',
-    fontSize: 11,
-    fontFamily: 'var(--font-sans)',
-    cursor: 'pointer',
-    padding: '2px 4px',
-    borderRadius: 'var(--radius-micro)',
-    maxWidth: 220,
-    minWidth: 0,
-  },
-  workspaceClearButton: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 18,
-    height: 18,
-    border: 'none',
-    borderRadius: 999,
-    backgroundColor: 'transparent',
-    color: 'var(--text-tertiary)',
-    cursor: 'pointer',
-    padding: 0,
-    flexShrink: 0,
-  },
-  workspacePath: {
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
   },
   modeErrorText: {
     fontSize: 11,

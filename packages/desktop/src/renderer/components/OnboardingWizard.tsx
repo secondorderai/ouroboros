@@ -97,13 +97,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         await window.ouroboros.rpc('config/setApiKey', { provider, apiKey })
       }
 
-      if (workspace) {
-        await window.ouroboros.rpc('workspace/set', { directory: workspace })
-      }
-
-      const sessionResult = (await window.ouroboros.rpc('session/new', {})) as SessionNewResult
+      const sessionResult = (await window.ouroboros.rpc(
+        'session/new',
+        workspace
+          ? { workspaceMode: 'workspace', workspacePath: workspace }
+          : { workspaceMode: 'simple' },
+      )) as SessionNewResult
       if (sessionResult?.sessionId) {
-        useConversationStore.getState().createNewSession(sessionResult.sessionId)
+        const store = useConversationStore.getState()
+        if (workspace) {
+          store.setSelectedWorkspacePath(workspace)
+          store.setWorkspaceMode('workspace')
+        }
+        store.createNewSession(
+          sessionResult.sessionId,
+          sessionResult.workspacePath,
+          sessionResult.workspaceMode,
+        )
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to complete onboarding setup'

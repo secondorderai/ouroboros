@@ -24,6 +24,7 @@ import type {
   SubagentRun,
   PermissionLeaseDisplayDetails,
   WorkerDiffDisplayDetails,
+  WorkspaceMode,
 } from '../../shared/protocol'
 
 // ---------------------------------------------------------------------------
@@ -97,6 +98,15 @@ export interface ConversationState {
 
   /** Current workspace path. */
   workspace: string | null
+
+  /** Workspace mode used when creating new sessions. */
+  workspaceMode: WorkspaceMode
+
+  /** Folder selected for new Workspace-mode sessions. */
+  selectedWorkspacePath: string | null
+
+  /** User-visible workspace mode validation error. */
+  workspaceModeError: string | null
 
   /** Current model name. */
   modelName: string | null
@@ -191,10 +201,19 @@ export interface ConversationState {
   setCurrentSessionId: (id: string | null) => void
 
   /** Load a session's messages into the chat. */
-  loadSession: (id: string, messages: SessionMessage[], workspacePath?: string | null) => void
+  loadSession: (
+    id: string,
+    messages: SessionMessage[],
+    workspacePath?: string | null,
+    workspaceMode?: WorkspaceMode,
+  ) => void
 
   /** Create a new session and make it active. */
-  createNewSession: (sessionId: string) => void
+  createNewSession: (
+    sessionId: string,
+    workspacePath?: string | null,
+    workspaceMode?: WorkspaceMode,
+  ) => void
 
   /** Delete a session from the list. */
   deleteSession: (id: string) => void
@@ -204,6 +223,15 @@ export interface ConversationState {
 
   /** Set the workspace path. */
   setWorkspace: (path: string | null) => void
+
+  /** Set the workspace mode for new sessions. */
+  setWorkspaceMode: (mode: WorkspaceMode) => void
+
+  /** Set the folder used for new Workspace-mode sessions. */
+  setSelectedWorkspacePath: (path: string | null) => void
+
+  /** Clear workspace mode validation error. */
+  clearWorkspaceModeError: () => void
 
   /** Set the model name. */
   setModelName: (name: string | null) => void
@@ -885,6 +913,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   sessionRunSnapshots: new Map(),
   sessions: [],
   workspace: null,
+  workspaceMode: 'simple',
+  selectedWorkspacePath: null,
+  workspaceModeError: null,
   modelName: null,
   reasoningEffort: null,
   contextUsage: null,
@@ -894,6 +925,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   sendMessage(text: string, files?: string[], images?: ImageAttachment[], skillName?: string) {
     const state = get()
     const runSessionId = state.currentSessionId
+    if (!runSessionId && state.workspaceMode === 'workspace' && !state.selectedWorkspacePath) {
+      set({ workspaceModeError: 'Select a workspace folder before starting a Workspace chat.' })
+      return
+    }
     const id = makeId('user', state.nextId)
     const sentAt = new Date().toISOString()
     const userMessage: Message = {
@@ -945,7 +980,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       const api = window.ouroboros
 
       if (!sessionId && api) {
-        const result = (await api.rpc('session/new', {})) as { sessionId?: string }
+        const latest = get()
+        const sessionParams =
+          latest.workspaceMode === 'workspace'
+            ? {
+                workspaceMode: 'workspace' as const,
+                workspacePath: latest.selectedWorkspacePath ?? undefined,
+              }
+            : { workspaceMode: 'simple' as const }
+        const result = (await api.rpc('session/new', sessionParams)) as {
+          sessionId?: string
+          workspacePath?: string | null
+          workspaceMode?: WorkspaceMode
+        }
         if (result?.sessionId) {
           sessionId = result.sessionId
           const title = deriveSessionTitle(text)
@@ -959,12 +1006,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
               messageCount: state.messages.length,
               title,
               titleSource: 'auto',
+              workspacePath: result.workspacePath,
+              workspaceMode: result.workspaceMode,
               runStatus: 'running',
             }
             const existing = state.sessions.some((item) => item.id === result.sessionId)
             return {
               currentSessionId: state.currentSessionId ?? result.sessionId,
               activeRunSessionId: result.sessionId,
+              workspace: result.workspacePath ?? state.workspace,
               sessions: existing
                 ? state.sessions.map((item) =>
                     item.id === result.sessionId
@@ -973,6 +1023,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
                           title:
                             item.title && item.title !== 'New conversation' ? item.title : title,
                           titleSource: item.titleSource ?? 'auto',
+                          workspacePath: result.workspacePath ?? item.workspacePath,
+                          workspaceMode: result.workspaceMode ?? item.workspaceMode,
                           messageCount: state.messages.length,
                           lastActive: now,
                           runStatus: 'running',
@@ -1698,7 +1750,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     })
   },
 
-  loadSession(id: string, sessionMessages: SessionMessage[], workspacePath?: string | null) {
+  loadSession(
+    id: string,
+    sessionMessages: SessionMessage[],
+    workspacePath?: string | null,
+  ) {
     const state = get()
     const messages: Message[] = sessionMessages.map((m, i) => ({
       id: makeId(m.role === 'user' ? 'user' : 'agent', i + 1),
@@ -1757,13 +1813,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       currentSessionId: id,
       sessionRunSnapshots: snapshots,
       ...flatFromSnapshot(incoming),
-      ...(workspacePath ? { workspace: workspacePath } : {}),
+      workspace: workspacePath ?? null,
     })
 
     hydrateLoadedImagePreviews(id, incoming.messages, set, get)
   },
 
-  createNewSession(sessionId: string) {
+  createNewSession(
+    sessionId: string,
+    workspacePath?: string | null,
+    workspaceMode?: WorkspaceMode,
+  ) {
     const state = get()
     const newSession: SessionInfo = {
       id: sessionId,
@@ -1772,6 +1832,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       messageCount: 0,
       title: 'New conversation',
       titleSource: 'auto',
+      workspacePath,
+      workspaceMode,
     }
 
     // Snapshot the outgoing session before switching to the new one — this
@@ -1790,6 +1852,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       // because the user clicked "+ new chat".
       activeRunSessionId: state.activeRunSessionId,
       currentSessionId: sessionId,
+      workspace: workspacePath ?? null,
       sessions: [newSession, ...state.sessions],
       sessionRunSnapshots: snapshots,
     })
@@ -1832,6 +1895,28 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   setWorkspace(path: string | null) {
     set({ workspace: path })
+  },
+
+  setWorkspaceMode(mode: WorkspaceMode) {
+    set({
+      workspaceMode: mode,
+      workspaceModeError:
+        mode === 'workspace' && !get().selectedWorkspacePath
+          ? 'Select a workspace folder before starting a Workspace chat.'
+          : null,
+    })
+  },
+
+  setSelectedWorkspacePath(path: string | null) {
+    set({
+      selectedWorkspacePath: path,
+      workspace: path,
+      workspaceModeError: path ? null : get().workspaceModeError,
+    })
+  },
+
+  clearWorkspaceModeError() {
+    set({ workspaceModeError: null })
   },
 
   setModelName(name: string | null) {

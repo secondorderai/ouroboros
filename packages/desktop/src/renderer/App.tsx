@@ -118,7 +118,12 @@ export function App(): React.ReactElement {
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const setModelName = useConversationStore((s) => s.setModelName)
   const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
-  const setWorkspace = useConversationStore((s) => s.setWorkspace)
+  const workspaceMode = useConversationStore((s) => s.workspaceMode)
+  const selectedWorkspacePath = useConversationStore((s) => s.selectedWorkspacePath)
+  const workspaceModeError = useConversationStore((s) => s.workspaceModeError)
+  const setWorkspaceMode = useConversationStore((s) => s.setWorkspaceMode)
+  const setSelectedWorkspacePath = useConversationStore((s) => s.setSelectedWorkspacePath)
+  const clearWorkspaceModeError = useConversationStore((s) => s.clearWorkspaceModeError)
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
   const currentArtifacts = useArtifactsStore(selectCurrentArtifacts)
 
@@ -308,6 +313,30 @@ export function App(): React.ReactElement {
     setTeamGraphOpen(true)
   }, [])
 
+  const pickWorkspaceFolder = useCallback(async (): Promise<string | null> => {
+    const api = window.ouroboros
+    if (!api) return null
+    const result = await api.showOpenDialog({
+      title: 'Select workspace folder',
+      properties: ['openDirectory'],
+    })
+    const directory = Array.isArray(result) ? result[0] : result
+    if (!directory) return null
+    setSelectedWorkspacePath(directory)
+    clearWorkspaceModeError()
+    return directory
+  }, [clearWorkspaceModeError, setSelectedWorkspacePath])
+
+  const handleWorkspaceModeSelect = useCallback(
+    (mode: 'simple' | 'workspace') => {
+      setWorkspaceMode(mode)
+      if (mode === 'simple') {
+        clearWorkspaceModeError()
+      }
+    },
+    [clearWorkspaceModeError, setWorkspaceMode],
+  )
+
   useEffect(() => {
     const api = window.ouroboros
     if (!api?.onNotification) return
@@ -388,12 +417,6 @@ export function App(): React.ReactElement {
     }
   }, [])
 
-  // Check if workspace is already set (e.g. from the CLI working directory)
-  useEffect(() => {
-    // Workspace will be set via the workspace indicator interaction
-    // or from config. No automatic detection needed.
-  }, [setWorkspace])
-
   // Show onboarding wizard on first launch
   if (showOnboarding) {
     return (
@@ -407,6 +430,11 @@ export function App(): React.ReactElement {
           pendingApprovals={pendingApprovals.length}
           showTeamGraph={hasTeamGraphAffordance}
           onOpenTeamGraph={openTeamGraph}
+          workspaceMode={workspaceMode}
+          selectedWorkspacePath={selectedWorkspacePath}
+          workspaceModeError={workspaceModeError}
+          onSelectWorkspaceMode={handleWorkspaceModeSelect}
+          onPickWorkspace={pickWorkspaceFolder}
         />
         <OnboardingWizard onComplete={handleOnboardingComplete} />
       </div>
@@ -427,6 +455,11 @@ export function App(): React.ReactElement {
         pendingApprovals={pendingApprovals.length}
         showTeamGraph={hasTeamGraphAffordance}
         onOpenTeamGraph={openTeamGraph}
+        workspaceMode={workspaceMode}
+        selectedWorkspacePath={selectedWorkspacePath}
+        workspaceModeError={workspaceModeError}
+        onSelectWorkspaceMode={handleWorkspaceModeSelect}
+        onPickWorkspace={pickWorkspaceFolder}
       />
       <div
         style={{
@@ -440,6 +473,9 @@ export function App(): React.ReactElement {
             width={sidebarWidth}
             onResize={resizeSidebar}
             onOpenSettings={() => openSettings()}
+            workspaceMode={workspaceMode}
+            selectedWorkspacePath={selectedWorkspacePath}
+            onRequireWorkspace={pickWorkspaceFolder}
           />
         )}
         {!artifactFullscreen && (

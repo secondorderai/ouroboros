@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { SerpentIcon, type SerpentState } from './SerpentIcon'
+import type { WorkspaceMode } from '../../shared/protocol'
 
 interface TitleBarProps {
   resolvedTheme: 'light' | 'dark'
@@ -10,6 +11,11 @@ interface TitleBarProps {
   pendingApprovals: number
   showTeamGraph?: boolean
   onOpenTeamGraph?: () => void
+  workspaceMode: WorkspaceMode
+  selectedWorkspacePath: string | null
+  workspaceModeError?: string | null
+  onSelectWorkspaceMode: (mode: WorkspaceMode) => void
+  onPickWorkspace: () => Promise<string | null>
 }
 
 export function TitleBar({
@@ -21,14 +27,35 @@ export function TitleBar({
   pendingApprovals,
   showTeamGraph = false,
   onOpenTeamGraph,
+  workspaceMode,
+  selectedWorkspacePath,
+  workspaceModeError,
+  onSelectWorkspaceMode,
+  onPickWorkspace,
 }: TitleBarProps): React.ReactElement {
   const [platform, setPlatform] = useState<string>('darwin')
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
 
   useEffect(() => {
     window.electronAPI.getPlatform().then(setPlatform)
   }, [])
 
   const isMac = platform === 'darwin'
+  const workspaceLabel =
+    workspaceMode === 'workspace' && selectedWorkspacePath
+      ? truncatePath(selectedWorkspacePath)
+      : workspaceMode === 'workspace'
+        ? 'Workspace'
+        : 'Simple'
+
+  async function selectMode(mode: WorkspaceMode): Promise<void> {
+    if (mode === 'workspace') {
+      const picked = await onPickWorkspace()
+      if (!picked && !selectedWorkspacePath) return
+    }
+    onSelectWorkspaceMode(mode)
+    setModeMenuOpen(false)
+  }
 
   return (
     <div style={styles.titleBar} className="drag-region no-select">
@@ -45,9 +72,51 @@ export function TitleBar({
         </button>
       </div>
 
-      {/* Center: app title */}
+      {/* Center: workspace mode selector */}
       <div style={styles.center}>
-        <span style={styles.title}>Ouroboros</span>
+        <div style={styles.modeSelector} className="no-drag">
+          <button
+            style={{
+              ...styles.modeButton,
+              ...(workspaceModeError ? styles.modeButtonError : undefined),
+            }}
+            onClick={() => setModeMenuOpen((open) => !open)}
+            aria-label="Workspace mode"
+            aria-expanded={modeMenuOpen}
+            title={workspaceModeError ?? 'Choose workspace mode for new chats'}
+          >
+            <span style={styles.modeLabel}>{workspaceMode === 'simple' ? 'Simple' : workspaceLabel}</span>
+            <ChevronIcon open={modeMenuOpen} />
+          </button>
+          {modeMenuOpen && (
+            <div style={styles.modeMenu} role="menu" aria-label="Workspace mode selector">
+              <button
+                style={{
+                  ...styles.modeMenuItem,
+                  ...(workspaceMode === 'simple' ? styles.modeMenuItemSelected : undefined),
+                }}
+                role="menuitem"
+                onClick={() => void selectMode('simple')}
+              >
+                <span style={styles.modeMenuTitle}>Simple</span>
+                <span style={styles.modeMenuDescription}>Isolated folder per new chat.</span>
+              </button>
+              <button
+                style={{
+                  ...styles.modeMenuItem,
+                  ...(workspaceMode === 'workspace' ? styles.modeMenuItemSelected : undefined),
+                }}
+                role="menuitem"
+                onClick={() => void selectMode('workspace')}
+              >
+                <span style={styles.modeMenuTitle}>Workspace</span>
+                <span style={styles.modeMenuDescription}>
+                  {selectedWorkspacePath ? truncatePath(selectedWorkspacePath) : 'Select a folder.'}
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right section: serpent icon + theme toggle */}
@@ -81,6 +150,33 @@ export function TitleBar({
         </button>
       </div>
     </div>
+  )
+}
+
+function truncatePath(fullPath: string): string {
+  const home = fullPath.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')
+  const segments = home.split('/')
+  return segments.length > 3 ? `.../${segments.slice(-2).join('/')}` : home
+}
+
+function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform 0.15s ease',
+      }}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
   )
 }
 
@@ -190,11 +286,81 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center'
   },
-  title: {
-    fontSize: 13,
-    fontWeight: 600,
+  modeSelector: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  modeButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 92,
+    maxWidth: 240,
+    height: 28,
+    border: '1px solid var(--border-light)',
+    borderRadius: 'var(--radius-standard)',
+    backgroundColor: 'var(--bg-secondary)',
     color: 'var(--text-secondary)',
-    letterSpacing: '0.02em'
+    cursor: 'pointer',
+    padding: '0 9px',
+    fontFamily: 'var(--font-sans)',
+  },
+  modeButtonError: {
+    borderColor: 'var(--accent-red)',
+    color: 'var(--accent-red)',
+  },
+  modeLabel: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 1,
+  },
+  modeMenu: {
+    position: 'absolute',
+    top: 34,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: 220,
+    padding: 6,
+    border: '1px solid var(--border-light)',
+    borderRadius: 10,
+    backgroundColor: 'var(--bg-input)',
+    boxShadow: 'var(--shadow-lg)',
+    zIndex: 200,
+  },
+  modeMenuItem: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 3,
+    border: 'none',
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    color: 'var(--text-primary)',
+    padding: '8px 10px',
+    textAlign: 'left',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-sans)',
+  },
+  modeMenuItemSelected: {
+    backgroundColor: 'var(--bg-hover)',
+  },
+  modeMenuTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  modeMenuDescription: {
+    width: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontSize: 11,
+    color: 'var(--text-tertiary)',
   },
   right: {
     display: 'flex',

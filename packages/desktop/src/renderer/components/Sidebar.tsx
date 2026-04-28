@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
-import type { SessionData, SessionInfo } from '../../shared/protocol'
+import type { SessionData, SessionInfo, WorkspaceMode } from '../../shared/protocol'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,6 +11,9 @@ interface SidebarProps {
   width: number
   onResize: (width: number) => void
   onOpenSettings: () => void
+  workspaceMode: WorkspaceMode
+  selectedWorkspacePath: string | null
+  onRequireWorkspace: () => Promise<string | null>
 }
 
 interface DateGroup {
@@ -100,6 +103,9 @@ export function Sidebar({
   width,
   onResize,
   onOpenSettings,
+  workspaceMode,
+  selectedWorkspacePath,
+  onRequireWorkspace,
 }: SidebarProps): React.ReactElement {
   const sessions = useConversationStore((s) => s.sessions)
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
@@ -166,14 +172,28 @@ export function Sidebar({
     const api = window.ouroboros
     if (!api) return
     try {
-      const result = (await api.rpc('session/new', {})) as { sessionId: string }
+      let workspacePath = selectedWorkspacePath
+      if (workspaceMode === 'workspace' && !workspacePath) {
+        workspacePath = await onRequireWorkspace()
+        if (!workspacePath) return
+      }
+      const result = (await api.rpc(
+        'session/new',
+        workspaceMode === 'workspace'
+          ? { workspaceMode, workspacePath: workspacePath! }
+          : { workspaceMode },
+      )) as {
+        sessionId: string
+        workspacePath?: string | null
+        workspaceMode?: WorkspaceMode
+      }
       if (result?.sessionId) {
-        createNewSession(result.sessionId)
+        createNewSession(result.sessionId, result.workspacePath, result.workspaceMode)
       }
     } catch (err) {
       console.error('session/new failed:', err)
     }
-  }, [createNewSession])
+  }, [createNewSession, onRequireWorkspace, selectedWorkspacePath, workspaceMode])
 
   const handleLoadSession = useCallback(
     async (sessionId: string) => {
@@ -190,7 +210,7 @@ export function Sidebar({
         const result = (await api.rpc('session/load', {
           id: sessionId,
         })) as SessionData
-        loadSession(sessionId, result?.messages ?? [], result?.workspacePath)
+        loadSession(sessionId, result?.messages ?? [], result?.workspacePath, result?.workspaceMode)
       } catch (err) {
         console.error('session/load failed:', err)
       }
