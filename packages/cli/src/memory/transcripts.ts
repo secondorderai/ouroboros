@@ -823,8 +823,10 @@ export class TranscriptStore {
   /**
    * List recent sessions in reverse chronological order.
    */
-  getRecentSessions(limit: number = 10): Result<SessionSummary[]> {
+  getRecentSessions(limit: number = 10, offset: number = 0): Result<SessionSummary[]> {
     try {
+      const safeLimit = Math.max(0, Math.floor(limit))
+      const safeOffset = Math.max(0, Math.floor(offset))
       const rows = this.db
         .prepare(
           `SELECT s.id, s.started_at, s.ended_at, s.summary, s.workspace_path, s.workspace_mode,
@@ -832,9 +834,9 @@ export class TranscriptStore {
                   (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
            FROM sessions s
            ORDER BY s.started_at DESC, s.rowid DESC
-           LIMIT ?`,
+           LIMIT ? OFFSET ?`,
         )
-        .all(limit) as SessionSummaryRow[]
+        .all(safeLimit, safeOffset) as SessionSummaryRow[]
 
       const sessions: SessionSummary[] = rows.map((row) => ({
         id: row.id,

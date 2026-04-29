@@ -9,6 +9,8 @@
  * and registering it with the ModeManager.
  */
 
+import type { Plan } from './plan/types'
+
 /** Extensible union of mode identifiers. */
 export type ModeId = 'plan'
 
@@ -60,3 +62,4 @@ export type ModeState =
 export type ModeEvent =
   | { type: 'mode-entered'; modeId: ModeId; displayName: string; reason: string }
   | { type: 'mode-exited'; modeId: ModeId; reason: string }
+  | { type: 'plan-submitted'; plan: Plan }

@@ -303,7 +303,7 @@ export function bridgeAgentEvent(event: AgentEvent, sessionId: string | null = n
       )
       break
     case 'plan-submitted':
-      writeMessage(makeNotification('mode/planSubmitted', { plan: event.plan }))
+      writeMessage(makeNotification('mode/planSubmitted', { sessionId, plan: event.plan }))
       break
     case 'artifact-created':
       writeMessage(
@@ -746,14 +746,16 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   // ── session/* ────────────────────────────────────────────────────
 
   handlers.set('session/list', async (params) => {
-    const limit = typeof params.limit === 'number' ? params.limit : 20
-    const result = ctx.transcriptStore.getRecentSessions(limit)
+    const rawLimit = typeof params.limit === 'number' ? params.limit : 20
+    const rawOffset = typeof params.offset === 'number' ? params.offset : 0
+    const limit = Math.max(0, Math.floor(rawLimit))
+    const offset = Math.max(0, Math.floor(rawOffset))
+    const result = ctx.transcriptStore.getRecentSessions(limit + 1, offset)
     if (!result.ok)
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
 
-    const sessionResults = result.value.map((summary) =>
-      toDesktopSessionInfo(summary, ctx.transcriptStore),
-    )
+    const page = result.value.slice(0, limit)
+    const sessionResults = page.map((summary) => toDesktopSessionInfo(summary, ctx.transcriptStore))
     const sessions = []
     for (const session of sessionResults) {
       if (!session.ok) {
@@ -762,7 +764,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       sessions.push(session.value)
     }
 
-    return { sessions }
+    return { sessions, hasMore: result.value.length > limit }
   })
 
   handlers.set('session/load', async (params) => {

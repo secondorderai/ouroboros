@@ -2082,6 +2082,39 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('session/list supports pages and hasMore', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+      const sessionIds: string[] = []
+
+      for (let index = 0; index < 55; index += 1) {
+        const result = ctx.transcriptStore.createSession()
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+        sessionIds.push(result.value)
+      }
+
+      const firstPage = (await handlers.get('session/list')!({ limit: 50, offset: 0 })) as {
+        sessions: Array<{ id: string }>
+        hasMore: boolean
+      }
+      expect(firstPage.sessions).toHaveLength(50)
+      expect(firstPage.sessions[0].id).toBe(sessionIds[54])
+      expect(firstPage.sessions[49].id).toBe(sessionIds[5])
+      expect(firstPage.hasMore).toBe(true)
+
+      const secondPage = (await handlers.get('session/list')!({ limit: 50, offset: 50 })) as {
+        sessions: Array<{ id: string }>
+        hasMore: boolean
+      }
+      expect(secondPage.sessions.map((session) => session.id)).toEqual(
+        sessionIds.slice(0, 5).reverse(),
+      )
+      expect(secondPage.hasMore).toBe(false)
+
+      ctx.transcriptStore.close()
+    })
+
     test('agent/run stores an automatic title after the first assistant turn', async () => {
       const model = createMockModel([
         [

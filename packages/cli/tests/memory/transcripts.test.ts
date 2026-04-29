@@ -181,6 +181,28 @@ describe('Layer 3 — Session Transcripts', () => {
     expect(result.value[1].id).toBe(s2.value)
   })
 
+  test('recent sessions supports offset pagination', () => {
+    const sessionIds: string[] = []
+    for (let index = 0; index < 55; index += 1) {
+      const result = store.createSession()
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      sessionIds.push(result.value)
+    }
+
+    const firstPage = store.getRecentSessions(50, 0)
+    expect(firstPage.ok).toBe(true)
+    if (!firstPage.ok) return
+    expect(firstPage.value).toHaveLength(50)
+    expect(firstPage.value[0].id).toBe(sessionIds[54])
+    expect(firstPage.value[49].id).toBe(sessionIds[5])
+
+    const secondPage = store.getRecentSessions(50, 50)
+    expect(secondPage.ok).toBe(true)
+    if (!secondPage.ok) return
+    expect(secondPage.value.map((session) => session.id)).toEqual(sessionIds.slice(0, 5).reverse())
+  })
+
   test('getSession returns error for non-existent session', () => {
     const result = store.getSession('nonexistent-id')
     expect(result.ok).toBe(false)

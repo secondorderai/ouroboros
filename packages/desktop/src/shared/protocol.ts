@@ -426,6 +426,7 @@ export interface AgentSteerResult {
 }
 export interface SessionListParams {
   limit?: number
+  offset?: number
 }
 export interface SessionLoadParams {
   id: string
@@ -689,6 +690,7 @@ export interface SessionInfo {
 }
 export interface SessionListResult {
   sessions: SessionInfo[]
+  hasMore: boolean
 }
 export interface SessionMessage {
   role: 'user' | 'assistant'
@@ -1266,6 +1268,7 @@ export interface ModeExitedNotification {
   reason: string
 }
 export interface ModePlanSubmittedNotification {
+  sessionId?: string | null
   plan: Plan
 }
 

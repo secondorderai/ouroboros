@@ -169,6 +169,10 @@ export class ModeManager {
   /** Store a submitted plan. */
   submitPlan(plan: Plan): void {
     this.currentPlan = { ...plan, status: 'submitted' }
+    this.onEvent({
+      type: 'plan-submitted',
+      plan: this.currentPlan,
+    })
   }
 
   /** Mark the current plan as approved and return it. */

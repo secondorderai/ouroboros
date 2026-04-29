@@ -76,6 +76,31 @@ describe('Mode Tools', () => {
       expect(plan!.status).toBe('submitted')
     })
 
+    test('emits a plan-submitted event', async () => {
+      const events: unknown[] = []
+      manager = new ModeManager((event) => events.push(event))
+      manager.registerMode(PLAN_MODE)
+      enterModeTool.setModeManager(manager)
+      submitPlanTool.setModeManager(manager)
+
+      await enterModeTool.execute({ mode: 'plan' })
+      const result = await submitPlanTool.execute({
+        title: 'Event Plan',
+        summary: 'A plan that should notify listeners.',
+        steps: [{ description: 'Check the event', targetFiles: ['src/main.ts'], tools: [] }],
+        exploredFiles: ['src/main.ts'],
+      })
+
+      expect(result.ok).toBe(true)
+      expect(events).toContainEqual({
+        type: 'plan-submitted',
+        plan: expect.objectContaining({
+          title: 'Event Plan',
+          status: 'submitted',
+        }),
+      })
+    })
+
     test('fails when not in plan mode', async () => {
       const result = await submitPlanTool.execute({
         title: 'Test',
