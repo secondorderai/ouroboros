@@ -1,0 +1,212 @@
+name: Release CLI Binary
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Sync CLI version from Git tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" bun -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+
+            const version = process.env.VERSION;
+            const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+            if (!version || !semver.test(version)) {
+              throw new Error(`Release tag must be a SemVer tag like v1.2.3; received ${process.env.GITHUB_REF_NAME}`);
+            }
+
+            const packagePath = "packages/cli/package.json";
+            const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
+            packageJson.version = version;
+            writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+            const cliPath = "packages/cli/src/cli.ts";
+            const cliSource = readFileSync(cliPath, "utf8");
+            const nextCliSource = cliSource.replace(/\.version\('\d+\.\d+\.\d+(?:-[^']+)?(?:\+[^']+)?'\)/, `.version('${version}')`);
+            if (nextCliSource === cliSource) {
+              throw new Error("Could not update Commander version in packages/cli/src/cli.ts");
+            }
+            writeFileSync(cliPath, nextCliSource);
+          '
+
+      - name: Build Linux CLI binary
+        working-directory: packages/cli
+        run: |
+          mkdir -p release
+          bun build --compile --minify ./src/cli.ts --target=bun-linux-x64 --outfile release/ouroboros-linux-x64
+          chmod +x release/ouroboros-linux-x64
+          ./release/ouroboros-linux-x64 --version
+
+      - name: Upload Linux CLI binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-linux-x64
+          path: packages/cli/release/ouroboros-linux-x64
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Sync CLI version from Git tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" bun -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+
+            const version = process.env.VERSION;
+            const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+            if (!version || !semver.test(version)) {
+              throw new Error(`Release tag must be a SemVer tag like v1.2.3; received ${process.env.GITHUB_REF_NAME}`);
+            }
+
+            const packagePath = "packages/cli/package.json";
+            const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
+            packageJson.version = version;
+            writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+            const cliPath = "packages/cli/src/cli.ts";
+            const cliSource = readFileSync(cliPath, "utf8");
+            const nextCliSource = cliSource.replace(/\.version\('\d+\.\d+\.\d+(?:-[^']+)?(?:\+[^']+)?'\)/, `.version('${version}')`);
+            if (nextCliSource === cliSource) {
+              throw new Error("Could not update Commander version in packages/cli/src/cli.ts");
+            }
+            writeFileSync(cliPath, nextCliSource);
+          '
+
+      - name: Build macOS CLI binaries
+        working-directory: packages/cli
+        run: |
+          mkdir -p release
+          bun build --compile --minify ./src/cli.ts --target=bun-darwin-arm64 --outfile release/ouroboros-darwin-arm64
+          bun build --compile --minify ./src/cli.ts --target=bun-darwin-x64 --outfile release/ouroboros-darwin-x64
+          chmod +x release/ouroboros-darwin-arm64 release/ouroboros-darwin-x64
+
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            ./release/ouroboros-darwin-arm64 --version
+          else
+            ./release/ouroboros-darwin-x64 --version
+          fi
+
+      - name: Upload macOS CLI binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-macos
+          path: packages/cli/release/ouroboros-darwin-*
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Sync CLI version from Git tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" bun -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+
+            const version = process.env.VERSION;
+            const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+            if (!version || !semver.test(version)) {
+              throw new Error(`Release tag must be a SemVer tag like v1.2.3; received ${process.env.GITHUB_REF_NAME}`);
+            }
+
+            const packagePath = "packages/cli/package.json";
+            const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
+            packageJson.version = version;
+            writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+            const cliPath = "packages/cli/src/cli.ts";
+            const cliSource = readFileSync(cliPath, "utf8");
+            const nextCliSource = cliSource.replace(/\.version\('\d+\.\d+\.\d+(?:-[^']+)?(?:\+[^']+)?'\)/, `.version('${version}')`);
+            if (nextCliSource === cliSource) {
+              throw new Error("Could not update Commander version in packages/cli/src/cli.ts");
+            }
+            writeFileSync(cliPath, nextCliSource);
+          '
+
+      - name: Build Windows CLI binary
+        shell: bash
+        working-directory: packages/cli
+        run: |
+          mkdir -p release
+          bun build --compile --minify ./src/cli.ts --target=bun-windows-x64 --outfile release/ouroboros-windows-x64.exe
+          ./release/ouroboros-windows-x64.exe --version
+
+      - name: Upload Windows CLI binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-windows-x64
+          path: packages/cli/release/ouroboros-windows-x64.exe
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - build-linux
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download CLI binaries
+        uses: actions/download-artifact@v7
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum ouroboros-* > SHA256SUMS
+          ls -lh
+
+      - name: Publish CLI binaries to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
