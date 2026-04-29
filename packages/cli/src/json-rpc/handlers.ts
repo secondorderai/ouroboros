@@ -490,16 +490,22 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     // Built-in skills shipped with the desktop bundle are picked up from
     // OUROBOROS_BUILTIN_SKILLS_DIR by discoverConfiguredSkills as the
     // lowest-precedence source.
-    discoverConfiguredSkills(ctx.config.skillDirectories, [ctx.configDir, process.cwd()])
+    discoverConfiguredSkills(
+      ctx.config.skillDirectories,
+      [ctx.configDir, process.cwd()],
+      ctx.config.disabledSkills,
+    )
   }
   const toDesktopSkillInfo = (skill: ReturnType<typeof listSkills>[number]) => ({
     name: skill.name,
     description: skill.description,
+    status: skill.status,
+    path: skill.dirPath,
     version:
       typeof skill.frontmatter.metadata?.version === 'string'
         ? skill.frontmatter.metadata.version
         : '1.0',
-    enabled: skill.status === 'core' || skill.status === 'builtin',
+    enabled: skill.enabled,
   })
 
   // ── agent/* ──────────────────────────────────────────────────────
@@ -1083,9 +1089,11 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
   // ── skills/* ─────────────────────────────────────────────────────
 
-  handlers.set('skills/list', async () => {
+  handlers.set('skills/list', async (params) => {
     refreshSkills()
-    const skills = listSkills().map(toDesktopSkillInfo)
+    const includeDisabled =
+      typeof params?.includeDisabled === 'boolean' ? params.includeDisabled : false
+    const skills = listSkills({ includeDisabled }).map(toDesktopSkillInfo)
     return { skills }
   })
 
@@ -1098,6 +1106,9 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const info = getSkillInfo(name)
     if (!info.ok) {
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, info.error.message)
+    }
+    if (!info.value.enabled) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, `Skill disabled: "${name}"`)
     }
     // Also try to load full instructions
     const activation = await activateSkill(name)

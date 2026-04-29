@@ -474,7 +474,9 @@ export interface AuthCancelLoginParams {
 export interface AuthLogoutParams {
   provider: AIProvider
 }
-export type SkillsListParams = Record<string, never>
+export interface SkillsListParams {
+  includeDisabled?: boolean
+}
 export interface SkillsGetParams {
   name: string
 }
@@ -739,6 +741,7 @@ export interface OuroborosConfig {
   }
   permissions: { tier0: boolean; tier1: boolean; tier2: boolean; tier3: boolean; tier4: boolean }
   skillDirectories: string[]
+  disabledSkills: string[]
   memory: { consolidationSchedule: 'session-end' | 'daily' | 'manual' }
   rsi: { noveltyThreshold: number; autoReflect: boolean }
 }
@@ -788,6 +791,8 @@ export interface SkillInfo {
   description: string
   version: string
   enabled: boolean
+  status?: 'core' | 'staging' | 'generated' | 'builtin'
+  path?: string
 }
 export interface SkillsListResult {
   skills: SkillInfo[]
