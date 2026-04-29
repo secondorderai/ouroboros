@@ -58,6 +58,8 @@ export interface SkillEntry {
   dirPath: string
   /** Whether the skill's full instructions are currently loaded. */
   active: boolean
+  /** Whether the skill is available for prompt lookup and activation. */
+  enabled: boolean
 }
 
 /** Catalog entry returned for system prompt injection. */
@@ -193,7 +195,7 @@ function deriveStatus(dirPath: string): SkillStatus {
  * calls overwrite earlier entries on name collision, so callers control
  * precedence by ordering their invocations.
  */
-function scanSkillRoot(absDir: string): void {
+function scanSkillRoot(absDir: string, disabledSkillNames: Set<string>): void {
   if (!existsSync(absDir)) return
 
   let entries: string[]
@@ -234,6 +236,7 @@ function scanSkillRoot(absDir: string): void {
       frontmatter,
       dirPath: skillDir,
       active: false,
+      enabled: !disabledSkillNames.has(frontmatter.name),
     })
   }
 }
@@ -259,6 +262,7 @@ export function discoverSkills(
   directories: string[],
   basePath?: string | string[],
   extraScanRoots?: string[],
+  disabledSkills: string[] = [],
 ): void {
   const rawBases =
     basePath === undefined ? [process.cwd()] : Array.isArray(basePath) ? basePath : [basePath]
@@ -269,6 +273,7 @@ export function discoverSkills(
   }
 
   skills = new Map()
+  const disabledSkillNames = new Set(disabledSkills)
 
   if (extraScanRoots) {
     const seenExtras = new Set<string>()
@@ -276,13 +281,13 @@ export function discoverSkills(
       const absolute = resolve(root)
       if (seenExtras.has(absolute)) continue
       seenExtras.add(absolute)
-      scanSkillRoot(absolute)
+      scanSkillRoot(absolute, disabledSkillNames)
     }
   }
 
   for (const base of bases) {
     for (const dir of directories) {
-      scanSkillRoot(resolve(base, dir))
+      scanSkillRoot(resolve(base, dir), disabledSkillNames)
     }
   }
 }
@@ -332,6 +337,7 @@ function resolveUserSkillRoots(): string[] {
 export function discoverConfiguredSkills(
   directories: string[],
   basePath?: string | string[],
+  disabledSkills: string[] = [],
 ): void {
   const builtinDir = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
   const userRoots = resolveUserSkillRoots()
@@ -339,7 +345,12 @@ export function discoverConfiguredSkills(
   if (builtinDir) extraScanRoots.push(builtinDir)
   // userRoots is already ordered so the most authoritative root is last.
   extraScanRoots.push(...userRoots)
-  discoverSkills(directories, basePath, extraScanRoots.length > 0 ? extraScanRoots : undefined)
+  discoverSkills(
+    directories,
+    basePath,
+    extraScanRoots.length > 0 ? extraScanRoots : undefined,
+    disabledSkills,
+  )
 }
 
 // ── Activation listener ──────────────────────────────────────────────
@@ -402,11 +413,13 @@ async function requestSkillApproval(
  * prompt injection. Only metadata — no full instructions.
  */
 export function getSkillCatalog(): SkillCatalogEntry[] {
-  return Array.from(skills.values()).map((s) => ({
-    name: s.name,
-    description: s.description,
-    status: s.status,
-  }))
+  return Array.from(skills.values())
+    .filter((s) => s.enabled)
+    .map((s) => ({
+      name: s.name,
+      description: s.description,
+      status: s.status,
+    }))
 }
 
 const REFERENCES_DIR = 'references'
@@ -491,6 +504,9 @@ export async function activateSkill(
   if (!skill) {
     return err(new Error(`Skill not found: "${name}"`))
   }
+  if (!skill.enabled) {
+    return err(new Error(`Skill disabled: "${name}"`))
+  }
 
   if (skill.frontmatter.requiresApproval && !skill.active && !options.bypassApproval) {
     const approval = await requestSkillApproval(name, skill.description)
@@ -563,8 +579,11 @@ export function deactivateSkill(name: string): Result<{ name: string; message: s
 /**
  * List all discovered skills with their metadata and active/inactive status.
  */
-export function listSkills(): SkillEntry[] {
-  return Array.from(skills.values()).map((s) => ({ ...s }))
+export function listSkills(options: { includeDisabled?: boolean } = {}): SkillEntry[] {
+  const includeDisabled = options.includeDisabled ?? true
+  return Array.from(skills.values())
+    .filter((s) => includeDisabled || s.enabled)
+    .map((s) => ({ ...s }))
 }
 
 /**
@@ -615,6 +634,7 @@ export const execute: TypedToolExecute<typeof schema, unknown> = async (
         description: s.description,
         status: s.status,
         active: s.active,
+        enabled: s.enabled,
       }))
       return ok({ skills: summary, message: `${allSkills.length} skill(s) available` })
     }

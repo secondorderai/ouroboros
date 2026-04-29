@@ -1,7 +1,11 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { parseSlashSkillInvocation, activateSkillForRun } from '@src/skills/skill-invocation'
+import {
+  parseSlashSkillInvocation,
+  resolveSlashSkillInvocation,
+  activateSkillForRun,
+} from '@src/skills/skill-invocation'
 import {
   _resetSkills,
   _resetSkillApprovalHandler,
@@ -16,6 +20,7 @@ function makeConfig(): OuroborosConfig {
     model: { provider: 'anthropic', name: 'claude-opus-4-7' },
     permissions: { tier0: true, tier1: true, tier2: true, tier3: false, tier4: false },
     skillDirectories: ['skills/core'],
+    disabledSkills: [],
     agent: {
       maxSteps: { interactive: 50, desktop: 50, singleShot: 50, automation: 50 },
       allowedTestCommands: [],
@@ -143,5 +148,26 @@ describe('activateSkillForRun bypasses approval', () => {
     }
     // The user's slash command IS the approval — handler must NOT fire.
     expect(handlerCalled).toBe(false)
+  })
+
+  test('disabled skills are unavailable to slash invocation and activation', async () => {
+    const skillDir = join(FIXTURES, 'skills', 'core', 'disabled')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      ['---', 'name: disabled', 'description: Disabled skill', '---', '# Disabled body'].join('\n'),
+      'utf-8',
+    )
+
+    const config = { ...makeConfig(), disabledSkills: ['disabled'] }
+    const parsed = resolveSlashSkillInvocation('/disabled run this', config, FIXTURES)
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.error.message).toContain('Unknown skill "disabled"')
+
+    const activation = await activateSkillForRun('disabled', config, FIXTURES)
+    expect(activation.ok).toBe(false)
+    if (activation.ok) return
+    expect(activation.error.message).toContain('Skill disabled')
   })
 })

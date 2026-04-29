@@ -30,7 +30,7 @@ import type { LanguageModel } from 'ai'
 import { type Result, ok, err } from '@src/types'
 import { generateResponse } from '@src/llm'
 import { getReasoningSupport } from '@src/llm/model-capabilities'
-import type { LLMCallOptions } from '@src/llm/types'
+import type { GenerateResult, LLMCallOptions, LLMMessage } from '@src/llm/types'
 import type { SkillCatalogEntry } from '@src/tools/skill-manager'
 import { runSkillTests, type SkillTestResult } from '@src/rsi/validate'
 import type { ObservationRecord, ReflectionCheckpoint } from '@src/rsi/types'
@@ -142,6 +142,24 @@ function buildRSILLMCallOptions(
     ...(isOpenAIReasoningModel(llm) ? {} : { temperature }),
     maxTokens,
   }
+}
+
+async function generateRSIResponse(
+  llm: LanguageModel,
+  messages: LLMMessage[],
+  options: LLMCallOptions,
+): Promise<Result<GenerateResult>> {
+  const initial = await generateResponse(llm, messages, options)
+  if (initial.ok || !isRetryableBadRequest(initial.error)) {
+    return initial
+  }
+
+  return generateResponse(llm, messages)
+}
+
+function isRetryableBadRequest(error: Error): boolean {
+  const message = error.message.toLowerCase()
+  return message.includes('bad request') || message.includes('400')
 }
 
 // ── Skill generation types ───────────────────────────────────────────
@@ -274,7 +292,7 @@ export async function reflect(
 ): Promise<Result<ReflectionRecord>> {
   const prompt = buildReflectionPrompt(taskSummary, existingSkills)
 
-  const llmResult = await generateResponse(
+  const llmResult = await generateRSIResponse(
     llm,
     [{ role: 'user', content: prompt }],
     buildRSILLMCallOptions(llm, 0.2, 1024),
@@ -1111,7 +1129,7 @@ export async function generateSkill(
   const prompt = buildGenerationPrompt(record, transcript, resolvedBase)
 
   // 4. Call the LLM
-  const llmResult = await generateResponse(
+  const llmResult = await generateRSIResponse(
     llm,
     [{ role: 'user', content: prompt }],
     buildRSILLMCallOptions(llm, 0.7, 4096),

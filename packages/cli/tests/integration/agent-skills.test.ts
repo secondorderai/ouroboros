@@ -251,6 +251,7 @@ Apply the SecondOrder method.`,
           permissions: { tier0: true, tier1: true, tier2: true, tier3: false, tier4: false },
           // No core/generated skills in this temp dir — only the env-var source.
           skillDirectories: ['skills/core', 'skills/generated'],
+          disabledSkills: [],
           agent: {
             maxSteps: { interactive: 5, desktop: 5, singleShot: 5, automation: 5 },
             allowedTestCommands: [],

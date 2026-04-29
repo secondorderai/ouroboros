@@ -80,6 +80,7 @@ describe('loadConfig', () => {
 
     // Skill directories defaults
     expect(config.skillDirectories).toEqual(['skills/core', 'skills/generated'])
+    expect(config.disabledSkills).toEqual([])
 
     // Agent defaults
     expect(config.agent.maxSteps).toEqual(DEFAULT_AGENT_CONFIG.maxSteps)
@@ -763,6 +764,7 @@ describe('loadConfig', () => {
         tier4: false,
       },
       skillDirectories: ['skills/core', 'skills/custom'],
+      disabledSkills: ['legacy-skill'],
       memory: {
         consolidationSchedule: 'daily',
         contextWindowTokens: 32000,
@@ -796,6 +798,7 @@ describe('loadConfig', () => {
     expect(result.value.model.apiKey).toBe('cfg-openai')
     expect(result.value.permissions.tier2).toBe(false)
     expect(result.value.skillDirectories).toEqual(['skills/core', 'skills/custom'])
+    expect(result.value.disabledSkills).toEqual(['legacy-skill'])
     expect(result.value.memory.consolidationSchedule).toBe('daily')
     expect(result.value.memory.contextWindowTokens).toBe(32000)
     expect(result.value.memory.warnRatio).toBe(0.65)

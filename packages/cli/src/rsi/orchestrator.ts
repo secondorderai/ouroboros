@@ -111,7 +111,11 @@ export class RSIOrchestrator {
    */
   async triggerReflection(taskSummary: string): Promise<Result<ReflectionRecord>> {
     try {
-      discoverConfiguredSkills(this.config.skillDirectories, this.basePath)
+      discoverConfiguredSkills(
+        this.config.skillDirectories,
+        this.basePath,
+        this.config.disabledSkills,
+      )
       const existingSkills = getSkillCatalog()
       const result = await reflect(taskSummary, existingSkills, this.llm)
 
@@ -149,7 +153,11 @@ export class RSIOrchestrator {
     transcript?: string,
   ): Promise<Result<CrystallizationResult>> {
     try {
-      discoverConfiguredSkills(this.config.skillDirectories, this.basePath)
+      discoverConfiguredSkills(
+        this.config.skillDirectories,
+        this.basePath,
+        this.config.disabledSkills,
+      )
       const existingSkills = getSkillCatalog()
       const cwd = this.basePath ?? process.cwd()
 

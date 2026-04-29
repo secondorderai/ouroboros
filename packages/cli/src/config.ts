@@ -266,6 +266,11 @@ export const configSchema = z.object({
     .default(['skills/core', 'skills/generated'])
     .describe('Directories to scan for Agent Skills'),
 
+  disabledSkills: z
+    .array(z.string().min(1))
+    .default([])
+    .describe('Agent Skill names to exclude from lookup and activation'),
+
   agent: z
     .object({
       maxSteps: z

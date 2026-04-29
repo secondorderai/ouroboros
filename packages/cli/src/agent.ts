@@ -636,6 +636,7 @@ export class Agent {
                 tier4: false,
               },
               skillDirectories: ['skills/core', 'skills/generated'],
+              disabledSkills: [],
               agent: {
                 maxSteps: {
                   interactive: 200,
@@ -1181,7 +1182,11 @@ export class Agent {
     const tools = this.toolRegistry.getTools()
     const agentsInstructions = getAgentsMdInstructions()
 
-    discoverConfiguredSkills(this.config.skillDirectories, this.basePath)
+    discoverConfiguredSkills(
+      this.config.skillDirectories,
+      this.basePath,
+      this.config.disabledSkills,
+    )
 
     // Map skill catalog entries to the format expected by buildSystemPrompt
     const skillCatalog = this.skillCatalogProvider()

@@ -76,6 +76,7 @@ function discoverSkillsForRun(config: OuroborosConfig, basePath?: string): void 
   discoverConfiguredSkills(
     config.skillDirectories,
     basePath === undefined ? undefined : [basePath, process.cwd()],
+    config.disabledSkills,
   )
 }
 
@@ -87,7 +88,7 @@ export function resolveSlashSkillInvocation(
   discoverSkillsForRun(config, basePath)
   return parseSlashSkillInvocation(
     input,
-    listSkills().map((skill) => skill.name),
+    listSkills({ includeDisabled: false }).map((skill) => skill.name),
   )
 }
 
