@@ -13,6 +13,7 @@ interface ArtifactPanelProps {
   onResize?: (width: number) => void
   isFullscreen?: boolean
   onToggleFullscreen?: () => void
+  onHide?: () => void
   minWidth?: number
   maxWidth?: number
 }
@@ -140,6 +141,7 @@ export function ArtifactPanel({
   onResize,
   isFullscreen = false,
   onToggleFullscreen,
+  onHide,
   minWidth = 280,
   maxWidth = 900,
 }: ArtifactPanelProps): React.ReactElement | null {
@@ -310,6 +312,18 @@ export function ArtifactPanel({
           />
           Follow latest
         </label>
+        {onHide && !isFullscreen && (
+          <button
+            type='button'
+            onClick={onHide}
+            style={styles.iconOnlyButton}
+            aria-label='Hide HTML5 app'
+            title='Hide HTML5 app'
+            data-testid='artifact-panel-hide'
+          >
+            <HidePanelIcon />
+          </button>
+        )}
         <button
           type='button'
           onClick={() => void onDownload()}
@@ -417,6 +431,26 @@ function DownloadIcon(): React.ReactElement {
       <path d='M12 3v12' />
       <path d='m7 10 5 5 5-5' />
       <path d='M5 21h14' />
+    </svg>
+  )
+}
+
+function HidePanelIcon(): React.ReactElement {
+  return (
+    <svg
+      width='14'
+      height='14'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden='true'
+    >
+      <rect x='3' y='4' width='18' height='16' rx='2' />
+      <path d='M15 4v16' />
+      <path d='m9 9 3 3-3 3' />
     </svg>
   )
 }

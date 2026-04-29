@@ -285,6 +285,127 @@ test('resizing the artifact panel changes its width and persists across reload',
   expect(Math.abs(restoredBox!.width - widthAfterDrag)).toBeLessThan(16)
 })
 
+test('artifact panel can be hidden, restored, and reopens for new artifacts', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await completeOnboarding(launched.page)
+
+  const artifactPathV1 = await makeArtifactFile(1, ARTIFACT_HTML_V1)
+  const artifactPathV2 = await makeArtifactFile(2, ARTIFACT_HTML_V2)
+
+  await setRpcOverride(launched.page, 'artifacts/list', { ok: true, result: { artifacts: [] } })
+  await setRpcOverride(launched.page, 'artifacts/read', {
+    ok: true,
+    result: {
+      html: ARTIFACT_HTML_V1,
+      artifact: {
+        artifactId: ARTIFACT_ID,
+        version: 1,
+        sessionId: SESSION_ID,
+        title: 'Hello artifact',
+        path: artifactPathV1,
+        bytes: 80,
+        createdAt: '2026-04-26T00:00:00Z',
+      },
+    },
+  })
+  await setRpcOverride(launched.page, 'session/new', {
+    ok: true,
+    result: { sessionId: SESSION_ID },
+  })
+
+  await launched.page.getByRole('button', { name: 'New conversation' }).click()
+  await emitNotification(launched.page, 'agent/artifactCreated', {
+    sessionId: SESSION_ID,
+    artifactId: ARTIFACT_ID,
+    version: 1,
+    title: 'Hello artifact',
+    path: artifactPathV1,
+    bytes: 80,
+    createdAt: '2026-04-26T00:00:00Z',
+  })
+
+  await expect(launched.page.getByTestId('artifact-panel')).toBeVisible()
+  await expect(launched.page.getByTestId('titlebar-artifact-toggle')).toBeHidden()
+
+  await launched.page.getByTestId('artifact-panel-hide').click()
+  await expect(launched.page.getByTestId('artifact-panel')).toBeHidden()
+  await expect(launched.page.getByText('Sessions', { exact: true })).toBeVisible()
+  await expect(launched.page.getByPlaceholder(/Message/i)).toBeVisible()
+  await expect(launched.page.getByTestId('titlebar-artifact-toggle')).toBeVisible()
+  await expect(launched.page.getByTestId('titlebar-artifact-toggle')).toHaveAttribute(
+    'aria-label',
+    'Show HTML5 app',
+  )
+  await expect
+    .poll(() =>
+      launched!.page.evaluate(() => localStorage.getItem('ouroboros:artifact-panel-open')),
+    )
+    .toBe('false')
+
+  await launched.page.getByTestId('titlebar-artifact-toggle').click()
+  await expect(launched.page.getByTestId('artifact-panel')).toBeVisible()
+  await expect
+    .poll(() =>
+      launched!.page.evaluate(() => localStorage.getItem('ouroboros:artifact-panel-open')),
+    )
+    .toBe('true')
+
+  await launched.page.getByTestId('artifact-panel-hide').click()
+  await expect(launched.page.getByTestId('artifact-panel')).toBeHidden()
+
+  await setRpcOverride(launched.page, 'artifacts/list', {
+    ok: true,
+    result: {
+      artifacts: [
+        {
+          artifactId: ARTIFACT_ID,
+          version: 1,
+          sessionId: SESSION_ID,
+          title: 'Hello artifact',
+          path: artifactPathV1,
+          bytes: 80,
+          createdAt: '2026-04-26T00:00:00Z',
+        },
+      ],
+    },
+  })
+
+  await launched.page.reload()
+  await launched.page.getByRole('button', { name: 'New conversation' }).click()
+  await expect(launched.page.getByTestId('artifact-panel')).toBeHidden()
+  await expect(launched.page.getByTestId('titlebar-artifact-toggle')).toBeVisible()
+
+  await setRpcOverride(launched.page, 'artifacts/read', {
+    ok: true,
+    result: {
+      html: ARTIFACT_HTML_V2,
+      artifact: {
+        artifactId: ARTIFACT_ID,
+        version: 2,
+        sessionId: SESSION_ID,
+        title: 'Hello artifact',
+        path: artifactPathV2,
+        bytes: 80,
+        createdAt: '2026-04-26T00:00:01Z',
+      },
+    },
+  })
+  await emitNotification(launched.page, 'agent/artifactCreated', {
+    sessionId: SESSION_ID,
+    artifactId: ARTIFACT_ID,
+    version: 2,
+    title: 'Hello artifact',
+    path: artifactPathV2,
+    bytes: 80,
+    createdAt: '2026-04-26T00:00:01Z',
+  })
+
+  await expect(launched.page.getByTestId('artifact-panel')).toBeVisible()
+  await expect(launched.page.getByTestId('titlebar-artifact-toggle')).toBeHidden()
+  const inner = launched.page.frameLocator('[data-testid="artifact-frame"]')
+  await expect(inner.locator('h1')).toHaveText('Hello v2')
+})
+
 test('fullscreen toggle hides sidebar and chat, ESC restores them', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await completeOnboarding(launched.page)

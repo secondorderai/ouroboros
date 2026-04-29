@@ -29,6 +29,7 @@ import type { TeamGraphNotification } from '../shared/protocol'
 const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
 const SIDEBAR_WIDTH_KEY = 'ouroboros:sidebar-width'
 const ARTIFACT_PANEL_WIDTH_KEY = 'ouroboros:artifact-panel-width'
+const ARTIFACT_PANEL_OPEN_KEY = 'ouroboros:artifact-panel-open'
 const ONBOARDING_DONE_KEY = 'ouroboros:onboarding-done'
 
 const DEFAULT_SIDEBAR_WIDTH = 250
@@ -139,6 +140,15 @@ export function App(): React.ReactElement {
     }
   })
 
+  const [artifactPanelOpen, setArtifactPanelOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem(ARTIFACT_PANEL_OPEN_KEY)
+      return stored !== null ? stored === 'true' : true
+    } catch {
+      return true
+    }
+  })
+
   const [artifactFullscreen, setArtifactFullscreen] = useState(false)
 
   useEffect(() => {
@@ -200,6 +210,15 @@ export function App(): React.ReactElement {
     setArtifactFullscreen((prev) => !prev)
   }, [])
 
+  const toggleArtifactPanel = useCallback(() => {
+    setArtifactPanelOpen((prev) => !prev)
+  }, [])
+
+  const hideArtifactPanel = useCallback(() => {
+    setArtifactPanelOpen(false)
+    setArtifactFullscreen(false)
+  }, [])
+
   // Persist artifact panel width.
   useEffect(() => {
     try {
@@ -208,6 +227,24 @@ export function App(): React.ReactElement {
       // ignore
     }
   }, [artifactPanelWidth])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ARTIFACT_PANEL_OPEN_KEY, String(artifactPanelOpen))
+    } catch {
+      // ignore
+    }
+  }, [artifactPanelOpen])
+
+  useEffect(() => {
+    const api = window.ouroboros
+    if (!api?.onNotification) return
+    return api.onNotification('agent/artifactCreated', (params) => {
+      if (params.sessionId === currentSessionId) {
+        setArtifactPanelOpen(true)
+      }
+    })
+  }, [currentSessionId])
 
   // Auto-exit fullscreen when no artifact is available (session change, etc).
   useEffect(() => {
@@ -455,6 +492,9 @@ export function App(): React.ReactElement {
         canChangeWorkspaceMode={canChangeWorkspaceMode}
         onSelectWorkspaceMode={handleWorkspaceModeSelect}
         onPickWorkspace={pickWorkspaceFolder}
+        showArtifactToggle={currentArtifacts.length > 0 && !artifactPanelOpen}
+        artifactPanelOpen={artifactPanelOpen}
+        onToggleArtifactPanel={toggleArtifactPanel}
       />
       <div
         style={{
@@ -498,12 +538,13 @@ export function App(): React.ReactElement {
             <InputBar isDragOver={isDragOver} />
           </div>
         )}
-        {currentArtifacts.length > 0 && (
+        {currentArtifacts.length > 0 && artifactPanelOpen && (
           <ArtifactPanel
             width={artifactPanelWidth}
             onResize={resizeArtifactPanel}
             isFullscreen={artifactFullscreen}
             onToggleFullscreen={toggleArtifactFullscreen}
+            onHide={hideArtifactPanel}
             minWidth={MIN_ARTIFACT_PANEL_WIDTH}
             maxWidth={MAX_ARTIFACT_PANEL_WIDTH}
           />

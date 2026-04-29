@@ -17,6 +17,9 @@ interface TitleBarProps {
   canChangeWorkspaceMode?: boolean
   onSelectWorkspaceMode: (mode: WorkspaceMode) => void
   onPickWorkspace: () => Promise<string | null>
+  showArtifactToggle?: boolean
+  artifactPanelOpen?: boolean
+  onToggleArtifactPanel?: () => void
 }
 
 export function TitleBar({
@@ -34,6 +37,9 @@ export function TitleBar({
   canChangeWorkspaceMode = true,
   onSelectWorkspaceMode,
   onPickWorkspace,
+  showArtifactToggle = false,
+  artifactPanelOpen = true,
+  onToggleArtifactPanel,
 }: TitleBarProps): React.ReactElement {
   const [platform, setPlatform] = useState<string>('darwin')
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
@@ -140,6 +146,19 @@ export function TitleBar({
 
       {/* Right section: serpent icon + theme toggle */}
       <div style={styles.right}>
+        {showArtifactToggle && onToggleArtifactPanel && (
+          <button
+            style={styles.iconButton}
+            className="no-drag"
+            onClick={onToggleArtifactPanel}
+            title={artifactPanelOpen ? 'Hide HTML5 app' : 'Show HTML5 app'}
+            aria-label={artifactPanelOpen ? 'Hide HTML5 app' : 'Show HTML5 app'}
+            data-testid="titlebar-artifact-toggle"
+            aria-pressed={artifactPanelOpen}
+          >
+            <ArtifactPanelIcon />
+          </button>
+        )}
         {showTeamGraph && onOpenTeamGraph && (
           <button
             style={styles.iconButton}
@@ -277,6 +296,26 @@ function NetworkIcon(): React.ReactElement {
       <path d="M8.6 7.7 10.9 15" />
       <path d="M15.4 7.7 13.1 15" />
       <path d="M9 6h6" />
+    </svg>
+  )
+}
+
+function ArtifactPanelIcon(): React.ReactElement {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="2" width="12" height="12" rx="2" />
+      <line x1="10" y1="2" x2="10" y2="14" />
+      <path d="M5 6h2" />
+      <path d="M5 10h2" />
     </svg>
   )
 }
