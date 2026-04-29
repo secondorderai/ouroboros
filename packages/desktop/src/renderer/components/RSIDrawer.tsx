@@ -59,14 +59,14 @@ function clampDrawerWidth(width: number): number {
 }
 
 function badgeStyle(skill: SkillInfo): React.CSSProperties {
-  if (skill.enabled) {
+  if (skill.status === 'core' || skill.status === 'builtin') {
     return { backgroundColor: 'var(--accent-blue)', color: '#fff' }
   }
   return { backgroundColor: 'var(--accent-purple)', color: '#fff' }
 }
 
 function badgeLabel(skill: SkillInfo): string {
-  return skill.enabled ? 'Core' : 'Generated'
+  return skill.status ? skill.status[0].toUpperCase() + skill.status.slice(1) : 'Skill'
 }
 
 function toneStyle(

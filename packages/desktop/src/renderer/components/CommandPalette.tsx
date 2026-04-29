@@ -165,6 +165,7 @@ function createDefaultActions(handlers: {
   onApprovalsQueue: () => void
   onChangeModel: () => void
   onConfigurePermissions: () => void
+  onManageSkills: () => void
   onManageApiKeys: () => void
   onAppearance: () => void
   onModes: () => void
@@ -250,6 +251,14 @@ function createDefaultActions(handlers: {
       title: 'Configure permissions',
       description: 'Adjust safety tiers',
       handler: handlers.onConfigurePermissions,
+    },
+    {
+      id: 'manage-skills',
+      group: 'Settings',
+      icon: <ZapIcon />,
+      title: 'Manage skills',
+      description: 'Enable skills and configure lookup paths',
+      handler: handlers.onManageSkills,
     },
     {
       id: 'manage-api-keys',
@@ -370,6 +379,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       },
       onConfigurePermissions: () => {
         if (onOpenSettings) onOpenSettings('permissions')
+      },
+      onManageSkills: () => {
+        if (onOpenSettings) onOpenSettings('skills')
       },
       onManageApiKeys: () => {
         if (onOpenSettings) onOpenSettings('model')

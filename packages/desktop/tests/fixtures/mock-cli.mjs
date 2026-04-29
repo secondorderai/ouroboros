@@ -19,6 +19,7 @@ const defaultConfig = {
     tier4: false,
   },
   skillDirectories: [],
+  disabledSkills: [],
   memory: {
     consolidationSchedule: 'session-end',
   },
@@ -124,6 +125,14 @@ async function handleRequest(request) {
       return
     case 'config/set':
       setPath(runtime.config, String(request.params?.path ?? ''), request.params?.value)
+      if (request.params?.path === 'disabledSkills') {
+        const disabled = new Set(Array.isArray(request.params.value) ? request.params.value.map(String) : [])
+        runtime.skills = runtime.skills.map((skill) =>
+          typeof skill === 'object' && skill !== null && 'name' in skill
+            ? { ...skill, enabled: !disabled.has(String(skill.name)) }
+            : skill,
+        )
+      }
       writeResult(request.id, runtime.config)
       return
     case 'config/setApiKey': {
@@ -300,7 +309,12 @@ async function handleRequest(request) {
       writeResult(request.id, { ok: true })
       return
     case 'skills/list':
-      writeResult(request.id, { skills: runtime.skills })
+      writeResult(request.id, {
+        skills:
+          request.params?.includeDisabled === true
+            ? runtime.skills
+            : runtime.skills.filter((skill) => skill.enabled !== false),
+      })
       return
     case 'skills/get':
       writeResult(request.id, {

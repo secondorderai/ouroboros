@@ -844,3 +844,83 @@ test('settings can switch to ChatGPT subscription and sign out cleanly', async (
   await launched.page.getByRole('button', { name: 'Sign out' }).click()
   await expect(launched.page.getByText('Disconnected from ChatGPT subscription')).toBeVisible()
 })
+
+test('settings manages skills and lookup paths without exposing tools', async ({}, testInfo) => {
+  const addedPath = path.join(tmpdir(), 'ouroboros-extra-skills')
+  launched = await launchTestApp(testInfo, {
+    dialogResponses: [addedPath],
+    scenario: {
+      config: {
+        model: { provider: 'anthropic', name: 'claude-opus-4-20250514' },
+        permissions: { tier0: true, tier1: true, tier2: true, tier3: false, tier4: false },
+        skillDirectories: ['skills/core'],
+        disabledSkills: ['generated-off'],
+        memory: { consolidationSchedule: 'session-end' },
+        rsi: { noveltyThreshold: 0.5, autoReflect: true },
+      },
+      skills: [
+        {
+          name: 'meta-thinking',
+          description: 'Built-in planning skill',
+          version: '1.0',
+          enabled: true,
+          status: 'builtin',
+          path: '/Applications/Ouroboros.app/skills/builtin/meta-thinking',
+        },
+        {
+          name: 'generated-off',
+          description: 'Disabled generated skill',
+          version: '1.0',
+          enabled: false,
+          status: 'generated',
+          path: 'skills/generated/generated-off',
+        },
+        {
+          name: 'generated-on',
+          description: 'Enabled generated skill',
+          version: '1.0',
+          enabled: true,
+          status: 'generated',
+          path: 'skills/generated/generated-on',
+        },
+      ],
+    },
+  })
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+  await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+  await launched.page.getByRole('button').filter({ hasText: 'Skill availability' }).click()
+
+  await expect(launched.page.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible()
+  await expect(launched.page.getByText('meta-thinking', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('Built-in planning skill')).toBeVisible()
+  await expect(launched.page.getByText('generated-off', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('Tool', { exact: true })).toHaveCount(0)
+
+  await launched.page.getByRole('button', { name: 'meta-thinking: enabled' }).click()
+  await expect(launched.page.getByRole('button', { name: 'meta-thinking: disabled' })).toBeVisible()
+
+  await launched.page.getByRole('button', { name: 'Add path' }).click()
+  await expect(launched.page.getByText(addedPath)).toBeVisible()
+
+  await launched.page.getByRole('button', { name: 'Remove skills/core' }).click()
+  await expect(launched.page.getByText('skills/core')).toHaveCount(0)
+
+  await launched.page.getByLabel('Close settings').click()
+  await launched.page.getByLabel('Message input').fill('/generated')
+  const skillPicker = launched.page.getByRole('listbox', { name: 'Skill picker' })
+  await expect(skillPicker).toBeVisible()
+  await expect(skillPicker.getByRole('option', { name: /generated-on/ })).toBeVisible()
+  await expect(skillPicker.getByText('generated-off')).toHaveCount(0)
+
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  expect(log).toContain('"method":"skills/list","params":{"includeDisabled":true}')
+  expect(log).toContain('"path":"disabledSkills","value":["generated-off","meta-thinking"]')
+  expect(log).toContain(`"path":"skillDirectories","value":["skills/core","${addedPath}"]`)
+  expect(log).toContain(`"path":"skillDirectories","value":["${addedPath}"]`)
+})

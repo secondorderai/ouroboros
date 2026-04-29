@@ -6,6 +6,7 @@ import { PermissionsSection } from '../components/settings/PermissionsSection'
 import { RsiSection } from '../components/settings/RsiSection'
 import { MemorySection } from '../components/settings/MemorySection'
 import { ModeSection } from '../components/settings/ModeSection'
+import { SkillsSection } from '../components/settings/SkillsSection'
 import { useConversationStore } from '../stores/conversationStore'
 import type { Theme, OuroborosConfig } from '../../shared/protocol'
 
@@ -21,6 +22,7 @@ export type SettingsSectionId =
   | 'model'
   | 'appearance'
   | 'permissions'
+  | 'skills'
   | 'rsi'
   | 'memory'
   | 'mode'
@@ -46,6 +48,11 @@ const SECTIONS: SectionDef[] = [
     id: 'permissions',
     label: 'Permissions',
     description: 'Safety tiers and execution boundaries.',
+  },
+  {
+    id: 'skills',
+    label: 'Skills',
+    description: 'Skill availability and lookup paths.',
   },
   {
     id: 'rsi',
@@ -76,7 +83,15 @@ export function SettingsOverlay({
   // Navigate to initial section when opening
   useEffect(() => {
     if (isOpen && initialSection) {
-      const valid: SettingsSectionId[] = ['model', 'appearance', 'permissions', 'rsi', 'memory', 'mode']
+      const valid: SettingsSectionId[] = [
+        'model',
+        'appearance',
+        'permissions',
+        'skills',
+        'rsi',
+        'memory',
+        'mode',
+      ]
       if (valid.includes(initialSection as SettingsSectionId)) {
         setActiveSection(initialSection as SettingsSectionId)
       }
@@ -226,6 +241,12 @@ export function SettingsOverlay({
               onConfigChange={handleConfigChange}
             />
           )}
+          {activeSection === 'skills' && (
+            <SkillsSection
+              config={config}
+              onConfigChange={handleConfigChange}
+            />
+          )}
           {activeSection === 'rsi' && (
             <RsiSection
               config={config}
@@ -275,6 +296,12 @@ function applyConfigChange(
       return next
     case 'rsi.autoReflect':
       next.rsi.autoReflect = Boolean(value)
+      return next
+    case 'skillDirectories':
+      next.skillDirectories = Array.isArray(value) ? value.map(String) : next.skillDirectories
+      return next
+    case 'disabledSkills':
+      next.disabledSkills = Array.isArray(value) ? value.map(String) : next.disabledSkills
       return next
     case 'rsi.noveltyThreshold':
       next.rsi.noveltyThreshold = Number(value)
