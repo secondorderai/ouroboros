@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
-import type { SessionData, SessionInfo, WorkspaceMode } from '../../shared/protocol'
+import type {
+  SessionData,
+  SessionInfo,
+  SessionListResult,
+  WorkspaceMode,
+} from '../../shared/protocol'
+
+const SESSION_PAGE_SIZE = 50
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,9 +18,6 @@ interface SidebarProps {
   width: number
   onResize: (width: number) => void
   onOpenSettings: () => void
-  workspaceMode: WorkspaceMode
-  selectedWorkspacePath: string | null
-  onRequireWorkspace: () => Promise<string | null>
 }
 
 interface DateGroup {
@@ -55,6 +59,17 @@ function groupSessionsByDate(sessions: SessionInfo[]): DateGroup[] {
   return groupOrder
     .filter((label) => groups.has(label))
     .map((label) => ({ label, sessions: groups.get(label)! }))
+}
+
+function appendUniqueSessions(existing: SessionInfo[], incoming: SessionInfo[]): SessionInfo[] {
+  const seen = new Set(existing.map((session) => session.id))
+  const merged = [...existing]
+  for (const session of incoming) {
+    if (seen.has(session.id)) continue
+    seen.add(session.id)
+    merged.push(session)
+  }
+  return merged
 }
 
 function relativeTime(dateStr: string): string {
@@ -103,9 +118,6 @@ export function Sidebar({
   width,
   onResize,
   onOpenSettings,
-  workspaceMode,
-  selectedWorkspacePath,
-  onRequireWorkspace,
 }: SidebarProps): React.ReactElement {
   const sessions = useConversationStore((s) => s.sessions)
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
@@ -123,25 +135,44 @@ export function Sidebar({
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<SessionInfo | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false)
+  const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false)
+  const [sessionListError, setSessionListError] = useState<string | null>(null)
+  const [hasMoreSessions, setHasMoreSessions] = useState(false)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const fetchedSessionCountRef = useRef(0)
 
   // ---- Load sessions on mount -----------------------------------------------
 
   useEffect(() => {
     const api = window.ouroboros
     if (!api) return
+    let cancelled = false
+    setIsLoadingSessions(true)
+    setSessionListError(null)
     api
-      .rpc('session/list', {})
+      .rpc('session/list', { limit: SESSION_PAGE_SIZE, offset: 0 })
       .then((result) => {
-        const data = result as { sessions: SessionInfo[] }
+        if (cancelled) return
+        const data = result as SessionListResult
         if (data?.sessions) {
           setSessions(data.sessions)
+          fetchedSessionCountRef.current = data.sessions.length
+          setHasMoreSessions(Boolean(data.hasMore))
         }
       })
       .catch((err) => {
+        if (cancelled) return
+        setSessionListError('Could not load sessions')
         console.error('session/list failed:', err)
       })
+      .finally(() => {
+        if (!cancelled) setIsLoadingSessions(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [setSessions])
 
   // ---- Close context menu on click outside or Escape -------------------------
@@ -172,28 +203,18 @@ export function Sidebar({
     const api = window.ouroboros
     if (!api) return
     try {
-      let workspacePath = selectedWorkspacePath
-      if (workspaceMode === 'workspace' && !workspacePath) {
-        workspacePath = await onRequireWorkspace()
-        if (!workspacePath) return
-      }
-      const result = (await api.rpc(
-        'session/new',
-        workspaceMode === 'workspace'
-          ? { workspaceMode, workspacePath: workspacePath! }
-          : { workspaceMode },
-      )) as {
+      const result = (await api.rpc('session/new', { workspaceMode: 'simple' })) as {
         sessionId: string
         workspacePath?: string | null
         workspaceMode?: WorkspaceMode
       }
       if (result?.sessionId) {
-        createNewSession(result.sessionId, result.workspacePath, result.workspaceMode)
+        createNewSession(result.sessionId, result.workspacePath, result.workspaceMode ?? 'simple')
       }
     } catch (err) {
       console.error('session/new failed:', err)
     }
-  }, [createNewSession, onRequireWorkspace, selectedWorkspacePath, workspaceMode])
+  }, [createNewSession])
 
   const handleLoadSession = useCallback(
     async (sessionId: string) => {
@@ -217,6 +238,28 @@ export function Sidebar({
     },
     [currentSessionId, loadSession],
   )
+
+  const handleLoadMoreSessions = useCallback(async () => {
+    const api = window.ouroboros
+    if (!api || isLoadingMoreSessions) return
+    setIsLoadingMoreSessions(true)
+    setSessionListError(null)
+    try {
+      const result = (await api.rpc('session/list', {
+        limit: SESSION_PAGE_SIZE,
+        offset: fetchedSessionCountRef.current,
+      })) as SessionListResult
+      const incoming = result?.sessions ?? []
+      setSessions(appendUniqueSessions(sessions, incoming))
+      fetchedSessionCountRef.current += incoming.length
+      setHasMoreSessions(Boolean(result?.hasMore))
+    } catch (err) {
+      setSessionListError('Could not load more sessions')
+      console.error('session/list failed:', err)
+    } finally {
+      setIsLoadingMoreSessions(false)
+    }
+  }, [isLoadingMoreSessions, sessions, setSessions])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, sessionId: string) => {
     e.preventDefault()
@@ -361,24 +404,41 @@ export function Sidebar({
         <div style={styles.sessionList}>
           {dateGroups.length === 0 ? (
             <div style={styles.placeholder}>
-              <span style={styles.placeholderText}>No sessions yet</span>
+              <span style={styles.placeholderText}>
+                {isLoadingSessions ? 'Loading sessions...' : 'No sessions yet'}
+              </span>
             </div>
           ) : (
-            dateGroups.map((group) => (
-              <div key={group.label} style={styles.dateGroup}>
-                <div style={styles.dateLabel}>{group.label}</div>
-                {group.sessions.map((session) => (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    isActive={session.id === currentSessionId}
-                    width={width}
-                    onClick={() => handleLoadSession(session.id)}
-                    onContextMenu={(e) => handleContextMenu(e, session.id)}
-                  />
-                ))}
-              </div>
-            ))
+            <>
+              {dateGroups.map((group) => (
+                <div key={group.label} style={styles.dateGroup}>
+                  <div style={styles.dateLabel}>{group.label}</div>
+                  {group.sessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={session.id === currentSessionId}
+                      width={width}
+                      onClick={() => handleLoadSession(session.id)}
+                      onContextMenu={(e) => handleContextMenu(e, session.id)}
+                    />
+                  ))}
+                </div>
+              ))}
+              {sessionListError && <div style={styles.sessionListError}>{sessionListError}</div>}
+              {hasMoreSessions && (
+                <button
+                  style={styles.loadMoreButton}
+                  onClick={() => {
+                    void handleLoadMoreSessions()
+                  }}
+                  disabled={isLoadingMoreSessions}
+                  aria-label='Load more sessions'
+                >
+                  {isLoadingMoreSessions ? 'Loading...' : 'Load More'}
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -784,6 +844,24 @@ const styles: Record<string, React.CSSProperties> = {
   placeholderText: {
     fontSize: 13,
     color: 'var(--text-tertiary)',
+  },
+  sessionListError: {
+    color: 'var(--accent-red)',
+    fontSize: 12,
+    padding: '8px 10px',
+  },
+  loadMoreButton: {
+    width: '100%',
+    border: '1px solid var(--border-light)',
+    backgroundColor: 'var(--bg-primary)',
+    borderRadius: 'var(--radius-standard)',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-sans)',
+    fontSize: 12,
+    fontWeight: 600,
+    margin: '8px 0 4px',
+    padding: '8px 10px',
   },
   contextMenu: {
     position: 'fixed',

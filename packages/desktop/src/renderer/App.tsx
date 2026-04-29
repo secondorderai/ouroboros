@@ -10,6 +10,7 @@ import { RSIDrawer } from './components/RSIDrawer'
 import { ApprovalToastContainer } from './components/ApprovalToastContainer'
 import { ApprovalQueue } from './components/ApprovalQueue'
 import { AskUserDialog } from './components/AskUserDialog'
+import { PlanDecisionDialog } from './components/PlanDecisionDialog'
 import { UpdateBanner } from './components/UpdateBanner'
 import { OuroborosMark } from './components/OuroborosMark'
 import { TeamGraphDrawer } from './components/TeamGraphDrawer'
@@ -148,9 +149,9 @@ export function App(): React.ReactElement {
     messages.some((message) => message.role === 'agent' && (message.subagentRuns?.length ?? 0) > 0)
   const hasTeamGraphAffordance =
     Boolean(activeTeamGraphId) || Boolean(activeTeamGraphSnapshot) || hasSubagentActivity
+  const canChangeWorkspaceMode = messages.length === 0 && !isAgentRunning
 
-  const handleOnboardingComplete = useCallback(
-    (welcomeMessage: string, _template: number) => {
+  const handleOnboardingComplete = useCallback(() => {
       localStorage.setItem(ONBOARDING_DONE_KEY, 'true')
       setShowOnboarding(false)
 
@@ -162,14 +163,6 @@ export function App(): React.ReactElement {
           if (config?.model?.name) setModelName(config.model.name)
         })
         .catch(() => {})
-
-      // Add welcome message as a system message. Synthetic event — no
-      // sessionId because it's locally generated, not from a CLI run.
-      if (welcomeMessage) {
-        useConversationStore
-          .getState()
-          .handleTurnComplete({ sessionId: null, text: welcomeMessage, iterations: 0 })
-      }
     },
     [setModelName],
   )
@@ -433,6 +426,7 @@ export function App(): React.ReactElement {
           workspaceMode={workspaceMode}
           selectedWorkspacePath={selectedWorkspacePath}
           workspaceModeError={workspaceModeError}
+          canChangeWorkspaceMode={canChangeWorkspaceMode}
           onSelectWorkspaceMode={handleWorkspaceModeSelect}
           onPickWorkspace={pickWorkspaceFolder}
         />
@@ -458,6 +452,7 @@ export function App(): React.ReactElement {
         workspaceMode={workspaceMode}
         selectedWorkspacePath={selectedWorkspacePath}
         workspaceModeError={workspaceModeError}
+        canChangeWorkspaceMode={canChangeWorkspaceMode}
         onSelectWorkspaceMode={handleWorkspaceModeSelect}
         onPickWorkspace={pickWorkspaceFolder}
       />
@@ -473,9 +468,6 @@ export function App(): React.ReactElement {
             width={sidebarWidth}
             onResize={resizeSidebar}
             onOpenSettings={() => openSettings()}
-            workspaceMode={workspaceMode}
-            selectedWorkspacePath={selectedWorkspacePath}
-            onRequireWorkspace={pickWorkspaceFolder}
           />
         )}
         {!artifactFullscreen && (
@@ -521,6 +513,7 @@ export function App(): React.ReactElement {
       {/* Overlays & modals */}
       <ApprovalToastContainer />
       <AskUserDialog />
+      <PlanDecisionDialog />
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}

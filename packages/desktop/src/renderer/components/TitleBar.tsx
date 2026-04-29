@@ -14,6 +14,7 @@ interface TitleBarProps {
   workspaceMode: WorkspaceMode
   selectedWorkspacePath: string | null
   workspaceModeError?: string | null
+  canChangeWorkspaceMode?: boolean
   onSelectWorkspaceMode: (mode: WorkspaceMode) => void
   onPickWorkspace: () => Promise<string | null>
 }
@@ -30,6 +31,7 @@ export function TitleBar({
   workspaceMode,
   selectedWorkspacePath,
   workspaceModeError,
+  canChangeWorkspaceMode = true,
   onSelectWorkspaceMode,
   onPickWorkspace,
 }: TitleBarProps): React.ReactElement {
@@ -49,6 +51,11 @@ export function TitleBar({
         : 'Simple'
 
   async function selectMode(mode: WorkspaceMode): Promise<void> {
+    if (!canChangeWorkspaceMode) return
+    if (mode === workspaceMode && (mode === 'simple' || selectedWorkspacePath)) {
+      setModeMenuOpen(false)
+      return
+    }
     if (mode === 'workspace') {
       const picked = await onPickWorkspace()
       if (!picked && !selectedWorkspacePath) return
@@ -78,14 +85,24 @@ export function TitleBar({
           <button
             style={{
               ...styles.modeButton,
+              ...(workspaceMode === 'simple'
+                ? styles.modeButtonSimple
+                : styles.modeButtonWorkspace),
               ...(workspaceModeError ? styles.modeButtonError : undefined),
             }}
             onClick={() => setModeMenuOpen((open) => !open)}
             aria-label="Workspace mode"
             aria-expanded={modeMenuOpen}
-            title={workspaceModeError ?? 'Choose workspace mode for new chats'}
+            title={
+              workspaceModeError ??
+              (canChangeWorkspaceMode
+                ? 'Choose workspace mode for new chats'
+                : 'Mode is fixed after a conversation starts')
+            }
           >
-            <span style={styles.modeLabel}>{workspaceMode === 'simple' ? 'Simple' : workspaceLabel}</span>
+            <span style={styles.modeLabel}>
+              {workspaceMode === 'simple' ? 'Simple' : workspaceLabel}
+            </span>
             <ChevronIcon open={modeMenuOpen} />
           </button>
           {modeMenuOpen && (
@@ -97,6 +114,7 @@ export function TitleBar({
                 }}
                 role="menuitem"
                 onClick={() => void selectMode('simple')}
+                disabled={!canChangeWorkspaceMode}
               >
                 <span style={styles.modeMenuTitle}>Simple</span>
                 <span style={styles.modeMenuDescription}>Isolated folder per new chat.</span>
@@ -108,6 +126,7 @@ export function TitleBar({
                 }}
                 role="menuitem"
                 onClick={() => void selectMode('workspace')}
+                disabled={!canChangeWorkspaceMode}
               >
                 <span style={styles.modeMenuTitle}>Workspace</span>
                 <span style={styles.modeMenuDescription}>
@@ -305,6 +324,16 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     padding: '0 9px',
     fontFamily: 'var(--font-sans)',
+  },
+  modeButtonSimple: {
+    borderColor: 'color-mix(in srgb, var(--accent-green) 44%, var(--border-light))',
+    backgroundColor: 'color-mix(in srgb, var(--accent-green) 12%, var(--bg-secondary))',
+    color: 'var(--accent-green)',
+  },
+  modeButtonWorkspace: {
+    borderColor: 'color-mix(in srgb, var(--accent-purple) 44%, var(--border-light))',
+    backgroundColor: 'color-mix(in srgb, var(--accent-purple) 12%, var(--bg-secondary))',
+    color: 'var(--accent-purple)',
   },
   modeButtonError: {
     borderColor: 'var(--accent-red)',

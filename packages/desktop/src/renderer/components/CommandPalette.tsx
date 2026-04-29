@@ -325,20 +325,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     return createDefaultActions({
       onNewConversation: () => {
         const store = useConversationStore.getState()
-        if (store.workspaceMode === 'workspace' && !store.selectedWorkspacePath) {
-          store.setWorkspaceMode('workspace')
-          return
-        }
         window.ouroboros
-          ?.rpc(
-            'session/new',
-            store.workspaceMode === 'workspace'
-              ? { workspaceMode: 'workspace', workspacePath: store.selectedWorkspacePath! }
-              : { workspaceMode: 'simple' },
-          )
+          ?.rpc('session/new', { workspaceMode: 'simple' })
           .then((result) => {
             resetConversation()
-            store.createNewSession(result.sessionId, result.workspacePath, result.workspaceMode)
+            store.createNewSession(result.sessionId, result.workspacePath, result.workspaceMode ?? 'simple')
           })
           .catch((err: unknown) => {
             console.error('session/new failed:', err)

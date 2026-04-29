@@ -25,7 +25,10 @@ import type {
   PermissionLeaseDisplayDetails,
   WorkerDiffDisplayDetails,
   WorkspaceMode,
+  ModePlanSubmittedNotification,
+  Plan,
 } from '../../shared/protocol'
+import { formatPlanMarkdown, shouldReplaceWithSubmittedPlan } from '../lib/planFormatting'
 
 // ---------------------------------------------------------------------------
 // Store interface
@@ -46,6 +49,7 @@ export interface SessionRunSnapshot {
   pendingToolCalls: CompletedToolCall[]
   pendingSubagentRuns: SubagentRun[]
   pendingActivatedSkills: string[]
+  pendingSubmittedPlan: Plan | null
   isAgentRunning: boolean
   contextUsage: AgentContextUsageParams | null
   nextId: number
@@ -72,6 +76,8 @@ export interface ConversationState {
    * extended by handleSkillActivated for mid-turn LLM activations, drained
    * into the new agent message at handleTurnComplete. */
   pendingActivatedSkills: string[]
+  pendingSubmittedPlan: Plan | null
+  activePlanDecision: { sessionId: string | null; plan: Plan } | null
 
   /** Whether the agent is currently executing a turn. */
   isAgentRunning: boolean
@@ -158,6 +164,9 @@ export interface ConversationState {
   /** Handle an incoming `agent/turnComplete` notification. */
   handleTurnComplete: (params: AgentTurnCompleteParams) => void
 
+  /** Handle an incoming `mode/planSubmitted` notification. */
+  handlePlanSubmitted: (params: ModePlanSubmittedNotification) => void
+
   /** Handle an incoming `skill/activated` notification — dedupes by name. */
   handleSkillActivated: (params: { name: string; sessionId?: string | null }) => void
 
@@ -241,6 +250,12 @@ export interface ConversationState {
 
   /** Set the reasoning effort level. */
   setReasoningEffort: (effort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null) => void
+
+  /** Respond to a submitted Plan Mode plan by sending the next chat turn. */
+  respondToPlanDecision: (decision: 'approve' | 'reject' | 'custom', text?: string) => void
+
+  /** Dismiss the current plan decision prompt without sending a response. */
+  dismissPlanDecision: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +294,7 @@ function emptySnapshot(): SessionRunSnapshot {
     pendingToolCalls: [],
     pendingSubagentRuns: [],
     pendingActivatedSkills: [],
+    pendingSubmittedPlan: null,
     isAgentRunning: false,
     contextUsage: null,
     nextId: 1,
@@ -294,6 +310,7 @@ function snapshotFromFlat(state: ConversationState): SessionRunSnapshot {
     pendingToolCalls: state.pendingToolCalls,
     pendingSubagentRuns: state.pendingSubagentRuns,
     pendingActivatedSkills: state.pendingActivatedSkills,
+    pendingSubmittedPlan: state.pendingSubmittedPlan,
     isAgentRunning: state.isAgentRunning,
     contextUsage: state.contextUsage,
     nextId: state.nextId,
@@ -308,6 +325,7 @@ function flatFromSnapshot(snap: SessionRunSnapshot): {
   pendingToolCalls: CompletedToolCall[]
   pendingSubagentRuns: SubagentRun[]
   pendingActivatedSkills: string[]
+  pendingSubmittedPlan: Plan | null
   isAgentRunning: boolean
   contextUsage: AgentContextUsageParams | null
   nextId: number
@@ -319,6 +337,7 @@ function flatFromSnapshot(snap: SessionRunSnapshot): {
     pendingToolCalls: snap.pendingToolCalls,
     pendingSubagentRuns: snap.pendingSubagentRuns,
     pendingActivatedSkills: snap.pendingActivatedSkills,
+    pendingSubmittedPlan: snap.pendingSubmittedPlan,
     isAgentRunning: snap.isAgentRunning,
     contextUsage: snap.contextUsage,
     nextId: snap.nextId,
@@ -359,6 +378,23 @@ function updateRunState(
     }
   }
   return { sessionRunSnapshots: snapshots }
+}
+
+function finalAgentText(rawText: unknown, plan: Plan | null): string {
+  const text = normalizeTextContent(rawText)
+  if (!plan) return text
+  const formattedPlan = formatPlanMarkdown(plan)
+  return shouldReplaceWithSubmittedPlan(text) ? formattedPlan : `${text}\n\n${formattedPlan}`
+}
+
+function planDecisionForSession(
+  sessionId: string | null,
+  currentSessionId: string | null,
+  plan: Plan | null,
+): ConversationState['activePlanDecision'] {
+  if (!plan) return null
+  if (sessionId !== currentSessionId) return null
+  return { sessionId, plan }
 }
 
 function toSentenceCase(input: string): string {
@@ -809,7 +845,11 @@ function applySubagentUpdate(
   snap: SessionRunSnapshot,
   runId: string,
   updater: (run: SubagentRun) => SubagentRun,
-  base: AgentSubagentStartedNotification | AgentSubagentUpdatedNotification | AgentSubagentCompletedNotification | AgentSubagentFailedNotification,
+  base:
+    | AgentSubagentStartedNotification
+    | AgentSubagentUpdatedNotification
+    | AgentSubagentCompletedNotification
+    | AgentSubagentFailedNotification,
 ): SessionRunSnapshot {
   const pending = updateSubagentRun(snap.pendingSubagentRuns, runId, updater)
   if (pending !== snap.pendingSubagentRuns) {
@@ -906,6 +946,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   pendingToolCalls: [],
   pendingSubagentRuns: [],
   pendingActivatedSkills: [],
+  pendingSubmittedPlan: null,
+  activePlanDecision: null,
   isAgentRunning: false,
   activeRunSessionId: null,
   nextId: 1,
@@ -952,15 +994,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       // skill/activated notification is delayed. handleSkillActivated dedupes
       // by name when the notification eventually arrives.
       pendingActivatedSkills: skillName ? [skillName] : [],
+      pendingSubmittedPlan: null,
+      activePlanDecision: null,
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: runSessionId
         ? state.sessions.map((s) => {
             if (s.id !== runSessionId) return s
             const title =
-              s.title && s.title !== 'New conversation'
-                ? s.title
-                : deriveSessionTitle(text)
+              s.title && s.title !== 'New conversation' ? s.title : deriveSessionTitle(text)
             return {
               ...s,
               title,
@@ -1085,6 +1127,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       pendingToolCalls: [],
       pendingSubagentRuns: [],
       pendingActivatedSkills: [],
+      pendingSubmittedPlan: null,
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: state.activeRunSessionId
@@ -1246,6 +1289,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         activeToolCalls: new Map(),
         pendingToolCalls: [],
         pendingSubagentRuns: [],
+        pendingSubmittedPlan: null,
       })
       return
     }
@@ -1344,9 +1388,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const state = get()
     const runSessionId = resolveRunSessionId(params, state)
     const sessions = runSessionId
-      ? state.sessions.map((s) =>
-          s.id === runSessionId ? { ...s, activeToolName: undefined } : s,
-        )
+      ? state.sessions.map((s) => (s.id === runSessionId ? { ...s, activeToolName: undefined } : s))
       : state.sessions
 
     if (!runSessionId) {
@@ -1376,6 +1418,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     })
   },
 
+  handlePlanSubmitted(params: ModePlanSubmittedNotification) {
+    const state = get()
+    const runSessionId = resolveRunSessionId(params, state) ?? state.currentSessionId
+    if (!runSessionId) {
+      set({ pendingSubmittedPlan: params.plan })
+      return
+    }
+
+    set(
+      updateRunState(state, runSessionId, (snap) => ({
+        ...snap,
+        pendingSubmittedPlan: params.plan,
+      })),
+    )
+  },
+
   handleTurnComplete(params: AgentTurnCompleteParams) {
     const state = get()
     const completedSessionId = resolveRunSessionId(params, state)
@@ -1386,14 +1444,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       // tool-calls / subagent runs / activated skills into the assistant
       // message so they appear in the rendered turn.
       set((s) => {
+        const submittedPlan = s.pendingSubmittedPlan
         const agentMessage: Message = {
           id: makeId('agent', s.nextId),
           role: 'agent',
-          text: normalizeTextContent(params.text),
+          text: finalAgentText(params.text, submittedPlan),
           timestamp: new Date().toISOString(),
           toolCalls: s.pendingToolCalls.length > 0 ? [...s.pendingToolCalls] : undefined,
-          subagentRuns:
-            s.pendingSubagentRuns.length > 0 ? [...s.pendingSubagentRuns] : undefined,
+          subagentRuns: s.pendingSubagentRuns.length > 0 ? [...s.pendingSubagentRuns] : undefined,
           activatedSkills:
             s.pendingActivatedSkills.length > 0 ? [...s.pendingActivatedSkills] : undefined,
         }
@@ -1406,6 +1464,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           pendingToolCalls: [],
           pendingSubagentRuns: [],
           pendingActivatedSkills: [],
+          pendingSubmittedPlan: null,
+          activePlanDecision: submittedPlan ? { sessionId: null, plan: submittedPlan } : null,
           nextId: s.nextId + 1,
         }
       })
@@ -1416,11 +1476,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     // currently viewing this session or not. The non-current case is what
     // makes "switching to a session whose run completed in the background"
     // show the final assistant message instead of stale streaming state.
+    const submittedPlanForDecision =
+      completedSessionId === state.currentSessionId
+        ? state.pendingSubmittedPlan
+        : (state.sessionRunSnapshots.get(completedSessionId)?.pendingSubmittedPlan ?? null)
     const updates = updateRunState(state, completedSessionId, (snap) => {
+      const submittedPlan = snap.pendingSubmittedPlan
       const agentMessage: Message = {
         id: makeId('agent', snap.nextId),
         role: 'agent',
-        text: normalizeTextContent(params.text),
+        text: finalAgentText(params.text, submittedPlan),
         timestamp: new Date().toISOString(),
         toolCalls: snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
         subagentRuns:
@@ -1437,6 +1502,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         pendingToolCalls: [],
         pendingSubagentRuns: [],
         pendingActivatedSkills: [],
+        pendingSubmittedPlan: null,
         nextId: snap.nextId + 1,
       }
     })
@@ -1473,10 +1539,35 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       sessions,
       // Only clear the global run-tracker if it pointed at the completing
       // session. Another session may have started a run after this one.
-      ...(state.activeRunSessionId === completedSessionId
-        ? { activeRunSessionId: null }
-        : {}),
+      ...(state.activeRunSessionId === completedSessionId ? { activeRunSessionId: null } : {}),
+      activePlanDecision: planDecisionForSession(
+        completedSessionId,
+        state.currentSessionId,
+        submittedPlanForDecision,
+      ),
     })
+  },
+
+  respondToPlanDecision(decision, text) {
+    const state = get()
+    if (!state.activePlanDecision) return
+
+    const trimmed = text?.trim() ?? ''
+    const response =
+      decision === 'approve'
+        ? 'Approved. Proceed with the plan.'
+        : decision === 'reject'
+          ? `Rejected. Please revise the plan with this feedback: ${trimmed}`
+          : trimmed
+
+    if (response.trim().length === 0) return
+
+    set({ activePlanDecision: null })
+    get().sendMessage(response)
+  },
+
+  dismissPlanDecision() {
+    set({ activePlanDecision: null })
   },
 
   handleSkillActivated(params: { name: string; sessionId?: string | null }) {
@@ -1521,6 +1612,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           pendingToolCalls: [],
           pendingSubagentRuns: [],
           pendingActivatedSkills: [],
+          pendingSubmittedPlan: null,
           nextId: s.nextId + 1,
           contextUsage: null,
         }
@@ -1560,6 +1652,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         pendingToolCalls: [],
         pendingSubagentRuns: [],
         pendingActivatedSkills: [],
+        pendingSubmittedPlan: null,
         nextId: nextId + 1,
         contextUsage: null,
       }
@@ -1572,9 +1665,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           ? { ...s, runStatus: 'error' as const, activeToolName: undefined }
           : s,
       ),
-      ...(state.activeRunSessionId === failedSessionId
-        ? { activeRunSessionId: null }
-        : {}),
+      ...(state.activeRunSessionId === failedSessionId ? { activeRunSessionId: null } : {}),
     })
   },
 
@@ -1688,6 +1779,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       ...flatFromSnapshot(emptySnapshot()),
       activeRunSessionId: null,
+      activePlanDecision: null,
       currentSessionId: null,
       sessionRunSnapshots: new Map(),
     })
@@ -1754,6 +1846,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     id: string,
     sessionMessages: SessionMessage[],
     workspacePath?: string | null,
+    workspaceMode?: WorkspaceMode,
   ) {
     const state = get()
     const messages: Message[] = sessionMessages.map((m, i) => ({
@@ -1795,14 +1888,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         : {
             messages,
             streamingText: cliRunCompleted ? null : (existing?.streamingText ?? null),
-            activeToolCalls: cliRunCompleted
-              ? new Map()
-              : (existing?.activeToolCalls ?? new Map()),
+            activeToolCalls: cliRunCompleted ? new Map() : (existing?.activeToolCalls ?? new Map()),
             pendingToolCalls: cliRunCompleted ? [] : (existing?.pendingToolCalls ?? []),
             pendingSubagentRuns: cliRunCompleted ? [] : (existing?.pendingSubagentRuns ?? []),
-            pendingActivatedSkills: cliRunCompleted
-              ? []
-              : (existing?.pendingActivatedSkills ?? []),
+            pendingActivatedSkills: cliRunCompleted ? [] : (existing?.pendingActivatedSkills ?? []),
+            pendingSubmittedPlan: cliRunCompleted ? null : (existing?.pendingSubmittedPlan ?? null),
             isAgentRunning: cliRunCompleted ? false : state.activeRunSessionId === id,
             contextUsage: existing?.contextUsage ?? null,
             nextId: messages.length + 1,
@@ -1814,6 +1904,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       sessionRunSnapshots: snapshots,
       ...flatFromSnapshot(incoming),
       workspace: workspacePath ?? null,
+      workspaceMode: workspaceMode ?? 'workspace',
     })
 
     hydrateLoadedImagePreviews(id, incoming.messages, set, get)
@@ -1825,6 +1916,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     workspaceMode?: WorkspaceMode,
   ) {
     const state = get()
+    const newWorkspaceMode = workspaceMode ?? 'simple'
     const newSession: SessionInfo = {
       id: sessionId,
       createdAt: new Date().toISOString(),
@@ -1833,7 +1925,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       title: 'New conversation',
       titleSource: 'auto',
       workspacePath,
-      workspaceMode,
+      workspaceMode: newWorkspaceMode,
     }
 
     // Snapshot the outgoing session before switching to the new one — this
@@ -1853,6 +1945,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeRunSessionId: state.activeRunSessionId,
       currentSessionId: sessionId,
       workspace: workspacePath ?? null,
+      workspaceMode: newWorkspaceMode,
       sessions: [newSession, ...state.sessions],
       sessionRunSnapshots: snapshots,
     })
@@ -1898,6 +1991,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   setWorkspaceMode(mode: WorkspaceMode) {
+    const state = get()
+    if ((state.messages.length > 0 || state.isAgentRunning) && mode !== state.workspaceMode) {
+      return
+    }
     set({
       workspaceMode: mode,
       workspaceModeError:

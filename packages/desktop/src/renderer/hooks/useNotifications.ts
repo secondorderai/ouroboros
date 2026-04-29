@@ -33,6 +33,7 @@ export function useNotifications(): void {
       handleSubagentFailed,
       handlePermissionLeaseUpdated,
       handleSkillActivated,
+      handlePlanSubmitted,
     } = useConversationStore.getState()
 
     loadApprovals().catch((error) => {
@@ -96,6 +97,9 @@ export function useNotifications(): void {
       }),
       api.onNotification('askUser/request', (params) => {
         addAskUserRequest(params)
+      }),
+      api.onNotification('mode/planSubmitted', (params) => {
+        handlePlanSubmitted(params)
       }),
       api.onNotification('agent/artifactCreated', (params) => {
         useArtifactsStore.getState().handleArtifactCreated(params)
