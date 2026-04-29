@@ -287,11 +287,23 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
       runtime.workspace = runtime.initialWorkspace ?? null
       writeResult(request.id, { directory: runtime.workspace ?? '' })
       return
-    case 'session/list':
+    case 'session/list': {
+      const limit =
+        typeof request.params?.limit === 'number'
+          ? Math.max(0, Math.floor(request.params.limit))
+          : 20
+      const offset =
+        typeof request.params?.offset === 'number'
+          ? Math.max(0, Math.floor(request.params.offset))
+          : 0
+      const page = runtime.sessions.slice(offset, offset + limit)
+      const hasMore = runtime.sessions.length > offset + limit
       writeResult(request.id, {
-        sessions: runtime.sessions.map((session) => toSessionInfo(session)),
+        sessions: page.map((session) => toSessionInfo(session)),
+        hasMore,
       })
       return
+    }
     case 'session/load': {
       const session = runtime.sessions.find((entry) => entry.id === request.params?.id)
       if (!session) {
@@ -488,9 +500,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             })
           }
           const responseText =
-            typeof runSpec.response?.text === 'string'
-              ? runSpec.response.text
-              : 'Mock final answer'
+            typeof runSpec.response?.text === 'string' ? runSpec.response.text : 'Mock final answer'
           session.messages.push({
             role: 'assistant',
             content: responseText,

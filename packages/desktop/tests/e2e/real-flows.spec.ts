@@ -109,7 +109,6 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
 
   await completeOnboarding(launched.page, {
     workspace: '/tmp/ouroboros-workspace',
-    templateName: 'Help me with a project',
   })
 
   await expect(launched.page.getByLabel('Message input')).toBeVisible()
@@ -165,9 +164,10 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
   await expect(launched.page.getByRole('button', { name: 'Remove notes.txt' })).toHaveCount(1)
 
   await launched.page.getByRole('button', { name: 'Workspace mode' }).click()
-  await launched.page.getByRole('menuitem', { name: /Workspace/ }).click()
+  await expect(launched.page.getByRole('menuitem', { name: /Simple/ })).toBeDisabled()
+  await expect(launched.page.getByRole('menuitem', { name: /Workspace/ })).toBeDisabled()
   await expect(launched.page.getByRole('button', { name: 'Workspace mode' })).toContainText(
-    'next-workspace',
+    'ouroboros-workspace',
   )
 
   await emitUpdateDownloaded(launched.page, '9.9.9')

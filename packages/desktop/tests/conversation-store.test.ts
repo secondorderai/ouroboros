@@ -12,10 +12,14 @@ function resetStore(): void {
     activeToolCalls: new Map(),
     pendingToolCalls: [],
     pendingSubagentRuns: [],
+    pendingActivatedSkills: [],
+    pendingSubmittedPlan: null,
+    activePlanDecision: null,
     isAgentRunning: false,
     activeRunSessionId: null,
     nextId: 1,
     currentSessionId: null,
+    sessionRunSnapshots: new Map(),
     sessions: [],
     workspace: null,
     workspaceMode: 'simple',
@@ -23,6 +27,7 @@ function resetStore(): void {
     workspaceModeError: null,
     modelName: null,
     contextUsage: null,
+    reasoningEffort: null,
   })
 }
 
@@ -45,6 +50,59 @@ describe('conversation store normalization', () => {
     expect(normalizeToolName('web-search')).toBe('web-search')
     expect(normalizeToolName({ name: 'web-search' })).toBe('web-search')
     expect(normalizeToolName({ toolName: 'bash' })).toBe('bash')
+  })
+
+  test('renders a submitted plan into the completed agent message', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-plan',
+      activeRunSessionId: 'session-plan',
+      isAgentRunning: true,
+      sessionRunSnapshots: new Map([
+        [
+          'session-plan',
+          {
+            messages: [],
+            streamingText: '',
+            activeToolCalls: new Map(),
+            pendingToolCalls: [],
+            pendingSubagentRuns: [],
+            pendingActivatedSkills: [],
+            pendingSubmittedPlan: null,
+            isAgentRunning: true,
+            contextUsage: null,
+            nextId: 1,
+          },
+        ],
+      ]),
+    })
+
+    useConversationStore.getState().handlePlanSubmitted({
+      sessionId: 'session-plan',
+      plan: {
+        title: 'Desktop Plan Review Prompt',
+        summary: 'Render the submitted plan in chat.',
+        steps: [
+          {
+            description: 'Display the plan body',
+            targetFiles: ['packages/desktop/src/renderer/App.tsx'],
+            tools: ['file-edit'],
+          },
+        ],
+        exploredFiles: ['packages/desktop/src/renderer/App.tsx'],
+        status: 'submitted',
+      },
+    })
+    useConversationStore.getState().handleTurnComplete({
+      sessionId: 'session-plan',
+      text: 'Plan submitted. Please review and let me know if you approve, reject, or cancel.',
+      iterations: 1,
+    })
+
+    const state = useConversationStore.getState()
+    expect(state.messages[0].text).toContain('## Desktop Plan Review Prompt')
+    expect(state.messages[0].text).toContain('Display the plan body')
+    expect(state.activePlanDecision?.plan.title).toBe('Desktop Plan Review Prompt')
   })
 
   test('stores and clears context usage across session changes', () => {
@@ -230,6 +288,64 @@ describe('conversation store sessions', () => {
         workspaceMode: 'workspace',
       }),
     )
+  })
+
+  test('loading a session displays that session workspace mode', () => {
+    resetStore()
+    useConversationStore.getState().setSelectedWorkspacePath('/tmp/project')
+    useConversationStore.getState().setWorkspaceMode('workspace')
+
+    useConversationStore
+      .getState()
+      .loadSession('simple-session', [], '/tmp/ouroboros-simple/1', 'simple')
+
+    expect(useConversationStore.getState().workspaceMode).toBe('simple')
+
+    useConversationStore
+      .getState()
+      .loadSession('workspace-session', [], '/tmp/project', 'workspace')
+
+    expect(useConversationStore.getState().workspaceMode).toBe('workspace')
+    expect(useConversationStore.getState().workspace).toBe('/tmp/project')
+  })
+
+  test('new empty sessions default to simple mode even after a workspace chat', () => {
+    resetStore()
+
+    useConversationStore.getState().setSelectedWorkspacePath('/tmp/project')
+    useConversationStore.getState().setWorkspaceMode('workspace')
+    useConversationStore.getState().createNewSession('session-simple')
+
+    expect(useConversationStore.getState().workspaceMode).toBe('simple')
+    expect(useConversationStore.getState().workspace).toBeNull()
+    expect(useConversationStore.getState().sessions[0]).toEqual(
+      expect.objectContaining({
+        id: 'session-simple',
+        workspaceMode: 'simple',
+      }),
+    )
+  })
+
+  test('workspace mode cannot change after a conversation starts', () => {
+    resetStore()
+
+    useConversationStore.getState().loadSession(
+      'simple-session',
+      [
+        {
+          role: 'user',
+          content: 'Keep this session simple',
+          timestamp: '2026-04-29T00:00:00.000Z',
+        },
+      ],
+      '/tmp/ouroboros-simple/1',
+      'simple',
+    )
+
+    useConversationStore.getState().setSelectedWorkspacePath('/tmp/project')
+    useConversationStore.getState().setWorkspaceMode('workspace')
+
+    expect(useConversationStore.getState().workspaceMode).toBe('simple')
   })
 
   test('does NOT overwrite a meaningful auto title on subsequent sendMessage', async () => {

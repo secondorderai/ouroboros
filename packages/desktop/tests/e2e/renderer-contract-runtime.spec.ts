@@ -969,6 +969,9 @@ test('top bar workspace mode selector picks a workspace folder', async ({}, test
   await launched.page.getByRole('menuitem', { name: /Workspace/ }).click()
 
   await expect(modeButton).toContainText('ouroboros-test-workspace-select')
+
+  await launched.page.getByLabel('New conversation').click()
+  await expect(modeButton).toContainText('Simple')
 })
 
 test('chats persist when switching between sessions — regression for "chats lost on switch back"', async ({}, testInfo) => {

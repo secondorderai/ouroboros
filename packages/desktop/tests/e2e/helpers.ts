@@ -176,18 +176,12 @@ export async function completeOnboarding(
     baseUrl?: string
     provider?: 'anthropic' | 'openai' | 'openai-chatgpt' | 'openai-compatible'
     workspace?: string
-    templateName?:
-      | 'Help me with a project'
-      | 'Explore this codebase'
-      | 'General assistant'
-      | 'Let the agent evolve'
   } = {},
 ): Promise<void> {
   const apiKey = options.apiKey ?? 'sk-test-key'
   const baseUrl = options.baseUrl ?? 'http://localhost:11434/v1'
   const provider = options.provider ?? 'anthropic'
   const workspace = options.workspace
-  const templateName = options.templateName ?? 'Help me with a project'
 
   await expect(page.getByRole('heading', { name: 'Connect your AI' })).toBeVisible()
 
@@ -214,18 +208,16 @@ export async function completeOnboarding(
   }
 
   await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Choose your mode' })).toBeVisible()
 
   if (workspace) {
-    await expect(page.getByRole('heading', { name: 'Choose your workspace' })).toBeVisible()
+    await page.getByRole('button', { name: 'Workspace', exact: true }).click()
     await page.getByText('Choose folder').click()
     await expect(page.getByText(workspace)).toBeVisible()
-    await page.getByRole('button', { name: 'Next' }).click()
   } else {
-    await page.getByRole('button', { name: "I'll set this up later" }).click()
+    await page.getByRole('button', { name: 'Simple', exact: true }).click()
   }
 
-  await expect(page.getByRole('heading', { name: 'What would you like to do?' })).toBeVisible()
-  await page.getByText(templateName).click()
   await page.getByRole('button', { name: 'Get Started' }).click()
 }
 

@@ -214,8 +214,8 @@ test('onboarding captures OpenAI-compatible base URL and persists it', async ({}
     .toContain('"baseUrl":"http://localhost:11434/v1"')
 
   await launched.page.getByRole('button', { name: 'Next' }).click()
-  await launched.page.getByRole('button', { name: "I'll set this up later" }).click()
-  await launched.page.getByText('Help me with a project').click()
+  await expect(launched.page.getByRole('heading', { name: 'Choose your mode' })).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Simple' }).click()
   await launched.page.getByRole('button', { name: 'Get Started' }).click()
 
   await expect
@@ -227,9 +227,7 @@ test('onboarding creates a session for the first chat history entry', async ({},
   launched = await launchTestApp(testInfo)
   await clearClientState(launched.page)
 
-  await completeOnboarding(launched.page, {
-    templateName: 'Help me with a project',
-  })
+  await completeOnboarding(launched.page)
 
   await expect(launched.page.getByLabel('Message input')).toBeVisible()
   await expect(launched.page.getByText('New conversation')).toBeVisible()
@@ -272,6 +270,54 @@ test('first message after launch creates a sidebar history session', async ({}, 
 
   const log = await readFile(launched.paths.mockLogPath, 'utf8')
   expect(log.indexOf('"method":"session/new"')).toBeLessThan(log.indexOf('"method":"agent/run"'))
+})
+
+test('sidebar loads older sessions in pages of 50', async ({}, testInfo) => {
+  const baseTime = Date.parse('2026-04-23T10:00:00.000Z')
+  const sessions = Array.from({ length: 55 }, (_, index) => {
+    const sessionNumber = index + 1
+    const timestamp = new Date(baseTime - index * 60_000).toISOString()
+    return {
+      id: `paged-session-${sessionNumber}`,
+      title: `Paged session ${String(sessionNumber).padStart(2, '0')}`,
+      createdAt: timestamp,
+      lastActive: timestamp,
+      messages: [
+        {
+          role: 'user',
+          content: `Question for paged session ${sessionNumber}`,
+          timestamp,
+        },
+        {
+          role: 'assistant',
+          content: `Answer for paged session ${sessionNumber}`,
+          timestamp,
+        },
+      ],
+    }
+  })
+
+  launched = await launchTestApp(testInfo, {
+    scenario: { sessions },
+  })
+  await openMainApp()
+
+  await expect(launched.page.getByLabel('Session: Paged session 01')).toBeVisible()
+  await expect(launched.page.getByLabel('Session: Paged session 50')).toBeVisible()
+  await expect(launched.page.getByLabel('Session: Paged session 51')).toHaveCount(0)
+
+  await launched.page.getByRole('button', { name: 'Load more sessions' }).click()
+
+  await expect(launched.page.getByLabel('Session: Paged session 51')).toBeVisible()
+  await expect(launched.page.getByLabel('Session: Paged session 55')).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: 'Load more sessions' })).toHaveCount(0)
+
+  await launched.page.getByLabel('Session: Paged session 55').click()
+  await expect(launched.page.getByText('Answer for paged session 55')).toBeVisible()
+
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  expect(log).toContain('"method":"session/list","params":{"limit":50,"offset":0}')
+  expect(log).toContain('"method":"session/list","params":{"limit":50,"offset":50}')
 })
 
 test('slash skill picker selects and removes skills for agent runs', async ({}, testInfo) => {
@@ -681,6 +727,59 @@ test('ask-user modal submits custom text and keeps failed responses visible', as
   await expect(launched.page.getByRole('dialog', { name: 'Input Needed' })).toHaveCount(0)
 })
 
+test('submitted plan renders in chat and decision prompt sends next message', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: '',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Create a plan')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await emitNotification(launched.page, 'mode/planSubmitted', {
+    plan: {
+      title: 'Desktop Plan Review Prompt',
+      summary: 'Render submitted plans and collect a decision.',
+      steps: [
+        {
+          description: 'Display the submitted plan',
+          targetFiles: ['packages/desktop/src/renderer/App.tsx'],
+          tools: ['file-edit'],
+        },
+      ],
+      exploredFiles: ['packages/desktop/src/renderer/App.tsx'],
+      status: 'submitted',
+    },
+  })
+  await emitNotification(launched.page, 'agent/turnComplete', {
+    text: 'Plan submitted. Please review and let me know if you approve, reject, or cancel.',
+    iterations: 1,
+  })
+
+  await expect(
+    launched.page.getByRole('heading', { name: 'Desktop Plan Review Prompt' }),
+  ).toBeVisible()
+  await expect(launched.page.getByText('Display the submitted plan')).toBeVisible()
+  await expect(launched.page.getByRole('dialog', { name: 'Review Plan' })).toBeVisible()
+  await expect(launched.page.getByRole('radio', { name: 'Approve' })).toBeVisible()
+  await expect(launched.page.getByRole('radio', { name: 'Reject' })).toBeVisible()
+  await expect(launched.page.getByRole('radio', { name: 'Custom response' })).toBeVisible()
+
+  await launched.page.getByRole('button', { name: 'Submit' }).click()
+
+  await expect(launched.page.getByRole('dialog', { name: 'Review Plan' })).toHaveCount(0)
+  await expect(launched.page.getByText('Approved. Proceed with the plan.')).toBeVisible()
+})
+
 test('onboarding stays open when required setup fails', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await clearClientState(launched.page)
@@ -700,16 +799,12 @@ test('onboarding stays open when required setup fails', async ({}, testInfo) => 
   await expect(launched.page.getByText('Connected')).toBeVisible()
 
   await launched.page.getByRole('button', { name: 'Next' }).click()
-  await expect(launched.page.getByText('Choose your workspace')).toBeVisible()
-
-  await launched.page.getByRole('button', { name: "I'll set this up later" }).click()
-  await expect(launched.page.getByText('What would you like to do?')).toBeVisible()
-
-  await launched.page.getByText('Help me with a project').click()
+  await expect(launched.page.getByText('Choose your mode')).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Simple' }).click()
   await launched.page.getByRole('button', { name: 'Get Started' }).click()
 
   await expect(launched.page.getByText('Invalid API key')).toBeVisible()
-  await expect(launched.page.getByText('What would you like to do?')).toBeVisible()
+  await expect(launched.page.getByText('Choose your mode')).toBeVisible()
 })
 
 test('onboarding supports ChatGPT subscription without API key entry', async ({}, testInfo) => {
@@ -723,7 +818,7 @@ test('onboarding supports ChatGPT subscription without API key entry', async ({}
   await expect(launched.page.getByText(/Connected/)).toBeVisible()
   await launched.page.getByRole('button', { name: 'Next' }).click()
 
-  await expect(launched.page.getByText('Choose your workspace')).toBeVisible()
+  await expect(launched.page.getByText('Choose your mode')).toBeVisible()
 })
 
 test('settings can switch to ChatGPT subscription and sign out cleanly', async ({}, testInfo) => {
@@ -749,4 +844,3 @@ test('settings can switch to ChatGPT subscription and sign out cleanly', async (
   await launched.page.getByRole('button', { name: 'Sign out' }).click()
   await expect(launched.page.getByText('Disconnected from ChatGPT subscription')).toBeVisible()
 })
-
