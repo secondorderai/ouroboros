@@ -774,6 +774,34 @@ describe('generateResponse', () => {
     expect(result.error.message).not.toContain('[object Object]')
   })
 
+  test('object-shaped Bad Request errors retain sanitized provider details', async () => {
+    const model = createMockModel({
+      error: {
+        message: 'Bad Request',
+        status: 400,
+        data: {
+          error: {
+            code: 'invalid_request_error',
+            message: 'max_tokens is not supported by this model',
+          },
+          api_key: 'secret-key',
+        },
+      } as unknown as Error,
+    })
+
+    const result = await generateResponse(model, testMessages)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+
+    expect(result.error.message).toContain('Bad Request')
+    expect(result.error.message).toContain('status 400')
+    expect(result.error.message).toContain('max_tokens is not supported')
+    expect(result.error.message).toContain('invalid_request_error')
+    expect(result.error.message).not.toContain('secret-key')
+    expect(result.error.message).not.toContain('[object Object]')
+  })
+
   test('maps chatgpt system prompts to openai instructions', async () => {
     let capturedSystem: unknown
     let capturedProviderOptions: unknown

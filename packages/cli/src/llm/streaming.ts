@@ -260,20 +260,22 @@ function extractErrorDetails(
   error: unknown,
 ): { message: string; name: string; code?: string } | null {
   if (error instanceof Error) {
-    const errorWithCode = error as Error & { code?: unknown }
+    const record = error as unknown as Record<string, unknown>
+    const nested = findNestedErrorRecord(record)
+    const code = pickString(record.code) ?? pickString(nested?.code)
+    const status = pickString(record.statusCode) ?? pickString(record.status)
+    const supplemental = formatSupplementalErrorDetails(record, nested)
+
     return {
-      message: error.message,
+      message: appendDetail(error.message, [status ? `status ${status}` : null, supplemental]),
       name: error.name,
-      code: typeof errorWithCode.code === 'string' ? errorWithCode.code : undefined,
+      code: code ?? undefined,
     }
   }
 
   if (error && typeof error === 'object') {
     const record = error as Record<string, unknown>
-    const nested =
-      record.error && typeof record.error === 'object'
-        ? (record.error as Record<string, unknown>)
-        : undefined
+    const nested = findNestedErrorRecord(record)
 
     const message =
       pickString(record.message) ??
@@ -282,11 +284,17 @@ function extractErrorDetails(
       pickString(nested?.value)
 
     const code = pickString(record.code) ?? pickString(nested?.code)
+    const status = pickString(record.statusCode) ?? pickString(record.status)
     const name =
       pickString(record.name) ?? pickString(record.type) ?? pickString(nested?.type) ?? 'Error'
+    const supplemental = formatSupplementalErrorDetails(record, nested)
 
     if (message) {
-      return { message, name, code: code ?? undefined }
+      return {
+        message: appendDetail(message, [status ? `status ${status}` : null, supplemental]),
+        name,
+        code: code ?? undefined,
+      }
     }
 
     try {
@@ -303,7 +311,82 @@ function extractErrorDetails(
   return null
 }
 
+function findNestedErrorRecord(
+  record: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const candidates = [record.error, record.data, record.responseBody, record.body, record.cause]
+
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === 'object') {
+      return candidate as Record<string, unknown>
+    }
+    if (typeof candidate === 'string') {
+      const parsed = parseJsonObject(candidate)
+      if (parsed) return parsed
+    }
+  }
+
+  return undefined
+}
+
+function formatSupplementalErrorDetails(
+  record: Record<string, unknown>,
+  nested?: Record<string, unknown>,
+): string | null {
+  const details = nested ?? parseJsonObject(pickString(record.responseBody) ?? '')
+  if (!details) return null
+
+  const message = pickString(details.message) ?? pickString(details.value)
+  const code = pickString(details.code)
+  const type = pickString(details.type) ?? pickString(details.name)
+  const parts = [type ? `type ${type}` : null, code ? `code ${code}` : null, message].filter(
+    (part): part is string => Boolean(part),
+  )
+
+  if (parts.length > 0) return parts.join('; ')
+  return stringifySanitized(details)
+}
+
+function appendDetail(message: string, details: Array<string | null>): string {
+  const suffix = details.filter((detail): detail is string => Boolean(detail)).join('; ')
+  return suffix ? `${message} (${suffix})` : message
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  if (!value.trim()) return null
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+function stringifySanitized(value: unknown): string | null {
+  try {
+    return JSON.stringify(redactSensitive(value))
+  } catch {
+    return null
+  }
+}
+
+function redactSensitive(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSensitive)
+  if (!value || typeof value !== 'object') return value
+
+  const redacted: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (/authorization|api[-_]?key|token|secret|password/i.test(key)) {
+      redacted[key] = '<redacted>'
+    } else {
+      redacted[key] = redactSensitive(item)
+    }
+  }
+  return redacted
+}
+
 function pickString(value: unknown): string | null {
+  if (typeof value === 'number') return String(value)
   return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 

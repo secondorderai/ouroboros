@@ -2665,7 +2665,7 @@ description: A generated test skill
       }
       expect(result.skills).toBeInstanceOf(Array)
       expect(result.skills).toContainEqual(
-        expect.objectContaining({ name: 'test-skill', version: '1.0', enabled: false }),
+        expect.objectContaining({ name: 'test-skill', version: '1.0', enabled: true }),
       )
 
       ctx.transcriptStore.close()
@@ -2713,6 +2713,99 @@ description: Bundled meta-thinking skill
         rmSync(builtinRoot, { recursive: true, force: true })
         _resetSkills()
       }
+    })
+
+    test('skills/list hides disabled skills unless requested', async () => {
+      const ctx = createTestContext({
+        config: {
+          ...makeTestConfig(),
+          disabledSkills: ['disabled-generated', 'disabled-builtin'],
+        },
+      })
+      const skillDir = join(ctx.configDir, 'skills', 'generated', 'disabled-generated')
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: disabled-generated
+description: A disabled generated skill
+---
+
+# Disabled
+`,
+      )
+
+      const builtinRoot = join(tmpdir(), `ouroboros-disabled-builtin-${crypto.randomUUID()}`)
+      const builtinSkillDir = join(builtinRoot, 'disabled-builtin')
+      mkdirSync(builtinSkillDir, { recursive: true })
+      writeFileSync(
+        join(builtinSkillDir, 'SKILL.md'),
+        `---
+name: disabled-builtin
+description: A disabled built-in skill
+---
+
+# Disabled built-in
+`,
+      )
+
+      const previousEnv = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+      process.env.OUROBOROS_BUILTIN_SKILLS_DIR = builtinRoot
+      const handlers = createHandlers(ctx)
+
+      try {
+        const visible = (await handlers.get('skills/list')!({})) as {
+          skills: Array<{ name: string; enabled: boolean }>
+        }
+        expect(visible.skills.map((skill) => skill.name)).not.toContain('disabled-generated')
+        expect(visible.skills.map((skill) => skill.name)).not.toContain('disabled-builtin')
+
+        const all = (await handlers.get('skills/list')!({ includeDisabled: true })) as {
+          skills: Array<{ name: string; enabled: boolean }>
+        }
+        expect(all.skills).toContainEqual(
+          expect.objectContaining({ name: 'disabled-generated', enabled: false }),
+        )
+        expect(all.skills).toContainEqual(
+          expect.objectContaining({ name: 'disabled-builtin', enabled: false }),
+        )
+      } finally {
+        if (previousEnv === undefined) {
+          delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+        } else {
+          process.env.OUROBOROS_BUILTIN_SKILLS_DIR = previousEnv
+        }
+        rmSync(builtinRoot, { recursive: true, force: true })
+        ctx.transcriptStore.close()
+      }
+    })
+
+    test('skills/get rejects disabled skills', async () => {
+      const ctx = createTestContext({
+        config: {
+          ...makeTestConfig(),
+          disabledSkills: ['disabled-skill'],
+        },
+      })
+      const skillDir = join(ctx.configDir, 'skills', 'generated', 'disabled-skill')
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: disabled-skill
+description: A disabled skill
+---
+
+# Disabled
+`,
+      )
+      const handlers = createHandlers(ctx)
+
+      await expect(handlers.get('skills/get')!({ name: 'disabled-skill' })).rejects.toThrow(
+        'Skill disabled',
+      )
+
+      ctx.transcriptStore.close()
     })
   })
 

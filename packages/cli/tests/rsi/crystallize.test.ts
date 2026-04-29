@@ -442,6 +442,93 @@ describe('reflect()', () => {
     expect(result.error.message).toContain('Reflection LLM call failed')
   })
 
+  test('retries Bad Request reflection calls with compatibility-safe options', async () => {
+    const mockResponse = JSON.stringify({
+      taskSummary: 'Created a new feature',
+      novelty: 0.9,
+      generalizability: 0.85,
+      reasoning: 'Completely new approach with no existing skills to compare.',
+      shouldCrystallize: false,
+    })
+    const doGenerateCalls: LanguageModelV3CallOptions[] = []
+
+    const llm: LanguageModel = {
+      specificationVersion: 'v3',
+      provider: 'mock',
+      modelId: 'mock-model',
+      supportedUrls: {},
+
+      doGenerate: async (callOptions: LanguageModelV3CallOptions) => {
+        doGenerateCalls.push(callOptions)
+        if (doGenerateCalls.length === 1) {
+          throw Object.assign(new Error('Bad Request'), {
+            statusCode: 400,
+            responseBody: JSON.stringify({
+              error: { message: 'max_tokens is not supported', code: 'invalid_request_error' },
+            }),
+          })
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: mockResponse }],
+          finishReason: { unified: 'stop' as const, raw: 'stop' },
+          usage: {
+            inputTokens: {
+              total: 10,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 50, text: undefined, reasoning: undefined },
+          },
+          warnings: [],
+        }
+      },
+
+      doStream: async () => {
+        throw new Error('doStream not used by generateText')
+      },
+    } as unknown as LanguageModel
+
+    const result = await reflect('Created a new feature', [], llm)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.novelty).toBe(0.9)
+    expect(doGenerateCalls).toHaveLength(2)
+    expect(doGenerateCalls[0]?.temperature).toBe(0.2)
+    expect(doGenerateCalls[0]?.maxOutputTokens).toBe(1024)
+    expect(doGenerateCalls[1]?.temperature).toBeUndefined()
+    expect(doGenerateCalls[1]?.maxOutputTokens).toBeUndefined()
+    expect(doGenerateCalls[1]?.providerOptions).toBeUndefined()
+  })
+
+  test('does not retry non-Bad Request reflection failures', async () => {
+    let callCount = 0
+    const llm: LanguageModel = {
+      specificationVersion: 'v3',
+      provider: 'mock',
+      modelId: 'mock-model',
+      supportedUrls: {},
+
+      doGenerate: async () => {
+        callCount += 1
+        throw new Error('API key expired')
+      },
+
+      doStream: async () => {
+        throw new Error('Streaming not implemented in mock')
+      },
+    } as unknown as LanguageModel
+
+    const result = await reflect('Did something', [], llm)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(callCount).toBe(1)
+    expect(result.error.message).toContain('Reflection LLM call failed')
+  })
+
   test('handles JSON wrapped in markdown fences', async () => {
     const jsonBody = JSON.stringify({
       taskSummary: 'Built a parser',
