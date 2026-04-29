@@ -1,5 +1,12 @@
 # Ouroboros Desktop — Product Requirements Document
 
+> **Current status:** Historical product requirements record from April 2026.
+> The desktop implementation now includes the chat shell plus settings, skills
+> management, artifacts, modes, steering, approvals, RSI history/checkpoints,
+> subagent rows, team graph, MCP status, and update/crash handling surfaces. Use
+> `../README.md`, `docs/test-plan.md`, and `docs/architecture.svg` for current
+> implementation status.
+
 **The desktop experience for the first autonomous AI agent that recursively self-improves.**
 
 > Electron Desktop App · Chat-First · Cross-Platform

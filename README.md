@@ -1,34 +1,36 @@
 # Ouroboros
 
-An embeddable agent harness and CLI with a recursive self-improvement layer for building agentic AI systems.
-TypeScript on [Bun](https://bun.sh).
+Ouroboros is a Bun/TypeScript monorepo for a recursive self-improving AI agent.
+It includes a CLI agent, an Electron desktop app, shared protocol/types, runtime
+Agent Skills, structured memory, HTML artifacts, subagents, team workflows, MCP,
+and a JSON-RPC bridge between the CLI and desktop.
 
-Ouroboros provides a provider-agnostic ReAct loop, a plugin-based tool registry, multi-layer memory, and portable [Agent Skills](https://agentskills.io) — everything you need to build, compose, and run AI agents. The core is designed to be embedded in CLIs, web servers, or other applications with no coupling to a specific LLM provider or UI.
-
-Built on this harness, Ouroboros ships with a recursive self-improvement layer: it can reflect on completed tasks, generating new ideas, extract reusable skills, validate them through automated testing, and consolidate memory between sessions — all autonomously without human involement.
+The CLI owns agent intelligence. The desktop app is a presentation layer that
+spawns the CLI in JSON-RPC mode and talks to it over NDJSON on stdio.
 
 ## Quick Start
 
 ### Prerequisites
 
 - [Bun](https://bun.sh) v1.3+
-- One LLM provider configured:
-  - `ANTHROPIC_API_KEY` for Claude (default)
-  - `OPENAI_API_KEY` for OpenAI models
-  - or a ChatGPT Plus/Pro subscription login for `openai-chatgpt`
+- One configured model provider:
+  - `ANTHROPIC_API_KEY` for Anthropic, the default provider
+  - `OPENAI_API_KEY` for OpenAI
+  - an OpenAI-compatible endpoint and key
+  - a ChatGPT Plus/Pro login for the `openai-chatgpt` provider
 
 ```bash
-bun install   # install dependencies for all packages
+bun install
 ```
 
 ### CLI
 
 ```bash
-# Development mode (watch + auto-reload)
-cd packages/cli
+# From the repo root
 bun run dev
 
-# — or from the repo root —
+# Or from the package
+cd packages/cli
 bun run dev
 ```
 
@@ -38,62 +40,102 @@ Build and run the compiled binary:
 cd packages/cli
 bun run build
 
-./dist/ouroboros              # Interactive REPL
-./dist/ouroboros -m "Hello"   # Single-shot
-echo "Explain this" | ./dist/ouroboros   # Pipe input
+./dist/ouroboros
+./dist/ouroboros -m "Summarize this repo"
+echo "Explain this" | ./dist/ouroboros
+./dist/ouroboros --json-rpc
 ```
 
-### Desktop App (Electron)
+### Desktop App
 
 ```bash
 cd packages/desktop
-bun run dev          # launch in dev mode with hot-reload
+bun run dev
 ```
 
-Build distributable packages:
+Build distributables:
 
 ```bash
 cd packages/desktop
-bun run build        # compile + package (unpacked, current platform)
-bun run build:mac    # macOS .dmg
-# Windows packaging is deferred for GitHub releases; local build:win remains available.
+bun run build        # unpacked current-platform package
+bun run build:mac    # macOS package
+bun run build:win    # Windows package
 ```
+
+## Current Feature Surface
+
+- **Agent loop:** provider-agnostic ReAct loop with streaming, parallel tool
+  calls, tool-result observation, cancellation, steering, and context usage
+  events.
+- **Desktop bridge:** Electron main process spawns the CLI with `--json-rpc`;
+  renderer calls typed preload APIs and receives protocol notifications.
+- **Agent Skills:** Agent Skills `SKILL.md` discovery, activation,
+  slash invocation (`/<skill> prompt`), approval-aware activation, built-in
+  desktop skills, user-global skill roots, workspace skill directories, and
+  `disabledSkills` filtering.
+- **Memory and RSI:** durable `MEMORY.md`, observations, checkpoints, daily
+  working memory, transcripts, reflection, crystallization, dream
+  consolidation, evolution logging, and desktop RSI history/checkpoint views.
+- **Artifacts:** `create-artifact` writes sandboxed self-contained HTML
+  artifacts under session storage; desktop lists, previews, follows latest,
+  hides/shows, fullscreen-toggles, downloads, and opens artifacts safely.
+- **Modes:** mode tools and JSON-RPC methods support Plan mode state,
+  submission, entry, and exit.
+- **Subagents and teams:** configurable agent definitions, read-only
+  exploration/review subagents, restricted test agent policy, structured
+  subagent results, subagent lifecycle notifications, permission leases,
+  worktree-worker hooks, team graph/workflow runtime, debate/review workflow
+  surfaces, and team advisor/reputation tools.
+- **Approvals:** permission-tier model, approval requests, approval queue,
+  permission lease updates, and worker diff approval flow.
+- **MCP:** local and remote MCP server config, runtime status methods,
+  connection notifications, and approval policy for MCP tool calls.
+- **Auth:** API-key providers plus `openai-chatgpt` OAuth login stored outside
+  project config in `~/.ouroboros/auth.json`.
 
 ## CLI Flags
 
-| Flag                       | Description                                |
-| -------------------------- | ------------------------------------------ |
-| `-m <prompt>`              | Single-shot mode — run one prompt and exit |
-| `--model <provider/model>` | Override model (e.g. `openai/gpt-5.4`)     |
-| `--verbose`, `-v`          | Show tool call details                     |
-| `--no-stream`              | Wait for full response before printing     |
-| `--config <path>`          | Path to `.ouroboros` config file           |
-| `--max-steps <steps>`      | Override autonomous step limit             |
+| Flag | Description |
+| --- | --- |
+| `-m <prompt>`, `--message <prompt>` | Single-shot prompt mode |
+| `--model <provider/model>` | Override configured model |
+| `--verbose`, `-v` | Show tool call details |
+| `--no-stream` | Wait for the full response before printing |
+| `--config <path>` | Use a specific `.ouroboros` config file |
+| `--max-steps <steps>` | Override autonomous step limit |
+| `--no-rsi` | Disable RSI hooks for this run |
+| `--debug-tools` | Print registered tools and exit |
+| `--json-rpc` | Start the long-running desktop/automation JSON-RPC server |
+
+Auth subcommands:
+
+```bash
+./dist/ouroboros auth login --provider openai-chatgpt
+./dist/ouroboros auth login --provider openai-chatgpt --method browser
+./dist/ouroboros auth login --provider openai-chatgpt --method headless
+./dist/ouroboros auth list
+./dist/ouroboros auth logout --provider openai-chatgpt
+```
+
+Manual memory consolidation:
+
+```bash
+./dist/ouroboros dream
+```
 
 ## Configuration
 
-Ouroboros is configured via a `.ouroboros` JSON file in the project root. All fields are optional and have sensible defaults.
-
-### AGENTS.md support
-
-Ouroboros also supports the [AGENTS.md](https://agents.md/) instruction format.
-
-- `.ouroboros`: machine-readable runtime configuration such as model, permissions, and RSI settings.
-- `AGENTS.md`: human-authored agent instructions that are injected into the system prompt.
-- `MEMORY.md` / `memory/`: accumulated runtime memory, separate from repo instructions.
-
-Discovery is workspace-aware:
-
-- In a single repo, Ouroboros loads `AGENTS.md` from the current working directory or its ancestors.
-- In nested workspaces or package folders, it loads all matching `AGENTS.md` files from root to nearest folder.
-- More specific workspace/package instructions appear after broader root instructions.
-- If no `AGENTS.md` is present, prompt construction proceeds normally with no extra section.
+Ouroboros reads `.ouroboros` JSON from the workspace, with environment
+overrides for common model and RSI fields. All fields are optional.
 
 ```json
 {
   "model": {
     "provider": "openai",
-    "name": "gpt-5.4"
+    "name": "gpt-5.4",
+    "baseUrl": "https://api.openai.com/v1",
+    "apiMode": "responses",
+    "reasoningEffort": "medium"
   },
   "permissions": {
     "tier0": true,
@@ -103,251 +145,235 @@ Discovery is workspace-aware:
     "tier4": false
   },
   "skillDirectories": ["skills/core", "skills/generated"],
+  "disabledSkills": [],
   "agent": {
     "maxSteps": {
       "interactive": 200,
       "desktop": 200,
       "singleShot": 50,
       "automation": 100
-    }
+    },
+    "allowedTestCommands": ["bun run test", "bun run ts-check"],
+    "definitions": []
   },
   "memory": {
-    "consolidationSchedule": "session-end"
+    "consolidationSchedule": "session-end",
+    "warnRatio": 0.7,
+    "flushRatio": 0.8,
+    "compactRatio": 0.9,
+    "tailMessageCount": 12,
+    "dailyLoadDays": 2,
+    "durableMemoryBudgetTokens": 1500,
+    "checkpointBudgetTokens": 1200,
+    "workingMemoryBudgetTokens": 1000
+  },
+  "rsi": {
+    "noveltyThreshold": 0.7,
+    "autoReflect": true,
+    "observeEveryTurns": 1,
+    "checkpointEveryTurns": 6,
+    "durablePromotionThreshold": 0.8,
+    "crystallizeFromRepeatedPatternsOnly": true
+  },
+  "artifacts": {
+    "cdnAllowlist": [
+      "https://cdn.jsdelivr.net",
+      "https://unpkg.com",
+      "https://cdnjs.cloudflare.com"
+    ],
+    "maxBytes": 1048576
+  },
+  "mcp": {
+    "servers": []
   }
 }
 ```
 
-Config values can also be set via environment variables (e.g. `OUROBOROS_MODEL_PROVIDER=openai`).
+Common environment overrides:
 
-### Provider Setup
+- `OUROBOROS_MODEL_PROVIDER`
+- `OUROBOROS_MODEL_NAME`
+- `OUROBOROS_MODEL_BASE_URL`
+- `OUROBOROS_MODEL_API_MODE`
+- `OUROBOROS_OPENAI_COMPATIBLE_API_KEY`
+- `OUROBOROS_CONSOLIDATION`
+- `OUROBOROS_NOVELTY`
+- `OUROBOROS_AUTO_REFLECT`
 
-#### Anthropic / OpenAI API key providers
+### AGENTS.md
 
-Use a normal `.ouroboros` config plus the matching API key:
+Ouroboros supports the [AGENTS.md](https://agents.md/) instruction format.
 
-```json
-{
-  "model": {
-    "provider": "openai",
-    "name": "gpt-5.4",
-    "apiKey": "YOUR OPENAI API KEY"
-  }
-}
-```
+- `.ouroboros` is machine-readable runtime configuration.
+- `AGENTS.md` is human-authored behavioral instruction prose.
+- `memory/MEMORY.md` and `memory/` are runtime memory, separate from repo
+  instructions.
 
-#### OpenAI ChatGPT subscription provider
-
-`openai-chatgpt` uses OAuth login, not an API key. Credentials are stored separately from project config in `~/.ouroboros/auth.json`.
-
-1. Set the provider in `.ouroboros`:
-
-```json
-{
-  "model": {
-    "provider": "openai-chatgpt",
-    "name": "gpt-5.4"
-  }
-}
-```
-
-2. Log in from the CLI:
-
-```bash
-cd packages/cli
-bun run dev -- auth login --provider openai-chatgpt
-```
-
-Or with the compiled binary:
-
-```bash
-./dist/ouroboros auth login --provider openai-chatgpt
-```
-
-Available login methods:
-
-```bash
-./dist/ouroboros auth login --provider openai-chatgpt --method browser
-./dist/ouroboros auth login --provider openai-chatgpt --method headless
-```
-
-Useful auth commands:
-
-```bash
-./dist/ouroboros auth list
-./dist/ouroboros auth logout --provider openai-chatgpt
-```
-
-Desktop setup uses the same auth store. In the onboarding flow or Settings page, choose `ChatGPT Subscription` and complete the browser sign-in flow. No API key field is required for that provider.
-
-## Architecture
-
-### The Harness
-
-Ouroboros is structured as a set of composable layers, each independently useful:
-
-```
-            ┌──────────────────────────────────────┐
-            │        Your Application              │
-            │   CLI · Web · JSON-RPC · Slack bot   │
-            └──────────────┬───────────────────────┘
-                           │ onEvent callback
-  ┌────────────────────────┼───────────────────────────────┐
-  │ HARNESS                │                               │
-  │            ┌───────────▼───────────┐                   │
-  │            │       Agent           │                   │
-  │            │   Event-driven ReAct  │◄── run(prompt)    │
-  │            └───┬──────────────┬────┘                   │
-  │       stream   │              │  execute               │
-  │    ┌───────────▼──┐    ┌──────▼──────────┐             │
-  │    │     LLM      │    │  Tool Registry  │             │
-  │    │  Provider-   │    │  Plugin-based   │             │
-  │    │  agnostic    │    │  Zod-validated  │             │
-  │    └──────────────┘    └──┬────┬────┬────┘             │
-  │                           │    │    │                  │
-  │              ┌────────────┘    │    └──────────┐       │
-  │        ┌─────▼─────┐  ┌───────▼──┐  ┌────────▼─────┐   │
-  │        │  Memory   │  │  Skills  │  │  Your Tools  │   │
-  │        │  3-layer  │  │  Agent   │  │  Drop-in     │   │
-  │        │  persist  │  │  Skills  │  │  plugin      │   │
-  │        └───────────┘  └──────────┘  └──────────────┘   │
-  │                                                        │
-  │    ┌──────────────────────────────────────────────┐    │
-  │    │  Config   Zod schema + env vars + .ouroboros │    │
-  │    └──────────────────────────────────────────────┘    │
-  └────────────────────────────────────────────────────────┘
-            ┌──────────────────────────────────────┐
-            │   RSI Layer (optional, Phase 2)      │
-            │   crystallize · self-test · dream    │
-            └──────────────────────────────────────┘
-```
-
-![Full diagram](./docs/architecture.svg).
-
-**Agent loop.** The `Agent` class runs a ReAct loop that streams LLM responses, detects tool calls, executes them in parallel via the tool registry, and feeds results back until the task is complete. It emits events — it never prints directly — so any consumer (CLI, web server, test harness) can drive it.
-
-**Tool registry.** Tools are auto-discovered from `src/tools/`. Each tool exports `name`, `description`, `schema` (Zod), and `execute` (async, returns `Result<T, Error>`). The registry validates arguments against the schema before execution. Drop in a file to add a tool — no wiring needed.
-
-**LLM abstraction.** All LLM interaction goes through an internal type layer (`LLMMessage`, `StreamChunk`, `ToolCall`) that never leaks provider SDK types. The provider factory wraps [Vercel AI SDK](https://sdk.vercel.ai) and supports Anthropic, OpenAI, and any OpenAI-compatible endpoint — swappable via config, not code.
-
-**No throws.** Every operation returns `Result<T, Error>`. Error handling is explicit and composable throughout the entire stack.
-
-### Built-in Tools
-
-| Tool            | Description                             |
-| --------------- | --------------------------------------- |
-| `bash`          | Execute shell commands with timeout     |
-| `file-read`     | Read files with optional line range     |
-| `file-write`    | Create files (auto-creates directories) |
-| `file-edit`     | Search-and-replace editing              |
-| `web-fetch`     | Fetch URLs with HTML-to-markdown        |
-| `web-search`    | Web search via DuckDuckGo               |
-| `ask-user`      | Prompt the user for input               |
-| `todo`          | Session task list management            |
-| `memory`        | Read/write MEMORY.md and topic files    |
-| `skill-manager` | Discover, activate, and manage skills   |
-
-### Memory (3 layers)
-
-1. **MEMORY.md** — Knowledge index, always loaded into the system prompt
-2. **Topic files** (`memory/topics/*.md`) — Domain knowledge, loaded on demand
-3. **SQLite transcripts** (`memory/transcripts.db`) — Full session history, keyword-searchable
+Discovery is workspace-aware: all matching `AGENTS.md` files from the current
+directory and its ancestors are loaded root-first, so package-level instructions
+can refine repository-level instructions.
 
 ### Skills
 
-Skills follow the [Agent Skills](https://agentskills.io) open standard — portable across any agent that supports the format. They live in:
+Skills are Agent Skills directories containing `SKILL.md` frontmatter and
+instructions. Discovery scans these sources, with later sources overriding name
+collisions:
 
-- `skills/core/` — Built-in skills shipped with Ouroboros
-- `skills/staging/` — Skills under test (not yet active)
-- `skills/generated/` — Self-generated skills (via the RSI layer)
+- built-in desktop skills from `OUROBOROS_BUILTIN_SKILLS_DIR`
+- user-global skill roots
+- configured workspace `skillDirectories`
 
-Each skill is a directory with a `SKILL.md` containing YAML frontmatter (name, description) and markdown instructions. Only metadata is loaded at startup; full instructions are loaded on demand when the agent activates a skill.
+Disabled skills remain discoverable for management UIs when requested with
+`includeDisabled`, but they are excluded from prompt catalog lookup, slash
+invocation, and activation. Desktop Settings exposes skill availability and
+lookup paths.
 
-### LLM Providers
+## Architecture
 
-Provider-agnostic via [Vercel AI SDK](https://sdk.vercel.ai). Supports:
+![Current architecture](./docs/architecture.svg)
 
-- **Anthropic** (Claude) — default
-- **OpenAI** (GPT-5.4, etc.)
-- **OpenAI ChatGPT subscription** via `openai-chatgpt`
-- **OpenAI-compatible** endpoints (Ollama, vLLM, etc.) via `baseUrl` config
+Ouroboros is split into four primary layers:
 
-### Embedding the Harness
+- `packages/cli`: core agent, CLI entrypoint, tools, JSON-RPC server, memory,
+  RSI, MCP, subagents, teams, artifacts, and Bun tests.
+- `packages/desktop`: Electron 33 + React 19 presentation layer. Main process
+  owns native services and the CLI child process; preload exposes typed APIs;
+  renderer owns chat, settings, artifacts, RSI, approvals, and team graph UI.
+- `packages/shared`: protocol/domain/result types consumed by CLI and desktop.
+- Runtime data at the repo root: `skills/`, `memory/`, `docs/`, and `tickets/`.
 
-The agent is decoupled from the CLI. To embed it in your own application:
+The JSON-RPC bridge currently exposes these method groups:
 
-```typescript
-import { Agent } from './src/agent'
-import { createProvider } from './src/llm/provider'
-import { createRegistry } from './src/tools/registry'
+- `agent/*`: run, cancel, steer
+- `session/*`: list, load, new, delete, rename
+- `config/*`: get, set, API key storage, connection test
+- `auth/*`: ChatGPT subscription login lifecycle
+- `skills/*`: list and get instructions
+- `rsi/*`, `evolution/*`: dream, status, history, checkpoint, stats
+- `approval/*`, `askUser/*`: approval queue and interactive prompts
+- `workspace/*`: set and clear workspace roots
+- `team/*`: create, workflow creation, start/cancel/cleanup, task assignment,
+  team messaging
+- `mode/*`: mode state, enter, exit, plan submission
+- `artifacts/*`: list and read session artifacts
+- `mcp/*`: list and restart configured MCP servers
 
-const model = createProvider({ provider: 'openai', name: 'gpt-5.4' })
-const toolRegistry = await createRegistry()
+Notifications cover streamed text, context usage, tool calls, turn completion,
+errors, steering injection/orphaning, turn aborts, thinking/status updates,
+subagent lifecycle, permission leases, team graph updates, memory updates, skill
+activation, approval and Ask User requests, RSI events/runtime, mode lifecycle,
+artifact creation, and MCP server lifecycle.
 
-const agent = new Agent({
-  model: model.value,
-  toolRegistry,
-  onEvent(event) {
-    // Handle text chunks, tool calls, errors, turn completion
-  },
-})
+## Built-In Tools
 
-await agent.run('What files are in this directory?')
-```
-
-## Project Structure
-
-```
-ouroboros/
-├── packages/
-│   ├── cli/            # @ouroboros/cli — CLI agent (main package)
-│   ├── desktop/        # @ouroboros/desktop — Electron desktop app
-│   └── shared/         # @ouroboros/shared — Shared types & utilities
-├── skills/             # Agent Skills (core, staging, generated)
-├── memory/             # Persistent memory files
-├── docs/
-└── tickets/
-```
+| Tool | Purpose |
+| --- | --- |
+| `ask-user` | Request input from the user during an agent run |
+| `bash` | Execute shell commands within the permission model |
+| `code-exec` | Run code snippets in a controlled execution context |
+| `create-artifact` | Create sandboxed self-contained HTML artifacts |
+| `crystallize` | Convert repeated RSI patterns into skill candidates |
+| `dream` | Consolidate memory into durable knowledge |
+| `evolution` | Read/write RSI evolution log entries and stats |
+| `file-edit` | Edit existing files with scoped replacements |
+| `file-read` | Read files with optional ranges |
+| `file-write` | Create or overwrite files within permissions |
+| `memory` | Read and write memory files |
+| `reflect` | Generate task reflections for RSI |
+| `self-test` | Run validation for generated skills or changes |
+| `skill-gen` | Generate Agent Skill content |
+| `skill-manager` | Discover, list, activate, and deactivate skills |
+| `spawn_agent` | Delegate bounded work to subagents |
+| `team_advisor` | Recommend workflows and record team outcomes |
+| `team_graph` | Manage task/team graph state |
+| `todo` | Maintain a session task list |
+| `web-fetch` | Fetch URLs and convert HTML to markdown |
+| `web-search` | Search the web through the configured search path |
+| `apply_worker_diff` | Review/apply approved worker diffs |
+| `enter-mode` | Enter a named agent mode |
+| `submit-plan` | Submit a mode plan |
+| `exit-mode` | Exit the active mode |
 
 ## Scripts
 
-All commands can be run from the repo root or from the relevant package directory.
-
-**From the repo root:**
+Root commands:
 
 ```bash
-bun run dev           # Start CLI in watch mode
+bun run dev           # CLI watch mode
 bun run build         # Build CLI binary
-bun run test          # Run CLI unit tests
-bun run test:all      # Run all CLI tests (including live LLM)
-bun run lint          # Lint all packages
+bun run test          # CLI tests, excluding live/dist tests
+bun run test:cli      # CLI tests
+bun run test:desktop  # Desktop build:vite + Playwright E2E
+bun run test:all      # CLI + desktop tests
+bun run lint          # Package lint/prettier checks
 bun run ts-check      # Type-check all packages
+bun run verify        # Required full verification gate
 ```
 
-**From `packages/cli/`:**
+CLI package:
 
 ```bash
-bun run dev           # Watch mode with auto-reload
-bun run build         # Build to dist/ouroboros
-bun test              # Unit tests
-bun run test:all      # All tests including live LLM
-bun run lint          # Prettier check
-bun run ts-check      # TypeScript type check
+cd packages/cli
+bun run dev
+bun run build
+bun test
+bun run test:live
+bun run test:dist
+bun run lint
+bun run ts-check
 ```
 
-**From `packages/desktop/`:**
+Desktop package:
 
 ```bash
-bun run dev           # Launch Electron dev mode
-bun run build         # Build + package (current platform)
-bun run build:mac     # Build macOS distributable
-# Windows packaging is deferred for GitHub releases; local build:win remains available.
-bun run ts-check      # TypeScript type check
+cd packages/desktop
+bun run dev
+bun run build:vite
+bun run test:e2e
+bun run test:e2e:contracts
+bun run test:e2e:real
+bun run test:cdp:smoke
+bun run ts-check
 ```
 
-## Development Diary
+## Verification Policy
 
-[docs/DIARY.md](docs/DIARY.md) is a narrative log of how Ouroboros came to life, written from the agent's own perspective.
+Every feature, improvement, and bug fix should include automated coverage that
+would fail if the change were reverted. Before reporting completion, run:
+
+```bash
+bun run verify
+```
+
+Live LLM coverage is manual only:
+
+```bash
+bun run test:cli:live
+```
+
+See [docs/test-plan.md](docs/test-plan.md) for the maintained coverage matrix.
+
+## Project Structure
+
+```text
+ouroboros/
+├── packages/
+│   ├── cli/            # @ouroboros/cli
+│   ├── desktop/        # @ouroboros/desktop
+│   └── shared/         # @ouroboros/shared
+├── skills/             # Runtime Agent Skills roots
+├── memory/             # Runtime memory, transcripts, artifacts, checkpoints
+├── docs/               # Maintained docs plus dated historical specs
+├── tickets/            # Multi-agent orchestration ticket records
+└── completed-tickets/  # Historical completed implementation ticket records
+```
+
+## Historical Docs
+
+Several PRDs, phase reports, design specs, and tickets are intentionally kept as
+dated historical records. Use this README, [docs/test-plan.md](docs/test-plan.md),
+and [docs/architecture.svg](docs/architecture.svg) as the current status sources.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE) for details.

@@ -1,5 +1,11 @@
 # Ouroboros Electron Desktop App — Design Spec
 
+> **Current status:** Historical design spec. The current desktop surface has
+> expanded to include artifacts, settings skills management, modes, steering,
+> subagents, team graph, approvals, RSI history/checkpoints, and MCP status. Use
+> `../../../README.md`, `docs/test-plan.md`, `DESIGN.md`, and
+> `docs/architecture.svg` for maintained status.
+
 **Date:** 2026-04-06
 **Status:** Approved
 **Phase:** 3 (PRD Section 7.3)

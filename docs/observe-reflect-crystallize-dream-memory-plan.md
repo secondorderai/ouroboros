@@ -1,5 +1,10 @@
 # Observe-Reflect-Crystallize-Dream Memory Plan
 
+> **Current status:** Historical design plan. The current code includes
+> observation logs, checkpoints, layered memory loaders, RSI runtime events,
+> dream consolidation, crystallization over structured memory, and desktop RSI
+> surfacing. Use `../README.md` and `docs/test-plan.md` for maintained status.
+
 ## Summary
 
 Extend Ouroboros's RSI loop from `reflect -> crystallize -> dream -> evolve` to

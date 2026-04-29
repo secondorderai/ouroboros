@@ -1,5 +1,9 @@
 # Dist CLI Subprocess Tests — Design Spec
 
+> **Current status:** Historical design spec. Compiled CLI subprocess coverage is
+> now represented in `packages/cli/tests/dist-cli.test.ts` and summarized in
+> `docs/test-plan.md`.
+
 **Date:** 2026-04-06
 **Status:** Approved
 

@@ -419,3 +419,74 @@ All badges: 11px weight 600, 4px 8px padding, 4px radius.
 6. RSI activity is ambient — serpent icon glow + brief inline cards, nothing modal or interruptive
 7. Command palette is the front door to every feature — if a user can't find it via Cmd+K, it doesn't exist in the UI
 8. Both themes must feel cool and restrained — light uses soft neutrals, dark uses blue-black surfaces, never warm beige or amber
+
+## 10. Current Product Surfaces
+
+This section reflects the current desktop implementation. Earlier sections
+define the visual system; this section lists the surfaces that must stay
+consistent with it.
+
+### Title Bar
+
+- Includes sidebar control, workspace/mode controls, optional artifact panel
+  toggle, optional team graph control, CLI status, theme toggle, and RSI entry.
+- The artifact panel toggle appears only when the active session has artifacts
+  and the panel is hidden. It uses an icon-only button with `aria-pressed`.
+- Workspace and mode controls should remain compact chips; they are operational
+  controls, not navigation tabs.
+
+### Command Palette
+
+- Cmd+K / Ctrl+K remains the front door for secondary actions.
+- Current action groups include sessions, approvals, model/settings, permission
+  settings, skill management, appearance, modes, RSI/dream, team graph, and
+  workspace actions.
+- "Browse skills" opens RSI skill visibility; "Manage skills" opens Settings
+  directly to the Skills section.
+
+### Settings
+
+- Sections: Model, Appearance, Permissions, Skills, RSI Behavior, Memory, and
+  Mode.
+- Skills settings show discovered built-in, user-global, and workspace skills;
+  disabled skills stay visible in management but are excluded from lookup and
+  activation. Skill path rows must truncate long paths and provide remove
+  controls.
+- Permission settings must make tier boundaries and write/self-modification
+  risk clear without exposing implementation jargon in the default chat view.
+
+### Artifact Panel
+
+- The artifact panel is a right-side tool surface, not a decorative card.
+- It opens automatically on `agent/artifactCreated`, persists open/closed state,
+  can be hidden from the panel header, and can be restored from the title bar.
+- Required controls: artifact selector/version state, follow-latest toggle,
+  hide, download/save, open externally, and fullscreen.
+- HTML previews are sandboxed and visually separated from chat with a stable
+  resizable width.
+
+### Subagents, Teams, and Approvals
+
+- Subagent activity renders under the parent turn as compact lifecycle rows with
+  role, task, status, duration, result summary, evidence count, uncertainty
+  count, and failure messaging.
+- Team graph UI is an operational visualization for task/workflow state. Use
+  restrained graph styling, status badges, and predictable controls.
+- Approval and permission lease UI must foreground risk, requested tools/paths,
+  status, and approve/deny actions. Failed or denied states use status color
+  sparingly, not large red surfaces.
+
+### Modes and Steering
+
+- Active mode appears as a compact state chip near the composer/title controls.
+- Plan mode surfaces submitted plan state without turning the chat into a
+  document editor.
+- Mid-turn steering messages render as user messages with a distinct lifecycle
+  state: pending, injected, or orphaned.
+
+### RSI Drawer
+
+- RSI drawer includes stats, activity, history filters, checkpoint detail, and
+  skills. It may show core, built-in, staging, and generated skill badges.
+- RSI remains ambient in chat. Detailed pipeline events, checkpoint contents,
+  and skill candidates belong in the drawer.

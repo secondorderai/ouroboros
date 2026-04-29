@@ -1,5 +1,10 @@
 # Phase 1 Completion Report — Core Engine (CLI MVP)
 
+> **Current status:** Historical completion report from 2026-04-04. The CLI now
+> has a larger tool surface, JSON-RPC desktop bridge, artifacts, modes,
+> subagents, MCP, and expanded RSI memory. Use `../README.md`,
+> `docs/test-plan.md`, and `docs/architecture.svg` for current status.
+
 **Date:** 2026-04-04
 **Status:** Complete
 **Branch:** `main`
