@@ -1,0 +1,47 @@
+{
+  "skill_name": "ou-full-code-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Do a full code review of the ouroboros codebase. I want to know about any bugs, code quality issues, or things that could bite us later.",
+      "expected_output": "A structured review report covering multiple quality dimensions with findings organized by severity and specific file:line references",
+      "files": [],
+      "expectations": [
+        "Report has distinct severity sections (e.g., Critical, Warning, Info or High/Medium/Low)",
+        "At least 10 findings include specific file paths with line numbers",
+        "Report covers at least 3 quality dimensions: error handling, type safety, test coverage, code clarity, conventions, comments",
+        "Report includes a positive observations or strengths section",
+        "Report opens with a summary that includes issue counts",
+        "At least 15 distinct findings total across all severity levels"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Review everything in src/ — I'm about to onboard a new contributor and want to clean up any rough edges first.",
+      "expected_output": "A comprehensive review focused on code clarity, conventions adherence, and documentation quality, with actionable findings",
+      "files": [],
+      "expectations": [
+        "Report has distinct severity sections (e.g., Critical, Warning, Info or High/Medium/Low)",
+        "At least 10 findings include specific file paths with line numbers",
+        "Report covers at least 3 quality dimensions: error handling, type safety, test coverage, code clarity, conventions, comments",
+        "Report includes a positive observations or strengths section",
+        "Report opens with a summary that includes issue counts",
+        "At least 15 distinct findings total across all severity levels"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "What's the overall code health of this project? Any silent failures or test gaps I should worry about?",
+      "expected_output": "A review report that specifically addresses error handling patterns and test coverage gaps",
+      "files": [],
+      "expectations": [
+        "Report has distinct severity sections (e.g., Critical, Warning, Info or High/Medium/Low)",
+        "At least 10 findings include specific file paths with line numbers",
+        "Report covers at least 3 quality dimensions: error handling, type safety, test coverage, code clarity, conventions, comments",
+        "Report includes a positive observations or strengths section",
+        "Report opens with a summary that includes issue counts",
+        "At least 15 distinct findings total across all severity levels"
+      ]
+    }
+  ]
+}

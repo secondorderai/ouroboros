@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ouroboros Features Audit"
+  short_description: "Audit Ouroboros features against specs"
+  default_prompt: "Use $ou-features-audit to audit this ticket or PRD against the Ouroboros codebase."
