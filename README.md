@@ -53,6 +53,9 @@ cd packages/desktop
 bun run dev
 ```
 
+See the [Desktop How-To Guides](docs/desktop/how-to/README.md) for step-by-step
+usage of desktop app features.
+
 Build distributables:
 
 ```bash

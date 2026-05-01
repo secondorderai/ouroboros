@@ -62,3 +62,6 @@ packages/desktop/resources/cli/**/*
 packages/desktop/skills/**/*
 packages/desktop/memory/**/*
 .ouroboros
+
+# Local Docs
+security_best_practices_report.md
