@@ -333,7 +333,6 @@
 :root,
 [data-theme='light'] {
   --bg-code-block: #f8fafc;
-  --bg-palette: #ffffff;
   --hljs-keyword: #a626a4;
   --hljs-string: #50a14f;
   --hljs-number: #986801;
@@ -351,7 +350,6 @@
 
 [data-theme='dark'] {
   --bg-code-block: #12161b;
-  --bg-palette: #171c22;
   --hljs-keyword: #c678dd;
   --hljs-string: #98c379;
   --hljs-number: #d19a66;

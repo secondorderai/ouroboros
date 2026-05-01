@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Fuse from 'fuse.js'
 import { useConversationStore } from '../stores/conversationStore'
 import type { SettingsSectionId } from '../views/SettingsOverlay'
+import '../styles/command-palette.css'
 
 // ---------------------------------------------------------------------------
 // Types

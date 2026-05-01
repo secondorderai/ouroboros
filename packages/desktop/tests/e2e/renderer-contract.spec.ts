@@ -96,6 +96,9 @@ test('onboarding renders and preload bridges are available', async ({}, testInfo
 test('command palette supports empty search state and Escape close', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()
+  await launched.page.evaluate(() => {
+    document.documentElement.setAttribute('data-theme', 'light')
+  })
 
   await launched.page.evaluate((currentModKey) => {
     window.dispatchEvent(
@@ -105,12 +108,81 @@ test('command palette supports empty search state and Escape close', async ({}, 
       ),
     )
   }, modKey)
-  await expect(launched.page.getByRole('dialog', { name: 'Command palette' })).toBeVisible()
+  const palette = launched.page.getByRole('dialog', { name: 'Command palette' })
+  await expect(palette).toBeVisible()
+
+  const designSystemStyles = await palette.evaluate((element) => {
+    const paletteStyles = getComputedStyle(element)
+    const inputWrapper = element.querySelector<HTMLElement>('.command-palette-input-wrapper')
+    const input = element.querySelector<HTMLInputElement>('.command-palette-input')
+    const list = element.querySelector<HTMLElement>('.command-palette-list')
+    const header = element.querySelector<HTMLElement>('.command-palette-group-header')
+    const item = element.querySelector<HTMLElement>('.command-palette-item')
+    const shortcut = element.querySelector<HTMLElement>('.command-palette-item-shortcut')
+    if (!inputWrapper || !input || !list || !header || !item || !shortcut) {
+      throw new Error('Command palette design elements were not rendered')
+    }
+
+    const inputWrapperStyles = getComputedStyle(inputWrapper)
+    const inputStyles = getComputedStyle(input)
+    const listStyles = getComputedStyle(list)
+    const headerStyles = getComputedStyle(header)
+    const itemStyles = getComputedStyle(item)
+    const shortcutStyles = getComputedStyle(shortcut)
+    const rect = element.getBoundingClientRect()
+
+    return {
+      width: paletteStyles.width,
+      maxHeight: Math.round(rect.height),
+      backgroundColor: paletteStyles.backgroundColor,
+      borderTopColor: paletteStyles.borderTopColor,
+      borderTopWidth: paletteStyles.borderTopWidth,
+      borderRadius: paletteStyles.borderRadius,
+      boxShadow: paletteStyles.boxShadow,
+      inputWrapperMinHeight: inputWrapperStyles.minHeight,
+      inputWrapperPaddingLeft: inputWrapperStyles.paddingLeft,
+      inputFontSize: inputStyles.fontSize,
+      inputPaddingTop: inputStyles.paddingTop,
+      inputOutlineStyle: inputStyles.outlineStyle,
+      listPaddingTop: listStyles.paddingTop,
+      headerFontSize: headerStyles.fontSize,
+      headerFontWeight: headerStyles.fontWeight,
+      headerTextTransform: headerStyles.textTransform,
+      itemFontSize: itemStyles.fontSize,
+      itemPaddingTop: itemStyles.paddingTop,
+      shortcutFontSize: shortcutStyles.fontSize,
+      shortcutFontFamily: shortcutStyles.fontFamily,
+    }
+  })
+
+  expect(designSystemStyles).toMatchObject({
+    width: '560px',
+    backgroundColor: 'rgb(255, 255, 255)',
+    borderTopColor: 'rgb(220, 225, 231)',
+    borderTopWidth: '1px',
+    borderRadius: '12px',
+    boxShadow: 'rgba(0, 0, 0, 0.16) 0px 20px 60px 0px',
+    inputWrapperMinHeight: '56px',
+    inputWrapperPaddingLeft: '20px',
+    inputFontSize: '16px',
+    inputPaddingTop: '13px',
+    inputOutlineStyle: 'none',
+    listPaddingTop: '10px',
+    headerFontSize: '11px',
+    headerFontWeight: '600',
+    headerTextTransform: 'uppercase',
+    itemFontSize: '14px',
+    itemPaddingTop: '10px',
+    shortcutFontSize: '11px',
+  })
+  expect(designSystemStyles.maxHeight).toBeLessThanOrEqual(400)
+  expect(designSystemStyles.shortcutFontFamily).toContain('SF Mono')
+
   await launched.page.getByPlaceholder('Search actions...').fill('zzzz-no-action')
   await expect(launched.page.getByText('No matching actions')).toBeVisible()
 
   await launched.page.keyboard.press('Escape')
-  await expect(launched.page.getByRole('dialog', { name: 'Command palette' })).toBeHidden()
+  await expect(palette).toBeHidden()
 })
 
 test('onboarding provider and model selection are single choice', async ({}, testInfo) => {

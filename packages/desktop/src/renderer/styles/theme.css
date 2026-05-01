@@ -11,6 +11,7 @@
   --bg-tool-chip: #F1F3F6;
   --bg-tool-expanded: #F8FAFC;
   --bg-rsi-card: linear-gradient(135deg, #F4F7FB 0%, #EDF2F8 100%);
+  --bg-palette: #FFFFFF;
   --bg-sidebar: #ECEEF0;
   --bg-sidebar-active: rgba(62, 95, 138, 0.10);
   --bg-hover: rgba(14, 17, 22, 0.05);
@@ -95,6 +96,7 @@
   --bg-tool-chip: #151A20;
   --bg-tool-expanded: #12161B;
   --bg-rsi-card: linear-gradient(135deg, rgba(62, 95, 138, 0.18) 0%, #10151B 100%);
+  --bg-palette: #171C22;
   --bg-sidebar: #12161B;
   --bg-sidebar-active: rgba(137, 167, 209, 0.16);
   --bg-hover: rgba(255, 255, 255, 0.06);
