@@ -8,7 +8,22 @@ and a JSON-RPC bridge between the CLI and desktop.
 The CLI owns agent intelligence. The desktop app is a presentation layer that
 spawns the CLI in JSON-RPC mode and talks to it over NDJSON on stdio.
 
-## Quick Start
+## Installation
+
+### macOS Beta Release Build
+
+Ouroboros currently ships as a macOS beta release build. Download the latest
+macOS release from the
+[GitHub releases page](https://github.com/secondorderai/ouroboros/releases),
+open the downloaded file, and move `Ouroboros.app` to `Applications` if macOS
+asks you to.
+
+_Beta warning: This app can connect to model providers, read and write files in
+workspaces you select, execute tool calls after approval, and preserve local
+memory. Use it only with projects and credentials you are comfortable testing
+with, review permission prompts carefully, and keep backups of important work._
+
+## Quick Start For Local Development
 
 ### Prerequisites
 
@@ -96,19 +111,91 @@ bun run build:win    # Windows package
 - **Auth:** API-key providers plus `openai-chatgpt` OAuth login stored outside
   project config in `~/.ouroboros/auth.json`.
 
+## Architecture
+
+![Current architecture](./docs/architecture.svg)
+
+Ouroboros is split into four primary layers:
+
+- `packages/cli`: core agent, CLI entrypoint, tools, JSON-RPC server, memory,
+  RSI, MCP, subagents, teams, artifacts, and Bun tests.
+- `packages/desktop`: Electron 33 + React 19 presentation layer. Main process
+  owns native services and the CLI child process; preload exposes typed APIs;
+  renderer owns chat, settings, artifacts, RSI, approvals, and team graph UI.
+- `packages/shared`: protocol/domain/result types consumed by CLI and desktop.
+- Runtime data at the repo root: `skills/`, `memory/`, `docs/`, and `tickets/`.
+
+The JSON-RPC bridge currently exposes these method groups:
+
+- `agent/*`: run, cancel, steer
+- `session/*`: list, load, new, delete, rename
+- `config/*`: get, set, API key storage, connection test
+- `auth/*`: ChatGPT subscription login lifecycle
+- `skills/*`: list and get instructions
+- `rsi/*`, `evolution/*`: dream, status, history, checkpoint, stats
+- `approval/*`, `askUser/*`: approval queue and interactive prompts
+- `workspace/*`: set and clear workspace roots
+- `team/*`: create, workflow creation, start/cancel/cleanup, task assignment,
+  team messaging
+- `mode/*`: mode state, enter, exit, plan submission
+- `artifacts/*`: list and read session artifacts
+- `mcp/*`: list and restart configured MCP servers
+
+Notifications cover streamed text, context usage, tool calls, turn completion,
+errors, steering injection/orphaning, turn aborts, thinking/status updates,
+subagent lifecycle, permission leases, team graph updates, memory updates, skill
+activation, approval and Ask User requests, RSI events/runtime, mode lifecycle,
+artifact creation, and MCP server lifecycle.
+
+## What Ouroboros can and cannot do
+
+Ouroboros can:
+
+- Run an AI coding agent from the CLI or desktop app.
+- Stream model output, call tools, ask for approvals, and keep session state.
+- Work with local files, shell commands, MCP servers, Agent Skills, artifacts,
+  memory, subagents, and team workflows.
+- Use provider API keys or the `openai-chatgpt` provider to connect to a model.
+- Launch the desktop app as a presentation layer over the CLI JSON-RPC runtime.
+
+Ouroboros cannot:
+
+- Guarantee correct, safe, or useful agent output without human review.
+- Modify protected system areas or external services unless you configure
+  credentials, workspace access, tools, and permissions for that work.
+- Replace source control, tests, code review, backups, or operational safeguards.
+- Promise stable behavior across beta releases, especially for desktop
+  packaging, update behavior, RSI, memory, subagents, and team workflows.
+
+## Known Limitations
+
+- The release app is beta software and may contain workflow, packaging, update,
+  or data-retention bugs.
+- macOS is the primary published desktop release path today; Windows packaging
+  exists in the build scripts but may need additional validation before normal
+  use.
+- Model quality, tool reliability, latency, and cost depend on the configured
+  provider and model.
+- Workspace operations depend on local filesystem permissions and the approval
+  tier configuration.
+- Long-running agent sessions can consume substantial context, tokens, disk
+  space, and provider quota.
+- Live LLM tests are manual and are not part of the default `bun run verify`
+  gate.
+
 ## CLI Flags
 
-| Flag | Description |
-| --- | --- |
-| `-m <prompt>`, `--message <prompt>` | Single-shot prompt mode |
-| `--model <provider/model>` | Override configured model |
-| `--verbose`, `-v` | Show tool call details |
-| `--no-stream` | Wait for the full response before printing |
-| `--config <path>` | Use a specific `.ouroboros` config file |
-| `--max-steps <steps>` | Override autonomous step limit |
-| `--no-rsi` | Disable RSI hooks for this run |
-| `--debug-tools` | Print registered tools and exit |
-| `--json-rpc` | Start the long-running desktop/automation JSON-RPC server |
+| Flag                                | Description                                               |
+| ----------------------------------- | --------------------------------------------------------- |
+| `-m <prompt>`, `--message <prompt>` | Single-shot prompt mode                                   |
+| `--model <provider/model>`          | Override configured model                                 |
+| `--verbose`, `-v`                   | Show tool call details                                    |
+| `--no-stream`                       | Wait for the full response before printing                |
+| `--config <path>`                   | Use a specific `.ouroboros` config file                   |
+| `--max-steps <steps>`               | Override autonomous step limit                            |
+| `--no-rsi`                          | Disable RSI hooks for this run                            |
+| `--debug-tools`                     | Print registered tools and exit                           |
+| `--json-rpc`                        | Start the long-running desktop/automation JSON-RPC server |
 
 Auth subcommands:
 
@@ -231,71 +318,35 @@ Disabled skills remain discoverable for management UIs when requested with
 invocation, and activation. Desktop Settings exposes skill availability and
 lookup paths.
 
-## Architecture
-
-![Current architecture](./docs/architecture.svg)
-
-Ouroboros is split into four primary layers:
-
-- `packages/cli`: core agent, CLI entrypoint, tools, JSON-RPC server, memory,
-  RSI, MCP, subagents, teams, artifacts, and Bun tests.
-- `packages/desktop`: Electron 33 + React 19 presentation layer. Main process
-  owns native services and the CLI child process; preload exposes typed APIs;
-  renderer owns chat, settings, artifacts, RSI, approvals, and team graph UI.
-- `packages/shared`: protocol/domain/result types consumed by CLI and desktop.
-- Runtime data at the repo root: `skills/`, `memory/`, `docs/`, and `tickets/`.
-
-The JSON-RPC bridge currently exposes these method groups:
-
-- `agent/*`: run, cancel, steer
-- `session/*`: list, load, new, delete, rename
-- `config/*`: get, set, API key storage, connection test
-- `auth/*`: ChatGPT subscription login lifecycle
-- `skills/*`: list and get instructions
-- `rsi/*`, `evolution/*`: dream, status, history, checkpoint, stats
-- `approval/*`, `askUser/*`: approval queue and interactive prompts
-- `workspace/*`: set and clear workspace roots
-- `team/*`: create, workflow creation, start/cancel/cleanup, task assignment,
-  team messaging
-- `mode/*`: mode state, enter, exit, plan submission
-- `artifacts/*`: list and read session artifacts
-- `mcp/*`: list and restart configured MCP servers
-
-Notifications cover streamed text, context usage, tool calls, turn completion,
-errors, steering injection/orphaning, turn aborts, thinking/status updates,
-subagent lifecycle, permission leases, team graph updates, memory updates, skill
-activation, approval and Ask User requests, RSI events/runtime, mode lifecycle,
-artifact creation, and MCP server lifecycle.
-
 ## Built-In Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `ask-user` | Request input from the user during an agent run |
-| `bash` | Execute shell commands within the permission model |
-| `code-exec` | Run code snippets in a controlled execution context |
-| `create-artifact` | Create sandboxed self-contained HTML artifacts |
-| `crystallize` | Convert repeated RSI patterns into skill candidates |
-| `dream` | Consolidate memory into durable knowledge |
-| `evolution` | Read/write RSI evolution log entries and stats |
-| `file-edit` | Edit existing files with scoped replacements |
-| `file-read` | Read files with optional ranges |
-| `file-write` | Create or overwrite files within permissions |
-| `memory` | Read and write memory files |
-| `reflect` | Generate task reflections for RSI |
-| `self-test` | Run validation for generated skills or changes |
-| `skill-gen` | Generate Agent Skill content |
-| `skill-manager` | Discover, list, activate, and deactivate skills |
-| `spawn_agent` | Delegate bounded work to subagents |
-| `team_advisor` | Recommend workflows and record team outcomes |
-| `team_graph` | Manage task/team graph state |
-| `todo` | Maintain a session task list |
-| `web-fetch` | Fetch URLs and convert HTML to markdown |
-| `web-search` | Search the web through the configured search path |
-| `apply_worker_diff` | Review/apply approved worker diffs |
-| `enter-mode` | Enter a named agent mode |
-| `submit-plan` | Submit a mode plan |
-| `exit-mode` | Exit the active mode |
+| Tool                | Purpose                                             |
+| ------------------- | --------------------------------------------------- |
+| `ask-user`          | Request input from the user during an agent run     |
+| `bash`              | Execute shell commands within the permission model  |
+| `code-exec`         | Run code snippets in a controlled execution context |
+| `create-artifact`   | Create sandboxed self-contained HTML artifacts      |
+| `crystallize`       | Convert repeated RSI patterns into skill candidates |
+| `dream`             | Consolidate memory into durable knowledge           |
+| `evolution`         | Read/write RSI evolution log entries and stats      |
+| `file-edit`         | Edit existing files with scoped replacements        |
+| `file-read`         | Read files with optional ranges                     |
+| `file-write`        | Create or overwrite files within permissions        |
+| `memory`            | Read and write memory files                         |
+| `reflect`           | Generate task reflections for RSI                   |
+| `self-test`         | Run validation for generated skills or changes      |
+| `skill-gen`         | Generate Agent Skill content                        |
+| `skill-manager`     | Discover, list, activate, and deactivate skills     |
+| `spawn_agent`       | Delegate bounded work to subagents                  |
+| `team_advisor`      | Recommend workflows and record team outcomes        |
+| `team_graph`        | Manage task/team graph state                        |
+| `todo`              | Maintain a session task list                        |
+| `web-fetch`         | Fetch URLs and convert HTML to markdown             |
+| `web-search`        | Search the web through the configured search path   |
+| `apply_worker_diff` | Review/apply approved worker diffs                  |
+| `enter-mode`        | Enter a named agent mode                            |
+| `submit-plan`       | Submit a mode plan                                  |
+| `exit-mode`         | Exit the active mode                                |
 
 ## Scripts
 
