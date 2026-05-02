@@ -169,6 +169,9 @@ describe('conversation store sessions', () => {
 
     expect(calls.map((call) => call.method)).toEqual(['session/new', 'agent/run'])
     expect(calls[0].params).toEqual({ workspaceMode: 'simple' })
+    expect(calls[1].params).toEqual(
+      expect.objectContaining({ sessionId: 'session-first-message' }),
+    )
     expect(useConversationStore.getState().currentSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().activeRunSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().sessions[0]).toEqual(
@@ -224,6 +227,49 @@ describe('conversation store sessions', () => {
         runStatus: 'running',
       }),
     )
+  })
+
+  test('pins agent/run to the currently viewed session', async () => {
+    resetStore()
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({ text: 'ok' })
+        },
+      },
+    }
+
+    useConversationStore.setState({
+      currentSessionId: 'session-existing',
+      sessions: [
+        {
+          id: 'session-existing',
+          title: 'Existing chat',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 2,
+          runStatus: 'idle',
+        },
+      ],
+    })
+
+    useConversationStore.getState().sendMessage('Continue this chat')
+
+    await Promise.resolve()
+
+    expect(calls).toEqual([
+      {
+        method: 'agent/run',
+        params: expect.objectContaining({
+          message: 'Continue this chat',
+          sessionId: 'session-existing',
+        }),
+      },
+    ])
   })
 
   test('workspace mode requires a selected folder before first send', async () => {
@@ -541,6 +587,98 @@ describe('conversation store sessions', () => {
         titleSource: 'manual',
         runStatus: 'idle',
       }),
+    )
+  })
+
+  test('handleRunSettled surfaces max-step stops after a normal turnComplete notification', () => {
+    resetStore()
+
+    useConversationStore.setState({
+      currentSessionId: 'session-max-steps',
+      activeRunSessionId: 'session-max-steps',
+      isAgentRunning: true,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'Work through this',
+          timestamp: '2026-04-23T00:00:00.000Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'session-max-steps',
+          title: 'Work through this',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 1,
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnComplete({
+      sessionId: 'session-max-steps',
+      text: 'Partial final answer',
+      iterations: 5,
+    })
+    useConversationStore.getState().handleRunSettled({
+      sessionId: 'session-max-steps',
+      text: 'Partial final answer',
+      iterations: 5,
+      stopReason: 'max_steps',
+      maxIterationsReached: true,
+    })
+
+    const messages = useConversationStore.getState().messages
+    expect(messages.map((message) => message.role)).toEqual(['user', 'agent', 'system'])
+    expect(messages[2].text).toContain('Stopped after reaching the configured step limit')
+    expect(messages.filter((message) => message.text === 'Partial final answer')).toHaveLength(1)
+  })
+
+  test('handleRunSettled finalizes output when the turnComplete notification is missed', () => {
+    resetStore()
+
+    useConversationStore.setState({
+      currentSessionId: 'session-missed-notification',
+      activeRunSessionId: 'session-missed-notification',
+      isAgentRunning: true,
+      streamingText: 'Partial stream',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'Answer this',
+          timestamp: '2026-04-23T00:00:00.000Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'session-missed-notification',
+          title: 'Answer this',
+          titleSource: 'auto',
+          createdAt: '2026-04-23T00:00:00.000Z',
+          lastActive: '2026-04-23T00:00:00.000Z',
+          messageCount: 1,
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleRunSettled({
+      sessionId: 'session-missed-notification',
+      text: 'Final answer from RPC',
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    })
+
+    const state = useConversationStore.getState()
+    expect(state.isAgentRunning).toBe(false)
+    expect(state.streamingText).toBeNull()
+    expect(state.messages[state.messages.length - 1]).toEqual(
+      expect.objectContaining({ role: 'agent', text: 'Final answer from RPC' }),
     )
   })
 

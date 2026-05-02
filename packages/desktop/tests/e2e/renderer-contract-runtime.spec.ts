@@ -775,12 +775,94 @@ test('streaming assistant text renders markdown before turn completion', async (
   await expect(streamingMessage.locator('.markdown-body')).toBeVisible()
   await expect(streamingMessage.getByText('## Short answer')).toHaveCount(0)
 
+  const progressOrder = await streamingMessage.evaluate((node) => {
+    const content = node.querySelector('[data-testid="agent-message-content"]')
+    const markdown = node.querySelector('.markdown-body')
+    const progress = node.querySelector('[data-testid="agent-progress-chip"]')
+    if (!content || !markdown || !progress) {
+      throw new Error('Expected streaming markdown and progress chip to be rendered')
+    }
+
+    return {
+      progressIsAfterMarkdown: Boolean(
+        markdown.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+      contentLastElementIsProgress: content.lastElementChild === progress,
+    }
+  })
+
+  expect(progressOrder).toEqual({
+    progressIsAfterMarkdown: true,
+    contentLastElementIsProgress: true,
+  })
+
   await emitNotification(launched.page, 'agent/turnComplete', {
     text: markdownResponse,
     iterations: 1,
   })
 
   await expect(launched.page.getByRole('heading', { name: 'Short answer' }).last()).toBeVisible()
+})
+
+test('streaming status chip stays at the bottom of a growing assistant bubble', async ({}, testInfo) => {
+  const longResponse = [
+    '## Long response',
+    '',
+    ...Array.from(
+      { length: 36 },
+      (_, index) =>
+        `Paragraph ${index + 1}: streamed content keeps growing while the status chip remains reachable near the active end of the bubble.`,
+    ),
+  ].join('\n\n')
+
+  launched = await launchTestApp(testInfo)
+  await launched.page.setViewportSize({ width: 1200, height: 720 })
+  await openMainApp()
+
+  await clearRpcOverrides(launched.page)
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: {
+      text: longResponse,
+      iterations: 1,
+      stopReason: 'completed',
+      maxIterationsReached: false,
+    },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Write a long streamed answer')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await emitNotification(launched.page, 'agent/text', { text: longResponse })
+
+  const streamingMessage = launched.page.locator('[data-testid="agent-message"]').last()
+  const progressChip = streamingMessage.getByTestId('agent-progress-chip')
+
+  await expect(progressChip).toBeVisible()
+  await expect(streamingMessage.locator('.markdown-body p').last()).toContainText('Paragraph 36')
+
+  await expect
+    .poll(async () =>
+      streamingMessage.evaluate((node) => {
+        const progress = node.querySelector(
+          '[data-testid="agent-progress-chip"]',
+        ) as HTMLElement | null
+        const paragraphs = Array.from(node.querySelectorAll('.markdown-body p')) as HTMLElement[]
+        const finalParagraph = paragraphs.at(-1)
+        if (!progress || !finalParagraph) return false
+
+        const progressRect = progress.getBoundingClientRect()
+        const finalParagraphRect = finalParagraph.getBoundingClientRect()
+
+        return (
+          progressRect.height > 0 &&
+          finalParagraphRect.height > 0 &&
+          progressRect.top > finalParagraphRect.bottom &&
+          progressRect.bottom <= window.innerHeight
+        )
+      }),
+    )
+    .toBe(true)
 })
 
 test('streaming cursor stays attached to the last rendered line', async ({}, testInfo) => {

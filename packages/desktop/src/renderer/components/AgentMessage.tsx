@@ -65,7 +65,7 @@ const progressStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 8,
   padding: '7px 11px',
-  marginBottom: 14,
+  marginTop: 14,
   borderRadius: 999,
   background: 'var(--accent-amber-bg)',
   color: 'var(--text-secondary)',
@@ -353,13 +353,16 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
             className='agent-message__content'
             data-testid='agent-message-content'
           >
-            <div style={progressStyle}>
-              <span style={progressSpinnerStyle} aria-hidden='true' />
-              <span>{progressMessage}</span>
-            </div>
             {text.length > 0 && (
               <MarkdownRenderer content={text} trailingContent={<StreamingCursor />} isStreaming />
             )}
+            <div
+              style={{ ...progressStyle, marginTop: text.length > 0 ? progressStyle.marginTop : 0 }}
+              data-testid='agent-progress-chip'
+            >
+              <span style={progressSpinnerStyle} aria-hidden='true' />
+              <span>{progressMessage}</span>
+            </div>
           </div>
           {visibleToolCalls.length > 0 && (
             <div style={toolCallsWrapperStyle}>

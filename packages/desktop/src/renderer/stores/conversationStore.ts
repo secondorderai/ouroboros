@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   Message,
+  MessageRole,
   ImageAttachment,
   ToolCallState,
   CompletedToolCall,
@@ -9,6 +10,7 @@ import type {
   AgentToolCallStartParams,
   AgentToolCallEndParams,
   AgentTurnCompleteParams,
+  AgentRunSettledParams,
   AgentErrorParams,
   AgentSteerInjectedNotification,
   AgentSteerOrphanedNotification,
@@ -163,6 +165,9 @@ export interface ConversationState {
 
   /** Handle an incoming `agent/turnComplete` notification. */
   handleTurnComplete: (params: AgentTurnCompleteParams) => void
+
+  /** Reconcile the `agent/run` RPC result with the notification-driven UI. */
+  handleRunSettled: (params: AgentRunSettledParams) => void
 
   /** Handle an incoming `mode/planSubmitted` notification. */
   handlePlanSubmitted: (params: ModePlanSubmittedNotification) => void
@@ -397,6 +402,58 @@ function planDecisionForSession(
   return { sessionId, plan }
 }
 
+function runStopStatusText(params: Pick<AgentRunSettledParams, 'stopReason' | 'iterations'>): {
+  role: Extract<MessageRole, 'system' | 'error'>
+  text: string
+} | null {
+  switch (params.stopReason) {
+    case 'completed':
+      return null
+    case 'max_steps':
+      return {
+        role: 'system',
+        text: `Stopped after reaching the configured step limit (${params.iterations} ${params.iterations === 1 ? 'step' : 'steps'}). The answer above may be incomplete.`,
+      }
+    case 'cancelled':
+      return { role: 'system', text: 'Run cancelled. The answer above may be incomplete.' }
+    case 'error':
+      return {
+        role: 'error',
+        text: 'Run stopped because the agent encountered an error before it could finish.',
+      }
+  }
+}
+
+function appendRunStopStatus(
+  messages: Message[],
+  nextId: number,
+  params: Pick<AgentRunSettledParams, 'stopReason' | 'iterations'>,
+): { messages: Message[]; nextId: number } {
+  const status = runStopStatusText(params)
+  if (!status) return { messages, nextId }
+
+  const alreadyVisible = [...messages].reverse().some((message) => {
+    if (message.role === 'user') return false
+    if (message.text === status.text) return true
+    if (params.stopReason === 'error' && message.role === 'error') return true
+    return false
+  })
+  if (alreadyVisible) return { messages, nextId }
+
+  return {
+    messages: [
+      ...messages,
+      {
+        id: makeId(status.role, nextId),
+        role: status.role,
+        text: status.text,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+    nextId: nextId + 1,
+  }
+}
+
 function toSentenceCase(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) return ''
@@ -574,6 +631,19 @@ function stripImagePreviewData(image: ImageAttachment): ImageAttachment {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isAgentRunResult(value: unknown): value is Omit<AgentRunSettledParams, 'sessionId'> {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.text === 'string' &&
+    typeof value.iterations === 'number' &&
+    typeof value.maxIterationsReached === 'boolean' &&
+    (value.stopReason === 'completed' ||
+      value.stopReason === 'max_steps' ||
+      value.stopReason === 'error' ||
+      value.stopReason === 'cancelled')
+  )
 }
 
 function getStringField(record: Record<string, unknown>, key: string): string | undefined {
@@ -1080,14 +1150,24 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         }
       }
 
-      await api?.rpc('agent/run', {
+      const result = await api?.rpc('agent/run', {
         message: text,
         files,
         images: images?.map(stripImagePreviewData),
         skillName,
+        ...(sessionId ? { sessionId } : {}),
         client: 'desktop',
         responseStyle: 'desktop-readable',
       })
+      if (isAgentRunResult(result)) {
+        const settledParams: AgentRunSettledParams = {
+          ...result,
+          sessionId: sessionId ?? null,
+        }
+        window.setTimeout(() => {
+          get().handleRunSettled(settledParams)
+        }, 1500)
+      }
     })().catch((err) => {
       console.error('agent/run RPC failed:', err)
       // Attribute the error to the session that owned the failed run, so the
@@ -1139,9 +1219,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         : state.sessions,
     })
 
-    window.ouroboros?.rpc('agent/cancel', {}).catch((err) => {
-      console.error('agent/cancel RPC failed:', err)
-    })
+    window.ouroboros
+      ?.rpc('agent/cancel', state.activeRunSessionId ? { sessionId: state.activeRunSessionId } : {})
+      .catch((err) => {
+        console.error('agent/cancel RPC failed:', err)
+      })
   },
 
   steerCurrentRun(text: string, images?: ImageAttachment[]) {
@@ -1281,8 +1363,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       : state.sessions
 
     if (!runSessionId) {
+      const withStatus = appendRunStopStatus(
+        state.messages,
+        state.nextId,
+        { stopReason: 'cancelled', iterations: params.iterations },
+      )
       set({
         sessions,
+        messages: withStatus.messages,
         isAgentRunning: false,
         activeRunSessionId: null,
         streamingText: null,
@@ -1290,6 +1378,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         pendingToolCalls: [],
         pendingSubagentRuns: [],
         pendingSubmittedPlan: null,
+        nextId: withStatus.nextId,
       })
       return
     }
@@ -1302,6 +1391,28 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       sessions,
       ...updateRunState(state, runSessionId, (snap) => ({
         ...snap,
+        ...(() => {
+          const messages = [...snap.messages]
+          let nextId = snap.nextId
+          const partialText = normalizeTextContent(params.partialText || snap.streamingText)
+          if (partialText.length > 0 && messages[messages.length - 1]?.text !== partialText) {
+            messages.push({
+              id: makeId('agent', nextId),
+              role: 'agent',
+              text: partialText,
+              timestamp: new Date().toISOString(),
+              toolCalls:
+                snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
+              subagentRuns:
+                snap.pendingSubagentRuns.length > 0 ? [...snap.pendingSubagentRuns] : undefined,
+            })
+            nextId += 1
+          }
+          return appendRunStopStatus(messages, nextId, {
+            stopReason: 'cancelled',
+            iterations: params.iterations,
+          })
+        })(),
         isAgentRunning: false,
         streamingText: null,
         activeToolCalls: new Map(),
@@ -1545,6 +1656,76 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         state.currentSessionId,
         submittedPlanForDecision,
       ),
+    })
+  },
+
+  handleRunSettled(params: AgentRunSettledParams) {
+    const state = get()
+    const settledSessionId = resolveRunSessionId(params, state)
+    const finishSnapshot = (snap: SessionRunSnapshot): SessionRunSnapshot => {
+      const messages = [...snap.messages]
+      let nextId = snap.nextId
+      const finalText = finalAgentText(params.text, snap.pendingSubmittedPlan)
+      const hasFinalAgentMessage =
+        finalText.length === 0 ||
+        [...messages]
+          .reverse()
+          .some((message) => message.role === 'agent' && message.text === finalText)
+
+      if (params.stopReason === 'completed' && hasFinalAgentMessage && snap.isAgentRunning) {
+        return snap
+      }
+
+      if (!hasFinalAgentMessage) {
+        messages.push({
+          id: makeId('agent', nextId),
+          role: 'agent',
+          text: finalText,
+          timestamp: new Date().toISOString(),
+          toolCalls: snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
+          subagentRuns:
+            snap.pendingSubagentRuns.length > 0 ? [...snap.pendingSubagentRuns] : undefined,
+          activatedSkills:
+            snap.pendingActivatedSkills.length > 0 ? [...snap.pendingActivatedSkills] : undefined,
+        })
+        nextId += 1
+      }
+
+      const withStatus = appendRunStopStatus(messages, nextId, params)
+      return {
+        ...snap,
+        messages: withStatus.messages,
+        streamingText: null,
+        isAgentRunning: false,
+        activeToolCalls: new Map(),
+        pendingToolCalls: [],
+        pendingSubagentRuns: [],
+        pendingActivatedSkills: [],
+        pendingSubmittedPlan: null,
+        nextId: withStatus.nextId,
+        contextUsage: null,
+      }
+    }
+
+    if (!settledSessionId) {
+      set((s) => flatFromSnapshot(finishSnapshot(snapshotFromFlat(s))))
+      return
+    }
+
+    const updates = updateRunState(state, settledSessionId, finishSnapshot)
+    set({
+      ...updates,
+      sessions: state.sessions.map((s) =>
+        s.id === settledSessionId
+          ? {
+              ...s,
+              runStatus: params.stopReason === 'error' ? ('error' as const) : ('idle' as const),
+              activeToolName: undefined,
+              lastActive: new Date().toISOString(),
+            }
+          : s,
+      ),
+      ...(state.activeRunSessionId === settledSessionId ? { activeRunSessionId: null } : {}),
     })
   },
 
