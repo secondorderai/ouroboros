@@ -1,6 +1,6 @@
 # Ouroboros
 
-Ouroboros is a Bun/TypeScript monorepo for a recursive self-improving AI agent.
+Ouroboros is a Bun/TypeScript monorepo for a Recursive Self Improving (RSI) AI agent.
 It includes a CLI agent, an Electron desktop app, shared protocol/types, runtime
 Agent Skills, structured memory, HTML artifacts, subagents, team workflows, MCP,
 and a JSON-RPC bridge between the CLI and desktop.
@@ -13,10 +13,16 @@ spawns the CLI in JSON-RPC mode and talks to it over NDJSON on stdio.
 ### macOS Beta Release Build
 
 Ouroboros currently ships as a macOS beta release build. Download the latest
-macOS release from the
-[GitHub releases page](https://github.com/secondorderai/ouroboros/releases),
-open the downloaded file, and move `Ouroboros.app` to `Applications` if macOS
-asks you to.
+macOS beta from the latest release:
+
+<p>
+  <a href="https://github.com/secondorderai/ouroboros/releases/download/v0.1.2/Ouroboros-0.1.2-mac-universal.dmg">
+    <img alt="Download latest macOS beta" src="https://img.shields.io/badge/Download-macOS%20Beta-111111?style=for-the-badge&logo=apple&logoColor=white">
+  </a>
+</p>
+
+Open the downloaded `.dmg`, then move `Ouroboros.app` to `Applications` if
+macOS asks you to.
 
 _Beta warning: This app can connect to model providers, read and write files in
 workspaces you select, execute tool calls after approval, and preserve local
@@ -91,7 +97,11 @@ bun run build:win    # Windows package
   slash invocation (`/<skill> prompt`), approval-aware activation, built-in
   desktop skills, user-global skill roots, workspace skill directories, and
   `disabledSkills` filtering.
-- **Memory and RSI:** durable `MEMORY.md`, observations, checkpoints, daily
+- **Built-in Meta Thinking skill:** `meta-thinking` applies a compact
+  SecondOrder workflow for structured planning, tradeoff analysis,
+  troubleshooting under uncertainty, and concise surfacing of confidence,
+  limitations, and context gaps.
+- **Memory and Recursive Self-Improvement (RSI):** durable `MEMORY.md`, observations, checkpoints, daily
   working memory, transcripts, reflection, crystallization, dream
   consolidation, evolution logging, and desktop RSI history/checkpoint views.
 - **Artifacts:** `create-artifact` writes sandboxed self-contained HTML
@@ -182,6 +192,30 @@ Ouroboros cannot:
   space, and provider quota.
 - Live LLM tests are manual and are not part of the default `bun run verify`
   gate.
+
+## Security And Privacy Note
+
+Ouroboros is a local agent runtime, but it is not an offline-only application.
+Review these boundaries before using it with sensitive work:
+
+- **Local files:** In `Workspace` mode, the agent can inspect and modify files
+  under the workspace you select when you approve tool use. Avoid opening
+  workspaces that contain secrets or data you do not want sent to model
+  providers.
+- **API keys and auth:** API-key providers use credentials you configure, and
+  `openai-chatgpt` auth is stored outside project config in
+  `~/.ouroboros/auth.json`. Treat these credentials like any other developer
+  secret and do not commit them.
+- **Shell access:** Shell commands run locally through the permission model.
+  Read approval prompts carefully, especially commands that install packages,
+  edit files, delete files, access credentials, or contact external services.
+- **MCP servers:** MCP servers extend the agent with additional tools and may
+  have their own filesystem, account, or network access. Only configure MCP
+  servers you trust, and review their permissions separately from Ouroboros.
+- **Network use:** Model calls, web search/fetch tools, updater checks, MCP
+  tools, package managers, and shell commands may send data over the network.
+  Do not paste or approve access to confidential information unless the
+  configured provider and tool chain are acceptable for that data.
 
 ## CLI Flags
 
@@ -318,6 +352,12 @@ Disabled skills remain discoverable for management UIs when requested with
 invocation, and activation. Desktop Settings exposes skill availability and
 lookup paths.
 
+The desktop app includes **Meta Thinking** (`meta-thinking`) as a built-in
+skill. Use it when a request benefits from an explicit planning pass, tradeoff
+analysis, troubleshooting with incomplete context, or a concise summary of
+confidence and limitations. It is intentionally not a default wrapper for simple
+factual answers or routine edits.
+
 ## Built-In Tools
 
 | Tool                | Purpose                                             |
@@ -431,3 +471,7 @@ and [docs/architecture.svg](docs/architecture.svg) as the current status sources
 ## License
 
 MIT. See [LICENSE](LICENSE) for details.
+
+## Author
+
+Ouroboros is developed by SecondOrder AI. Made in Australia.
