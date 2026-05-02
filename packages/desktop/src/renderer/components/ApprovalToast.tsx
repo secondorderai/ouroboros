@@ -96,6 +96,16 @@ export function ApprovalToast({ approval, onRespond }: ApprovalToastProps): Reac
         </div>
       )}
 
+      {approval.tier && (
+        <div style={styles.leaseDetails}>
+          <div style={styles.leaseSummary}>{approval.tier.tierLabel}</div>
+          <div style={styles.leaseLine}>Tool: {approval.tier.toolName}</div>
+          <div style={styles.leaseLine}>
+            Args: {formatToolArgs(approval.tier.toolArgs)}
+          </div>
+        </div>
+      )}
+
       {error && <p style={styles.errorText}>{error}</p>}
 
       {/* Actions */}
@@ -121,6 +131,17 @@ export function ApprovalToast({ approval, onRespond }: ApprovalToastProps): Reac
 
 function formatList(values: string[]): string {
   return values.length > 0 ? values.join(', ') : 'None'
+}
+
+function formatToolArgs(args: unknown): string {
+  if (args === undefined) return 'None'
+  try {
+    const text = JSON.stringify(args)
+    if (!text) return 'None'
+    return text.length > 180 ? `${text.slice(0, 177)}...` : text
+  } catch {
+    return String(args)
+  }
 }
 
 const styles: Record<string, React.CSSProperties> = {

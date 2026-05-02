@@ -87,3 +87,4 @@ export const execute: TypedToolExecute<typeof schema, AskUserResult> = async (
   if (!result.ok) return result
   return ok(normalizeResponse(result.value.response.trim(), args.options))
 }
+export const tier = 1

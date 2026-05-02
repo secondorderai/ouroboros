@@ -658,3 +658,4 @@ export const execute: TypedToolExecute<typeof schema, unknown> = async (
       )
   }
 }
+export const tier = 3

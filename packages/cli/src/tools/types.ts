@@ -34,6 +34,11 @@ export interface ToolExecutionContext {
   abortSignal?: AbortSignal
 }
 
+/** Permission tier a tool belongs to. Used for runtime enforcement and system-prompt generation. */
+export type ToolTier = 0 | 1 | 2 | 3 | 4
+
+export type ToolTierResolver = (args: unknown) => ToolTier
+
 /**
  * The base (type-erased) tool interface used by the registry to store
  * heterogeneous tools. The `execute` function accepts `unknown` because the
@@ -48,6 +53,15 @@ export interface ToolDefinition {
 
   /** Zod schema for argument validation. */
   schema: z.ZodType<any>
+
+  /** Permission tier this tool belongs to. Defaults to 1 when omitted. */
+  tier?: ToolTier
+
+  /**
+   * Optional per-call tier resolver for tools whose risk depends on arguments.
+   * When omitted, the registry uses `tier` or defaults to Tier 1.
+   */
+  resolveTier?: ToolTierResolver
 
   /**
    * Pre-built JSON Schema for the tool's parameters.

@@ -1459,6 +1459,13 @@ describe('JSON-RPC', () => {
         agent: {
           definitions: [makePlannerAgent(['explore'])],
         },
+        permissions: {
+          tier0: true,
+          tier1: true,
+          tier2: true,
+          tier3: true,
+          tier4: false,
+        },
       })
       const sessionResult = new TranscriptStore(
         join(tmpdir(), `.ouroboros-subagent-success-${crypto.randomUUID()}.db`),
@@ -1584,6 +1591,13 @@ describe('JSON-RPC', () => {
       const config = configSchema.parse({
         agent: {
           definitions: [makePlannerAgent(['explore'])],
+        },
+        permissions: {
+          tier0: true,
+          tier1: true,
+          tier2: true,
+          tier3: true,
+          tier4: false,
         },
       })
       const transcriptStore = new TranscriptStore(

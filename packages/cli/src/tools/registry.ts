@@ -2,9 +2,10 @@ import { readdirSync } from 'node:fs'
 import { isAbsolute, relative, resolve, join } from 'node:path'
 import { z } from 'zod'
 import { enforcePermissionLease } from '@src/permission-lease'
+import { requestTierApproval } from '@src/tier-approval'
 import { type Result, err, ok } from '@src/types'
 import { BUILTIN_TOOLS } from './builtin'
-import type { ToolDefinition, ToolExecutionContext, ToolMetadata } from './types'
+import type { ToolDefinition, ToolExecutionContext, ToolMetadata, ToolTier } from './types'
 import type { TestCommandResult } from './subagent-result'
 
 /** Files that should never be loaded as tools. */
@@ -95,6 +96,25 @@ export interface WorkerToolRegistryOptions {
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>()
   private deniedTools = new Map<string, string>()
+  /** Optional config permissions for runtime tier enforcement. */
+  private configPermissions?: {
+    tier0: boolean
+    tier1: boolean
+    tier2: boolean
+    tier3: boolean
+    tier4: boolean
+  }
+
+  /** Set config permissions for runtime tier enforcement. No-op when undefined. */
+  setConfigPermissions(permissions?: {
+    tier0: boolean
+    tier1: boolean
+    tier2: boolean
+    tier3: boolean
+    tier4: boolean
+  }): void {
+    this.configPermissions = permissions
+  }
 
   /** Register a single tool definition (useful for testing). */
   register(tool: ToolDefinition): void {
@@ -146,6 +166,33 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map(toMetadata)
   }
 
+  /** Return the tier of a registered tool, or undefined. */
+  getToolTier(name: string): ToolTier | undefined {
+    const tool = this.tools.get(name)
+    if (!tool) return undefined
+    return tool.tier ?? 1
+  }
+
+  /** Return tool names that would be blocked by the given permission config. */
+  toolsDisabledByTier(permissions: {
+    tier0: boolean
+    tier1: boolean
+    tier2: boolean
+    tier3: boolean
+    tier4: boolean
+  }): string[] {
+    const disabled: string[] = []
+    const tierKeys: (keyof typeof permissions)[] = ['tier0', 'tier1', 'tier2', 'tier3', 'tier4']
+    for (const [toolName, tool] of this.tools.entries()) {
+      const tier = tool.tier ?? 1
+      const tierKey = tierKeys[tier] as keyof typeof permissions
+      if (!permissions[tierKey]) {
+        disabled.push(toolName)
+      }
+    }
+    return disabled
+  }
+
   /** Return a single tool definition by name, or undefined. */
   getTool(name: string): ToolDefinition | undefined {
     return this.tools.get(name)
@@ -180,11 +227,38 @@ export class ToolRegistry {
       return err(new Error(`Unknown tool: "${name}"`))
     }
 
-    // Validate args against the Zod schema.
+    // Validate args before approval so malformed tool calls do not generate
+    // one-off approval prompts.
     const parsed = tool.schema.safeParse(args)
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
       return err(new Error(`Invalid arguments for tool "${name}": ${issues}`))
+    }
+
+    // Runtime tier enforcement: a disabled tier requires explicit one-off
+    // approval for this validated tool call, then execution continues normally.
+    if (this.configPermissions) {
+      const toolTier = resolveToolTier(tool, parsed.data)
+      const tierKeys: (keyof typeof this.configPermissions)[] = [
+        'tier0',
+        'tier1',
+        'tier2',
+        'tier3',
+        'tier4',
+      ]
+      const tierKey = tierKeys[toolTier]
+      if (!this.configPermissions[tierKey]) {
+        if (toolTier >= 1) {
+          const approval = await requestTierApproval(name, toolTier as 1 | 2 | 3 | 4, args)
+          if (!approval.ok) return approval
+        } else {
+          return err(
+            new Error(
+              `Tool "${name}" requires tier ${toolTier} which is not enabled in your config permissions.`,
+            ),
+          )
+        }
+      }
     }
 
     if (context?.permissionLease) {
@@ -452,6 +526,10 @@ function normalizePath(path: string): string {
 function isInsideDirectory(path: string, directory: string): boolean {
   const rel = normalizePath(relative(directory, path))
   return rel === '' || (!rel.startsWith('../') && rel !== '..' && !isAbsolute(rel))
+}
+
+function resolveToolTier(tool: ToolDefinition, args: unknown): ToolTier {
+  return tool.resolveTier?.(args) ?? tool.tier ?? 1
 }
 
 function resolveWorktreePath(path: string, worktreePath: string): string {

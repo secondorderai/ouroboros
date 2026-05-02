@@ -91,17 +91,30 @@ describe('CodeExecTool — execute', () => {
   })
 
   describe('with environment isolation', () => {
-    const ORIGINAL = process.env.ANTHROPIC_API_KEY
+    const ENV_KEYS_UNDER_TEST = [
+      'ANTHROPIC_API_KEY',
+      'OUROBOROS_OPENAI_COMPATIBLE_API_KEY',
+      'OUROBOROS_FUTURE_SERVICE_TOKEN',
+      'OUROBOROS_SAFE_CONFIG',
+    ] as const
+    const originalEnv: Partial<Record<(typeof ENV_KEYS_UNDER_TEST)[number], string>> = {}
 
     beforeEach(() => {
+      for (const key of ENV_KEYS_UNDER_TEST) {
+        originalEnv[key] = process.env[key]
+        delete process.env[key]
+      }
       process.env.ANTHROPIC_API_KEY = 'test-secret-value'
     })
 
     afterEach(() => {
-      if (ORIGINAL === undefined) {
-        delete process.env.ANTHROPIC_API_KEY
-      } else {
-        process.env.ANTHROPIC_API_KEY = ORIGINAL
+      for (const key of ENV_KEYS_UNDER_TEST) {
+        const value = originalEnv[key]
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
       }
     })
 
@@ -113,6 +126,26 @@ describe('CodeExecTool — execute', () => {
       expect(result.ok).toBe(true)
       if (result.ok) {
         expect(result.value.stdout).toBe('undefined\n')
+      }
+    })
+
+    test('strips the OpenAI-compatible key and future secret-like env vars from the child', async () => {
+      process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = 'compatible-secret'
+      process.env.OUROBOROS_FUTURE_SERVICE_TOKEN = 'future-secret'
+      process.env.OUROBOROS_SAFE_CONFIG = 'safe-value'
+
+      const args = schema.parse({
+        code: [
+          'console.log(process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY ?? "undefined")',
+          'console.log(process.env.OUROBOROS_FUTURE_SERVICE_TOKEN ?? "undefined")',
+          'console.log(process.env.OUROBOROS_SAFE_CONFIG ?? "undefined")',
+        ].join('\n'),
+      })
+      const result = await execute(args)
+
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.stdout).toBe('undefined\nundefined\nsafe-value\n')
       }
     })
   })

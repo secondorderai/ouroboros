@@ -117,3 +117,4 @@ export const execute: TypedToolExecute<typeof schema, WebSearchResult> = async (
     return err(new Error(`Web search failed: ${message}`))
   }
 }
+export const tier = 0

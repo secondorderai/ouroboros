@@ -46,3 +46,4 @@ export const execute: TypedToolExecute<typeof schema, string> = async (
       `You may proceed with implementation.`,
   )
 }
+export const tier = 1

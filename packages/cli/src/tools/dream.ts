@@ -62,3 +62,4 @@ export const execute = async (_input: DreamToolInput): Promise<Result<DreamResul
     ),
   )
 }
+export const tier = 2

@@ -6,6 +6,7 @@ import { Agent, type AgentRunResult } from '@src/agent'
 import { checkAgentInvocationPermission } from '@src/agent-invocation-permissions'
 import { permissionLeaseSchema, type PermissionLease } from '@src/permission-lease'
 import { type AgentDefinition, type PermissionConfig, type Result, err, ok } from '@src/types'
+import { scrubToolEnv } from './env'
 import {
   createReadOnlyToolRegistry,
   createTestToolRegistry,
@@ -309,9 +310,9 @@ function gitOutput(args: string[], cwd: string): string {
 // Strip inherited GIT_* env so this query always reflects `cwd`'s repo,
 // not whatever repo the parent process was bound to.
 function scrubbedGitEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith('GIT_')) env[key] = value
+  const env = scrubToolEnv()
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('GIT_')) delete env[key]
   }
   return env
 }
@@ -1320,3 +1321,4 @@ async function runWorkerVerification(
     status: exitCode === 0 ? 'passed' : 'failed',
   })
 }
+export const tier = 3

@@ -91,3 +91,4 @@ export const execute = async (): Promise<Result<SkillGenResult>> => {
     ),
   )
 }
+export const tier = 2

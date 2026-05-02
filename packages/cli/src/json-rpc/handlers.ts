@@ -156,6 +156,14 @@ export interface ApprovalItem {
   diff?: string
   lease?: PermissionLeaseApprovalDetails
   workerDiff?: WorkerDiffApprovalDetails
+  tier?: {
+    approvalId: string
+    toolName: string
+    toolTier: 1 | 2 | 3 | 4
+    toolArgs: unknown
+    tierLabel: string
+    createdAt: string
+  }
   /** Skill name when type === 'skill-activation'. */
   skillName?: string
 }

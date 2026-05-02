@@ -692,6 +692,9 @@ export class Agent {
           !definition.hidden && (definition.mode === 'primary' || definition.mode === 'all'),
       )?.id ??
       'default'
+
+    // Wire config permissions into the registry for runtime tier enforcement.
+    this.toolRegistry.setConfigPermissions(this.config.permissions)
   }
 
   /**
@@ -1728,6 +1731,20 @@ export class Agent {
     if (this.modeManager) {
       tools = this.modeManager.filterTools(tools)
     }
+
+    // Filter tools based on config permission tiers
+    const tierKeys: (keyof typeof this.config.permissions)[] = [
+      'tier0',
+      'tier1',
+      'tier2',
+      'tier3',
+      'tier4',
+    ]
+    tools = tools.filter((tool) => {
+      const tier = this.toolRegistry.getToolTier(tool.name) ?? 1
+      const tierKey = tierKeys[tier]
+      return this.config.permissions[tierKey]
+    })
 
     const defs: Record<string, LLMToolSpec> = {}
 

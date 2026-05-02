@@ -67,3 +67,4 @@ export const execute: TypedToolExecute<typeof schema, CrystallizationResult> = a
     noveltyThreshold: config.rsi.noveltyThreshold,
   })
 }
+export const tier = 2

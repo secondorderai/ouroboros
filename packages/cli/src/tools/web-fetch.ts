@@ -159,3 +159,4 @@ export const execute: TypedToolExecute<typeof schema, WebFetchResult> = async (
     return err(new Error(`Failed to fetch "${url}": ${message}`))
   }
 }
+export const tier = 0

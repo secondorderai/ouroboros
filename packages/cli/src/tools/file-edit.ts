@@ -63,3 +63,4 @@ export const execute: TypedToolExecute<typeof schema, FileEditResult> = async (
     return err(new Error(`Failed to edit file "${path}": ${message}`))
   }
 }
+export const tier = 1

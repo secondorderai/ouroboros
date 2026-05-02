@@ -256,6 +256,15 @@ export interface WorkerDiffDisplayDetails {
   denialReason?: string
 }
 
+export interface TierApprovalDisplayDetails {
+  approvalId: string
+  toolName: string
+  toolTier: 1 | 2 | 3 | 4
+  toolArgs: unknown
+  tierLabel: string
+  createdAt: string
+}
+
 export interface SubagentRun {
   runId: string
   parentSessionId?: string
@@ -401,7 +410,7 @@ export type AuthMethod = 'browser' | 'headless'
 
 export type AgentClient = 'desktop' | 'cli'
 export type AgentResponseStyle = 'default' | 'desktop-readable'
-export type AgentStopReason = 'completed' | 'max_steps' | 'error'
+export type AgentStopReason = 'completed' | 'max_steps' | 'error' | 'cancelled'
 export type WorkspaceMode = 'simple' | 'workspace'
 
 export interface AgentRunParams {
@@ -670,6 +679,10 @@ export interface AgentRunResult {
   stopReason: AgentStopReason
   maxIterationsReached: boolean
 }
+
+export interface AgentRunSettledParams extends AgentRunResult {
+  sessionId: string | null
+}
 export interface AgentCancelResult {
   cancelled: boolean
   message?: string
@@ -916,6 +929,7 @@ export interface ApprovalItem {
   diff?: string
   lease?: Omit<PermissionLeaseDisplayDetails, 'status'> & { status?: PermissionLeaseStatus }
   workerDiff?: WorkerDiffDisplayDetails
+  tier?: TierApprovalDisplayDetails
   /** Skill name when type === 'skill-activation'. */
   skillName?: string
 }
@@ -1260,6 +1274,7 @@ export interface ApprovalRequestNotification {
   diff?: string
   lease?: Omit<PermissionLeaseDisplayDetails, 'status'> & { status?: PermissionLeaseStatus }
   workerDiff?: WorkerDiffDisplayDetails
+  tier?: TierApprovalDisplayDetails
 }
 export interface AskUserRequestNotification {
   id: string

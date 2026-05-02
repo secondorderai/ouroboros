@@ -87,3 +87,4 @@ export const execute: TypedToolExecute<typeof schema, TodoResult> = async (
       return err(new Error(`Unknown action: "${action}"`))
   }
 }
+export const tier = 1

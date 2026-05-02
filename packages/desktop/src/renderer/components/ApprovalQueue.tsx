@@ -96,6 +96,7 @@ export function ApprovalQueue({ isOpen, onClose }: ApprovalQueueProps): React.Re
                     </div>
                     {approval.lease && <LeaseDetails lease={approval.lease} />}
                     {approval.workerDiff && <WorkerDiffDetails workerDiff={approval.workerDiff} />}
+                    {approval.tier && <TierDetails tier={approval.tier} />}
                     <div style={styles.itemActions}>
                       <button
                         style={styles.approveButton}
@@ -193,6 +194,20 @@ function WorkerDiffDetails({
   )
 }
 
+function TierDetails({
+  tier,
+}: {
+  tier: NonNullable<ReturnType<typeof useApprovals>[number]['tier']>
+}): React.ReactElement {
+  return (
+    <div style={styles.leaseDetails}>
+      <div style={styles.leaseSummary}>{tier.tierLabel}</div>
+      <div style={styles.detailLine}>Tool: {tier.toolName}</div>
+      <div style={styles.detailLine}>Args: {formatToolArgs(tier.toolArgs)}</div>
+    </div>
+  )
+}
+
 function DetailLine({ label, values }: { label: string; values: string[] }): React.ReactElement {
   return (
     <div style={styles.detailLine}>
@@ -218,6 +233,17 @@ function formatFullTimestamp(ts: string): string {
     return new Date(ts).toLocaleString()
   } catch {
     return ts
+  }
+}
+
+function formatToolArgs(args: unknown): string {
+  if (args === undefined) return 'None'
+  try {
+    const text = JSON.stringify(args)
+    if (!text) return 'None'
+    return text.length > 240 ? `${text.slice(0, 237)}...` : text
+  } catch {
+    return String(args)
   }
 }
 

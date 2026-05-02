@@ -271,3 +271,4 @@ export const execute: TypedToolExecute<typeof schema, TeamGraphToolResult> = asy
     }
   }
 }
+export const tier = 3

@@ -51,3 +51,4 @@ export const execute: TypedToolExecute<typeof schema, string> = async (
       `Explore the codebase to understand the task, then call submit-plan with your structured plan.`,
   )
 }
+export const tier = 1

@@ -74,3 +74,4 @@ export const execute: TypedToolExecute<typeof schema, FileReadResult> = async (
     return err(new Error(`Failed to read file "${path}": ${message}`))
   }
 }
+export const tier = 0

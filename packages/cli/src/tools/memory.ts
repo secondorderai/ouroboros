@@ -102,3 +102,4 @@ export function createExecute(deps: MemoryToolDeps = {}) {
  * In production, use createExecute() with proper dependencies.
  */
 export const execute = createExecute()
+export const tier = 3

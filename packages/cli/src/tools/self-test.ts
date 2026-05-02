@@ -26,3 +26,4 @@ export const execute: TypedToolExecute<typeof schema, SkillTestResult> = async (
 ): Promise<Result<SkillTestResult>> => {
   return runSkillTests(args.skillPath)
 }
+export const tier = 2

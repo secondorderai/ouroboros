@@ -12,6 +12,7 @@ import type {
   ApprovalRequestNotification,
   ApprovalRespondResult,
   PermissionLeaseDisplayDetails,
+  TierApprovalDisplayDetails,
   WorkerDiffDisplayDetails,
 } from '../../shared/protocol'
 import { useConversationStore } from './conversationStore'
@@ -24,6 +25,7 @@ export interface PendingApproval {
   diff?: string
   lease?: PermissionLeaseDisplayDetails
   workerDiff?: WorkerDiffDisplayDetails
+  tier?: TierApprovalDisplayDetails
   timestamp: string
 }
 
@@ -83,6 +85,7 @@ export function toPendingApproval(
     diff: approval.diff,
     lease: approval.lease ? normalizeApprovalLease(approval.lease) : undefined,
     workerDiff: approval.workerDiff,
+    tier: approval.tier,
     timestamp:
       'createdAt' in approval && approval.createdAt ? approval.createdAt : new Date().toISOString(),
   }

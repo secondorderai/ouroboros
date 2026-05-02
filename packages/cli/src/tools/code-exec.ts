@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Result, ok, err } from '@src/types'
 import type { TypedToolExecute } from './types'
-import { SENSITIVE_ENV_KEYS } from './bash'
+import { scrubToolEnv } from './env'
 
 export const name = 'code-exec'
 
@@ -158,9 +158,7 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
 ): Promise<Result<CodeExecResult>> => {
   const start = Date.now()
   const workDir = await mkdtemp(join(tmpdir(), 'ouroboros-code-exec-'))
-  const filteredEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !SENSITIVE_ENV_KEYS.includes(key)),
-  ) as NodeJS.ProcessEnv
+  const filteredEnv = scrubToolEnv()
 
   try {
     if (args.packages && args.packages.length > 0) {
@@ -216,3 +214,4 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
     await rm(workDir, { recursive: true, force: true }).catch(() => {})
   }
 }
+export const tier = 1

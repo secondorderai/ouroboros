@@ -40,3 +40,4 @@ export const execute: TypedToolExecute<typeof schema, FileWriteResult> = async (
     return err(new Error(`Failed to write file "${path}": ${message}`))
   }
 }
+export const tier = 1

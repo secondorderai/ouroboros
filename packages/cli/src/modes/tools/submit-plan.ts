@@ -83,3 +83,4 @@ export const execute: TypedToolExecute<typeof schema, string> = async (
       `The user will respond with their decision in their next message.`,
   )
 }
+export const tier = 1

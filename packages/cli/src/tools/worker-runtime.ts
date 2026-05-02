@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { type Result, err, ok } from '@src/types'
+import { scrubToolEnv } from './env'
 
 export interface WorkerRuntimeSpec {
   taskId: string
@@ -175,9 +176,9 @@ function gitOutput(args: string[], cwd: string): string {
 // ouroboros runs inside a git hook, GIT_DIR / GIT_WORK_TREE point at the
 // hook's repo and would hijack worktree creation here).
 function scrubbedGitEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith('GIT_')) env[key] = value
+  const env = scrubToolEnv()
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('GIT_')) delete env[key]
   }
   return env
 }

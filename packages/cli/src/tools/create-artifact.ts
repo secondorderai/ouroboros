@@ -107,3 +107,4 @@ export const execute: TypedToolExecute<typeof schema, CreateArtifactResult> = as
     warnings: hardened.value.warnings,
   })
 }
+export const tier = 1

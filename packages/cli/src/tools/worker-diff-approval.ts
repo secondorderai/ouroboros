@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { collectWorkerDiff } from './worker-runtime'
 import { type Result, err, ok } from '@src/types'
 import type { TypedToolExecute } from './types'
+import { scrubToolEnv } from './env'
 
 export const name = 'apply_worker_diff'
 
@@ -198,9 +199,9 @@ function gitOutput(args: string[], cwd: string): string {
 // Strip inherited GIT_* env so child `git` invocations always operate on
 // `cwd`, not on whatever repo the parent process was bound to.
 function scrubbedGitEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith('GIT_')) env[key] = value
+  const env = scrubToolEnv()
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('GIT_')) delete env[key]
   }
   return env
 }
@@ -226,3 +227,4 @@ function gitApply(cwd: string, patch: string, args: string[]): Result<void> {
     return err(new Error(`Failed to apply worker diff: ${stderr.trim() || error.message}`))
   }
 }
+export const tier = 1

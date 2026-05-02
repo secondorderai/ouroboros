@@ -161,3 +161,4 @@ function formatStats(stats: EvolutionStats): string {
   if (stats.lastEntry) lines.push(`Last entry: ${stats.lastEntry}`)
   return lines.join('\n')
 }
+export const tier = 3

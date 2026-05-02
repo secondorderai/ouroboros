@@ -97,3 +97,4 @@ export const execute: TypedToolExecute<typeof schema, unknown> = async (
     minimumSuccessfulRuns: args.minimumSuccessfulRuns,
   })
 }
+export const tier = 3

@@ -1,12 +1,13 @@
-import { describe, test, expect, beforeEach } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import {
   ToolRegistry,
   createReadOnlyToolRegistry,
   createTestToolRegistry,
   createWorkerToolRegistry,
 } from '@src/tools/registry'
+import { setTierApprovalHandler } from '@src/tier-approval'
 import { z } from 'zod'
-import { ok } from '@src/types'
+import { ok, err } from '@src/types'
 import type { ToolDefinition } from '@src/tools/types'
 import { resolve } from 'node:path'
 
@@ -25,6 +26,11 @@ describe('ToolRegistry', () => {
 
   beforeEach(() => {
     registry = new ToolRegistry()
+    setTierApprovalHandler(null)
+  })
+
+  afterEach(() => {
+    setTierApprovalHandler(null)
   })
 
   // -----------------------------------------------------------------------
@@ -315,6 +321,308 @@ describe('ToolRegistry', () => {
     for (const tool of tools) {
       expect(tool.parameters).toBeDefined()
       expect((tool.parameters as { type?: string }).type).toBe('object')
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // Feature test: Tier enforcement
+  // -----------------------------------------------------------------------
+
+  const fullPermissions = { tier0: true, tier1: true, tier2: true, tier3: true, tier4: true }
+  const tier0OnlyPermissions = {
+    tier0: true,
+    tier1: false,
+    tier2: false,
+    tier3: false,
+    tier4: false,
+  }
+  const tier01Permissions = { tier0: true, tier1: true, tier2: false, tier3: false, tier4: false }
+
+  test('executeTool requests one-off approval when a disabled tier is required', async () => {
+    registry.register(makeTool('read-tool')) // defaults to tier 1
+    registry.register({ ...makeTool('write-tool'), tier: 1 as const })
+
+    registry.setConfigPermissions(tier0OnlyPermissions)
+    const approvals: Array<{ name: string; tier: number; args: unknown }> = []
+    setTierApprovalHandler(async (name, tier, args) => {
+      approvals.push({ name, tier, args })
+      return ok(undefined)
+    })
+
+    // Both tools are tier 1, which is disabled but can be approved once.
+    const readResult = await registry.executeTool('read-tool', { input: 'x' })
+    expect(readResult.ok).toBe(true)
+
+    const writeResult = await registry.executeTool('write-tool', { input: 'x' })
+    expect(writeResult.ok).toBe(true)
+    expect(approvals).toEqual([
+      { name: 'read-tool', tier: 1, args: { input: 'x' } },
+      { name: 'write-tool', tier: 1, args: { input: 'x' } },
+    ])
+  })
+
+  test('executeTool uses per-call tier resolver before requesting approval', async () => {
+    registry.register({
+      name: 'dynamic-tool',
+      description: 'A test tool with argument-sensitive permissions',
+      schema: z.object({ mode: z.enum(['read', 'write']) }),
+      tier: 1,
+      resolveTier: (args) => ((args as { mode: string }).mode === 'read' ? 0 : 1),
+      execute: async (args) => ok(args),
+    })
+    registry.setConfigPermissions(tier0OnlyPermissions)
+
+    const approvals: Array<{ name: string; tier: number; args: unknown }> = []
+    setTierApprovalHandler(async (name, tier, args) => {
+      approvals.push({ name, tier, args })
+      return ok(undefined)
+    })
+
+    const readResult = await registry.executeTool('dynamic-tool', { mode: 'read' })
+    expect(readResult.ok).toBe(true)
+    expect(approvals).toEqual([])
+
+    const writeResult = await registry.executeTool('dynamic-tool', { mode: 'write' })
+    expect(writeResult.ok).toBe(true)
+    expect(approvals).toEqual([{ name: 'dynamic-tool', tier: 1, args: { mode: 'write' } }])
+  })
+
+  test('executeTool validates args before tier approval', async () => {
+    registry.register({
+      ...makeTool('blocked-tool-with-invalid-args'),
+      tier: 1,
+    })
+    registry.setConfigPermissions(tier0OnlyPermissions)
+
+    let handlerCalled = false
+    setTierApprovalHandler(async () => {
+      handlerCalled = true
+      return ok(undefined)
+    })
+
+    const result = await registry.executeTool('blocked-tool-with-invalid-args', { input: 123 })
+    expect(result.ok).toBe(false)
+    expect(handlerCalled).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('Invalid arguments')
+    }
+  })
+
+  test('executeTool allows tools when their tier is enabled', async () => {
+    registry.register(makeTool('my-tool'))
+
+    registry.setConfigPermissions(fullPermissions)
+    const result = await registry.executeTool('my-tool', { input: 'hello' })
+    expect(result.ok).toBe(true)
+  })
+
+  test('executeTool is no-op when configPermissions is undefined (backward compat)', async () => {
+    registry.register(makeTool('my-tool'))
+    // Never call setConfigPermissions — should work as before
+    const result = await registry.executeTool('my-tool', { input: 'hello' })
+    expect(result.ok).toBe(true)
+  })
+
+  test('getToolTier returns the tool tier, defaulting to 1', () => {
+    registry.register({ ...makeTool('tier0-tool'), tier: 0 as const })
+    registry.register({ ...makeTool('tier2-tool'), tier: 2 as const })
+    registry.register(makeTool('no-tier-tool'))
+
+    expect(registry.getToolTier('tier0-tool')).toBe(0)
+    expect(registry.getToolTier('tier2-tool')).toBe(2)
+    expect(registry.getToolTier('no-tier-tool')).toBe(1)
+    expect(registry.getToolTier('nonexistent')).toBeUndefined()
+  })
+
+  test('toolsDisabledByTier lists tools that would be blocked', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+    const bundledRegistry = await createRegistry()
+
+    const disabled = bundledRegistry.toolsDisabledByTier(tier0OnlyPermissions)
+    // file-read, web-fetch, web-search are tier 0 — should NOT be in disabled
+    expect(disabled).not.toContain('file-read')
+    expect(disabled).not.toContain('web-fetch')
+    expect(disabled).not.toContain('web-search')
+    // bash, file-write etc. are tier 1 — should be in disabled
+    expect(disabled).toContain('bash')
+    expect(disabled).toContain('file-write')
+    // crystallize is tier 2 — should be in disabled
+    expect(disabled).toContain('crystallize')
+    // memory is tier 3 — should be in disabled
+    expect(disabled).toContain('memory')
+  })
+
+  test('toolsDisabledByTier with tier0+tier1 only excludes tier 2+ tools', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+    const bundledRegistry = await createRegistry()
+
+    const disabled = bundledRegistry.toolsDisabledByTier(tier01Permissions)
+    // tier 0 and 1 tools should NOT be disabled
+    expect(disabled).not.toContain('file-read')
+    expect(disabled).not.toContain('bash')
+    expect(disabled).not.toContain('file-write')
+    // tier 2+ tools should be disabled
+    expect(disabled).toContain('crystallize')
+    expect(disabled).toContain('memory')
+    expect(disabled).toContain('evolution')
+  })
+
+  test('executeTool enforces tier approval after schema validation', async () => {
+    registry.register(makeTool('blocked-tool'))
+    registry.setConfigPermissions(tier0OnlyPermissions)
+
+    const result = await registry.executeTool('blocked-tool', { input: 'valid' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('requires tier 1')
+    }
+  })
+
+  test('all built-in tools have an explicit tier assigned', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+    const bundledRegistry = await createRegistry()
+
+    for (const [, tool] of bundledRegistry.entries()) {
+      expect(tool.tier).toBeDefined()
+      expect(tool.tier).not.toBeUndefined()
+      const tierValue = tool.tier!
+      expect([0, 1, 2, 3, 4]).toContain(tierValue)
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // Feature test: Tier approval handler (Tier 3/4 approval gate)
+  // -----------------------------------------------------------------------
+
+  test('setTierApprovalHandler stores the handler', () => {
+    const handler = async () => ok(undefined)
+    setTierApprovalHandler(handler)
+    // No error means it accepted the handler
+  })
+
+  test('setTierApprovalHandler accepts null to clear', () => {
+    setTierApprovalHandler(async () => ok(undefined))
+    setTierApprovalHandler(null)
+  })
+
+  test('executeTool invokes tierApprovalHandler for Tier 3 tool when tier is disabled', async () => {
+    const tier3Tool: ToolDefinition = {
+      name: 'tier3-tool',
+      description: 'A tier 3 test tool',
+      schema: z.object({}),
+      tier: 3,
+      execute: async () => ok({ done: true }),
+    }
+    registry.register(tier3Tool)
+    registry.setConfigPermissions({
+      tier0: true,
+      tier1: true,
+      tier2: true,
+      tier3: false,
+      tier4: true,
+    })
+
+    let handlerCalledWith: { name: string; tier: number; args: unknown } | null = null
+    setTierApprovalHandler(async (name, tier, args) => {
+      handlerCalledWith = { name, tier, args }
+      return ok(undefined)
+    })
+
+    const result = await registry.executeTool('tier3-tool', { some: 'arg' })
+    expect(result.ok).toBe(true)
+    expect(handlerCalledWith).not.toBeNull()
+    expect(handlerCalledWith!).toEqual({
+      name: 'tier3-tool',
+      tier: 3,
+      args: { some: 'arg' },
+    })
+  })
+
+  test('executeTool returns error from tierApprovalHandler when denied', async () => {
+    const tier4Tool: ToolDefinition = {
+      name: 'tier4-tool',
+      description: 'A tier 4 test tool',
+      schema: z.object({}),
+      tier: 4,
+      execute: async () => ok({ done: true }),
+    }
+    registry.register(tier4Tool)
+    registry.setConfigPermissions({
+      tier0: true,
+      tier1: true,
+      tier2: true,
+      tier3: true,
+      tier4: false,
+    })
+
+    setTierApprovalHandler(async () => err(new Error('User denied')))
+
+    const result = await registry.executeTool('tier4-tool', {})
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toBe('User denied')
+    }
+  })
+
+  test('executeTool does NOT invoke tierApprovalHandler when tier is enabled', async () => {
+    const tier3Tool: ToolDefinition = {
+      name: 'tier3-enabled-tool',
+      description: 'A tier 3 test tool',
+      schema: z.object({}),
+      tier: 3,
+      execute: async () => ok({ done: true }),
+    }
+    registry.register(tier3Tool)
+    registry.setConfigPermissions(fullPermissions)
+
+    let handlerCalled = false
+    setTierApprovalHandler(async () => {
+      handlerCalled = true
+      return ok(undefined)
+    })
+
+    await registry.executeTool('tier3-enabled-tool', {})
+    expect(handlerCalled).toBe(false)
+  })
+
+  test('executeTool invokes tierApprovalHandler for Tier 1/2 tools when disabled', async () => {
+    const tier1Tool: ToolDefinition = {
+      name: 'tier1-tool',
+      description: 'A tier 1 test tool',
+      schema: z.object({}),
+      tier: 1,
+      execute: async () => ok({ done: true }),
+    }
+    registry.register(tier1Tool)
+    registry.setConfigPermissions(tier0OnlyPermissions)
+
+    const calls: Array<{ name: string; tier: number; args: unknown }> = []
+    setTierApprovalHandler(async (name, tier, args) => {
+      calls.push({ name, tier, args })
+      return ok(undefined)
+    })
+
+    const result = await registry.executeTool('tier1-tool', {})
+    expect(result.ok).toBe(true)
+    expect(calls).toEqual([{ name: 'tier1-tool', tier: 1, args: {} }])
+  })
+
+  test('executeTool returns approval error for Tier 1/2 when no tierApprovalHandler is set', async () => {
+    const tier2Tool: ToolDefinition = {
+      name: 'tier2-tool',
+      description: 'A tier 2 test tool',
+      schema: z.object({}),
+      tier: 2,
+      execute: async () => ok({ done: true }),
+    }
+    registry.register(tier2Tool)
+    registry.setConfigPermissions(tier0OnlyPermissions)
+    setTierApprovalHandler(null)
+
+    const result = await registry.executeTool('tier2-tool', {})
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('requires tier 2 approval')
     }
   })
 })

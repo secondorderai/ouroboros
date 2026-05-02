@@ -53,6 +53,13 @@ function makeConfig(definitions: AgentDefinition[], allowedTestCommands: string[
       definitions,
       allowedTestCommands,
     },
+    permissions: {
+      tier0: true,
+      tier1: true,
+      tier2: true,
+      tier3: true,
+      tier4: false,
+    },
   })
 }
 

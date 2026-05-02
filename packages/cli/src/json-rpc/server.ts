@@ -38,6 +38,11 @@ import {
   setWorkerDiffApprovalHandler,
   type WorkerDiffApprovalRequest,
 } from '@src/tools/worker-diff-approval'
+import {
+  setTierApprovalHandler,
+  tierApprovalRisk,
+  type TierApprovalDetails,
+} from '@src/tier-approval'
 import { resolve } from 'node:path'
 import {
   createHandlers,
@@ -104,6 +109,17 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
           | { ok: true; value: { approved: boolean; reason?: string } }
           | { ok: false; error: Error },
       ) => void
+    }
+  >()
+  const pendingTierApprovals = new Map<
+    string,
+    {
+      toolName: string
+      toolTier: number
+      toolArgs: unknown
+      details: TierApprovalDetails
+      description: string
+      resolve: (result: { approved: true } | Error) => void
     }
   >()
 
@@ -279,6 +295,49 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
             return
           }
           resolveDecision({ ok: true, value: result })
+        },
+      })
+    })
+  })
+
+  setTierApprovalHandler(async (toolName: string, toolTier: number, toolArgs: unknown) => {
+    const approvalId = `tier-approval-${crypto.randomUUID()}`
+    const createdAt = new Date().toISOString()
+    const tierLabel = tierApprovalLabel(toolTier)
+    const description = `Approve one ${tierLabel} operation: ${toolName}`
+    const details: TierApprovalDetails = {
+      approvalId,
+      toolName,
+      toolTier: toolTier as 1 | 2 | 3 | 4,
+      toolArgs,
+      tierLabel,
+      createdAt,
+    }
+
+    writeMessage(
+      makeNotification('approval/request', {
+        id: approvalId,
+        type: 'tier-operation',
+        description,
+        createdAt,
+        risk: tierApprovalRisk(toolTier as 1 | 2 | 3 | 4),
+        tier: details,
+      }),
+    )
+
+    return new Promise((resolve) => {
+      pendingTierApprovals.set(approvalId, {
+        toolName,
+        toolTier,
+        toolArgs,
+        details,
+        description,
+        resolve: (result) => {
+          if (result instanceof Error) {
+            resolve({ ok: false, error: result })
+            return
+          }
+          resolve({ ok: true, value: undefined })
         },
       })
     })
@@ -482,6 +541,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       ...Array.from(pendingSkillApprovals.values()).map(({ request }) =>
         toSkillApprovalItem(request),
       ),
+      ...Array.from(pendingTierApprovals.values()).map((pending) => toTierApprovalItem(pending)),
     ],
     respondToApproval: (id, approved, reason) => {
       const pendingSkill = pendingSkillApprovals.get(id)
@@ -502,6 +562,22 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       }
       const pending = pendingLeaseApprovals.get(id)
       if (!pending) {
+        const pendingTier = pendingTierApprovals.get(id)
+        if (pendingTier) {
+          pendingTierApprovals.delete(id)
+          if (approved) {
+            pendingTier.resolve({ approved: true })
+            return {
+              status: 'approved',
+              message: `Tier ${pendingTier.toolTier} operation "${pendingTier.toolName}" approved.`,
+            }
+          }
+          const denialReason =
+            reason?.trim() ||
+            `Tier ${pendingTier.toolTier} operation "${pendingTier.toolName}" denied by user.`
+          pendingTier.resolve(new Error(denialReason))
+          return { status: 'denied', message: denialReason }
+        }
         const pendingWorkerDiff = pendingWorkerDiffApprovals.get(id)
         if (pendingWorkerDiff) {
           pendingWorkerDiffApprovals.delete(id)
@@ -613,6 +689,35 @@ function toSkillApprovalItem(request: SkillApprovalRequest): ApprovalItem {
     description: request.description,
     createdAt: new Date().toISOString(),
     skillName: request.skillName,
+  }
+}
+
+function toTierApprovalItem(pending: {
+  details: TierApprovalDetails
+  description: string
+}): ApprovalItem {
+  return {
+    id: pending.details.approvalId,
+    type: 'tier-operation',
+    description: pending.description,
+    createdAt: pending.details.createdAt,
+    risk: tierApprovalRisk(pending.details.toolTier),
+    tier: pending.details,
+  }
+}
+
+function tierApprovalLabel(toolTier: number): string {
+  switch (toolTier) {
+    case 1:
+      return 'Tier 1: Scoped writes'
+    case 2:
+      return 'Tier 2: Skill generation'
+    case 3:
+      return 'Tier 3: Self-modification'
+    case 4:
+      return 'Tier 4: System-level'
+    default:
+      return `Tier ${toolTier}`
   }
 }
 

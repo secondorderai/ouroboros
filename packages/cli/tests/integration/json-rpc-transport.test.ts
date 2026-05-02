@@ -121,6 +121,7 @@ describe('json-rpc transport', () => {
       join(configDir, 'config.json'),
       JSON.stringify({
         model: { provider: 'anthropic', name: 'claude-3-5-sonnet-latest' },
+        permissions: { tier0: true, tier1: true, tier2: true, tier3: true, tier4: false },
       }),
     )
   })
@@ -220,6 +221,13 @@ describe('json-rpc transport', () => {
           apiMode: 'chat',
           apiKey: 'test-key',
         },
+        permissions: {
+          tier0: true,
+          tier1: true,
+          tier2: true,
+          tier3: true,
+          tier4: false,
+        },
         agent: {
           definitions: [
             {
@@ -231,7 +239,7 @@ describe('json-rpc transport', () => {
                 tier0: true,
                 tier1: false,
                 tier2: false,
-                tier3: false,
+                tier3: true,
                 tier4: false,
                 canInvokeAgents: ['review'],
               },
@@ -303,6 +311,13 @@ describe('json-rpc transport', () => {
           apiMode: 'chat',
           apiKey: 'test-key',
         },
+        permissions: {
+          tier0: true,
+          tier1: true,
+          tier2: true,
+          tier3: true,
+          tier4: false,
+        },
         agent: {
           definitions: [
             {
@@ -314,7 +329,7 @@ describe('json-rpc transport', () => {
                 tier0: true,
                 tier1: false,
                 tier2: false,
-                tier3: false,
+                tier3: true,
                 tier4: false,
                 canInvokeAgents: ['review'],
               },
