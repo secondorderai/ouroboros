@@ -1,0 +1,1325 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Ouroboros is a self-improving, human-controlled local workspace AI agent with memory, reflection, Agent Skills, subagents, teams, and HTML5 app artifacts."
+    />
+    <meta name="color-scheme" content="light" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='5' y='5' width='54' height='54' rx='14' fill='%23ffffff'/%3E%3Crect x='5.5' y='5.5' width='53' height='53' rx='13.5' fill='none' stroke='%23dce1e7'/%3E%3Ccircle cx='32' cy='32' r='17.5' fill='none' stroke='%233e5f8a' stroke-width='8'/%3E%3Cpath d='M39.4 16.2C42.5 15 46.4 15.2 49 17.1C50.7 18.4 51.9 20.4 52.2 22.6C50.4 25 47.2 26.5 43.8 26.5C40.3 26.4 37.1 24.8 35.1 22.2C35.9 19.7 37.2 17.9 39.4 16.2Z' fill='%233e5f8a'/%3E%3C/svg%3E"
+    />
+    <title>Ouroboros - Human-controlled local workspace AI agent</title>
+    <style>
+      :root {
+        --bg-primary: #f5f6f7;
+        --bg-secondary: #eceef0;
+        --bg-tertiary: #dce1e7;
+        --bg-chat: #ffffff;
+        --bg-input: #ffffff;
+        --bg-user-msg: #eff1f3;
+        --bg-tool-chip: #f1f3f6;
+        --bg-tool-expanded: #f8fafc;
+        --bg-rsi-card: linear-gradient(135deg, #f4f7fb 0%, #edf2f8 100%);
+        --bg-hover: rgba(14, 17, 22, 0.05);
+        --text-primary: #0e1116;
+        --text-secondary: #5e6673;
+        --text-tertiary: #8c95a3;
+        --text-inverse: #ffffff;
+        --border-light: #dce1e7;
+        --border-medium: #c9d1db;
+        --accent-primary: #3e5f8a;
+        --accent-primary-hover: #334f74;
+        --accent-muted: rgba(62, 95, 138, 0.1);
+        --accent-highlight: #89a7d1;
+        --success: #16a34a;
+        --warning: #ea580c;
+        --danger: #dc2626;
+        --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+        --font-mono: 'SF Mono', 'Fira Code', Consolas, monospace;
+        --radius-standard: 6px;
+        --radius-comfortable: 10px;
+        --radius-large: 12px;
+        --radius-message: 16px;
+        --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.05);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+        --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        color: var(--text-primary);
+        background: var(--bg-primary);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 3px;
+      }
+
+      .site-shell {
+        min-height: 100vh;
+      }
+
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid rgba(220, 225, 231, 0.78);
+        background: rgba(245, 246, 247, 0.92);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav {
+        width: min(1120px, calc(100% - 40px));
+        min-height: 64px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        font-weight: 600;
+      }
+
+      .mark {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 auto;
+      }
+
+      .brand-name {
+        font-size: 15px;
+        line-height: 1;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .nav-links a {
+        border-radius: var(--radius-standard);
+        padding: 7px 10px;
+      }
+
+      .nav-links a:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      .header-action {
+        border: 1px solid var(--border-light);
+        background: var(--bg-chat);
+        color: var(--text-primary);
+      }
+
+      main {
+        overflow: hidden;
+      }
+
+      .hero {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 78px 0 58px;
+        display: grid;
+        grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
+        align-items: center;
+        gap: 58px;
+      }
+
+      .hero-copy {
+        max-width: 560px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 11ch;
+        font-size: clamp(52px, 8vw, 92px);
+        font-weight: 700;
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+
+      .hero-lede {
+        margin-top: 24px;
+        max-width: 560px;
+        color: var(--text-secondary);
+        font-size: clamp(18px, 2vw, 22px);
+        line-height: 1.45;
+      }
+
+      .hero-actions {
+        margin-top: 32px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .button {
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: var(--radius-standard);
+        padding: 9px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.3;
+        white-space: nowrap;
+      }
+
+      .button-primary {
+        background: var(--accent-primary);
+        color: var(--text-inverse);
+        box-shadow: var(--shadow-subtle);
+      }
+
+      .button-primary:hover {
+        background: var(--accent-primary-hover);
+      }
+
+      .button-secondary {
+        border: 1px solid var(--border-light);
+        background: var(--bg-chat);
+        color: var(--text-primary);
+      }
+
+      .button-secondary:hover {
+        background: var(--bg-hover);
+      }
+
+      .trust-line {
+        margin-top: 18px;
+        color: var(--text-tertiary);
+        font-size: 13px;
+      }
+
+      .product-preview {
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-large);
+        background: var(--bg-chat);
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+      }
+
+      .preview-titlebar {
+        min-height: 42px;
+        padding: 0 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        border-bottom: 1px solid var(--border-light);
+        background: var(--bg-secondary);
+      }
+
+      .traffic {
+        display: flex;
+        gap: 7px;
+      }
+
+      .traffic span {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--border-medium);
+      }
+
+      .preview-title {
+        overflow: hidden;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .preview-body {
+        display: grid;
+        grid-template-columns: 170px minmax(0, 1fr);
+        min-height: 500px;
+      }
+
+      .preview-sidebar {
+        padding: 16px 12px;
+        border-right: 1px solid var(--border-light);
+        background: var(--bg-sidebar, #eceef0);
+      }
+
+      .sidebar-button {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-standard);
+        padding: 8px 10px;
+        background: var(--bg-chat);
+        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .session-list {
+        margin-top: 18px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .session {
+        border-radius: var(--radius-standard);
+        padding: 8px 9px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .session.active {
+        background: var(--accent-muted);
+        color: var(--text-primary);
+      }
+
+      .preview-main {
+        min-width: 0;
+        padding: 22px;
+        background: var(--bg-chat);
+      }
+
+      .agent-row,
+      .user-row {
+        display: flex;
+        gap: 11px;
+      }
+
+      .agent-row {
+        align-items: flex-start;
+      }
+
+      .avatar {
+        width: 28px;
+        height: 28px;
+        flex: 0 0 auto;
+      }
+
+      .agent-copy {
+        min-width: 0;
+      }
+
+      .agent-name {
+        margin-bottom: 6px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .message-text {
+        color: var(--text-primary);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      .tool-stack {
+        margin-top: 14px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .tool-chip {
+        width: fit-content;
+        max-width: 100%;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-standard);
+        padding: 6px 10px;
+        background: var(--bg-tool-chip);
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--success);
+      }
+
+      .approval {
+        margin-top: 18px;
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-comfortable);
+        padding: 14px;
+        background: var(--bg-tool-expanded);
+      }
+
+      .approval-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .approval-title {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .risk {
+        border-radius: 999px;
+        padding: 4px 7px;
+        background: rgba(234, 88, 12, 0.1);
+        color: var(--warning);
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+      }
+
+      .approval p {
+        margin-top: 6px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .approval-actions {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .mini-button {
+        border-radius: var(--radius-standard);
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .mini-primary {
+        background: var(--accent-primary);
+        color: var(--text-inverse);
+      }
+
+      .mini-secondary {
+        border: 1px solid var(--border-light);
+        background: var(--bg-chat);
+        color: var(--text-primary);
+      }
+
+      .user-row {
+        justify-content: flex-end;
+        margin-top: 22px;
+      }
+
+      .user-message {
+        max-width: 82%;
+        border-radius: 16px 16px 4px 16px;
+        padding: 12px 16px;
+        background: var(--bg-user-msg);
+        color: var(--text-primary);
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      .rsi-card {
+        margin-top: 18px;
+        border: 1px solid rgba(62, 95, 138, 0.16);
+        border-left: 3px solid var(--accent-primary);
+        border-radius: var(--radius-comfortable);
+        padding: 12px 14px;
+        background: var(--bg-rsi-card);
+        color: var(--text-primary);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .section {
+        border-top: 1px solid var(--border-light);
+      }
+
+      .section-inner {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 74px 0;
+      }
+
+      .section-heading {
+        max-width: 680px;
+      }
+
+      h2 {
+        font-size: clamp(30px, 4vw, 46px);
+        font-weight: 650;
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .section-lede {
+        margin-top: 16px;
+        color: var(--text-secondary);
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      .feature-grid {
+        margin-top: 34px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .feature {
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-comfortable);
+        padding: 20px;
+        background: var(--bg-chat);
+        box-shadow: var(--shadow-subtle);
+      }
+
+      .feature h3 {
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      .feature p {
+        margin-top: 10px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+        gap: 46px;
+        align-items: start;
+      }
+
+      .workflow-panel {
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-large);
+        background: var(--bg-chat);
+        overflow: hidden;
+        box-shadow: var(--shadow-md);
+      }
+
+      .workflow-row {
+        display: grid;
+        grid-template-columns: 124px minmax(0, 1fr);
+        gap: 18px;
+        padding: 18px 20px;
+        border-top: 1px solid var(--border-light);
+      }
+
+      .workflow-row:first-child {
+        border-top: 0;
+      }
+
+      .workflow-label {
+        color: var(--text-tertiary);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .workflow-row h3 {
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .workflow-row p {
+        margin-top: 5px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .capability-list {
+        margin-top: 28px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .capability {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        color: var(--text-secondary);
+        font-size: 15px;
+      }
+
+      .check {
+        width: 18px;
+        height: 18px;
+        margin-top: 3px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: var(--accent-muted);
+        color: var(--accent-primary);
+        display: grid;
+        place-items: center;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .surface-grid {
+        margin-top: 34px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .surface {
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-comfortable);
+        padding: 22px;
+        background: var(--bg-chat);
+      }
+
+      .surface code {
+        display: block;
+        overflow-x: auto;
+        margin-top: 16px;
+        border-radius: var(--radius-standard);
+        padding: 12px;
+        background: #0f1317;
+        color: #eef2f6;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .truth-grid {
+        margin-top: 34px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .truth-card {
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-comfortable);
+        padding: 22px;
+        background: var(--bg-chat);
+      }
+
+      .truth-card h3 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .truth-card ul,
+      .safety-list {
+        margin: 16px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+      }
+
+      .truth-card li,
+      .safety-list li {
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .truth-card li::before,
+      .safety-list li::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        display: inline-block;
+        margin-right: 9px;
+        border-radius: 999px;
+        background: var(--accent-primary);
+        vertical-align: 2px;
+      }
+
+      .safety {
+        background: var(--bg-secondary);
+      }
+
+      .safety-panel {
+        border: 1px solid var(--border-medium);
+        border-radius: var(--radius-large);
+        padding: 28px;
+        background: var(--bg-chat);
+        box-shadow: var(--shadow-subtle);
+      }
+
+      .footer {
+        border-top: 1px solid var(--border-light);
+        background: var(--bg-primary);
+      }
+
+      .footer-inner {
+        width: min(1120px, calc(100% - 40px));
+        min-height: 92px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        color: var(--text-tertiary);
+        font-size: 13px;
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .footer a {
+        color: var(--text-secondary);
+      }
+
+      .footer a:hover {
+        color: var(--text-primary);
+      }
+
+      @media (max-width: 980px) {
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 42px;
+          padding-top: 58px;
+        }
+
+        .hero-copy {
+          max-width: 720px;
+        }
+
+        h1 {
+          max-width: none;
+        }
+
+        .split,
+        .feature-grid,
+        .surface-grid,
+        .truth-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .preview-body {
+          grid-template-columns: 145px minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 720px) {
+        .nav {
+          width: min(100% - 28px, 1120px);
+          min-height: 58px;
+        }
+
+        .nav-links a:not(.header-action) {
+          display: none;
+        }
+
+        .hero,
+        .section-inner,
+        .footer-inner {
+          width: min(100% - 28px, 1120px);
+        }
+
+        .hero {
+          padding: 44px 0 44px;
+        }
+
+        .hero-actions {
+          align-items: stretch;
+        }
+
+        .button {
+          width: 100%;
+          white-space: normal;
+        }
+
+        .preview-body {
+          display: block;
+          min-height: 0;
+        }
+
+        .preview-sidebar {
+          display: none;
+        }
+
+        .preview-main {
+          padding: 17px;
+        }
+
+        .approval-top {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .user-message {
+          max-width: 94%;
+        }
+
+        .section-inner {
+          padding: 54px 0;
+        }
+
+        .workflow-row {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+
+        .safety-panel {
+          padding: 22px;
+        }
+
+        .footer-inner {
+          padding: 24px 0;
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <nav class="nav" aria-label="Primary navigation">
+          <a class="brand" href="#top" aria-label="Ouroboros home">
+            <svg class="mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+              <rect x="5" y="5" width="54" height="54" rx="14" fill="#ffffff"></rect>
+              <rect x="5.5" y="5.5" width="53" height="53" rx="13.5" stroke="#dce1e7"></rect>
+              <circle cx="32" cy="32" r="17.5" stroke="#3e5f8a" stroke-width="8"></circle>
+              <path
+                d="M39.4 16.2C42.5 15 46.4 15.2 49 17.1C50.7 18.4 51.9 20.4 52.2 22.6C50.4 25 47.2 26.5 43.8 26.5C40.3 26.4 37.1 24.8 35.1 22.2C35.9 19.7 37.2 17.9 39.4 16.2Z"
+                fill="#3e5f8a"
+              ></path>
+              <ellipse
+                cx="43.4"
+                cy="18.9"
+                rx="1.65"
+                ry="1.15"
+                fill="#ffffff"
+                transform="rotate(24 43.4 18.9)"
+              ></ellipse>
+            </svg>
+            <span class="brand-name">Ouroboros</span>
+          </a>
+          <div class="nav-links">
+            <a href="#trust">Trust</a>
+            <a href="#self-improvement">Self-improvement</a>
+            <a href="#capabilities">Capabilities</a>
+            <a class="header-action" href="https://github.com/secondorderai/ouroboros">GitHub</a>
+          </div>
+        </nav>
+      </header>
+
+      <main id="top">
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <h1 id="hero-title">Ouroboros</h1>
+            <p class="hero-lede">
+              A self-improving, human-controlled local workspace AI agent for real projects.
+              Ouroboros reflects on work, preserves memory, grows through Agent Skills, and keeps
+              every improvement inspectable.
+            </p>
+            <div class="hero-actions" aria-label="Primary actions">
+              <a
+                class="button button-primary"
+                href="https://github.com/secondorderai/ouroboros/releases/download/v0.1.2/Ouroboros-0.1.2-mac-universal.dmg"
+                >Download macOS beta</a
+              >
+              <a class="button button-secondary" href="https://github.com/secondorderai/ouroboros"
+                >View on GitHub</a
+              >
+            </div>
+            <p class="trust-line">
+              Self-improvement is permissioned and visible. Beta software for technical users;
+              review approvals, diffs, credentials, and workspace access carefully.
+            </p>
+          </div>
+
+          <div class="product-preview" aria-label="Ouroboros desktop preview">
+            <div class="preview-titlebar">
+              <div class="traffic" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <div class="preview-title">Workspace mode - secondorderai/ouroboros</div>
+            </div>
+            <div class="preview-body">
+              <aside class="preview-sidebar" aria-label="Preview sidebar">
+                <div class="sidebar-button">
+                  <span>New task</span>
+                  <span>+</span>
+                </div>
+                <div class="session-list">
+                  <div class="session active">Launch page copy</div>
+                  <div class="session">Permission review</div>
+                  <div class="session">Skill audit</div>
+                  <div class="session">Release notes</div>
+                </div>
+              </aside>
+              <div class="preview-main">
+                <div class="agent-row">
+                  <svg class="avatar" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                    <rect x="5" y="5" width="54" height="54" rx="14" fill="#ffffff"></rect>
+                    <rect x="5.5" y="5.5" width="53" height="53" rx="13.5" stroke="#dce1e7"></rect>
+                    <circle cx="32" cy="32" r="17.5" stroke="#5e6673" stroke-width="8"></circle>
+                    <path
+                      d="M39.4 16.2C42.5 15 46.4 15.2 49 17.1C50.7 18.4 51.9 20.4 52.2 22.6C50.4 25 47.2 26.5 43.8 26.5C40.3 26.4 37.1 24.8 35.1 22.2C35.9 19.7 37.2 17.9 39.4 16.2Z"
+                      fill="#5e6673"
+                    ></path>
+                    <ellipse
+                      cx="43.4"
+                      cy="18.9"
+                      rx="1.65"
+                      ry="1.15"
+                      fill="#ffffff"
+                      transform="rotate(24 43.4 18.9)"
+                    ></ellipse>
+                  </svg>
+                  <div class="agent-copy">
+                    <div class="agent-name">Ouroboros</div>
+                    <p class="message-text">
+                      I can inspect the workspace, propose a change, and show the exact approval
+                      needed before editing files or running commands.
+                    </p>
+                    <div class="tool-stack" aria-label="Visible tool calls">
+                      <div class="tool-chip">
+                        <span class="status-dot"></span>Read docs/test-plan.md
+                      </div>
+                      <div class="tool-chip">
+                        <span class="status-dot"></span>Search packages/cli/src/tools
+                      </div>
+                    </div>
+                    <div class="approval">
+                      <div class="approval-top">
+                        <div class="approval-title">Approval required</div>
+                        <div class="risk">workspace write</div>
+                      </div>
+                      <p>
+                        Apply a focused patch to docs/index.html. Review the diff before allowing
+                        the change.
+                      </p>
+                      <div class="approval-actions">
+                        <span class="mini-button mini-primary">Approve</span>
+                        <span class="mini-button mini-secondary">Deny</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="user-row">
+                  <div class="user-message">
+                    Keep it local-first, inspectable, and honest about beta limits.
+                  </div>
+                </div>
+                <div class="rsi-card">
+                  Self-improvement is the core loop: observe, reflect, crystallize useful patterns,
+                  and keep memory plus evolution logs visible to the user.
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="self-improvement" class="section" aria-labelledby="self-improvement-title">
+          <div class="section-inner">
+            <div class="section-heading">
+              <h2 id="self-improvement-title">Self-improvement is the main event.</h2>
+              <p class="section-lede">
+                Ouroboros is built around a visible improvement loop. It observes work, reflects on
+                what happened, records durable memory, and turns repeated useful patterns into
+                skills under human control.
+              </p>
+            </div>
+            <div class="feature-grid">
+              <article class="feature">
+                <h3>Reflection browser</h3>
+                <p>
+                  Reflection and evolution history make the agent's learning process inspectable
+                  instead of burying behavior changes inside hidden prompts.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Durable memory</h3>
+                <p>
+                  Memory, transcripts, checkpoints, and working state preserve context across
+                  sessions so the agent can improve without losing accountability.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Permissioned growth</h3>
+                <p>
+                  Self-modification stays explicit, test-driven, and reviewable. Improvements are
+                  proposed, validated, and promoted with user oversight.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="meta-thinking" class="section" aria-labelledby="meta-thinking-title">
+          <div class="section-inner split">
+            <div>
+              <h2 id="meta-thinking-title">Meta Thinking is built in, but optional.</h2>
+              <p class="section-lede">
+                Meta Thinking is a built-in SecondOrder skill for deliberate self-critique. It is
+                not enabled by default; turn it on for complex plans, tradeoff decisions,
+                troubleshooting, and moments where uncertainty should be visible instead of hidden.
+              </p>
+            </div>
+            <div class="workflow-panel" aria-label="Meta Thinking workflow">
+              <div class="workflow-row">
+                <div class="workflow-label">classify</div>
+                <div>
+                  <h3>Choose when extra thinking is worth it</h3>
+                  <p>
+                    The skill classifies the task and gates meta mode so simple requests stay direct,
+                    while high-uncertainty work gets a stronger control loop.
+                  </p>
+                </div>
+              </div>
+              <div class="workflow-row">
+                <div class="workflow-label">extract</div>
+                <div>
+                  <h3>Make goals and constraints explicit</h3>
+                  <p>
+                    It pulls out the goal, constraints, response strategy, and compact plan before
+                    the agent commits to an answer or implementation path.
+                  </p>
+                </div>
+              </div>
+              <div class="workflow-row">
+                <div class="workflow-label">critique</div>
+                <div>
+                  <h3>Catch brittle assumptions earlier</h3>
+                  <p>
+                    A critique pass checks for missing context, unsupported assumptions, weak plans,
+                    and limitations that could materially change the result.
+                  </p>
+                </div>
+              </div>
+              <div class="workflow-row">
+                <div class="workflow-label">signal</div>
+                <div>
+                  <h3>Give users better trust signals</h3>
+                  <p>
+                    When useful, the agent can surface concise confidence, limitations, and context
+                    gaps so you can decide whether to proceed, steer, or provide more information.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="trust" class="section" aria-labelledby="trust-title">
+          <div class="section-inner">
+            <div class="section-heading">
+              <h2 id="trust-title">Transparent autonomy, not silent automation.</h2>
+              <p class="section-lede">
+                Ouroboros can work through real tasks while keeping tool calls, permissions, memory,
+                and self-improvement visible.
+              </p>
+            </div>
+            <div class="feature-grid">
+              <article class="feature">
+                <h3>Visible tool calls</h3>
+                <p>
+                  Agent actions are surfaced as inspectable tool events. You can see what was read,
+                  run, or proposed.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Explicit approvals</h3>
+                <p>
+                  File edits, shell commands, network access, and self-improvement follow the
+                  permission model instead of assuming unattended control.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Inspectable context</h3>
+                <p>
+                  Memory and reflection history make repeated behavior easier to understand and
+                  correct over time.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="workflow" class="section" aria-labelledby="workflow-title">
+          <div class="section-inner split">
+            <div>
+              <h2 id="workflow-title">Works inside real repositories.</h2>
+              <p class="section-lede">
+                Ouroboros supports Workspace mode for repository-aware work and Simple mode for
+                focused chat. It can reason over code, docs, tests, skills, artifacts, and project
+                history while keeping sensitive actions behind review.
+              </p>
+              <div class="capability-list">
+                <div class="capability">
+                  <span class="check">✓</span
+                  ><span>Use Agent Skills packaged as <code>SKILL.md</code> instructions.</span>
+                </div>
+                <div class="capability">
+                  <span class="check">✓</span
+                  ><span
+                    >Coordinate subagents and team workflows for larger engineering tasks.</span
+                  >
+                </div>
+                <div class="capability">
+                  <span class="check">✓</span
+                  ><span>Create and preview sandboxed HTML5 app artifacts from agent work.</span>
+                </div>
+              </div>
+            </div>
+            <div class="workflow-panel" aria-label="Ouroboros workflow">
+              <div class="workflow-row">
+                <div class="workflow-label">observe</div>
+                <div>
+                  <h3>Ground in the workspace</h3>
+                  <p>
+                    Read files, inspect context, search code, and understand the shape of the
+                    project before acting.
+                  </p>
+                </div>
+              </div>
+              <div class="workflow-row">
+                <div class="workflow-label">act</div>
+                <div>
+                  <h3>Use tools with permission</h3>
+                  <p>
+                    Run local tools, propose edits, create artifacts, and request approval when an
+                    action crosses a safety boundary.
+                  </p>
+                </div>
+              </div>
+              <div class="workflow-row">
+                <div class="workflow-label">reflect</div>
+                <div>
+                  <h3>Keep useful context</h3>
+                  <p>
+                    Update memory and evolution logs so repeated work becomes more consistent
+                    without becoming opaque.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="capabilities" class="section" aria-labelledby="capabilities-title">
+          <div class="section-inner">
+            <div class="section-heading">
+              <h2 id="capabilities-title">Built for recursive work.</h2>
+              <p class="section-lede">
+                The product surface is more than chat. Ouroboros combines self-improvement, memory,
+                skills, artifacts, subagents, and team workflows into one local agent runtime.
+              </p>
+            </div>
+            <div class="feature-grid">
+              <article class="feature">
+                <h3>Memory and Reflection browser</h3>
+                <p>
+                  Browse remembered context, checkpoints, reflections, crystallizations, and
+                  evolution history to understand why the agent changes.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Workspace and Simple mode</h3>
+                <p>
+                  Use Workspace mode when the agent should operate inside a repository, or Simple
+                  mode when you want a lighter conversation surface.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>HTML5 app artifacts</h3>
+                <p>
+                  Create self-contained HTML app artifacts, preview them safely in the desktop app,
+                  and keep generated work attached to the session.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Agent Skills</h3>
+                <p>
+                  Load reusable capabilities through the Agent Skills <code>SKILL.md</code> format
+                  so learned workflows can become explicit behavior.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Subagents</h3>
+                <p>
+                  Delegate focused exploration, review, or implementation work to subagents while
+                  keeping lifecycle events visible in the main thread.
+                </p>
+              </article>
+              <article class="feature">
+                <h3>Team workflows</h3>
+                <p>
+                  Coordinate multiple agents through task graphs, quality gates, debate, review, and
+                  cleanup flows for larger projects.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="surfaces" class="section" aria-labelledby="surfaces-title">
+          <div class="section-inner">
+            <div class="section-heading">
+              <h2 id="surfaces-title">One agent core. CLI and desktop surfaces.</h2>
+              <p class="section-lede">
+                The CLI owns the agent runtime. The Electron desktop app gives the same core a
+                focused interface for onboarding, chat, approvals, settings, artifacts, and RSI
+                history.
+              </p>
+            </div>
+            <div class="surface-grid">
+              <article class="surface">
+                <h3>CLI for power users</h3>
+                <p>
+                  Run single-shot prompts, interactive sessions, JSON-RPC mode, local tools, memory,
+                  reflection, MCP, and skill workflows from the terminal.
+                </p>
+                <code>./dist/ouroboros -m "Summarize this repo"</code>
+              </article>
+              <article class="surface">
+                <h3>Desktop for inspectable work</h3>
+                <p>
+                  Use chat, provider setup, Workspace and Simple mode, file attachments, approvals,
+                  HTML5 app artifacts, Memory and Reflection browser, subagents, and team surfaces
+                  in one app.
+                </p>
+                <code>cd packages/desktop<br />bun run dev</code>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" aria-labelledby="truth-title">
+          <div class="section-inner">
+            <div class="section-heading">
+              <h2 id="truth-title">What Ouroboros can and cannot do.</h2>
+              <p class="section-lede">
+                The launch posture is controlled public beta. The goal is trust, inspectability, and
+                repeat use rather than promises of full autonomy.
+              </p>
+            </div>
+            <div class="truth-grid">
+              <article class="truth-card">
+                <h3>Can do</h3>
+                <ul>
+                  <li>Run an AI coding agent from the CLI or desktop app.</li>
+                  <li>Stream model output, call tools, and ask for approvals.</li>
+                  <li>
+                    Work with files, shell commands, MCP servers, Agent Skills, HTML5 app artifacts,
+                    memory, reflection, subagents, and team workflows.
+                  </li>
+                  <li>Use provider API keys or supported auth flows to connect to models.</li>
+                </ul>
+              </article>
+              <article class="truth-card">
+                <h3>Cannot promise</h3>
+                <ul>
+                  <li>Correct, safe, or useful agent output without human review.</li>
+                  <li>
+                    Stable beta behavior across every packaging, update, memory, and workflow path.
+                  </li>
+                  <li>Offline-only model execution or enterprise administration controls.</li>
+                  <li>Fully unattended code modification without oversight.</li>
+                </ul>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section safety" aria-labelledby="safety-title">
+          <div class="section-inner">
+            <div class="safety-panel">
+              <h2 id="safety-title">Beta safety notes</h2>
+              <p class="section-lede">
+                Start with projects and credentials you are comfortable testing with. Ouroboros can
+                read and write workspace files when you approve tool use.
+              </p>
+              <ul class="safety-list">
+                <li>Use repositories with clean git state and backups for important work.</li>
+                <li>
+                  Review permission prompts, generated diffs, shell commands, and network-related
+                  actions before approving.
+                </li>
+                <li>
+                  Avoid opening workspaces that contain secrets or data you do not want sent to
+                  configured model providers.
+                </li>
+                <li>Only configure MCP servers and provider credentials you trust.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="footer-inner">
+          <div>Ouroboros is beta software from SecondOrder AI. Made in Australia.</div>
+          <div class="footer-links">
+            <a href="https://github.com/secondorderai/ouroboros/releases/latest">Releases</a>
+            <a href="https://github.com/secondorderai/ouroboros#security-and-privacy-note"
+              >Security and privacy</a
+            >
+            <a href="https://github.com/secondorderai/ouroboros/issues">Issues</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
