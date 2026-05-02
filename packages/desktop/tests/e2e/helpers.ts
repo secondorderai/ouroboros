@@ -70,6 +70,7 @@ export interface LaunchOptions {
   updateDownloadedDelayMs?: number
   env?: Record<string, string | undefined>
   userDataConfig?: Record<string, unknown>
+  userDataDir?: string
 }
 
 export interface LaunchedApp {
@@ -103,7 +104,7 @@ export async function launchTestApp(
   const testSaveArtifactLogPath = path.join(runtimeDir, 'save-artifact.log')
   const testBootLogPath = path.join(runtimeDir, 'boot.log')
   const testUpdateDownloadedPath = path.join(runtimeDir, 'update-downloaded.txt')
-  const testUserDataDir = path.join(runtimeDir, 'user-data')
+  const testUserDataDir = options.userDataDir ?? path.join(runtimeDir, 'user-data')
 
   await mkdir(testUserDataDir, { recursive: true })
   if (options.userDataConfig) {

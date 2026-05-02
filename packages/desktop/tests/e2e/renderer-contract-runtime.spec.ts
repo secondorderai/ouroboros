@@ -952,6 +952,79 @@ test('update banner can be exercised without leaving the renderer contract suite
   await expect.poll(async () => getInstallUpdateCount(launched!.page)).toBe(1)
 })
 
+test('update settings can manually check and report up-to-date status', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await launched.page.getByRole('button', { name: 'Updates' }).click()
+  await launched.page.getByRole('button', { name: 'Check for updates' }).click()
+
+  await expect(launched.page.getByText(/up to date/)).toBeVisible()
+})
+
+test('update settings can manually check and report a downloaded update', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    updateDownloadedVersion: '2.0.0',
+    updateDownloadedDelayMs: 5000,
+  })
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await launched.page.getByRole('button', { name: 'Updates' }).click()
+  await launched.page.getByRole('button', { name: 'Check for updates' }).click()
+
+  await expect(launched.page.getByText('Version 2.0.0 is ready to install.')).toBeVisible()
+  await expect(launched.page.getByRole('alert')).toContainText(
+    'Update available (v2.0.0). Restart to apply.',
+  )
+})
+
+test('update preferences persist across relaunch', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+  const userDataDir = launched.paths.userDataDir
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await launched.page.getByRole('button', { name: 'Updates' }).click()
+  await launched.page.getByRole('button', { name: 'Manual' }).click()
+  await expect(launched.page.getByRole('button', { name: 'Manual' })).toHaveAttribute(
+    'data-active',
+    'true',
+  )
+
+  await launched.app.close()
+  launched = await launchTestApp(testInfo, { userDataDir })
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await launched.page.getByRole('button', { name: 'Updates' }).click()
+  await expect(launched.page.getByRole('button', { name: 'Manual' })).toHaveAttribute(
+    'data-active',
+    'true',
+  )
+})
+
 test('top bar workspace mode selector picks a workspace folder', async ({}, testInfo) => {
   const workspacePath = '/tmp/ouroboros-test-workspace-select'
   launched = await launchTestApp(testInfo, {

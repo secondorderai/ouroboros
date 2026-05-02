@@ -11,6 +11,25 @@
 
 /** Theme values supported by the app */
 export type Theme = 'light' | 'dark' | 'system'
+export type UpdateMode = 'auto' | 'manual' | 'off'
+export type UpdateStatus =
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdatePreferences {
+  mode: UpdateMode
+}
+
+export interface UpdateCheckResult {
+  currentVersion: string
+  latestVersion?: string
+  status: UpdateStatus
+  errorMessage?: string
+}
 
 /** API exposed from main process to renderer via preload script */
 export interface ElectronAPI {
@@ -30,6 +49,10 @@ export interface ElectronAPI {
   openArtifact: (path: string) => void
   getHomeDirectory: () => Promise<string>
   onUpdateDownloaded: (callback: (version: string) => void) => () => void
+  onUpdateStatus: (callback: (result: UpdateCheckResult) => void) => () => void
+  checkForUpdates: () => Promise<UpdateCheckResult>
+  getUpdatePreferences: () => Promise<UpdatePreferences>
+  setUpdatePreferences: (preferences: UpdatePreferences) => Promise<void>
   installUpdate: () => void
 }
 

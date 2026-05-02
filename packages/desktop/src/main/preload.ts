@@ -13,6 +13,8 @@ import {
   type SaveArtifactArgs,
   type SaveArtifactResult,
   type Theme,
+  type UpdateCheckResult,
+  type UpdatePreferences,
 } from '../shared/protocol'
 
 const TEST_IPC_CHANNELS = {
@@ -64,6 +66,20 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.removeListener('update:downloaded', handler)
     }
   },
+  onUpdateStatus: (callback: (result: UpdateCheckResult) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: UpdateCheckResult) => {
+      callback(result)
+    }
+    ipcRenderer.on('update:status', handler)
+    return () => {
+      ipcRenderer.removeListener('update:status', handler)
+    }
+  },
+  checkForUpdates: () => ipcRenderer.invoke('update:check') as Promise<UpdateCheckResult>,
+  getUpdatePreferences: () =>
+    ipcRenderer.invoke('update:getPreferences') as Promise<UpdatePreferences>,
+  setUpdatePreferences: (preferences: UpdatePreferences) =>
+    ipcRenderer.invoke('update:setPreferences', preferences) as Promise<void>,
   installUpdate: () => {
     ipcRenderer.send('update:install')
   },

@@ -7,6 +7,7 @@ import { RsiSection } from '../components/settings/RsiSection'
 import { MemorySection } from '../components/settings/MemorySection'
 import { ModeSection } from '../components/settings/ModeSection'
 import { SkillsSection } from '../components/settings/SkillsSection'
+import { UpdatesSection } from '../components/settings/UpdatesSection'
 import { useConversationStore } from '../stores/conversationStore'
 import type { Theme, OuroborosConfig } from '../../shared/protocol'
 
@@ -26,6 +27,7 @@ export type SettingsSectionId =
   | 'rsi'
   | 'memory'
   | 'mode'
+  | 'updates'
 
 interface SectionDef {
   id: SettingsSectionId
@@ -69,6 +71,11 @@ const SECTIONS: SectionDef[] = [
     label: 'Modes',
     description: 'Current mode state and planning controls.',
   },
+  {
+    id: 'updates',
+    label: 'Updates',
+    description: 'macOS update checks and install readiness.',
+  },
 ]
 
 export function SettingsOverlay({
@@ -91,6 +98,7 @@ export function SettingsOverlay({
         'rsi',
         'memory',
         'mode',
+        'updates',
       ]
       if (valid.includes(initialSection as SettingsSectionId)) {
         setActiveSection(initialSection as SettingsSectionId)
@@ -260,6 +268,7 @@ export function SettingsOverlay({
             />
           )}
           {activeSection === 'mode' && <ModeSection />}
+          {activeSection === 'updates' && <UpdatesSection />}
         </div>
       </div>
     </div>,

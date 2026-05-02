@@ -7,7 +7,13 @@ import { createWindowOptions, saveBounds, restoreMaximized } from './window'
 import { CLIProcessManager } from './cli-process'
 import { RpcClient } from './rpc-client'
 import { registerIpcHandlers } from './ipc-handlers'
-import { handleInstallUpdate, initAutoUpdater } from './auto-updater'
+import {
+  checkForUpdatesNow,
+  getUpdatePreferences,
+  handleInstallUpdate,
+  initAutoUpdater,
+  setUpdatePreferences,
+} from './auto-updater'
 import { initCrashRollback } from './crash-rollback'
 import { writeTestLog } from './test-logging'
 import { isSafeArtifactPath } from './artifact-paths'
@@ -315,6 +321,18 @@ function registerThemeIpcHandlers(): void {
 
   ipcMain.on('update:install', () => {
     handleInstallUpdate()
+  })
+
+  ipcMain.handle('update:check', () => {
+    return checkForUpdatesNow()
+  })
+
+  ipcMain.handle('update:getPreferences', () => {
+    return getUpdatePreferences()
+  })
+
+  ipcMain.handle('update:setPreferences', (_event, preferences) => {
+    setUpdatePreferences(preferences)
   })
 
   ipcMain.handle('app:getHomeDirectory', () => {
