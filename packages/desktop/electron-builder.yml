@@ -1,6 +1,6 @@
 appId: com.ouroboros.desktop
 productName: Ouroboros
-copyright: Copyright (c) 2026 Henry Chan
+copyright: Copyright (c) 2026 SecondOrder AI. All rights reserved.
 
 directories:
   buildResources: resources
@@ -22,15 +22,15 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  x64ArchFiles: "Contents/Resources/ouroboros-darwin-*"
-  artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+  x64ArchFiles: 'Contents/Resources/ouroboros-darwin-*'
+  artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
 
 win:
   icon: icon.png
   target:
     - target: nsis
     - target: zip
-  artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+  artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
 
 nsis:
   oneClick: false
@@ -43,12 +43,12 @@ linux:
     - target: AppImage
       arch: [x64]
   category: Development
-  artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+  artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
 
 extraResources:
   - from: resources/cli/
     to: .
-    filter: ["ouroboros*"]
+    filter: ['ouroboros*']
   - from: resources/skills/builtin/
     to: skills/builtin/
 

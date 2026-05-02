@@ -28,3 +28,24 @@ export function shouldCheckForUpdatesOnLaunch(input: LaunchUpdatePolicyInput): b
 export function normalizeUpdateMode(value: unknown): UpdateMode {
   return value === 'manual' || value === 'off' ? value : 'auto'
 }
+
+export function formatUpdaterErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+
+  if (message.includes('releases.atom') && message.includes('404')) {
+    return [
+      'Could not access GitHub release metadata.',
+      'The update repository is private or unreachable from the installed app.',
+      'Use a public update feed, make the release source public, or provide authenticated update access.',
+    ].join(' ')
+  }
+
+  if (message.includes('latest-mac.yml') && message.includes('404')) {
+    return [
+      'Could not find macOS update metadata.',
+      'Confirm the latest release includes latest-mac.yml and the macOS zip artifact.',
+    ].join(' ')
+  }
+
+  return message.split('\n')[0] || 'Could not check for updates.'
+}

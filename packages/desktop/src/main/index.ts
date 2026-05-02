@@ -221,6 +221,12 @@ function createWindow(): void {
           label: APP_NAME,
           submenu: [
             { role: 'about' as const },
+            {
+              label: 'Check for Updates...',
+              click: () => {
+                void checkForUpdatesNow()
+              },
+            },
             { type: 'separator' as const },
             { role: 'quit' as const }
           ]
@@ -281,7 +287,7 @@ function getAppIconPath(): string | null {
 }
 
 function applyDockIcon(): void {
-  if (process.platform !== 'darwin') return
+  if (process.platform !== 'darwin' || !app.dock) return
 
   const iconPath = getAppIconPath()
   if (!iconPath) return

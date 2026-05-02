@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Audit production dependencies
+        run: bun audit --prod
+
       - name: Lint (CLI)
         run: bun run --filter @ouroboros/cli lint
 
@@ -69,6 +72,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install
+
+      - name: Audit production dependencies
+        run: bun audit --prod
 
       - name: Build CLI binary
         working-directory: packages/desktop

@@ -171,6 +171,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     lineHeight: 1.5,
     marginTop: 4,
+    overflowWrap: 'anywhere',
   },
   primaryButton: {
     border: '1px solid var(--accent-amber)',

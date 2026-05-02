@@ -17,6 +17,7 @@ import { dirname } from 'node:path'
 import type { UpdateCheckResult, UpdatePreferences, UpdateStatus } from '../shared/protocol'
 import { recordInstallUpdateRequest } from './ipc-handlers'
 import {
+  formatUpdaterErrorMessage,
   normalizeUpdateMode,
   shouldCheckForUpdatesOnLaunch,
   shouldRunRealUpdater,
@@ -108,8 +109,7 @@ export async function checkForUpdatesNow(): Promise<UpdateCheckResult> {
     await autoUpdater.checkForUpdates()
     return lastResult ?? updateStatus('not-available')
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return updateStatus('error', { errorMessage: message })
+    return updateStatus('error', { errorMessage: formatUpdaterErrorMessage(error) })
   }
 }
 
@@ -148,7 +148,7 @@ export function initAutoUpdater(): void {
   })
 
   autoUpdater.on('error', (err: Error) => {
-    updateStatus('error', { errorMessage: err.message })
+    updateStatus('error', { errorMessage: formatUpdaterErrorMessage(err) })
     broadcastToRenderers('update:error', err.message)
   })
 

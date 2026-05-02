@@ -180,6 +180,7 @@ describe('root verify workflow regressions', () => {
 
     expect(plan.ignoredArgs).toEqual(['test:desktop'])
     expect(plan.steps.map((step) => step.command.join(' '))).toEqual([
+      'bun audit --prod',
       'bun run lint',
       'bun run ts-check',
       'bun run test:all',

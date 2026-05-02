@@ -4,6 +4,7 @@ interface VerifyStep {
 }
 
 export const VERIFY_STEPS: VerifyStep[] = [
+  { name: 'audit', command: ['bun', 'audit', '--prod'] },
   { name: 'lint', command: ['bun', 'run', 'lint'] },
   { name: 'ts-check', command: ['bun', 'run', 'ts-check'] },
   { name: 'test:all', command: ['bun', 'run', 'test:all'] },

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   UPDATE_CHECK_INTERVAL_MS,
+  formatUpdaterErrorMessage,
   normalizeUpdateMode,
   shouldCheckForUpdatesOnLaunch,
   shouldRunRealUpdater,
@@ -86,5 +87,26 @@ describe('macOS auto-updater policy', () => {
     expect(normalizeUpdateMode('manual')).toBe('manual')
     expect(normalizeUpdateMode('off')).toBe('off')
     expect(normalizeUpdateMode('unexpected')).toBe('auto')
+  })
+
+  test('formats private GitHub release feed failures into actionable copy', () => {
+    const message = formatUpdaterErrorMessage(
+      new Error(
+        '404 "method: GET url: https://github.com/secondorderai/ouroboros/releases.atom\\n\\nPlease double check that your authentication token is correct." Headers: { "set-cookie": ["secret"] }',
+      ),
+    )
+
+    expect(message).toContain('Could not access GitHub release metadata')
+    expect(message).toContain('private or unreachable')
+    expect(message).not.toContain('set-cookie')
+  })
+
+  test('formats missing macOS metadata failures into artifact guidance', () => {
+    const message = formatUpdaterErrorMessage(
+      new Error('404 "method: GET url: https://example.com/latest-mac.yml"'),
+    )
+
+    expect(message).toContain('latest-mac.yml')
+    expect(message).toContain('macOS zip')
   })
 })

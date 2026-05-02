@@ -165,3 +165,40 @@ test('menu accelerator toggles the sidebar through the main-process menu wiring'
     return launched!.page.evaluate(() => localStorage.getItem('ouroboros:sidebar-open'))
   }).toBe('true')
 })
+
+test('macOS app menu exposes check for updates below about', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+
+  await launched.page.evaluate(() => {
+    const target = window as typeof window & { __updateStatuses?: string[] }
+    target.__updateStatuses = []
+    window.electronAPI.onUpdateStatus((result) => {
+      target.__updateStatuses?.push(result.status)
+    })
+  })
+
+  const labels = await launched.app.evaluate(({ Menu }) => {
+    return (
+      Menu.getApplicationMenu()
+        ?.items.find((item) => item.label === 'Ouroboros')
+        ?.submenu?.items.map((item) => item.label || item.type) ?? []
+    )
+  })
+
+  expect(labels.slice(0, 3)).toEqual(['About Ouroboros', 'Check for Updates...', 'separator'])
+
+  await launched.app.evaluate(({ BrowserWindow, Menu }) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const checkForUpdatesItem = Menu.getApplicationMenu()
+      ?.items.find((item) => item.label === 'Ouroboros')
+      ?.submenu?.items.find((item) => item.label === 'Check for Updates...')
+    checkForUpdatesItem?.click(undefined, win, undefined)
+  })
+
+  await expect.poll(async () => {
+    return launched!.page.evaluate(() => {
+      const target = window as typeof window & { __updateStatuses?: string[] }
+      return target.__updateStatuses?.includes('not-available') ?? false
+    })
+  }).toBe(true)
+})
