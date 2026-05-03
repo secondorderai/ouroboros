@@ -64,4 +64,4 @@ packages/desktop/memory/**/*
 .ouroboros
 
 # Local Docs
-security_best_practices_report.md
+local-docs/**/*
