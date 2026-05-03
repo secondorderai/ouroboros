@@ -7,6 +7,7 @@ import { createWindowOptions, saveBounds, restoreMaximized } from './window'
 import { CLIProcessManager } from './cli-process'
 import { RpcClient } from './rpc-client'
 import { registerIpcHandlers } from './ipc-handlers'
+import type { RpcPolicyGate } from './rpc-policy'
 import {
   checkForUpdatesNow,
   getUpdatePreferences,
@@ -48,6 +49,7 @@ const store = new Store<{ theme: Theme; apiKeys?: Record<string, string> }>()
 let mainWindow: BrowserWindow | null = null
 let cliProcess: CLIProcessManager | null = null
 let rpcClient: RpcClient | null = null
+let rpcPolicyGate: RpcPolicyGate | null = null
 const SAFE_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 // Single instance lock
@@ -88,12 +90,13 @@ if (!gotTheLock) {
     writeTestLog('window created')
 
     // Register IPC handlers for CLI bridge
-    registerIpcHandlers({
+    const handlers = registerIpcHandlers({
       rpcClient,
       cliProcess,
       getMainWindow: () => mainWindow,
       store,
     })
+    rpcPolicyGate = handlers.policyGate
     writeTestLog('ipc handlers registered')
 
     // Start the CLI child process
@@ -206,7 +209,10 @@ function createWindow(): void {
   mainWindow.on('maximize', () => { if (mainWindow) saveBounds(mainWindow) })
   mainWindow.on('unmaximize', () => { if (mainWindow) saveBounds(mainWindow) })
 
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    if (mainWindow) rpcPolicyGate?.forgetWindow(mainWindow)
+    mainWindow = null
+  })
 
   nativeTheme.on('updated', () => {
     const theme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'

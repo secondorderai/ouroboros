@@ -4,6 +4,7 @@ import { join } from 'node:path'
 export const TEST_RUNTIME_DIR = process.env.OUROBOROS_TEST_RUNTIME_DIR ?? join(tmpdir(), 'ouroboros-desktop-tests')
 export const TEST_SCENARIO_PATH = process.env.OUROBOROS_TEST_SCENARIO_PATH ?? join(TEST_RUNTIME_DIR, 'scenario.json')
 export const TEST_DIALOG_RESPONSES_PATH = process.env.OUROBOROS_TEST_DIALOG_RESPONSES_PATH ?? join(TEST_RUNTIME_DIR, 'dialog-responses.json')
+export const TEST_POLICY_RESPONSES_PATH = process.env.OUROBOROS_TEST_POLICY_RESPONSES_PATH ?? join(TEST_RUNTIME_DIR, 'policy-responses.json')
 export const TEST_STATE_PATH = process.env.OUROBOROS_TEST_STATE_PATH ?? join(TEST_RUNTIME_DIR, 'mock-state.json')
 export const TEST_MOCK_LOG_PATH = process.env.OUROBOROS_TEST_MOCK_LOG_PATH ?? join(TEST_RUNTIME_DIR, 'mock-cli.log')
 export const TEST_INSTALL_UPDATE_LOG_PATH = process.env.OUROBOROS_TEST_INSTALL_UPDATE_LOG_PATH ?? join(TEST_RUNTIME_DIR, 'install-update.log')

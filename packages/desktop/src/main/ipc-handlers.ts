@@ -18,12 +18,19 @@ import {
   type ImageAttachment,
   type ImageAttachmentValidationResult,
   type NotificationMethod,
+  type RegisterImagePathsResult,
   type SaveArtifactArgs,
   type SaveArtifactResult,
   type SupportedImageMediaType,
   type Theme,
 } from '../shared/protocol'
-import { TEST_DIALOG_RESPONSES_PATH, TEST_SAVE_ARTIFACT_LOG_PATH } from './test-paths'
+import {
+  TEST_DIALOG_RESPONSES_PATH,
+  TEST_POLICY_RESPONSES_PATH,
+  TEST_SAVE_ARTIFACT_LOG_PATH,
+} from './test-paths'
+import { RpcPolicyGate, type ShowConfirmation } from './rpc-policy'
+import { ImageGrantStore } from './image-grant-store'
 
 const TEST_IPC_CHANNELS = {
   SET_RPC_OVERRIDE: 'ouroboros:test:set-rpc-override',
@@ -46,6 +53,7 @@ interface TestRpcOverride {
 
 const rpcOverrides = new Map<string, TestRpcOverride>()
 let dialogResponsesQueue: Array<string | string[] | null> | null = null
+let policyResponsesQueue: boolean[] | null = null
 let installUpdateCount = 0
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const IMAGE_MEDIA_TYPES: Record<string, SupportedImageMediaType> = {
@@ -62,23 +70,45 @@ export interface IpcHandlerContext {
   store: Store<{ theme: Theme; apiKeys?: Record<string, string> }>
 }
 
-export function registerIpcHandlers(ctx: IpcHandlerContext): void {
-  registerRpcHandler(ctx)
-  registerDialogHandlers()
+export interface RegisteredIpcHandlers {
+  policyGate: RpcPolicyGate
+  imageGrants: ImageGrantStore
+}
+
+export function registerIpcHandlers(ctx: IpcHandlerContext): RegisteredIpcHandlers {
+  const imageGrants = new ImageGrantStore()
+  const policyGate = registerRpcHandler(ctx, imageGrants)
+  registerDialogHandlers(ctx, imageGrants)
   registerArtifactSaveHandler()
-  registerImageAttachmentHandlers()
+  registerImageAttachmentHandlers(ctx, imageGrants)
   registerNotificationForwarding(ctx)
   registerCLIStatusForwarding(ctx)
   if (process.env.NODE_ENV === 'test') {
     registerTestHandlers(ctx)
   }
+  return { policyGate, imageGrants }
 }
 
-function registerRpcHandler(ctx: IpcHandlerContext): void {
+function registerRpcHandler(ctx: IpcHandlerContext, imageGrants: ImageGrantStore): RpcPolicyGate {
+  const showConfirmation = createShowConfirmation()
+  const policyGate = new RpcPolicyGate({
+    rpcClient: ctx.rpcClient,
+    getMainWindow: ctx.getMainWindow,
+    showConfirmation,
+    imageGrants,
+    log: (message) => console.warn(message),
+  })
+  policyGate.attachApprovalSubscription()
+
   ipcMain.handle(
     IPC_CHANNELS.RPC_REQUEST,
-    async (_event, method: string, params?: Record<string, unknown>) => {
+    async (event, method: string, params?: Record<string, unknown>) => {
       try {
+        const decision = await policyGate.evaluate(event, method, params)
+        if (!decision.ok) {
+          return decision
+        }
+
         const override = process.env.NODE_ENV === 'test' ? rpcOverrides.get(method) : undefined
         if (override) {
           if (override.ok) {
@@ -115,22 +145,111 @@ function registerRpcHandler(ctx: IpcHandlerContext): void {
       }
     },
   )
+
+  return policyGate
 }
 
-function registerDialogHandlers(): void {
-  ipcMain.handle(IPC_CHANNELS.SHOW_OPEN_DIALOG, async (_event, options: OpenDialogOptions) => {
-    const override = consumeDialogResponse()
+function createShowConfirmation(): ShowConfirmation {
+  return async ({ windowOwner, title, message, detail }) => {
+    const override = consumePolicyResponse()
     if (override !== undefined) {
       return override
     }
-    const result = await dialog.showOpenDialog(options)
-    if (result.canceled || result.filePaths.length === 0) return null
-    // Return all paths when multiSelections is requested, single path otherwise
-    if (options.properties?.includes('multiSelections')) {
-      return result.filePaths
+    const options = {
+      type: 'warning' as const,
+      title,
+      message,
+      detail,
+      buttons: ['Allow', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
     }
-    return result.filePaths[0]
+    const result =
+      windowOwner && !windowOwner.isDestroyed()
+        ? await dialog.showMessageBox(windowOwner, options)
+        : await dialog.showMessageBox(options)
+    return result.response === 0
+  }
+}
+
+function consumePolicyResponse(): boolean | undefined {
+  if (process.env.NODE_ENV !== 'test') return undefined
+
+  if (policyResponsesQueue === null) {
+    const raw = process.env.OUROBOROS_TEST_POLICY_RESPONSES ?? readTestPolicyResponses()
+    if (!raw) {
+      policyResponsesQueue = []
+    } else {
+      try {
+        const parsed = JSON.parse(raw) as Array<boolean>
+        policyResponsesQueue = Array.isArray(parsed)
+          ? parsed.filter((value): value is boolean => typeof value === 'boolean')
+          : []
+      } catch {
+        policyResponsesQueue = []
+      }
+    }
+  }
+
+  // In test mode, when the explicit response queue is exhausted, default to
+  // "allow" so existing E2E tests that don't explicitly opt into the gate
+  // (e.g. onboarding flows that now trigger Layer 2 prompts) continue to
+  // work. Tests that want to verify denial populate `policyResponses` with
+  // specific boolean values.
+  if (policyResponsesQueue.length === 0) return true
+  return policyResponsesQueue.shift()
+}
+
+function readTestPolicyResponses(): string | undefined {
+  if (process.env.NODE_ENV !== 'test') return undefined
+  try {
+    return readFileSync(TEST_POLICY_RESPONSES_PATH, 'utf8')
+  } catch {
+    return undefined
+  }
+}
+
+function registerDialogHandlers(ctx: IpcHandlerContext, imageGrants: ImageGrantStore): void {
+  ipcMain.handle(IPC_CHANNELS.SHOW_OPEN_DIALOG, async (event, options: OpenDialogOptions) => {
+    const override = consumeDialogResponse()
+    let paths: string[]
+    if (override !== undefined) {
+      if (override === null) return null
+      paths = Array.isArray(override) ? override : [override]
+    } else {
+      const result = await dialog.showOpenDialog(options)
+      if (result.canceled || result.filePaths.length === 0) return null
+      paths = result.filePaths
+    }
+
+    // Auto-grant image-extension paths produced by a native dialog. The
+    // dialog already represents direct user intent, so the grant store
+    // skips the magic-byte/size pre-check here for UX (the existing
+    // validate handler still verifies before reading).
+    const imageCandidates = paths.filter((path) => isPotentialImagePath(path))
+    if (imageCandidates.length > 0) {
+      imageGrants.grant(findOwningWindow(ctx, event), imageCandidates)
+    }
+
+    if (options.properties?.includes('multiSelections')) {
+      return paths
+    }
+    return paths[0]
   })
+}
+
+function isPotentialImagePath(path: unknown): path is string {
+  if (typeof path !== 'string') return false
+  return Boolean(IMAGE_MEDIA_TYPES[extname(path).toLowerCase()])
+}
+
+function findOwningWindow(ctx: IpcHandlerContext, event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+  const main = ctx.getMainWindow()
+  if (main && !main.isDestroyed() && main.webContents.id === event.sender.id) {
+    return main
+  }
+  return null
 }
 
 function sanitizeArtifactFilename(name: string): string {
@@ -197,10 +316,13 @@ function recordSaveArtifact(record: Record<string, unknown>): void {
   appendFileSync(logPath, JSON.stringify(record) + '\n')
 }
 
-function registerImageAttachmentHandlers(): void {
+function registerImageAttachmentHandlers(
+  ctx: IpcHandlerContext,
+  imageGrants: ImageGrantStore,
+): void {
   ipcMain.handle(
     IPC_CHANNELS.VALIDATE_IMAGE_ATTACHMENTS,
-    async (_event, paths: unknown): Promise<ImageAttachmentValidationResult> => {
+    async (event, paths: unknown): Promise<ImageAttachmentValidationResult> => {
       if (!Array.isArray(paths)) {
         return {
           accepted: [],
@@ -208,6 +330,7 @@ function registerImageAttachmentHandlers(): void {
         }
       }
 
+      const window = findOwningWindow(ctx, event)
       const accepted: ImageAttachment[] = []
       const rejected: ImageAttachmentValidationResult['rejected'] = []
       const seen = new Set<string>()
@@ -220,6 +343,14 @@ function registerImageAttachmentHandlers(): void {
         if (seen.has(path)) continue
         seen.add(path)
 
+        if (!imageGrants.has(window, path)) {
+          rejected.push({
+            path,
+            reason: 'Path is not authorised — attach via the file picker or drop it onto the chat area',
+          })
+          continue
+        }
+
         const result = readImageAttachment(path)
         if ('reason' in result) {
           rejected.push(result)
@@ -231,6 +362,36 @@ function registerImageAttachmentHandlers(): void {
       return { accepted, rejected }
     },
   )
+
+  ipcMain.handle(
+    IPC_CHANNELS.REGISTER_DROPPED_IMAGE_PATHS,
+    async (event, paths: unknown): Promise<RegisterImagePathsResult> => {
+      return runRegisterHandler(ctx, imageGrants, event, paths)
+    },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.REGISTER_SESSION_IMAGE_PATHS,
+    async (event, paths: unknown): Promise<RegisterImagePathsResult> => {
+      return runRegisterHandler(ctx, imageGrants, event, paths)
+    },
+  )
+}
+
+function runRegisterHandler(
+  ctx: IpcHandlerContext,
+  imageGrants: ImageGrantStore,
+  event: Electron.IpcMainInvokeEvent,
+  paths: unknown,
+): RegisterImagePathsResult {
+  if (!Array.isArray(paths)) {
+    return {
+      granted: [],
+      rejected: [{ path: '', reason: 'Image attachment paths must be an array' }],
+    }
+  }
+  const window = findOwningWindow(ctx, event)
+  return imageGrants.grant(window, paths)
 }
 
 function readImageAttachment(path: string): ImageAttachment | { path: string; reason: string } {

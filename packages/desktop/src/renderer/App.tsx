@@ -436,15 +436,14 @@ export function App(): React.ReactElement {
       }
     }
 
-    if (paths.length > 0) {
-      // Forward to InputBar via the global callback
-      const addFiles = (window as unknown as Record<string, unknown>).__inputBarAddFiles as
-        | ((files: string[]) => void)
-        | undefined
-      if (addFiles) {
-        addFiles(paths)
-      }
-    }
+    if (paths.length === 0) return
+
+    // Forward to InputBar; it owns the grant + validate flow so the same
+    // logic also runs for paths from the file picker.
+    const addFiles = (window as unknown as Record<string, unknown>).__inputBarAddFiles as
+      | ((files: string[]) => void)
+      | undefined
+    addFiles?.(paths)
   }, [])
 
   // Show onboarding wizard on first launch

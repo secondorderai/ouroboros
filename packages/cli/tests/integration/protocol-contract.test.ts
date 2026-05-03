@@ -22,7 +22,11 @@ import { ModeManager } from '@src/modes/manager'
 import { createHandlers, bridgeAgentEvent, type HandlerContext } from '@src/json-rpc/handlers'
 import { tmpdir } from 'node:os'
 import type { LanguageModel } from 'ai'
-import { RPC_METHOD_NAMES, NOTIFICATION_METHOD_NAMES } from '../../../desktop/src/shared/protocol'
+import {
+  RPC_METHOD_NAMES,
+  NOTIFICATION_METHOD_NAMES,
+  RPC_RISK_CLASSES,
+} from '../../../desktop/src/shared/protocol'
 
 function createContext(): HandlerContext {
   const model: LanguageModel = {
@@ -134,5 +138,22 @@ describe('protocol contract', () => {
     const untyped = [...emitted].filter((n) => !allowed.has(n))
     expect(untyped).toEqual([])
     expect(emitted.size).toBeGreaterThan(0)
+  })
+
+  test('every RPC method has a risk class assigned in RPC_RISK_CLASSES', () => {
+    const expected = new Set<string>(RPC_METHOD_NAMES)
+    const classified = new Set<string>(Object.keys(RPC_RISK_CLASSES))
+
+    const unclassified = [...expected].filter((m) => !classified.has(m))
+    const orphans = [...classified].filter((m) => !expected.has(m))
+
+    expect(unclassified).toEqual([])
+    expect(orphans).toEqual([])
+
+    const allowedClasses = new Set(['read', 'write-low', 'sensitive', 'critical'])
+    for (const [method, risk] of Object.entries(RPC_RISK_CLASSES)) {
+      expect(allowedClasses.has(risk as string)).toBe(true)
+      expect(typeof method).toBe('string')
+    }
   })
 })

@@ -69,6 +69,19 @@ export interface OuroborosAPI {
   showOpenDialog(options: OpenDialogOptions): Promise<string | string[] | null>
   /** Validate local image paths and return safe metadata plus renderer preview data. */
   validateImageAttachments(paths: string[]): Promise<ImageAttachmentValidationResult>
+  /**
+   * Register paths originating from a renderer drag-drop event. Main applies
+   * extension, size, and magic-byte verification before authorising; only
+   * authorised paths can subsequently be read via `validateImageAttachments`
+   * or sent to the CLI as `agent/run` images.
+   */
+  registerDroppedImagePaths(paths: string[]): Promise<RegisterImagePathsResult>
+  /**
+   * Register paths recovered from a previously persisted session so their
+   * previews can be re-hydrated. Main applies the same verification as
+   * drop registration.
+   */
+  registerSessionImagePaths(paths: string[]): Promise<RegisterImagePathsResult>
   /** Subscribe to CLI status changes. Returns an unsubscribe function. */
   onCLIStatus(callback: (status: CLIStatus) => void): () => void
   /**
@@ -133,6 +146,17 @@ export interface RejectedImageAttachment {
 
 export interface ImageAttachmentValidationResult {
   accepted: ImageAttachment[]
+  rejected: RejectedImageAttachment[]
+}
+
+/**
+ * Result of registering renderer-claimed image paths (drag-drop or session
+ * reload) into the main-process grant store. `granted` lists the paths
+ * actually authorised; `rejected` lists paths that failed extension, size,
+ * or magic-byte verification and will be denied by the read handlers.
+ */
+export interface RegisterImagePathsResult {
+  granted: string[]
   rejected: RejectedImageAttachment[]
 }
 
@@ -1192,6 +1216,77 @@ type _RpcMethodCoverageCheck =
 const _rpcCoverage: _RpcMethodCoverageCheck = true
 void _rpcCoverage
 
+/**
+ * Risk class for each RPC method. Used by the desktop main-process
+ * `RpcPolicyGate` to decide whether a fresh OS-level confirmation is
+ * required before forwarding a renderer call to the CLI.
+ *
+ * - `read`      — no side effects.
+ * - `write-low` — mutates session/UI state, no security implications.
+ * - `sensitive` — wide blast radius (config, workspace, deletes, MCP).
+ *                 First call per window prompts; cached thereafter.
+ * - `critical`  — `approval/respond`. High-risk approvals always prompt;
+ *                 medium/low pass through Layer 1.
+ *
+ * `Record<RpcMethod, RpcRiskClass>` makes adding a new method without
+ * classifying it a compile error.
+ */
+export type RpcRiskClass = 'read' | 'write-low' | 'sensitive' | 'critical'
+
+export const RPC_RISK_CLASSES: Record<RpcMethod, RpcRiskClass> = {
+  // critical — Layer 3
+  'approval/respond': 'critical',
+  // sensitive — Layer 2
+  'config/set': 'sensitive',
+  'config/setApiKey': 'sensitive',
+  'workspace/set': 'sensitive',
+  'workspace/clear': 'sensitive',
+  'session/delete': 'sensitive',
+  'mcp/restart': 'sensitive',
+  // write-low — Layer 1 only
+  'agent/run': 'write-low',
+  'agent/cancel': 'write-low',
+  'agent/steer': 'write-low',
+  'session/new': 'write-low',
+  'session/rename': 'write-low',
+  'config/testConnection': 'write-low',
+  'auth/startLogin': 'write-low',
+  'auth/pollLogin': 'write-low',
+  'auth/cancelLogin': 'write-low',
+  'auth/logout': 'write-low',
+  'askUser/respond': 'write-low',
+  'team/create': 'write-low',
+  'team/createWorkflow': 'write-low',
+  'team/start': 'write-low',
+  'team/cancel': 'write-low',
+  'team/cleanup': 'write-low',
+  'team/addTask': 'write-low',
+  'team/assignTask': 'write-low',
+  'team/sendMessage': 'write-low',
+  'mode/enter': 'write-low',
+  'mode/exit': 'write-low',
+  // read — Layer 1 only
+  'config/get': 'read',
+  'session/list': 'read',
+  'session/load': 'read',
+  'auth/getStatus': 'read',
+  'skills/list': 'read',
+  'skills/get': 'read',
+  'rsi/dream': 'read',
+  'rsi/status': 'read',
+  'rsi/history': 'read',
+  'rsi/checkpoint': 'read',
+  'evolution/list': 'read',
+  'evolution/stats': 'read',
+  'approval/list': 'read',
+  'team/get': 'read',
+  'mode/getState': 'read',
+  'mode/getPlan': 'read',
+  'artifacts/list': 'read',
+  'artifacts/read': 'read',
+  'mcp/list': 'read',
+}
+
 // ── Notification Types ─────────────────────────────────────────────
 //
 // The Notification types are wire envelopes for the *Params payload types
@@ -1457,5 +1552,7 @@ export const IPC_CHANNELS = {
   CLI_STATUS: 'ouroboros:cli-status',
   SHOW_OPEN_DIALOG: 'ouroboros:show-open-dialog',
   VALIDATE_IMAGE_ATTACHMENTS: 'ouroboros:validate-image-attachments',
+  REGISTER_DROPPED_IMAGE_PATHS: 'ouroboros:register-dropped-image-paths',
+  REGISTER_SESSION_IMAGE_PATHS: 'ouroboros:register-session-image-paths',
   SAVE_ARTIFACT: 'ouroboros:save-artifact',
 } as const

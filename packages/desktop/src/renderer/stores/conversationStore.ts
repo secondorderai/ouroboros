@@ -3,6 +3,7 @@ import type {
   Message,
   MessageRole,
   ImageAttachment,
+  ImageAttachmentValidationResult,
   ToolCallState,
   CompletedToolCall,
   AgentTextParams,
@@ -966,8 +967,15 @@ function hydrateLoadedImagePreviews(
   const api = typeof window !== 'undefined' ? window.ouroboros : undefined
   if (!api?.validateImageAttachments) return
 
-  api
-    .validateImageAttachments(paths)
+  const registerPaths = api.registerSessionImagePaths
+    ? api.registerSessionImagePaths(paths).then((res) => res.granted)
+    : Promise.resolve(paths)
+
+  registerPaths
+    .then((grantedPaths): Promise<ImageAttachmentValidationResult> | ImageAttachmentValidationResult => {
+      if (grantedPaths.length === 0) return { accepted: [], rejected: [] }
+      return api.validateImageAttachments(grantedPaths)
+    })
     .then((result) => {
       if (result.accepted.length === 0) return
       const previewByPath = new Map(

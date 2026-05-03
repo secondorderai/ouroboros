@@ -218,9 +218,23 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       return
     }
 
-    const result = await api.validateImageAttachments(imageCandidatePaths)
+    // Authorise paths with the main-process grant store before reading. The
+    // grant step canonicalises and verifies extension/size/magic-bytes; any
+    // path that isn't a real, supported image is surfaced as a user-visible
+    // rejection here rather than reaching `validateImageAttachments`.
+    const grantRejected: RejectedImageAttachment[] = []
+    let pathsToValidate = imageCandidatePaths
+    if (api.registerDroppedImagePaths) {
+      const grantResult = await api.registerDroppedImagePaths(imageCandidatePaths)
+      pathsToValidate = grantResult.granted
+      for (const r of grantResult.rejected) grantRejected.push(r)
+    }
+
+    const result = pathsToValidate.length > 0
+      ? await api.validateImageAttachments(pathsToValidate)
+      : { accepted: [], rejected: [] }
     setAttachedImages((prev) => mergeUniqueImages(prev, result.accepted))
-    setAttachmentError(formatAttachmentError(result.rejected))
+    setAttachmentError(formatAttachmentError([...grantRejected, ...result.rejected]))
   }, [])
 
   const handleAttach = useCallback(async () => {

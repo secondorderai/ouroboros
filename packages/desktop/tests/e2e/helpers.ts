@@ -66,6 +66,7 @@ export interface LaunchScenario {
 export interface LaunchOptions {
   scenario?: LaunchScenario
   dialogResponses?: Array<string | string[] | null>
+  policyResponses?: boolean[]
   updateDownloadedVersion?: string
   updateDownloadedDelayMs?: number
   env?: Record<string, string | undefined>
@@ -96,6 +97,7 @@ export async function launchTestApp(
   const runtimeDir = await mkdtemp(path.join(tmpdir(), 'ouroboros-desktop-tests-'))
   const testScenarioPath = path.join(runtimeDir, 'scenario.json')
   const testDialogResponsesPath = path.join(runtimeDir, 'dialog-responses.json')
+  const testPolicyResponsesPath = path.join(runtimeDir, 'policy-responses.json')
   const testStatePath = path.join(runtimeDir, 'mock-state.json')
   const testMockLogPath = path.join(runtimeDir, 'mock-cli.log')
   const testInstallUpdateLogPath = path.join(runtimeDir, 'install-update.log')
@@ -115,6 +117,7 @@ export async function launchTestApp(
   }
   await writeFile(testScenarioPath, JSON.stringify(options.scenario ?? {}, null, 2))
   await writeFile(testDialogResponsesPath, JSON.stringify(options.dialogResponses ?? [], null, 2))
+  await writeFile(testPolicyResponsesPath, JSON.stringify(options.policyResponses ?? [], null, 2))
   await writeFile(testUpdateDownloadedPath, options.updateDownloadedVersion ?? '')
 
   const app = await electron.launch({
@@ -126,6 +129,7 @@ export async function launchTestApp(
       OUROBOROS_TEST_RUNTIME_DIR: runtimeDir,
       OUROBOROS_TEST_SCENARIO_PATH: testScenarioPath,
       OUROBOROS_TEST_DIALOG_RESPONSES_PATH: testDialogResponsesPath,
+      OUROBOROS_TEST_POLICY_RESPONSES_PATH: testPolicyResponsesPath,
       OUROBOROS_TEST_STATE_PATH: testStatePath,
       OUROBOROS_TEST_MOCK_LOG_PATH: testMockLogPath,
       OUROBOROS_TEST_INSTALL_UPDATE_LOG_PATH: testInstallUpdateLogPath,

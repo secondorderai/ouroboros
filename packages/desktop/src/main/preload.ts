@@ -131,6 +131,14 @@ const ouroborosAPI: OuroborosAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_IMAGE_ATTACHMENTS, paths)
   },
 
+  registerDroppedImagePaths: async (paths: string[]) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REGISTER_DROPPED_IMAGE_PATHS, paths)
+  },
+
+  registerSessionImagePaths: async (paths: string[]) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REGISTER_SESSION_IMAGE_PATHS, paths)
+  },
+
   onCLIStatus: (callback: (status: CLIStatus) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, status: CLIStatus) => {
       callback(status)
