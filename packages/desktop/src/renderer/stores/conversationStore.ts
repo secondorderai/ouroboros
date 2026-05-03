@@ -1014,6 +1014,47 @@ function hydrateLoadedImagePreviews(
 }
 
 // ---------------------------------------------------------------------------
+// Pending settle timers
+// ---------------------------------------------------------------------------
+//
+// `runAgent` schedules a `handleRunSettled` fallback after the `agent/run` RPC
+// returns, in case the CLI's `agent/turnComplete` notification never arrives.
+// The IDs are tracked here so any path that genuinely settles a run
+// (`handleTurnComplete`, `handleRunSettled` itself, `cancelRun`,
+// `handleAgentError`, `handleTurnAborted`) can cancel them. Without this, the
+// fallback fired ~1.5 s after the RPC returned and unmounted the streaming row
+// out from under tests that were still asserting against it on slow CI —
+// every "expect streamed text visible" assertion would race the timer and
+// fail with "element not found".
+//
+// Keyed by sessionId; the sentinel `__flat__` covers runs with no session
+// attribution (matches `resolveRunSessionId` returning null).
+
+const FLAT_RUN_KEY = '__flat__'
+// `window.setTimeout` returns `number` in lib.dom but Node's overload returns
+// `Timeout`; keep the union so consumers can pass either without casts.
+type SettleTimerId = number | ReturnType<typeof setTimeout>
+const pendingSettleTimers = new Map<string, Set<SettleTimerId>>()
+
+function rememberSettleTimer(sessionId: string | null, id: SettleTimerId): void {
+  const key = sessionId ?? FLAT_RUN_KEY
+  let set = pendingSettleTimers.get(key)
+  if (!set) {
+    set = new Set()
+    pendingSettleTimers.set(key, set)
+  }
+  set.add(id)
+}
+
+function cancelSettleTimers(sessionId: string | null): void {
+  const key = sessionId ?? FLAT_RUN_KEY
+  const set = pendingSettleTimers.get(key)
+  if (!set) return
+  for (const id of set) window.clearTimeout(id as number)
+  pendingSettleTimers.delete(key)
+}
+
+// ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
@@ -1172,9 +1213,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           ...result,
           sessionId: sessionId ?? null,
         }
-        window.setTimeout(() => {
+        // Fallback in case the CLI's `agent/turnComplete` notification never
+        // arrives. The real CLI emits turnComplete *before* the agent/run RPC
+        // returns, so on the happy path this timer is canceled by
+        // `handleTurnComplete` long before it fires. The grace period is
+        // generous (10 s) because test mocks return the RPC instantly and
+        // then drive their own turnComplete sequence — a tighter bound here
+        // races the streaming UI assertions out from under those tests.
+        const timerId = window.setTimeout(() => {
+          pendingSettleTimers.get(sessionId ?? FLAT_RUN_KEY)?.delete(timerId)
           get().handleRunSettled(settledParams)
-        }, 1500)
+        }, 10_000)
+        rememberSettleTimer(sessionId ?? null, timerId)
       }
     })().catch((err) => {
       console.error('agent/run RPC failed:', err)
@@ -1189,6 +1239,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   cancelRun() {
     const state = get()
     if (!state.isAgentRunning) return
+    cancelSettleTimers(state.activeRunSessionId)
 
     // Finalize whatever text we have so far as an agent message.
     const finalText = state.streamingText ?? ''
@@ -1362,6 +1413,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   handleTurnAborted(params: AgentTurnAbortedNotification) {
     const state = get()
     const runSessionId = resolveRunSessionId(params, state)
+    cancelSettleTimers(runSessionId)
     const sessions = runSessionId
       ? state.sessions.map((s) =>
           s.id === runSessionId
@@ -1556,6 +1608,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   handleTurnComplete(params: AgentTurnCompleteParams) {
     const state = get()
     const completedSessionId = resolveRunSessionId(params, state)
+    // The CLI's turnComplete is the authoritative settle signal; any pending
+    // `runAgent` fallback timer for this session would only fire after the
+    // streaming row is already gone, so cancel it now.
+    cancelSettleTimers(completedSessionId)
     if (!completedSessionId) {
       // Synthetic turn-complete with no session attribution — happens for
       // the onboarding welcome message and for tests that exercise the
@@ -1670,6 +1726,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   handleRunSettled(params: AgentRunSettledParams) {
     const state = get()
     const settledSessionId = resolveRunSessionId(params, state)
+    cancelSettleTimers(settledSessionId)
     const finishSnapshot = (snap: SessionRunSnapshot): SessionRunSnapshot => {
       const messages = [...snap.messages]
       let nextId = snap.nextId
@@ -1783,6 +1840,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   handleAgentError(params: AgentErrorParams) {
     const state = get()
     const failedSessionId = resolveRunSessionId(params, state)
+    cancelSettleTimers(failedSessionId)
     if (!failedSessionId) {
       // Synthetic error with no session attribution.
       set((s) => {
