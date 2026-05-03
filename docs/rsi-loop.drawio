@@ -1,0 +1,198 @@
+<mxfile host="65bd71144e">
+    <diagram id="ouroboros-rsi" name="Ouroboros RSI Loop">
+        <mxGraphModel dx="572" dy="751" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="&lt;b&gt;Ouroboros — Recursive Self-Improving (RSI) Loop&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontColor=#1a1a2e;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="20" width="800" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="observe → reflect → crystallize → dream → evolve  ·  packages/cli/src/rsi/" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="58" width="800" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef2ff;strokeColor=#6366f1;strokeWidth=2;arcSize=6;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="100" width="1520" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-label" value="&lt;b&gt;Agent task loop (ReAct)&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#3730a3;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="112" width="400" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-sub" value="packages/cli/src/agent.ts — RSI hooks fire after every run() and on session end" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#475569;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="132" width="700" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-task" value="User task" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6366f1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="170" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-plan" value="Plan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6366f1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="260" y="170" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-act" value="Act (tools)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6366f1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="170" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-obs" value="Observe" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6366f1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="170" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-iter" value="Iterate / finish" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6366f1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="170" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-hooks" value="&lt;b&gt;onTaskComplete()&lt;/b&gt; · &lt;b&gt;onSessionEnd()&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontSize=12;fontColor=#92400e;" parent="1" vertex="1">
+                    <mxGeometry x="1000" y="170" width="320" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-e1" style="endArrow=classic;html=1;strokeColor=#334155;" parent="1" source="react-task" target="react-plan" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-e2" style="endArrow=classic;html=1;strokeColor=#334155;" parent="1" source="react-plan" target="react-act" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-e3" style="endArrow=classic;html=1;strokeColor=#334155;" parent="1" source="react-act" target="react-obs" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-e4" style="endArrow=classic;html=1;strokeColor=#334155;" parent="1" source="react-obs" target="react-iter" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-e5" style="endArrow=classic;html=1;strokeColor=#334155;" parent="1" source="react-iter" target="react-hooks" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="react-loop" style="endArrow=classic;html=1;strokeColor=#334155;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" parent="1" source="react-iter" target="react-plan" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="880" y="240"/>
+                            <mxPoint x="330" y="240"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="cycle-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=2;arcSize=6;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="270" width="900" height="540" as="geometry"/>
+                </mxCell>
+                <mxCell id="cycle-label" value="&lt;b&gt;RSI lifecycle&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#0f172a;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="282" width="400" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="cycle-sub" value="RSIOrchestrator coordinates each stage. Failures are isolated and logged — RSI never crashes a user task." style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#64748b;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="302" width="800" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="hub" value="&lt;b&gt;&lt;font style=&quot;color: rgb(255, 255, 0);&quot;&gt;RSI&lt;/font&gt;&lt;/b&gt;&lt;br&gt;Orchestrator&lt;br&gt;&lt;font style=&quot;font-size: 9px; color: rgb(148, 163, 184);&quot;&gt;rsi/orchestrator.ts&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#0f172a;strokeColor=#0f172a;fontColor=#f8fafc;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="410" y="490" width="160" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage-observe" value="&lt;b style=&quot;color:#1d4ed8;&quot;&gt;1 · Observe&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Capture atomic facts from turns,&lt;br/&gt;tool results, decisions, constraints,&lt;br/&gt;and open loops." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#2563eb;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="340" width="260" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage-reflect" value="&lt;b style=&quot;color:#6d28d9;&quot;&gt;2 · Reflect&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Score novelty &amp;amp; generalizability;&lt;br/&gt;propose a skill if both exceed&lt;br/&gt;noveltyThreshold." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#7c3aed;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="340" width="260" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage-crystallize" value="&lt;b style=&quot;color:#92400e;&quot;&gt;3 · Crystallize&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Generate skill, write to staging,&lt;br/&gt;run tests, promote on green.&lt;br/&gt;(detail at right →)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#b45309;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="620" width="260" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage-dream" value="&lt;b style=&quot;color:#065f46;&quot;&gt;4 · Dream&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Consolidate sessions into durable&lt;br/&gt;MEMORY.md; promote / prune /&lt;br/&gt;resolve contradictions." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#047857;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="660" width="260" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage-evolve" value="&lt;b style=&quot;color:#9f1239;&quot;&gt;5 · Evolve&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Append every event to&lt;br/&gt;evolution.log.json so thresholds&lt;br/&gt;and defaults can be tuned." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#be123c;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="620" width="260" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="arc-1to2" style="endArrow=classic;html=1;strokeColor=#2563eb;strokeWidth=2;curved=1;" parent="1" source="stage-observe" target="stage-reflect" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arc-2to3" style="endArrow=classic;html=1;strokeColor=#7c3aed;strokeWidth=2;curved=1;" parent="1" source="stage-reflect" target="stage-crystallize" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arc-3to4" style="endArrow=classic;html=1;strokeColor=#b45309;strokeWidth=2;curved=1;" parent="1" source="stage-crystallize" target="stage-dream" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arc-4to5" style="endArrow=classic;html=1;strokeColor=#047857;strokeWidth=2;curved=1;" parent="1" source="stage-dream" target="stage-evolve" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arc-5to1" style="endArrow=classic;html=1;strokeColor=#be123c;strokeWidth=2;curved=1;" parent="1" source="stage-evolve" target="stage-observe" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="hub-trig-task" value="post-task: onTaskComplete()" style="text;html=1;align=center;fontSize=10;fontColor=#64748b;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="466" width="220" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="hub-trig-end" value="session end: onSessionEnd()" style="text;html=1;align=center;fontSize=10;fontColor=#64748b;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="596" width="220" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#fcd34d;strokeWidth=2;arcSize=6;" parent="1" vertex="1">
+                    <mxGeometry x="970" y="270" width="590" height="540" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-label" value="&lt;b&gt;Crystallization pipeline&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#92400e;" parent="1" vertex="1">
+                    <mxGeometry x="990" y="282" width="400" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-sub" value="rsi/crystallize.ts → skills/{staging,generated,core}" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#78350f;" parent="1" vertex="1">
+                    <mxGeometry x="990" y="302" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-A" value="&lt;b&gt;A. reflect()&lt;/b&gt;&lt;br/&gt;Score novelty / generalizability against threshold." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="340" width="510" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-B" value="&lt;b&gt;B. shouldCrystallize()&lt;/b&gt;&lt;br/&gt;Gate. If false → outcome: &lt;i&gt;no-crystallization&lt;/i&gt;." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="412" width="510" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-C" value="&lt;b&gt;C. generateSkill() + writeSkillToStaging()&lt;/b&gt;&lt;br/&gt;Emit SKILL.md + scripts/test.ts → skills/staging/&amp;lt;name&amp;gt;/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="484" width="510" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-D" value="&lt;b&gt;D. runSkillTests()&lt;/b&gt;&lt;br/&gt;On failure → outcome: &lt;i&gt;test-failed&lt;/i&gt; (skill stays in staging)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="556" width="510" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-E" value="&lt;b style=&quot;color:#065f46;&quot;&gt;E. promote&lt;/b&gt;&lt;br/&gt;Move staging → skills/generated/. Outcome: &lt;i&gt;promoted&lt;/i&gt;." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#047857;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="628" width="510" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-F" value="&lt;b style=&quot;color:#075985;&quot;&gt;F. (manual) curate to skills/core/&lt;/b&gt;&lt;br/&gt;Human-reviewed promotion of generated skills." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0369a1;fontSize=11;align=left;spacingLeft=12;spacingTop=8;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="700" width="510" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-eAB" style="endArrow=classic;html=1;strokeColor=#b45309;" parent="1" source="pipe-A" target="pipe-B" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-eBC" style="endArrow=classic;html=1;strokeColor=#b45309;" parent="1" source="pipe-B" target="pipe-C" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-eCD" style="endArrow=classic;html=1;strokeColor=#b45309;" parent="1" source="pipe-C" target="pipe-D" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-eDE" style="endArrow=classic;html=1;strokeColor=#b45309;" parent="1" source="pipe-D" target="pipe-E" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-eEF" style="endArrow=classic;html=1;strokeColor=#0369a1;dashed=1;" parent="1" source="pipe-E" target="pipe-F" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pipe-link" style="endArrow=classic;html=1;strokeColor=#b45309;strokeWidth=2;dashed=1;" parent="1" source="stage-crystallize" target="pipe-A" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="store-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=2;arcSize=6;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="840" width="1520" height="220" as="geometry"/>
+                </mxCell>
+                <mxCell id="store-label" value="&lt;b&gt;File-backed state&lt;/b&gt; — read at prompt-build time, written by RSI stages" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#0f172a;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="852" width="800" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="store-obs" value="&lt;b style=&quot;color:#1d4ed8;&quot;&gt;observations/&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Per-session JSONL.&lt;br/&gt;Atomic, append-only.&lt;br/&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#64748b;&quot;&gt;memory/observations/&amp;lt;id&amp;gt;.jsonl&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#2563eb;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="890" width="280" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="store-cp" value="&lt;b style=&quot;color:#6d28d9;&quot;&gt;checkpoints/&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Rewritten by reflect: goal,&lt;br/&gt;plan, decisions, open loops.&lt;br/&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#64748b;&quot;&gt;memory/checkpoints/&amp;lt;id&amp;gt;.md&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7c3aed;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="356" y="890" width="280" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="store-daily" value="&lt;b style=&quot;color:#0f766e;&quot;&gt;daily/&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Working-memory rollups&lt;br/&gt;across sessions.&lt;br/&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#64748b;&quot;&gt;memory/daily/YYYY-MM-DD.md&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0d9488;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="652" y="890" width="280" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="store-mem" value="&lt;b style=&quot;color:#065f46;&quot;&gt;MEMORY.md&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Durable long-term facts;&lt;br/&gt;curated by Dream cycle.&lt;br/&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#64748b;&quot;&gt;memory/MEMORY.md&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#047857;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="948" y="890" width="280" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="store-evo" value="&lt;b style=&quot;color:#9f1239;&quot;&gt;evolution.log.json&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Audit trail of every RSI&lt;br/&gt;event &amp;amp; outcome.&lt;br/&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#64748b;&quot;&gt;evolution.log.json (repo root)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#be123c;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="1244" y="890" width="296" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="link-obs" style="endArrow=classic;html=1;strokeColor=#2563eb;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-observe" target="store-obs" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="link-cp" style="endArrow=classic;html=1;strokeColor=#7c3aed;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-reflect" target="store-cp" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="link-daily" style="endArrow=classic;html=1;strokeColor=#0d9488;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-dream" target="store-daily" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="link-mem" style="endArrow=classic;html=1;strokeColor=#047857;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-dream" target="store-mem" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="link-evo" style="endArrow=classic;html=1;strokeColor=#be123c;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-evolve" target="store-evo" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend" value="Solid arrows = orchestrated control flow.   Dashed = persistence (file-backed read/write)." style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#475569;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="1058" width="900" height="20" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
