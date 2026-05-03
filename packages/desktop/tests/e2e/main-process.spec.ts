@@ -167,6 +167,13 @@ test('menu accelerator toggles the sidebar through the main-process menu wiring'
 })
 
 test('macOS app menu exposes check for updates below about', async ({}, testInfo) => {
+  // The "Ouroboros" application submenu (with About + Check for Updates) is
+  // only built on darwin in src/main/index.ts (`isMac` gate); on Linux/Windows
+  // the application menu legitimately has no such item, so the assertion
+  // below cannot pass. Skip rather than expecting a macOS-only menu shape on
+  // the Linux CI runner.
+  test.skip(process.platform !== 'darwin', 'macOS-only application menu')
+
   launched = await launchTestApp(testInfo)
 
   await launched.page.evaluate(() => {
