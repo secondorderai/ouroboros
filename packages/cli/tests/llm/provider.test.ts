@@ -1,4 +1,18 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test'
+
+// `os.homedir()` ignores runtime mutations of `process.env.HOME` in Bun
+// (the value is resolved from the OS user database), so we override it via
+// `mock.module` to make the homedir-fallback path testable. The default
+// delegates to the real implementation so unrelated tests are unaffected.
+let mockedHomedir: string | undefined
+mock.module('node:os', () => {
+  const real = require('node:os')
+  return {
+    ...real,
+    homedir: () => mockedHomedir ?? real.homedir(),
+  }
+})
+
 import { createProvider, patchMalformedToolCallTypes } from '@src/llm/provider'
 import type { ModelConfig } from '@src/llm/provider'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -343,8 +357,7 @@ describe('createProvider', () => {
     // config dir the surrounding RPC server is using.
     delete process.env.OUROBOROS_AUTH_FILE
     const fakeHome = mkdtempSync(join(tmpdir(), 'ouroboros-fake-home-'))
-    const savedHome = process.env.HOME
-    process.env.HOME = fakeHome
+    mockedHomedir = fakeHome
 
     try {
       // Auth lives ONLY at the homedir default (mirrors the manager's writes).
@@ -369,8 +382,7 @@ describe('createProvider', () => {
       const model = result.value as Record<string, unknown>
       expect(model.modelId).toBe('gpt-5.4')
     } finally {
-      if (savedHome === undefined) delete process.env.HOME
-      else process.env.HOME = savedHome
+      mockedHomedir = undefined
       rmSync(fakeHome, { recursive: true, force: true })
     }
   })
