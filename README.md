@@ -392,33 +392,33 @@ factual answers or routine edits.
 
 ## Built-In Tools
 
-| Tool                | Purpose                                             |
-| ------------------- | --------------------------------------------------- |
-| `ask-user`          | Request input from the user during an agent run     |
-| `bash`              | Execute shell commands within the permission model  |
-| `code-exec`         | Run code snippets in a controlled execution context |
-| `create-artifact`   | Create sandboxed self-contained HTML artifacts      |
-| `crystallize`       | Convert repeated RSI patterns into skill candidates |
-| `dream`             | Consolidate memory into durable knowledge           |
-| `evolution`         | Read/write RSI evolution log entries and stats      |
-| `file-edit`         | Edit existing files with scoped replacements        |
-| `file-read`         | Read files with optional ranges                     |
-| `file-write`        | Create or overwrite files within permissions        |
-| `memory`            | Read and write memory files                         |
-| `reflect`           | Generate task reflections for RSI                   |
-| `self-test`         | Run validation for generated skills or changes      |
-| `skill-gen`         | Generate Agent Skill content                        |
-| `skill-manager`     | Discover, list, activate, and deactivate skills     |
-| `spawn_agent`       | Delegate bounded work to subagents                  |
-| `team_advisor`      | Recommend workflows and record team outcomes        |
-| `team_graph`        | Manage task/team graph state                        |
-| `todo`              | Maintain a session task list                        |
-| `web-fetch`         | Fetch URLs and convert HTML to markdown             |
-| `web-search`        | Search the web through the configured search path   |
-| `apply_worker_diff` | Review/apply approved worker diffs                  |
-| `enter-mode`        | Enter a named agent mode                            |
-| `submit-plan`       | Submit a mode plan                                  |
-| `exit-mode`         | Exit the active mode                                |
+| Tool                | Purpose                                                            |
+| ------------------- | ------------------------------------------------------------------ |
+| `ask-user`          | Request input from the user during an agent run                    |
+| `bash`              | Execute shell commands within the permission model                 |
+| `code-exec`         | Run code snippets in a controlled execution context                |
+| `create-artifact`   | Create sandboxed self-contained HTML artifacts                     |
+| `crystallize`       | Convert repeated RSI patterns into skill candidates                |
+| `dream`             | Consolidate memory into durable knowledge                          |
+| `evolution`         | Read/write RSI evolution log entries and stats                     |
+| `file-edit`         | Edit existing files with scoped replacements                       |
+| `file-read`         | Read files with optional ranges                                    |
+| `file-write`        | Create or overwrite files within permissions                       |
+| `memory`            | Read and write memory files                                        |
+| `reflect`           | Generate task reflections for RSI                                  |
+| `self-test`         | Run validation for generated skills or changes                     |
+| `skill-gen`         | Generate Agent Skill content                                       |
+| `skill-manager`     | Discover, list, activate, and deactivate skills                    |
+| `spawn_agent`       | Delegate bounded work to subagents                                 |
+| `team_advisor`      | Recommend workflows and record team outcomes                       |
+| `team_graph`        | Manage task/team graph state                                       |
+| `todo`              | Maintain a session task list                                       |
+| `web-fetch`         | Fetch URLs and convert HTML to markdown                            |
+| `web-search`        | Search the web through the configured search path using DuckDuckGo |
+| `apply_worker_diff` | Review/apply approved worker diffs                                 |
+| `enter-mode`        | Enter a named agent mode                                           |
+| `submit-plan`       | Submit a mode plan                                                 |
+| `exit-mode`         | Exit the active mode                                               |
 
 ## Scripts
 
