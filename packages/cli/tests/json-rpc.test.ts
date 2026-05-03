@@ -3663,6 +3663,50 @@ description: A disabled skill
       }
       ctx.transcriptStore.close()
     })
+
+    test('artifacts/list and artifacts/read honor the session workspacePath', async () => {
+      // Regression: simple-mode sessions write artifacts under the session's
+      // workspacePath (e.g. .ouroboros-simple-sessions/{id}/), but the handlers
+      // previously used process.cwd() and returned "Unknown artifactId" on read.
+      const configDir = mkdtempSync(join(tmpdir(), 'ouroboros-artifact-base-'))
+      const ctx = createTestContext({ configDir })
+      const handlers = createHandlers(ctx)
+
+      const created = (await handlers.get('session/new')!({ workspaceMode: 'simple' })) as {
+        sessionId: string
+        workspacePath: string
+      }
+
+      // Write an artifact directly at the session's workspacePath, mirroring
+      // what create-artifact does with context.basePath = session workspace.
+      const { writeArtifact } = await import('@src/artifacts/storage')
+      const writeRes = writeArtifact({
+        sessionId: created.sessionId,
+        artifactId: 'art-base-path',
+        version: 1,
+        html: '<!doctype html><title>basepath</title>',
+        title: 'BasePath',
+        basePath: created.workspacePath,
+      })
+      expect(writeRes.ok).toBe(true)
+
+      const listResult = (await handlers.get('artifacts/list')!({
+        sessionId: created.sessionId,
+      })) as { artifacts: Array<{ artifactId: string; version: number; path: string }> }
+      expect(listResult.artifacts).toHaveLength(1)
+      expect(listResult.artifacts[0].artifactId).toBe('art-base-path')
+      expect(listResult.artifacts[0].path.startsWith(created.workspacePath)).toBe(true)
+
+      const readResult = (await handlers.get('artifacts/read')!({
+        sessionId: created.sessionId,
+        artifactId: 'art-base-path',
+      })) as { html: string; artifact: { title: string } }
+      expect(readResult.html).toContain('basepath')
+      expect(readResult.artifact.title).toBe('BasePath')
+
+      ctx.transcriptStore.close()
+      rmSync(configDir, { recursive: true, force: true })
+    })
   })
 
   // -------------------------------------------------------------------

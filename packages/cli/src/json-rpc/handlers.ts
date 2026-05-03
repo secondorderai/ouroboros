@@ -1405,12 +1405,21 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
   // ── artifacts/* ──────────────────────────────────────────────────
 
+  // Artifacts live under the session's workspacePath (e.g. simple-mode
+  // sessions write to .ouroboros-simple-sessions/{id}/). Mirror the
+  // basePath resolution used for agent construction so reads find them.
+  const resolveArtifactsBasePath = (sessionId: string): string => {
+    const sessionData = ctx.transcriptStore.getSession(sessionId)
+    return sessionData.ok ? (sessionData.value.workspacePath ?? ctx.configDir) : ctx.configDir
+  }
+
   handlers.set('artifacts/list', async (params) => {
     const sessionId = params.sessionId
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.sessionId is required')
     }
-    const result = listArtifacts(sessionId)
+    const basePath = resolveArtifactsBasePath(sessionId)
+    const result = listArtifacts(sessionId, basePath)
     if (!result.ok) {
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
     }
@@ -1421,7 +1430,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         sessionId,
         title: meta.title,
         description: meta.description,
-        path: resolveArtifactPath(sessionId, meta.artifactId, meta.version),
+        path: resolveArtifactPath(sessionId, meta.artifactId, meta.version, basePath),
         bytes: meta.bytes,
         createdAt: meta.createdAt,
       })),
@@ -1448,7 +1457,8 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       }
       version = versionParam
     }
-    const result = readArtifact(sessionId, artifactId, version)
+    const basePath = resolveArtifactsBasePath(sessionId)
+    const result = readArtifact(sessionId, artifactId, version, basePath)
     if (!result.ok) {
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
     }
@@ -1461,7 +1471,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         sessionId,
         title: meta.title,
         description: meta.description,
-        path: resolveArtifactPath(sessionId, meta.artifactId, meta.version),
+        path: resolveArtifactPath(sessionId, meta.artifactId, meta.version, basePath),
         bytes: meta.bytes,
         createdAt: meta.createdAt,
       },
