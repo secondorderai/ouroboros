@@ -1550,9 +1550,23 @@ export const IPC_CHANNELS = {
   RPC_REQUEST: 'ouroboros:rpc-request',
   CLI_NOTIFICATION: 'ouroboros:cli-notification',
   CLI_STATUS: 'ouroboros:cli-status',
+  CLI_STATUS_HISTORY: 'ouroboros:cli-status-history',
   SHOW_OPEN_DIALOG: 'ouroboros:show-open-dialog',
   VALIDATE_IMAGE_ATTACHMENTS: 'ouroboros:validate-image-attachments',
   REGISTER_DROPPED_IMAGE_PATHS: 'ouroboros:register-dropped-image-paths',
   REGISTER_SESSION_IMAGE_PATHS: 'ouroboros:register-session-image-paths',
   SAVE_ARTIFACT: 'ouroboros:save-artifact',
 } as const
+
+/**
+ * A CLI status event tagged with a monotonic sequence number. Renderers use the
+ * `seq` field to dedupe between the live `cli-status` push channel and the
+ * `cli-status-history` replay returned at subscription time, so the gap between
+ * "renderer attaches listener" and "renderer asks for history" can't either
+ * lose or double-count a transition. Sequence numbers are per CLI process
+ * lifetime and start at 1.
+ */
+export interface CLIStatusEvent {
+  seq: number
+  status: CLIStatus
+}

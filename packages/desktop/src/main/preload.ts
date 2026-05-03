@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   IPC_CHANNELS,
   type CLIStatus,
+  type CLIStatusEvent,
   type ElectronAPI,
   type NotificationMap,
   type NotificationMethod,
@@ -140,11 +141,41 @@ const ouroborosAPI: OuroborosAPI = {
   },
 
   onCLIStatus: (callback: (status: CLIStatus) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: CLIStatus) => {
-      callback(status)
+    // Two ordering hazards we have to defend against:
+    //   1. Subscribing too late and missing past transitions (the CLI very
+    //      often reaches `ready` before React mounts and registers this
+    //      listener) — solved by replaying the status history.
+    //   2. Replaying the history while a real-time event also arrives, causing
+    //      the same transition to be delivered twice — solved by deduping on
+    //      the monotonic `seq` from CLIProcessManager.
+    // Attach the listener BEFORE asking for history so any event that fires
+    // during the IPC roundtrip lands in the live channel and we can dedupe
+    // it against the history when both arrive.
+    let active = true
+    const seenSeqs = new Set<number>()
+    const deliver = (event: CLIStatusEvent) => {
+      if (!active || seenSeqs.has(event.seq)) return
+      seenSeqs.add(event.seq)
+      callback(event.status)
+    }
+    const handler = (_event: Electron.IpcRendererEvent, payload: CLIStatusEvent) => {
+      deliver(payload)
     }
     ipcRenderer.on(IPC_CHANNELS.CLI_STATUS, handler)
+
+    void ipcRenderer.invoke(IPC_CHANNELS.CLI_STATUS_HISTORY).then(
+      (history: CLIStatusEvent[]) => {
+        if (!active || !Array.isArray(history)) return
+        for (const event of history) deliver(event)
+      },
+      () => {
+        // History fetch is best-effort — if it errors (e.g. test harness
+        // replaced the handler), the live channel still delivers transitions.
+      },
+    )
+
     return () => {
+      active = false
       ipcRenderer.removeListener(IPC_CHANNELS.CLI_STATUS, handler)
     }
   },

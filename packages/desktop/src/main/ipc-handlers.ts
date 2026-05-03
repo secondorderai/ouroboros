@@ -15,6 +15,7 @@ import type { CLIProcessManager } from './cli-process'
 import {
   IPC_CHANNELS,
   type CLIStatus,
+  type CLIStatusEvent,
   type ImageAttachment,
   type ImageAttachmentValidationResult,
   type NotificationMethod,
@@ -473,11 +474,20 @@ function registerNotificationForwarding(ctx: IpcHandlerContext): void {
 }
 
 function registerCLIStatusForwarding(ctx: IpcHandlerContext): void {
-  ctx.cliProcess.on('status', (status: CLIStatus) => {
+  ctx.cliProcess.on('status', (event: CLIStatusEvent) => {
     const win = ctx.getMainWindow()
     if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.CLI_STATUS, status)
+      win.webContents.send(IPC_CHANNELS.CLI_STATUS, event)
     }
+  })
+
+  // Replay-on-subscribe: the renderer asks for the status history when its
+  // `onCLIStatus` listener attaches, so transitions that fired before the
+  // renderer mounted (very common: CLI reaches `ready` ~1 s before React
+  // finishes its first paint) still reach the subscriber. The seq numbers
+  // let the renderer dedupe against any live events delivered in parallel.
+  ipcMain.handle(IPC_CHANNELS.CLI_STATUS_HISTORY, (): CLIStatusEvent[] => {
+    return ctx.cliProcess.getStatusHistory()
   })
 }
 
@@ -507,10 +517,16 @@ function registerTestHandlers(ctx: IpcHandlerContext): void {
     },
   )
 
+  // Test-only synthetic CLI status emit. Real emits go through CLIProcessManager
+  // which assigns a sequence number, so wrap the raw `status` in a payload that
+  // matches the CLIStatusEvent shape the renderer expects. Use a high seq to
+  // avoid colliding with the real history (renderers dedupe by seq).
+  let testStatusSeq = 1_000_000
   ipcMain.handle(TEST_IPC_CHANNELS.EMIT_CLI_STATUS, (_event, status: CLIStatus) => {
     const win = ctx.getMainWindow()
     if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.CLI_STATUS, status)
+      testStatusSeq += 1
+      win.webContents.send(IPC_CHANNELS.CLI_STATUS, { seq: testStatusSeq, status })
     }
   })
 

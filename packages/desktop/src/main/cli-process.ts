@@ -11,9 +11,15 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog } from 'electron'
 import { EventEmitter } from 'node:events'
-import type { CLIStatus } from '../shared/protocol'
+import type { CLIStatus, CLIStatusEvent } from '../shared/protocol'
 import { writeTestLog } from './test-logging'
 import { TEST_SCENARIO_PATH } from './test-paths'
+
+// Cap on retained status transitions. The full lifecycle of a CLI process is
+// a handful of events (`starting`/`ready`/`restarting`/...), so even a few
+// thousand restarts stay well under this — but the bound prevents an
+// unbounded crash loop from leaking memory.
+const STATUS_HISTORY_LIMIT = 256
 
 const MAX_RESTART_ATTEMPTS = 3
 const RESTART_DELAY_MS = 1000
@@ -41,6 +47,13 @@ export class CLIProcessManager extends EventEmitter {
   private restartCount = 0
   private intentionalShutdown = false
   private status: CLIStatus = 'starting'
+  // Sequence-stamped history of every transition since the manager was
+  // constructed. Renderers replay this on subscribe to recover transitions
+  // that fired before they were ready to listen (e.g. the CLI reaches `ready`
+  // a beat before the renderer mounts and registers its `onCLIStatus`
+  // handler). Capped to keep memory bounded across long-lived sessions.
+  private statusHistory: CLIStatusEvent[] = []
+  private statusSeq = 0
 
   private readonly onStdoutLine: LineHandler
   private readonly onStderrLine: LineHandler
@@ -96,6 +109,7 @@ export class CLIProcessManager extends EventEmitter {
   }
 
   getStatus(): CLIStatus { return this.status }
+  getStatusHistory(): CLIStatusEvent[] { return [...this.statusHistory] }
   getStderrLog(): string[] { return [...this.stderrLog] }
 
   markReady(): void {
@@ -109,8 +123,14 @@ export class CLIProcessManager extends EventEmitter {
 
   private setStatus(status: CLIStatus): void {
     this.status = status
+    this.statusSeq += 1
+    const event: CLIStatusEvent = { seq: this.statusSeq, status }
+    this.statusHistory.push(event)
+    if (this.statusHistory.length > STATUS_HISTORY_LIMIT) {
+      this.statusHistory.splice(0, this.statusHistory.length - STATUS_HISTORY_LIMIT)
+    }
     this.onStatusChange(status)
-    this.emit('status', status)
+    this.emit('status', event)
   }
 
   private getCliPath(): { command: string; args: string[] } {
