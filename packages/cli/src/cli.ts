@@ -101,7 +101,7 @@ program
 
     const config = configResult.value
     const configDir = resolveConfigDir(dreamOpts.config)
-    const providerResult = createProvider(config.model, configDir)
+    const providerResult = createProvider(config.model)
     if (!providerResult.ok) {
       process.stderr.write(`${providerResult.error.message}\n`)
       process.exit(1)
@@ -226,7 +226,7 @@ async function runMain(): Promise<void> {
   const configDir = resolveConfigDir(opts.config)
 
   // Create LLM provider
-  const providerResult = createProvider(config.model, configDir)
+  const providerResult = createProvider(config.model)
   if (!providerResult.ok) {
     process.stderr.write(`${providerResult.error.message}\n`)
     process.exit(1)

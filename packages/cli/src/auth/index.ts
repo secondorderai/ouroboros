@@ -18,16 +18,16 @@ export type AuthInfo = z.infer<typeof authInfoSchema>
 const authStoreSchema = z.record(z.string(), authInfoSchema)
 type AuthStore = z.infer<typeof authStoreSchema>
 
-// When `configDir` is provided (e.g. from the JSON-RPC server or CLI), the auth
-// store lives as a sibling to `.ouroboros` and `.ouroboros-transcripts.db`.
-// Falls back to `homedir()` when no `configDir` is given (CLI `auth` subcommands).
-const DEFAULT_AUTH_FILE = join(homedir(), '.ouroboros-auth.json')
-
+// Auth is per-user, not per-project: subscription tokens (e.g. ChatGPT OAuth)
+// belong to the human, so we want a single login that works across every
+// workspace. `OUROBOROS_AUTH_FILE` overrides for tests; `configDir` is honored
+// only when explicitly passed (legacy/test isolation), otherwise we fall back
+// to `<homedir>/.ouroboros-auth.json`. Homedir is resolved at call time so
+// tests can override `HOME`.
 export function getAuthFilePath(configDir?: string): string {
-  return (
-    process.env.OUROBOROS_AUTH_FILE ??
-    (configDir ? join(configDir, '.ouroboros-auth.json') : DEFAULT_AUTH_FILE)
-  )
+  if (process.env.OUROBOROS_AUTH_FILE) return process.env.OUROBOROS_AUTH_FILE
+  if (configDir) return join(configDir, '.ouroboros-auth.json')
+  return join(homedir(), '.ouroboros-auth.json')
 }
 
 function loadAuthStore(configDir?: string): Result<AuthStore> {

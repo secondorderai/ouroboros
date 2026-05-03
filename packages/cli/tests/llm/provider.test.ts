@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { createProvider, patchMalformedToolCallTypes } from '@src/llm/provider'
 import type { ModelConfig } from '@src/llm/provider'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { OPENAI_CHATGPT_PROVIDER } from '@src/auth/openai-chatgpt'
@@ -332,6 +332,47 @@ describe('createProvider', () => {
     const model = result.value as Record<string, unknown>
     expect(model.modelId).toBe('gpt-5.4')
     expect(model.provider).toBe('openai-chatgpt.responses')
+  })
+
+  test('chatgpt provider reads auth from the homedir default', () => {
+    // Regression for: desktop login succeeded (auth saved by the auth manager
+    // to ~/.ouroboros-auth.json) but agent/run kept reporting "Missing ChatGPT
+    // subscription login" because createProvider was reading from
+    // <configDir>/.ouroboros-auth.json instead. The provider must read from
+    // the same default path the manager uses, regardless of any per-workspace
+    // config dir the surrounding RPC server is using.
+    delete process.env.OUROBOROS_AUTH_FILE
+    const fakeHome = mkdtempSync(join(tmpdir(), 'ouroboros-fake-home-'))
+    const savedHome = process.env.HOME
+    process.env.HOME = fakeHome
+
+    try {
+      // Auth lives ONLY at the homedir default (mirrors the manager's writes).
+      writeFileSync(
+        join(fakeHome, '.ouroboros-auth.json'),
+        JSON.stringify({
+          [OPENAI_CHATGPT_PROVIDER]: {
+            type: 'oauth',
+            refresh: 'home-refresh',
+            access: 'home-access',
+            expires: Date.now() + 60_000,
+            accountId: 'acct_home',
+          },
+        }),
+        { encoding: 'utf-8', mode: 0o600 },
+      )
+
+      const result = createProvider({ provider: 'openai-chatgpt', name: 'gpt-5.4' })
+
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      const model = result.value as Record<string, unknown>
+      expect(model.modelId).toBe('gpt-5.4')
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME
+      else process.env.HOME = savedHome
+      rmSync(fakeHome, { recursive: true, force: true })
+    }
   })
 
   test('rejects unknown provider', () => {

@@ -31,14 +31,12 @@ type OpenAIFetch = NonNullable<Parameters<typeof createOpenAI>[0]>['fetch']
  *   - Anthropic: ANTHROPIC_API_KEY, then model.apiKey
  *   - OpenAI: OPENAI_API_KEY, then model.apiKey
  *   - OpenAI-compatible: OUROBOROS_OPENAI_COMPATIBLE_API_KEY, then model.apiKey
- *   - OpenAI ChatGPT: OAuth auth store managed via `ouroboros auth`
+ *   - OpenAI ChatGPT: OAuth auth store at `<homedir>/.ouroboros-auth.json`
+ *     (override with `OUROBOROS_AUTH_FILE` for tests)
  *
  * @returns A Result containing either a LanguageModel or a descriptive error
  */
-export function createProvider(
-  modelConfig: ModelConfig,
-  configDir?: string,
-): Result<LanguageModel> {
+export function createProvider(modelConfig: ModelConfig): Result<LanguageModel> {
   const { provider, name: modelId } = modelConfig
 
   switch (provider) {
@@ -113,7 +111,12 @@ export function createProvider(
           ),
         )
       }
-      const authResult = getAuth(OPENAI_CHATGPT_PROVIDER, configDir)
+      // ChatGPT auth is per-user, not per-workspace: the auth manager
+      // (login/logout/status) saves and reads via the homedir default, so the
+      // provider must use the same path. Threading `configDir` here would
+      // look in `<configDir>/.ouroboros-auth.json` and miss the auth the user
+      // just stored via the desktop login flow.
+      const authResult = getAuth(OPENAI_CHATGPT_PROVIDER)
       if (!authResult.ok) {
         return authResult
       }
@@ -128,7 +131,7 @@ export function createProvider(
       const openai = createOpenAI({
         name: OPENAI_CHATGPT_PROVIDER,
         apiKey: OPENAI_CHATGPT_OAUTH_DUMMY_KEY,
-        fetch: createOpenAIChatGPTFetch(createProviderFetch(OPENAI_CHATGPT_PROVIDER), configDir),
+        fetch: createOpenAIChatGPTFetch(createProviderFetch(OPENAI_CHATGPT_PROVIDER)),
       })
       return ok(openai.responses(modelId))
     }

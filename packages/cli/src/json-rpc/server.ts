@@ -405,7 +405,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
    */
   let anonymousAgent: Agent | null = null
   function buildAgent(basePath = configDir): Agent {
-    const providerResult = createProvider(config.model, configDir)
+    const providerResult = createProvider(config.model)
     if (!providerResult.ok) {
       throw new Error(providerResult.error.message)
     }
