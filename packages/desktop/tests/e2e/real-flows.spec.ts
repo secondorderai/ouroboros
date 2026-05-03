@@ -295,7 +295,15 @@ test('sessions, command palette, approvals queue, and RSI drawer all work throug
   await expect(launched.page.getByText('core/fs')).toBeVisible()
   await launched.page.getByRole('tab', { name: 'Overview' }).click()
   await launched.page.getByRole('button', { name: 'Run dream cycle' }).click()
-  await expect(launched.page.getByText(/Dream cycle completed/i)).toBeVisible()
+  // The new summary appears in both Recent Activity and History rows, so use
+  // .first() to avoid strict-mode locator collisions.
+  await expect(launched.page.getByText(/Dream cycle completed/i).first()).toBeVisible()
+  // Renderer must surface real consolidation counts from the RsiDreamResult
+  // payload, not the legacy "completed -- not implemented" stub message.
+  // See packages/desktop/src/renderer/hooks/useRSI.ts (formatDreamSummary).
+  await expect(launched.page.getByText(/2 created/i).first()).toBeVisible()
+  await expect(launched.page.getByText(/1 merged/i).first()).toBeVisible()
+  await expect(launched.page.getByText(/1 promoted to durable memory/i).first()).toBeVisible()
   await launched.page.getByLabel('Close drawer').click()
 })
 

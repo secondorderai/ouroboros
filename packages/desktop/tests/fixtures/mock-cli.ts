@@ -439,12 +439,24 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
       return
     }
     case 'rsi/dream':
-      writeResult(request.id, { status: 'ok', message: 'Dreamed successfully' })
+      writeResult(request.id, {
+        sessionsAnalyzed: 1,
+        topicsMerged: 1,
+        topicsCreated: 2,
+        topicsPruned: 0,
+        contradictionsResolved: 0,
+        memoryIndexUpdated: true,
+        durablePromotions: ['Test promoted fact'],
+        durablePrunes: [],
+        contradictionsResolvedEntries: [],
+        dailyMemoryFilesUpdated: [],
+        skillProposals: [],
+      })
       scheduleNotifications([
         {
           delayMs: 20,
           method: 'rsi/dream',
-          params: { message: 'Dreamed successfully' },
+          params: { message: 'Promoted 1 durable items, pruned 0.' },
         },
       ])
       return

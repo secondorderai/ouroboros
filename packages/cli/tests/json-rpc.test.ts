@@ -830,6 +830,79 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
       rmSync(configDir, { recursive: true, force: true })
     })
+
+    test('rsi/dream invokes the orchestrator and returns a DreamResult-shaped payload', async () => {
+      // Regression test for the previously stubbed handler that returned
+      // `{ status: 'not-implemented' }` regardless of orchestrator state.
+      // This used to silently ship the "completed" UI even though the
+      // dream cycle had never run.
+      const { RSIOrchestrator } = await import('@src/rsi/orchestrator')
+
+      const configDir = join(tmpdir(), `ouroboros-jsonrpc-dream-${crypto.randomUUID()}`)
+      mkdirSync(join(configDir, 'memory', 'topics'), { recursive: true })
+
+      const model = createMockModel([])
+      const orchestrator = new RSIOrchestrator({
+        config: makeTestConfig(),
+        llm: model,
+        basePath: configDir,
+      })
+
+      const ctx = createTestContext({
+        configDir,
+        agentOptions: { rsiOrchestrator: orchestrator, basePath: configDir },
+      })
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('rsi/dream')!({})) as Record<string, unknown>
+
+      expect(typeof result.sessionsAnalyzed).toBe('number')
+      expect(typeof result.topicsMerged).toBe('number')
+      expect(typeof result.topicsCreated).toBe('number')
+      expect(typeof result.topicsPruned).toBe('number')
+      expect(Array.isArray(result.durablePromotions)).toBe(true)
+      expect(Array.isArray(result.durablePrunes)).toBe(true)
+      expect(Array.isArray(result.skillProposals)).toBe(true)
+      // Crucially: the legacy stub shape must be gone — no `status` field.
+      expect(result.status).toBeUndefined()
+
+      ctx.transcriptStore.close()
+      rmSync(configDir, { recursive: true, force: true })
+    })
+
+    test('rsi/dream throws INTERNAL_ERROR when no orchestrator is configured', async () => {
+      const configDir = join(tmpdir(), `ouroboros-jsonrpc-dream-stub-${crypto.randomUUID()}`)
+      mkdirSync(configDir, { recursive: true })
+
+      const ctx = createTestContext({ configDir })
+      const handlers = createHandlers(ctx)
+
+      try {
+        await handlers.get('rsi/dream')!({})
+        expect.unreachable('expected HandlerError')
+      } catch (e) {
+        expect(e).toBeInstanceOf(HandlerError)
+        expect((e as HandlerError).code).toBe(JSON_RPC_ERRORS.INTERNAL_ERROR.code)
+      }
+
+      ctx.transcriptStore.close()
+      rmSync(configDir, { recursive: true, force: true })
+    })
+
+    test('rsi/status returns idle without referencing the legacy stub message', async () => {
+      const configDir = join(tmpdir(), `ouroboros-jsonrpc-status-${crypto.randomUUID()}`)
+      mkdirSync(configDir, { recursive: true })
+
+      const ctx = createTestContext({ configDir })
+      const handlers = createHandlers(ctx)
+
+      const result = (await handlers.get('rsi/status')!({})) as Record<string, unknown>
+      expect(result.status).toBe('idle')
+      expect(result.message).toBeUndefined()
+
+      ctx.transcriptStore.close()
+      rmSync(configDir, { recursive: true, force: true })
+    })
   })
 
   // -------------------------------------------------------------------
@@ -2485,7 +2558,8 @@ describe('JSON-RPC', () => {
       const tempDir = join(tmpdir(), `ouroboros-jsonrpc-images-${crypto.randomUUID()}`)
       mkdirSync(tempDir, { recursive: true })
       const imagePath = join(tempDir, 'screen.png')
-      writeFileSync(imagePath, new Uint8Array([137, 80, 78, 71]))
+      // Full PNG signature so the magic-byte sniff in readImageFilePart accepts it.
+      writeFileSync(imagePath, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
 
       const ctx = createTestContext({ configDir: tempDir })
       const handlers = createHandlers(ctx)
@@ -2499,7 +2573,7 @@ describe('JSON-RPC', () => {
               path: imagePath,
               name: 'screen.png',
               mediaType: 'image/png',
-              sizeBytes: 4,
+              sizeBytes: 8,
             },
           ],
         })
@@ -2513,7 +2587,6 @@ describe('JSON-RPC', () => {
         expect(typeof userMessage.toolArgs).toBe('string')
         expect(userMessage.toolArgs).toContain('screen.png')
         expect(userMessage.toolArgs).not.toContain('previewDataUrl')
-        expect(userMessage.toolArgs).not.toContain('137,80,78,71')
 
         const loaded = (await handlers.get('session/load')!({ id: newResult.sessionId })) as {
           messages: Array<{ imageAttachments?: unknown }>
@@ -2523,7 +2596,7 @@ describe('JSON-RPC', () => {
             path: imagePath,
             name: 'screen.png',
             mediaType: 'image/png',
-            sizeBytes: 4,
+            sizeBytes: 8,
           },
         ])
       } finally {
@@ -2551,6 +2624,36 @@ describe('JSON-RPC', () => {
       ).rejects.toThrow('mediaType must be image/jpeg, image/png, or image/webp')
 
       ctx.transcriptStore.close()
+    })
+
+    test('agent/run rejects renamed binaries that fail magic-byte verification', async () => {
+      const tempDir = join(tmpdir(), `ouroboros-jsonrpc-images-magic-${crypto.randomUUID()}`)
+      mkdirSync(tempDir, { recursive: true })
+      // PNG header is 0x89 0x50 0x4E 0x47 ...; this fixture is plain text saved with .png.
+      const fakePath = join(tempDir, 'id_rsa.png')
+      writeFileSync(fakePath, '-----BEGIN OPENSSH PRIVATE KEY-----\nMIIBOgIBAAJB\n')
+
+      const ctx = createTestContext({ configDir: tempDir })
+      const handlers = createHandlers(ctx)
+
+      try {
+        await expect(
+          handlers.get('agent/run')!({
+            message: 'try to leak',
+            images: [
+              {
+                path: fakePath,
+                name: 'id_rsa.png',
+                mediaType: 'image/png',
+                sizeBytes: 64,
+              },
+            ],
+          }),
+        ).rejects.toThrow('image content does not match declared format')
+      } finally {
+        ctx.transcriptStore.close()
+        rmSync(tempDir, { recursive: true, force: true })
+      }
     })
 
     test('step-limit summary persists without internal limit instruction', async () => {

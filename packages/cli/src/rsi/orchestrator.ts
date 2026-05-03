@@ -15,19 +15,22 @@
 
 import { resolve } from 'node:path'
 import type { LanguageModel } from 'ai'
-import { type Result, err } from '@src/types'
+import { type Result, err, ok } from '@src/types'
 import type { OuroborosConfig } from '@src/config'
 import type { RSIEventHandler, RSIEvent } from './types'
 import {
   reflect,
   shouldCrystallize,
   crystallize,
+  buildRSILLMCallOptions,
+  generateRSIResponse,
   type ReflectionRecord,
   type CrystallizationResult,
 } from './crystallize'
 import { appendEntry } from './evolution-log'
 import { dream, type DreamResult, type DreamOptions, type DreamDeps } from '@src/memory/dream'
 import { discoverConfiguredSkills, getSkillCatalog } from '@src/tools/skill-manager'
+import type { TranscriptStore } from '@src/memory/transcripts'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -36,6 +39,13 @@ export interface RSIOrchestratorOptions {
   llm: LanguageModel
   onEvent?: RSIEventHandler
   basePath?: string
+  /**
+   * Optional transcript store. When provided, the dream cycle's transcript
+   * analysis (`mode: 'full' | 'propose-only'`) reads recent sessions from it;
+   * when omitted, those modes silently skip the transcript-analysis stage and
+   * only structured-memory consolidation runs.
+   */
+  transcriptStore?: TranscriptStore
 }
 
 // ── Orchestrator ───────────────────────────────────────────────────
@@ -45,12 +55,14 @@ export class RSIOrchestrator {
   private llm: LanguageModel
   private onEvent: RSIEventHandler
   private basePath: string | undefined
+  private transcriptStore: TranscriptStore | undefined
 
   constructor(options: RSIOrchestratorOptions) {
     this.config = options.config
     this.llm = options.llm
     this.onEvent = options.onEvent ?? (() => {})
     this.basePath = options.basePath
+    this.transcriptStore = options.transcriptStore
   }
 
   /**
@@ -247,16 +259,32 @@ export class RSIOrchestrator {
     try {
       const dreamOpts: DreamOptions = {
         mode: options?.mode ?? 'consolidate-only',
+        ...(options?.sessionCount !== undefined ? { sessionCount: options.sessionCount } : {}),
       }
 
-      // Build dream dependencies — dream() needs LLM and session accessors
+      // Build dream dependencies. The LLM call mirrors how reflect()/generateSkill()
+      // talk to the model in crystallize.ts so dream prompts share the same
+      // reasoning-model handling and bad-request retry behavior. Session
+      // accessors come from the transcript store when one is configured;
+      // otherwise we keep the legacy no-op shape so non-RPC callers (e.g. the
+      // CLI when no DB is open) still consolidate structured memory.
+      const llm = this.llm
+      const transcriptStore = this.transcriptStore
       const deps: DreamDeps = {
-        generateFn: async (_prompt: string) => ({ ok: true as const, value: '' }),
-        getRecentSessions: () => ({ ok: true as const, value: [] }),
-        getSession: () => ({
-          ok: false as const,
-          error: new Error('No session store configured'),
-        }),
+        generateFn: async (prompt: string) => {
+          const r = await generateRSIResponse(
+            llm,
+            [{ role: 'user', content: prompt }],
+            buildRSILLMCallOptions(llm, 0.2, 2048),
+          )
+          return r.ok ? ok(r.value.text) : err(r.error)
+        },
+        getRecentSessions: transcriptStore
+          ? (limit) => transcriptStore.getRecentSessions(limit)
+          : () => ok([]),
+        getSession: transcriptStore
+          ? (sessionId) => transcriptStore.getSession(sessionId)
+          : () => err(new Error('No session store configured')),
         basePath: this.basePath,
       }
 

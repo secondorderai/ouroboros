@@ -133,7 +133,7 @@ function isOpenAIReasoningModel(llm: LanguageModel): boolean {
   return getReasoningSupport(info.modelId ?? '', info.provider)?.kind === 'openai-reasoning'
 }
 
-function buildRSILLMCallOptions(
+export function buildRSILLMCallOptions(
   llm: LanguageModel,
   temperature: number,
   maxTokens: number,
@@ -144,7 +144,7 @@ function buildRSILLMCallOptions(
   }
 }
 
-async function generateRSIResponse(
+export async function generateRSIResponse(
   llm: LanguageModel,
   messages: LLMMessage[],
   options: LLMCallOptions,

@@ -152,9 +152,25 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
   const stopMcp = (): void => {
     void mcpManager.stop()
   }
-  process.once('SIGTERM', stopMcp)
-  process.once('SIGINT', stopMcp)
-  process.once('beforeExit', stopMcp)
+
+  // On process teardown, give every cached agent a chance to run its
+  // session-end RSI hook (the dream cycle, when configured). Fire-and-forget
+  // and bounded by Node's normal exit semantics — the LLM call may be cut
+  // short, but partial structured-memory writes are still durable. Without
+  // this, `consolidationSchedule: 'session-end'` would be dead in JSON-RPC
+  // mode because nothing else calls Agent.shutdown() at app quit.
+  const shutdownAllAgents = (): void => {
+    for (const agent of agentsBySession.values()) {
+      void agent.shutdown()
+    }
+  }
+  const onExit = (): void => {
+    shutdownAllAgents()
+    stopMcp()
+  }
+  process.once('SIGTERM', onExit)
+  process.once('SIGINT', onExit)
+  process.once('beforeExit', onExit)
 
   // ── Per-session run state ────────────────────────────────────────
   //
@@ -398,6 +414,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       llm: providerResult.value,
       onEvent: eventProxy,
       basePath,
+      transcriptStore,
     })
     return new Agent({
       model: providerResult.value,
@@ -475,6 +492,15 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     forgetSession: (sessionId) => {
       abortsBySession.get(sessionId)?.abort()
       abortsBySession.delete(sessionId)
+      // Fire-and-forget the agent's session-end hook so the dream cycle
+      // (when configured) gets a chance to consolidate before the agent is
+      // discarded. Agent.shutdown() already swallows its own errors. We
+      // don't await — closing/deleting a session must not block the UI on
+      // an LLM-bound consolidation pass.
+      const agent = agentsBySession.get(sessionId)
+      if (agent) {
+        void agent.shutdown()
+      }
       agentsBySession.delete(sessionId)
       skillActivationsBySession.delete(sessionId)
     },

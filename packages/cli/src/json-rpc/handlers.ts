@@ -35,6 +35,7 @@ import type { PermissionLeaseApprovalDetails } from '@src/permission-lease'
 import type { WorkerDiffApprovalDetails } from '@src/tools/worker-diff-approval'
 import { getEntries, getStats } from '@src/rsi/evolution-log'
 import type { ReflectionCheckpoint } from '@src/rsi/types'
+import type { DreamOptions, DreamResult, SkillProposal } from '@src/memory/dream'
 import { TaskGraphStore, type CreateTaskNodeInput } from '@src/team/task-graph'
 import {
   createWorkflowTemplate,
@@ -49,6 +50,7 @@ import {
 } from '@src/tools/skill-manager'
 import { JSON_RPC_ERRORS, makeNotification } from './types'
 import { writeMessage } from './transport'
+import { verifyImageFileMagicBytes } from '@src/utils/image-magic-bytes'
 import type { McpManager } from '@src/mcp/manager'
 import type { McpServerStatusEntry } from '@src/mcp/types'
 
@@ -1128,14 +1130,36 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
   // ── rsi/* ────────────────────────────────────────────────────────
 
-  handlers.set('rsi/dream', async () => {
-    // RSI orchestrator not yet implemented — stub
-    return { status: 'not-implemented', message: 'RSI orchestrator not yet available' }
+  handlers.set('rsi/dream', async (params) => {
+    const orchestrator = ctx.getAgent().getRSIOrchestrator()
+    if (!orchestrator) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INTERNAL_ERROR.code,
+        'RSI orchestrator unavailable for this session',
+      )
+    }
+
+    const dreamOptions: DreamOptions = {}
+    const requestedMode = params?.mode
+    if (
+      requestedMode === 'full' ||
+      requestedMode === 'consolidate-only' ||
+      requestedMode === 'propose-only'
+    ) {
+      dreamOptions.mode = requestedMode
+    }
+
+    const result = await orchestrator.triggerDream(dreamOptions)
+    if (!result.ok) {
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    }
+    return toRsiDreamResult(result.value)
   })
 
   handlers.set('rsi/status', async () => {
-    // RSI orchestrator not yet implemented — stub
-    return { status: 'idle', message: 'RSI orchestrator not yet available' }
+    // No notion of an in-flight RSI run yet; the dream cycle is invoked
+    // synchronously from rsi/dream and emits its own progress notifications.
+    return { status: 'idle' as const }
   })
 
   handlers.set('rsi/history', async (params) => {
@@ -1766,6 +1790,13 @@ function readImageFilePart(
       if (indexForErrors === undefined) return null
       throw new Error('unsupported image file extension')
     }
+    // Magic-byte sniff defends against renamed binaries (e.g. id_rsa.png).
+    // Mirrors the desktop grant-store check; the CLI handles standalone use
+    // and must not depend solely on the desktop boundary.
+    if (!verifyImageFileMagicBytes(metadata.path, metadata.mediaType)) {
+      if (indexForErrors === undefined) return null
+      throw new Error('image content does not match declared format')
+    }
 
     return {
       type: 'file',
@@ -1984,6 +2015,30 @@ function toSentenceCase(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) return ''
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+}
+
+function toRsiDreamSkillProposal(proposal: SkillProposal) {
+  return {
+    proposedName: proposal.proposedName,
+    description: proposal.description,
+    estimatedImpact: proposal.estimatedImpact,
+  }
+}
+
+function toRsiDreamResult(result: DreamResult) {
+  return {
+    sessionsAnalyzed: result.sessionsAnalyzed,
+    topicsMerged: result.topicsMerged,
+    topicsCreated: result.topicsCreated,
+    topicsPruned: result.topicsPruned,
+    contradictionsResolved: result.contradictionsResolved,
+    memoryIndexUpdated: result.memoryIndexUpdated,
+    durablePromotions: result.durablePromotions,
+    durablePrunes: result.durablePrunes,
+    contradictionsResolvedEntries: result.contradictionsResolvedEntries,
+    dailyMemoryFilesUpdated: result.dailyMemoryFilesUpdated,
+    skillProposals: result.skillProposals.map(toRsiDreamSkillProposal),
+  }
 }
 
 function listCheckpointSummaries(basePath: string, limit?: number) {

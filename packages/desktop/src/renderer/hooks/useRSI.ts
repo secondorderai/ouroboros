@@ -11,6 +11,7 @@ import type {
   RsiHistoryResult,
   RsiCheckpointResult,
   RSICheckpointDetail,
+  RsiDreamResult,
 } from '../../shared/protocol'
 
 export interface RSIActivity {
@@ -127,6 +128,25 @@ function describeRSIEvent(entry: EvolutionEntry): string {
     default:
       return entry.description
   }
+}
+
+function formatDreamSummary(result: RsiDreamResult): string {
+  const parts: string[] = []
+  if (result.topicsCreated > 0) parts.push(`${result.topicsCreated} created`)
+  if (result.topicsMerged > 0) parts.push(`${result.topicsMerged} merged`)
+  if (result.topicsPruned > 0) parts.push(`${result.topicsPruned} pruned`)
+  if (result.contradictionsResolved > 0) {
+    parts.push(`${result.contradictionsResolved} contradiction${result.contradictionsResolved === 1 ? '' : 's'} resolved`)
+  }
+  if (result.durablePromotions.length > 0) {
+    parts.push(`${result.durablePromotions.length} promoted to durable memory`)
+  }
+  if (parts.length === 0) {
+    return result.sessionsAnalyzed > 0
+      ? `Analyzed ${result.sessionsAnalyzed} session${result.sessionsAnalyzed === 1 ? '' : 's'}, no changes`
+      : 'No changes'
+  }
+  return parts.join(', ')
 }
 
 function pickString(...values: unknown[]): string | null {
@@ -579,14 +599,25 @@ export function useRSI(): UseRSIReturn {
     if (dreamRunning) return
     setDreamRunning(true)
     try {
-      const result = (await window.ouroboros.rpc('rsi/dream')) as {
-        status: string
-        message: string
-      }
+      const result = (await window.ouroboros.rpc('rsi/dream')) as RsiDreamResult
       const now = new Date().toISOString()
+      const summary = formatDreamSummary(result)
+      const chips: RSIHistoryChip[] = [{ label: 'Dream', tone: 'success' }]
+      if (result.durablePromotions.length > 0) {
+        chips.push({
+          label: `${result.durablePromotions.length} promoted`,
+          tone: 'accent',
+        })
+      }
+      if (result.skillProposals.length > 0) {
+        chips.push({
+          label: `${result.skillProposals.length} skill proposal${result.skillProposals.length === 1 ? '' : 's'}`,
+          tone: 'accent',
+        })
+      }
       const newActivity: RSIActivity = {
         id: `dream-${Date.now()}`,
-        description: `Dream cycle completed -- ${result.message || 'done'}`,
+        description: `Dream cycle completed — ${summary}`,
         timestamp: now,
       }
       const dreamEntry: RSIHistoryEntryView = {
@@ -594,22 +625,34 @@ export function useRSI(): UseRSIReturn {
         source: 'evolution',
         category: 'dream',
         title: 'Dream cycle completed',
-        summary: result.message || 'Done',
+        summary,
         timestamp: now,
         typeLabel: 'Dream',
-        chips: [{ label: 'Dream', tone: 'success' }],
+        chips,
       }
       setOverviewActivities((prev) => mergeActivities([newActivity], prev))
       setHistoryEntries((prev) => mergeHistoryEntries([dreamEntry], prev))
       invalidateCaches()
-    } catch {
+    } catch (error) {
       const now = new Date().toISOString()
+      const message = error instanceof Error ? error.message : 'could not complete'
       const errorActivity: RSIActivity = {
         id: `dream-error-${Date.now()}`,
-        description: 'Dream cycle failed -- could not complete',
+        description: `Dream cycle failed — ${message}`,
         timestamp: now,
       }
+      const errorEntry: RSIHistoryEntryView = {
+        id: `dream-error:${Date.now()}`,
+        source: 'evolution',
+        category: 'errors',
+        title: 'Dream cycle failed',
+        summary: message,
+        timestamp: now,
+        typeLabel: 'Dream',
+        chips: [{ label: 'Dream', tone: 'danger' }],
+      }
       setOverviewActivities((prev) => mergeActivities([errorActivity], prev))
+      setHistoryEntries((prev) => mergeHistoryEntries([errorEntry], prev))
     } finally {
       setDreamRunning(false)
     }

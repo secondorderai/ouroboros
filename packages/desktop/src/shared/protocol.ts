@@ -512,7 +512,9 @@ export interface SkillsListParams {
 export interface SkillsGetParams {
   name: string
 }
-export type RsiDreamParams = Record<string, never>
+export interface RsiDreamParams {
+  mode?: 'full' | 'consolidate-only' | 'propose-only'
+}
 export type RsiStatusParams = Record<string, never>
 export interface RsiHistoryParams {
   limit?: number
@@ -837,13 +839,26 @@ export interface SkillsGetResult extends SkillInfo {
   instructions: string | null
 }
 
+export interface RsiDreamSkillProposal {
+  proposedName: string
+  description: string
+  estimatedImpact: 'high' | 'medium' | 'low'
+}
 export interface RsiDreamResult {
-  status: string
-  message: string
+  sessionsAnalyzed: number
+  topicsMerged: number
+  topicsCreated: number
+  topicsPruned: number
+  contradictionsResolved: number
+  memoryIndexUpdated: boolean
+  durablePromotions: string[]
+  durablePrunes: string[]
+  contradictionsResolvedEntries: string[]
+  dailyMemoryFilesUpdated: string[]
+  skillProposals: RsiDreamSkillProposal[]
 }
 export interface RsiStatusResult {
-  status: string
-  message: string
+  status: 'idle' | 'running'
 }
 
 export interface RSIDurableMemoryCandidate {

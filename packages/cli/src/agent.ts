@@ -1137,6 +1137,16 @@ export class Agent {
   }
 
   /**
+   * Read-only access to the RSI orchestrator owning this agent's reflection,
+   * crystallization, and dream-cycle lifecycle. JSON-RPC handlers use this to
+   * delegate `rsi/*` requests to the per-agent orchestrator without exposing
+   * the field for mutation.
+   */
+  getRSIOrchestrator(): RSIOrchestrator | null {
+    return this.rsiOrchestrator
+  }
+
+  /**
    * Shut down the agent gracefully.
    * Triggers session-end RSI hooks (dream cycle) if configured.
    */

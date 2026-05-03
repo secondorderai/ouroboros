@@ -19,6 +19,7 @@ import { getEntries } from '@src/rsi/evolution-log'
 import { ToolRegistry } from '@src/tools/registry'
 import type { OuroborosConfig } from '@src/config'
 import { configSchema } from '@src/config'
+import { TranscriptStore } from '@src/memory/transcripts'
 import { createMockModel, textBlock, finishStop } from '../helpers/mock-llm'
 import { makeTempDir, cleanupTempDir } from '../helpers/test-utils'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -173,6 +174,50 @@ function createDualMockModel(
         warnings: [],
       }
     },
+  }
+
+  return model as LanguageModel
+}
+
+/**
+ * Create a mock model that increments `counter.doGenerate` on every doGenerate
+ * call and returns a benign empty-text response. Useful for asserting that an
+ * orchestrator pathway actually reached the LLM (vs. the pre-fix stubbed
+ * `generateFn` that bypassed the model entirely).
+ */
+function createCountingMockModel(counter: { doGenerate: number }): LanguageModel {
+  const model: LanguageModelV3 = {
+    specificationVersion: 'v3',
+    provider: 'mock',
+    modelId: 'mock-counting-model',
+    supportedUrls: {},
+
+    doGenerate: async () => {
+      counter.doGenerate++
+      return {
+        content: [{ type: 'text' as const, text: '' }],
+        finishReason: { unified: 'stop' as const, raw: 'stop' },
+        usage: {
+          inputTokens: {
+            total: 1,
+            noCache: undefined,
+            cacheRead: undefined,
+            cacheWrite: undefined,
+          },
+          outputTokens: { total: 1, text: undefined, reasoning: undefined },
+        },
+        warnings: [],
+      }
+    },
+
+    doStream: async () => ({
+      stream: new ReadableStream<LanguageModelV3StreamPart>({
+        start(controller) {
+          controller.close()
+        },
+      }),
+      warnings: [],
+    }),
   }
 
   return model as LanguageModel
@@ -630,6 +675,74 @@ describe('RSI Orchestrator', () => {
     // Dream event should fire
     const dreamEvent = rsiEvents.find((e) => e.type === 'rsi-dream')
     expect(dreamEvent).toBeDefined()
+  })
+
+  test('triggerDream in full mode invokes the LLM via the configured transcript store', async () => {
+    // Regression test for the previously-stubbed DreamDeps inside
+    // triggerDream: a `mode: 'full'` run with a transcript store containing
+    // sessions must call doGenerate via generateFn at least once. The pre-fix
+    // implementation hardcoded `generateFn` to return ok('') and ignored the
+    // configured LanguageModel entirely, so this assertion would fail without
+    // the wiring fix.
+    const config = makeConfig({
+      memory: { consolidationSchedule: 'manual' },
+    })
+
+    const dbPath = join(tempDir, 'transcripts.db')
+    const transcriptStore = new TranscriptStore(dbPath)
+    const sessionResult = transcriptStore.createSession(tempDir, 'workspace')
+    expect(sessionResult.ok).toBe(true)
+    if (!sessionResult.ok) return
+    const sessionId = sessionResult.value
+    transcriptStore.addMessage(sessionId, { role: 'user', content: 'hello' })
+    transcriptStore.addMessage(sessionId, { role: 'assistant', content: 'hi back' })
+
+    const callCounter = { doGenerate: 0 }
+    const model = createCountingMockModel(callCounter)
+
+    const orchestrator = new RSIOrchestrator({
+      config,
+      llm: model,
+      basePath: tempDir,
+      transcriptStore,
+    })
+
+    const result = await orchestrator.triggerDream({ mode: 'full' })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.sessionsAnalyzed).toBe(1)
+    }
+    expect(callCounter.doGenerate).toBeGreaterThan(0)
+  })
+
+  test('triggerDream falls back to no-op session deps when no transcript store is configured', async () => {
+    // Preserves the CLI-without-DB path: when a caller (e.g. the standalone
+    // `ouroboros dream` invocation in an environment with no SQLite) builds
+    // the orchestrator without a transcriptStore, dream() must still complete
+    // — only structured-memory consolidation runs and sessionsAnalyzed is 0.
+    const config = makeConfig({
+      memory: { consolidationSchedule: 'manual' },
+    })
+
+    const callCounter = { doGenerate: 0 }
+    const model = createCountingMockModel(callCounter)
+
+    const orchestrator = new RSIOrchestrator({
+      config,
+      llm: model,
+      basePath: tempDir,
+    })
+
+    const result = await orchestrator.triggerDream({ mode: 'full' })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.sessionsAnalyzed).toBe(0)
+    }
+    // No sessions to analyze, so analyzeTranscripts is skipped and the LLM
+    // is never invoked even in 'full' mode.
+    expect(callCounter.doGenerate).toBe(0)
   })
 
   test('autoReflect: false disables post-task reflection', async () => {

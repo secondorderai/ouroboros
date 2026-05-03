@@ -40,6 +40,8 @@ import { createRegistry } from '@src/tools/registry'
 import { McpManager } from '@src/mcp/manager'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { RSIEvent } from '@src/rsi/types'
+import { TranscriptStore } from '@src/memory/transcripts'
+import { resolve as resolvePath } from 'node:path'
 import { Command } from 'commander'
 
 // ── CLI program definition ──────────────────────────────────────────
@@ -107,12 +109,27 @@ program
 
     process.stdout.write('[RSI] Starting dream cycle...\n')
 
+    // Open the transcript store so the dream cycle can analyze recent
+    // sessions in 'full' / 'propose-only' modes. Failure is non-fatal —
+    // we fall back to structured-memory consolidation only and warn the user.
+    const dbPath = resolvePath(configDir, '.ouroboros-transcripts.db')
+    const transcriptStoreResult = TranscriptStore.create(dbPath)
+    let transcriptStore: TranscriptStore | undefined
+    if (transcriptStoreResult.ok) {
+      transcriptStore = transcriptStoreResult.value
+    } else {
+      process.stderr.write(
+        `[RSI] Warning: transcript store unavailable, transcript analysis will be skipped: ${transcriptStoreResult.error.message}\n`,
+      )
+    }
+
     const orchestrator = new RSIOrchestrator({
       config,
       llm: providerResult.value,
       onEvent: (event: RSIEvent) => {
         writeRSIEvent(event)
       },
+      ...(transcriptStore ? { transcriptStore } : {}),
     })
 
     const mode = dreamOpts.mode === 'full' ? 'full' : 'consolidate-only'
