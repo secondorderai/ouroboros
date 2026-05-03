@@ -611,6 +611,38 @@ describe('reflect()', () => {
     expect(doGenerateCalls[0]?.temperature).toBe(0.2)
   })
 
+  test('sends instructions to chatgpt responses provider even without a system prompt', async () => {
+    // Regression: RSI reflect()/generateSkill()/dream paths pass no system
+    // prompt, only a single user message. The Codex Responses API endpoint
+    // backing the openai-chatgpt provider rejects requests with empty
+    // instructions as 400 {"detail":"Instructions are required"}, so the
+    // provider integration must inject a default at the boundary.
+    const mockResponse = JSON.stringify({
+      taskSummary: 'Created a new feature',
+      novelty: 0.9,
+      generalizability: 0.85,
+      reasoning: 'Completely new approach with no existing skills to compare.',
+      shouldCrystallize: false,
+    })
+
+    const { llm, doGenerateCalls } = createCapturingLLM({
+      provider: 'openai-chatgpt.responses',
+      modelId: 'gpt-5.4',
+      responseText: mockResponse,
+    })
+
+    const result = await reflect('Created a new feature', [], llm)
+
+    expect(result.ok).toBe(true)
+    expect(doGenerateCalls).toHaveLength(1)
+    const providerOptions = doGenerateCalls[0]?.providerOptions as
+      | { openai?: { store?: unknown; instructions?: unknown } }
+      | undefined
+    expect(providerOptions?.openai?.store).toBe(false)
+    expect(typeof providerOptions?.openai?.instructions).toBe('string')
+    expect((providerOptions?.openai?.instructions as string).length).toBeGreaterThan(0)
+  })
+
   test('omits temperature for o-series snapshot variants (registry prefix match)', async () => {
     const mockResponse = JSON.stringify({
       taskSummary: 'Created a new feature',

@@ -473,7 +473,11 @@ describe('streamResponse', () => {
     })
   })
 
-  test('forces chatgpt responses store off even without system prompt', async () => {
+  test('sends default chatgpt instructions when no system prompt is given', async () => {
+    // Regression: the Codex Responses API endpoint backing the openai-chatgpt
+    // provider rejects requests without `instructions` as 400
+    // {"detail":"Instructions are required"}. RSI paths (reflect, generateSkill,
+    // dream) pass no system prompt, so we must fall back to a non-empty default.
     let capturedProviderOptions: unknown
 
     const model = {
@@ -507,11 +511,10 @@ describe('streamResponse', () => {
       // Exhaust stream to force the provider call.
     }
 
-    expect(capturedProviderOptions).toEqual({
-      openai: {
-        store: false,
-      },
-    })
+    const captured = capturedProviderOptions as { openai: { store: boolean; instructions: string } }
+    expect(captured.openai.store).toBe(false)
+    expect(typeof captured.openai.instructions).toBe('string')
+    expect(captured.openai.instructions.length).toBeGreaterThan(0)
   })
 
   test('passes anthropic adaptive thinking + effort and forces temperature=1', async () => {
@@ -848,7 +851,11 @@ describe('generateResponse', () => {
     })
   })
 
-  test('forces chatgpt responses store off even without system prompt', async () => {
+  test('sends default chatgpt instructions when no system prompt is given (non-streaming)', async () => {
+    // Regression for RSI reflect/generateSkill/dream calls: those paths use the
+    // non-streaming generateResponse with a single user message and no system
+    // prompt. Without a default `instructions`, the Codex Responses API
+    // rejects every request with 400 "Instructions are required".
     let capturedProviderOptions: unknown
 
     const model = {
@@ -883,11 +890,10 @@ describe('generateResponse', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(capturedProviderOptions).toEqual({
-      openai: {
-        store: false,
-      },
-    })
+    const captured = capturedProviderOptions as { openai: { store: boolean; instructions: string } }
+    expect(captured.openai.store).toBe(false)
+    expect(typeof captured.openai.instructions).toBe('string')
+    expect(captured.openai.instructions.length).toBeGreaterThan(0)
   })
 
   test('passes anthropic adaptive thinking and forces temperature=1 in non-streaming path', async () => {

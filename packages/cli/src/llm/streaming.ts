@@ -109,6 +109,16 @@ interface PreparedPromptOptions {
   effectiveTemperature?: number
 }
 
+/**
+ * The Codex Responses API endpoint backing the `openai-chatgpt` provider
+ * requires a non-empty `instructions` field on every request and rejects
+ * calls without one as `400 {"detail":"Instructions are required"}`. RSI
+ * paths (reflection, skill generation, dream) intentionally encode role
+ * context inside the user message and pass no system prompt, so we fall
+ * back to this generic value at the integration boundary.
+ */
+const CHATGPT_RESPONSES_DEFAULT_INSTRUCTIONS = 'You are a helpful assistant.'
+
 function getProviderPromptOptions(
   model: LanguageModel,
   options?: LLMCallOptions,
@@ -123,7 +133,7 @@ function getProviderPromptOptions(
   if (isChatgptResponses) {
     providerOptions.openai = {
       store: false,
-      ...(options?.system ? { instructions: options.system } : {}),
+      instructions: options?.system ?? CHATGPT_RESPONSES_DEFAULT_INSTRUCTIONS,
     }
   }
 
