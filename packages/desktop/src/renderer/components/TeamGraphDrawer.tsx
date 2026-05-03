@@ -44,14 +44,12 @@ export function TeamGraphDrawer({
   )
 
   const loadGraph = useCallback(async () => {
+    const targetId = graphId ?? graph?.id
+    if (!targetId) return
     setLoading(true)
     setError(null)
     try {
-      const result = graphId
-        ? await window.ouroboros.rpc('team/get', { graphId })
-        : graph?.id
-          ? await window.ouroboros.rpc('team/get', { graphId: graph.id })
-          : await window.ouroboros.rpc('team/create', { name: 'Desktop team graph' })
+      const result = await window.ouroboros.rpc('team/get', { graphId: targetId })
       if (latestSnapshotRef.current?.id === result.graph.id) return
       setGraph(result.graph)
       setSelectedTaskId((current) => {
@@ -138,7 +136,7 @@ export function TeamGraphDrawer({
             <button
               className='team-graph-refresh-button'
               onClick={() => void loadGraph()}
-              disabled={loading}
+              disabled={loading || (!graphId && !graph)}
               aria-label='Refresh team graph'
             >
               <RefreshIcon />
@@ -170,7 +168,13 @@ export function TeamGraphDrawer({
                 onSelectTask={setSelectedTaskId}
               />
             ) : (
-              <div className='team-graph-loading'>No team graph loaded.</div>
+              <div className='team-graph-empty' data-testid='team-graph-empty'>
+                <strong>No team graph open</strong>
+                <p>
+                  The agent will create one when you ask for a team plan, workflow, or task graph.
+                  Try: &quot;create a team graph for shipping the auth refactor&quot;.
+                </p>
+              </div>
             )}
           </main>
           <TaskInspector graph={graph} task={selectedTask} />

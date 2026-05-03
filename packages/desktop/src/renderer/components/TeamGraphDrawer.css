@@ -406,6 +406,31 @@
   text-align: center;
 }
 
+.team-graph-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.team-graph-empty strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.team-graph-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 360px;
+}
+
 .team-graph-detail-title {
   color: var(--text-primary);
   font-size: 17px;

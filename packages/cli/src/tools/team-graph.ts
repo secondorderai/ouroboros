@@ -11,7 +11,7 @@ import type { TypedToolExecute, ToolExecutionContext } from './types'
 export const name = 'team_graph'
 
 export const description =
-  'Create, open, update, and inspect persistent team task graphs. Use this when the user asks for a team plan, task graph, workflow template, or to show the team graph in desktop. assignedAgentId is only a graph lane/display id; spawn_agent.agentId must be a configured agent definition such as explore.'
+  'Create, open, update, and inspect persistent team task graphs. Use this when the user asks for a team plan, task graph, workflow template, or to show the team graph in desktop. Required key: `action`. Example: {action: "create", name: "Refactor auth", tasks: [{title: "Audit handlers", description: "..."}]}. Do NOT use `nodes`/`edges`/`title` — those are not valid keys. assignedAgentId is only a graph lane/display id; spawn_agent.agentId must be a configured agent definition such as explore.'
 
 const qualityGateSchema = z
   .object({
@@ -41,35 +41,48 @@ const taskInputSchema = z
   })
   .strict()
 
-export const schema = z.object({
-  action: z
-    .enum([
-      'create',
-      'create-workflow',
-      'open',
-      'get',
-      'start',
-      'pause',
-      'fail',
-      'cancel',
-      'cleanup',
-      'add-task',
-      'assign-task',
-      'send-message',
-    ])
-    .describe('Team graph operation to perform.'),
-  graphId: z.string().trim().min(1).optional(),
-  name: z.string().trim().min(1).optional(),
-  tasks: z.array(taskInputSchema).optional(),
-  task: taskInputSchema.optional(),
-  taskId: z.string().trim().min(1).optional(),
-  agentId: z.string().trim().min(1).optional(),
-  message: z.string().trim().min(1).optional(),
-  reason: z.string().trim().min(1).optional(),
-  template: z.enum(WORKFLOW_TEMPLATE_NAMES).optional(),
-  taskContext: z.string().trim().min(1).optional(),
-  openInDesktop: z.boolean().default(true).optional(),
-})
+const STRAY_KEYS = ['nodes', 'edges', 'title'] as const
+
+export const schema = z
+  .object({
+    action: z
+      .enum([
+        'create',
+        'create-workflow',
+        'open',
+        'get',
+        'start',
+        'pause',
+        'fail',
+        'cancel',
+        'cleanup',
+        'add-task',
+        'assign-task',
+        'send-message',
+      ])
+      .describe('Team graph operation to perform.'),
+    graphId: z.string().trim().min(1).optional(),
+    name: z.string().trim().min(1).optional(),
+    tasks: z.array(taskInputSchema).optional(),
+    task: taskInputSchema.optional(),
+    taskId: z.string().trim().min(1).optional(),
+    agentId: z.string().trim().min(1).optional(),
+    message: z.string().trim().min(1).optional(),
+    reason: z.string().trim().min(1).optional(),
+    template: z.enum(WORKFLOW_TEMPLATE_NAMES).optional(),
+    taskContext: z.string().trim().min(1).optional(),
+    openInDesktop: z.boolean().default(true).optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    const stray = STRAY_KEYS.filter((k) => k in (val as Record<string, unknown>))
+    if (stray.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `team_graph does not accept ${stray.join('/')}. Use {action: "create", name, tasks: [{title, description, dependencies?, assignedAgentId?}]}.`,
+      })
+    }
+  })
 
 export interface TeamGraphToolResult {
   graph?: TaskGraph

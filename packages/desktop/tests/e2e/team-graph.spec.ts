@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type TestInfo } from '@playwright/test'
 import type { LaunchedApp } from './helpers'
 import { launchTestApp, setRpcOverride } from './helpers'
 
@@ -32,6 +32,42 @@ async function openTeamGraph(): Promise<void> {
   await expect(launched.page.getByRole('dialog', { name: 'Command palette' })).toBeVisible()
   await launched.page.getByPlaceholder('Search actions...').fill('team graph')
   await launched.page.getByRole('option', { name: /Team graph/ }).click()
+  await expect(launched.page.getByRole('dialog', { name: 'Team graph' })).toBeVisible()
+}
+
+async function openTeamGraphViaNotification(
+  testInfo: TestInfo,
+  graph: Record<string, unknown>,
+): Promise<void> {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'Created the team graph.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          {
+            delayMs: 10,
+            method: 'team/graphOpen',
+            params: { graph, reason: 'Created by team_graph' },
+          },
+          { delayMs: 20, method: 'agent/text', params: { text: 'Created the team graph.' } },
+          {
+            delayMs: 30,
+            method: 'agent/turnComplete',
+            params: { text: 'Created the team graph.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+  await setRpcOverride(launched.page, 'team/get', { ok: true, result: { graph } })
+  await launched.page.getByLabel('Message input').fill('Create a team graph and show it.')
+  await launched.page.getByLabel('Message input').press('Enter')
   await expect(launched.page.getByRole('dialog', { name: 'Team graph' })).toBeVisible()
 }
 
@@ -147,12 +183,25 @@ function mockGraph(overrides: Record<string, unknown> = {}): Record<string, unkn
   }
 }
 
-test('renders blocked running completed and failed task graph states', async ({}, testInfo) => {
+test('opening team graph from Cmd-K shows empty state without calling team/create', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()
-  await setRpcOverride(launched.page, 'team/create', { ok: true, result: { graph: mockGraph() } })
+  await setRpcOverride(launched.page, 'team/create', {
+    ok: false,
+    error: 'team/create should not be called from cold Cmd-K open',
+  })
 
   await openTeamGraph()
+
+  await expect(launched.page.getByTestId('team-graph-empty')).toBeVisible()
+  await expect(launched.page.getByTestId('team-graph-empty')).toContainText('No team graph open')
+  await expect(launched.page.getByRole('alert')).toHaveCount(0)
+  await expect(launched.page.getByRole('button', { name: 'Refresh team graph' })).toBeDisabled()
+})
+
+test('renders blocked running completed and failed task graph states', async ({}, testInfo) => {
+  await openTeamGraphViaNotification(testInfo, mockGraph())
+  if (!launched) throw new Error('App not launched')
 
   await expect(launched.page.getByTestId('team-graph-task-blocked')).toContainText('blocked')
   await expect(launched.page.getByTestId('team-graph-task-running')).toContainText('running')
@@ -168,11 +217,9 @@ test('renders blocked running completed and failed task graph states', async ({}
 })
 
 test('selecting a task shows artifacts quality gates and recent events', async ({}, testInfo) => {
-  launched = await launchTestApp(testInfo)
-  await openMainApp()
-  await setRpcOverride(launched.page, 'team/create', { ok: true, result: { graph: mockGraph() } })
+  await openTeamGraphViaNotification(testInfo, mockGraph())
+  if (!launched) throw new Error('App not launched')
 
-  await openTeamGraph()
   await launched.page.getByTestId('team-graph-task-running').click()
 
   const inspector = launched.page.getByTestId('team-graph-inspector')
@@ -184,8 +231,6 @@ test('selecting a task shows artifacts quality gates and recent events', async (
 })
 
 test('cancelled team graph shows cancellation and cleanup state', async ({}, testInfo) => {
-  launched = await launchTestApp(testInfo)
-  await openMainApp()
   const graph = mockGraph({
     status: 'cancelled',
     cancelledAt: '2026-04-23T10:05:00.000Z',
@@ -218,9 +263,8 @@ test('cancelled team graph shows cancellation and cleanup state', async ({}, tes
     ],
     messages: [],
   })
-  await setRpcOverride(launched.page, 'team/create', { ok: true, result: { graph } })
-
-  await openTeamGraph()
+  await openTeamGraphViaNotification(testInfo, graph)
+  if (!launched) throw new Error('App not launched')
 
   await expect(launched.page.getByTestId('team-graph-cancellation')).toContainText(
     'User stopped the team run.',

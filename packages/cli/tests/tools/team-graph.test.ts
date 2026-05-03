@@ -96,4 +96,28 @@ describe('team_graph tool', () => {
     const graph = (result.value as { graph: { messages: Array<{ message: string }> } }).graph
     expect(graph.messages.some((message) => message.message.includes('Verdict tasks'))).toBe(true)
   })
+
+  test('rejects {graphId, nodes, edges, title} with a teaching error', async () => {
+    const result = await registry.executeTool(
+      'team_graph',
+      { graphId: 'g1', nodes: '[]', edges: '[]', title: 'Plan' },
+      context(),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toMatch(/team_graph/)
+    expect(result.error.message).toMatch(/action/i)
+    expect(result.error.message).toMatch(/nodes|edges/)
+  })
+
+  test('rejects unknown top-level keys via .strict()', async () => {
+    const result = await registry.executeTool(
+      'team_graph',
+      { action: 'create', name: 'x', bogus: true },
+      context(),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toMatch(/bogus|unrecognized/i)
+  })
 })
