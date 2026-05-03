@@ -1,6 +1,7 @@
 {
   "name": "ouroboros-monorepo",
   "version": "0.1.2",
+  "author": "SecondOrder AI",
   "private": true,
   "description": "Ouroboros — recursive self-improving AI agent (monorepo)",
   "workspaces": [

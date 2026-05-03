@@ -67,3 +67,4 @@ packages/desktop/memory/**/*
 local-docs/**/*
 Dockerfile.ci-repro
 .claude/scheduled_tasks.lock
+test-results/**/*
