@@ -19,8 +19,6 @@ export const OPENAI_CHATGPT_SUPPORTED_MODELS = [
   'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.5',
-  'gpt-5.5-mini',
-  'gpt-5.5-codex',
 ] as const
 
 export const OPENAI_CHATGPT_OAUTH_DUMMY_KEY = 'ouroboros-oauth-dummy-key'

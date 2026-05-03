@@ -1,7 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
-import { dirname, join, sep } from 'node:path'
+import { getAuthFilePath, removeAuth, setAuth } from '@src/auth'
 import {
   buildAuthorizeUrl,
   createOpenAIChatGPTFetch,
@@ -11,7 +8,10 @@ import {
   OPENAI_CHATGPT_PROVIDER,
   parseJwtClaims,
 } from '@src/auth/openai-chatgpt'
-import { getAuthFilePath, removeAuth, setAuth } from '@src/auth'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join, sep } from 'node:path'
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'ouroboros-auth-test-'))
@@ -209,8 +209,6 @@ describe('openai-chatgpt auth', () => {
 
   test('isSupportedOpenAIChatGPTModel accepts gpt-5.5 family', () => {
     expect(isSupportedOpenAIChatGPTModel('gpt-5.5')).toBe(true)
-    expect(isSupportedOpenAIChatGPTModel('gpt-5.5-mini')).toBe(true)
-    expect(isSupportedOpenAIChatGPTModel('gpt-5.5-codex')).toBe(true)
   })
 
   test('default auth file does not collide with the .ouroboros config file', () => {

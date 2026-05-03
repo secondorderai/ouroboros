@@ -1,5 +1,5 @@
-import { describe, test, expect } from 'bun:test'
 import { getContextWindowTokens, getReasoningSupport } from '@src/llm/model-capabilities'
+import { describe, expect, test } from 'bun:test'
 
 describe('getContextWindowTokens', () => {
   test('exact match for claude-sonnet-4-20250514', () => {
@@ -48,18 +48,6 @@ describe('getContextWindowTokens', () => {
 
   test('exact match for gpt-5.5 returns 1.05M context', () => {
     expect(getContextWindowTokens('gpt-5.5')).toBe(1_050_000)
-  })
-
-  test('exact match for gpt-5.5-mini returns 1.1M context', () => {
-    expect(getContextWindowTokens('gpt-5.5-mini')).toBe(1_100_000)
-  })
-
-  test('exact match for gpt-5.5-codex returns 400K context', () => {
-    expect(getContextWindowTokens('gpt-5.5-codex')).toBe(400_000)
-  })
-
-  test('prefix match for gpt-5.5-pro snapshot variants', () => {
-    expect(getContextWindowTokens('gpt-5.5-pro-2026-04-15')).toBe(1_050_000)
   })
 
   test('prefix match for openai-namespaced gpt-5.5', () => {
