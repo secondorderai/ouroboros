@@ -195,7 +195,9 @@ const mcpLocalServerSchema = z.object({
   env: z
     .record(z.string(), z.string())
     .default({})
-    .describe('Environment variables for the spawned process'),
+    .describe(
+      'Environment variables for the spawned process. MCP servers are treated as untrusted; they only receive a minimal platform-essential environment plus the keys listed here.',
+    ),
   cwd: z.string().optional().describe('Working directory for the spawned process'),
   timeout: z
     .number()

@@ -162,4 +162,84 @@ describe('McpManager', () => {
     const result = await manager.restartServer('nope')
     expect(result.ok).toBe(false)
   })
+
+  describe('environment isolation (SEC-006)', () => {
+    const LEAKED_KEYS = [
+      'ANTHROPIC_API_KEY',
+      'OUROBOROS_OPENAI_COMPATIBLE_API_KEY',
+      'GITHUB_TOKEN',
+      'OUROBOROS_TEST_PASSTHROUGH',
+    ] as const
+    const savedEnv: Record<string, string | undefined> = {}
+
+    beforeEach(() => {
+      for (const key of LEAKED_KEYS) {
+        savedEnv[key] = process.env[key]
+      }
+      process.env.ANTHROPIC_API_KEY = 'leaked-anthropic'
+      process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = 'leaked-ouroboros'
+      process.env.GITHUB_TOKEN = 'leaked-gh'
+      process.env.OUROBOROS_TEST_PASSTHROUGH = 'parent-only'
+    })
+
+    afterEach(() => {
+      for (const key of LEAKED_KEYS) {
+        const original = savedEnv[key]
+        if (original === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = original
+        }
+      }
+    })
+
+    async function getRemoteEnv(key: string): Promise<string | null> {
+      const result = await registry.executeTool('mcp__echo__getEnv', { key })
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error('unreachable')
+      const value = (result.value as { value: string | null }).value
+      return value
+    }
+
+    it('does not leak parent secrets to local MCP servers', async () => {
+      manager = new McpManager({
+        config: { servers: [localServer('echo')] },
+        registry,
+      })
+      await manager.start()
+
+      expect(await getRemoteEnv('ANTHROPIC_API_KEY')).toBeNull()
+      expect(await getRemoteEnv('OUROBOROS_OPENAI_COMPATIBLE_API_KEY')).toBeNull()
+      expect(await getRemoteEnv('GITHUB_TOKEN')).toBeNull()
+      expect(await getRemoteEnv('OUROBOROS_TEST_PASSTHROUGH')).toBeNull()
+
+      // Platform-essential vars from the SDK allowlist still flow through.
+      // PATH is present on every supported platform (POSIX + Windows).
+      const path = await getRemoteEnv('PATH')
+      expect(typeof path).toBe('string')
+      expect(path).not.toBe('')
+    })
+
+    it('passes config.env entries through and lets them override the allowlist', async () => {
+      manager = new McpManager({
+        config: {
+          servers: [
+            localServer('echo', {
+              env: {
+                CUSTOM_VAR: 'from-config',
+                ANTHROPIC_API_KEY: 'override',
+              },
+            }),
+          ],
+        },
+        registry,
+      })
+      await manager.start()
+
+      expect(await getRemoteEnv('CUSTOM_VAR')).toBe('from-config')
+      expect(await getRemoteEnv('ANTHROPIC_API_KEY')).toBe('override')
+      // Other parent secrets are still suppressed when not listed in config.env.
+      expect(await getRemoteEnv('GITHUB_TOKEN')).toBeNull()
+    })
+  })
 })

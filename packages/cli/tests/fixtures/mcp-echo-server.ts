@@ -2,9 +2,10 @@
 /**
  * Minimal MCP server used by the integration tests.
  *
- * Exposes two tools:
+ * Exposes three tools:
  *   - echo({ text }) -> text
  *   - add({ a, b })  -> { sum, formula }
+ *   - getEnv({ key }) -> { value }   (used to verify env-scrubbing)
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -36,6 +37,21 @@ async function main(): Promise<void> {
       return {
         content: [{ type: 'text', text: `${a} + ${b} = ${sum}` }],
         structuredContent: { sum, formula: `${a} + ${b}` },
+      }
+    },
+  )
+
+  server.registerTool(
+    'getEnv',
+    {
+      description: 'Return the value of an environment variable in the spawned MCP process.',
+      inputSchema: { key: z.string() },
+    },
+    async ({ key }) => {
+      const value = process.env[key] ?? null
+      return {
+        content: [{ type: 'text', text: value === null ? '<unset>' : value }],
+        structuredContent: { value },
       }
     },
   )

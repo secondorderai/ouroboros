@@ -17,7 +17,10 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import {
+  StdioClientTransport,
+  getDefaultEnvironment,
+} from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { McpConfig, McpLocalServerConfig, McpServerConfig } from '@src/config'
 import { type Result, ok, err } from '@src/types'
@@ -303,7 +306,7 @@ function createStdioTransport(config: McpLocalServerConfig): StdioClientTranspor
   return new StdioClientTransport({
     command: config.command,
     args: config.args,
-    env: { ...process.env, ...config.env } as Record<string, string>,
+    env: { ...getDefaultEnvironment(), ...config.env },
     ...(config.cwd ? { cwd: config.cwd } : {}),
   })
 }
