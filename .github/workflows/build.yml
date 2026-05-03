@@ -22,7 +22,17 @@ jobs:
         run: bun install
 
       - name: Audit production dependencies
-        run: bun audit --prod
+        # GHSA-w5hq-g745-h8pq is a buffer-bounds issue in `uuid`'s v3/v5/v6
+        # functions when called with a `buf` argument. Our only `uuid`
+        # consumer is `mermaid`, which uses `v4` (random IDs) for diagram
+        # instance ids and never passes a user-controlled buffer, so this
+        # advisory does not apply to us. The advisory is fixed only in
+        # uuid >=14.0.0, but mermaid pins `uuid: ^11.1.0` — forcing uuid
+        # to 14 via overrides breaks `electron-builder`'s manual
+        # node_modules traversal (it can no longer satisfy mermaid's
+        # declared dependency range), so we ignore the advisory instead.
+        # Re-evaluate when mermaid widens its uuid range.
+        run: bun audit --prod --ignore=GHSA-w5hq-g745-h8pq
 
       - name: Lint (CLI)
         run: bun run --filter @ouroboros/cli lint
@@ -74,7 +84,17 @@ jobs:
         run: bun install
 
       - name: Audit production dependencies
-        run: bun audit --prod
+        # GHSA-w5hq-g745-h8pq is a buffer-bounds issue in `uuid`'s v3/v5/v6
+        # functions when called with a `buf` argument. Our only `uuid`
+        # consumer is `mermaid`, which uses `v4` (random IDs) for diagram
+        # instance ids and never passes a user-controlled buffer, so this
+        # advisory does not apply to us. The advisory is fixed only in
+        # uuid >=14.0.0, but mermaid pins `uuid: ^11.1.0` — forcing uuid
+        # to 14 via overrides breaks `electron-builder`'s manual
+        # node_modules traversal (it can no longer satisfy mermaid's
+        # declared dependency range), so we ignore the advisory instead.
+        # Re-evaluate when mermaid widens its uuid range.
+        run: bun audit --prod --ignore=GHSA-w5hq-g745-h8pq
 
       - name: Build CLI binary
         working-directory: packages/desktop
