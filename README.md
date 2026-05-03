@@ -8,6 +8,38 @@ and a JSON-RPC bridge between the CLI and desktop.
 The CLI owns agent intelligence. The desktop app is a presentation layer that
 spawns the CLI in JSON-RPC mode and talks to it over NDJSON on stdio.
 
+## Screenshots
+
+A few snapshots of the desktop app showing what it produces in real sessions.
+Click any image for the full-resolution view.
+
+### HTML5 app artifact - 30 years of Australian interest rate moves
+
+Ouroboros generated a self-contained interactive dashboard from a chat prompt
+and previewed it inline next to the conversation.
+
+<a href="docs/screenshots/Ouroboros-HTML5-AU-interest-rate-full.png">
+  <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of 30 years of Australian interest rate moves" src="docs/screenshots/Ouroboros-HTML5-AU-interest-rate.png" width="900">
+</a>
+
+### HTML5 app artifact - Artemis II Orion trajectory in 3D
+
+The agent rendered NASA/JPL Horizons vector data for Orion, the Moon, and the
+Sun as an embedded WebGL/Three.js artifact, scaled for readability.
+
+<a href="docs/screenshots/Ouroboros-HTML5-Orion-full.png">
+  <img alt="Ouroboros desktop app showing a chat session that produced an interactive 3D WebGL visualization of the Artemis II Orion trajectory" src="docs/screenshots/Ouroboros-HTML5-Orion.png" width="900">
+</a>
+
+### Architecture diagram preview
+
+When asked for a high-level Ouroboros architecture diagram, the agent produced
+a Mermaid diagram artifact with a fullscreen preview and zoom controls.
+
+<a href="docs/screenshots/Ouroboros-diagram-full.png">
+  <img alt="Ouroboros desktop app rendering a Mermaid architecture diagram of Ouroboros with zoomable fullscreen preview" src="docs/screenshots/Ouroboros-diagram.png" width="900">
+</a>
+
 ## Installation
 
 ### macOS Beta Release Build
@@ -474,4 +506,4 @@ MIT. See [LICENSE](LICENSE) for details.
 
 ## Author
 
-Ouroboros is developed by SecondOrder AI. Made in Australia.
+Ouroboros is crafted by Henry @ SecondOrder AI. Made in Australia.

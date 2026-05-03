@@ -18,9 +18,12 @@ describe('GitHub Pages landing page', () => {
 
     expect(html).toContain('<!doctype html>')
     expect(html).not.toContain('<script')
-    expect(html).not.toContain(' src=')
+    expect(html).not.toContain('<iframe')
     expect(html).not.toContain('<form')
     expect(html).not.toContain('<input')
+    // No external resources: src= attributes may only point to local files.
+    expect(html).not.toMatch(/\bsrc=["']https?:\/\//)
+    expect(html).not.toMatch(/\bsrc=["']\/\//)
   })
 
   test('contains the launch positioning, CTAs, and design-system tokens', () => {
@@ -61,14 +64,15 @@ describe('GitHub Pages landing page', () => {
     const configSource = readFileSync(configPath, 'utf8')
     const crystallizeSource = readFileSync(crystallizePath, 'utf8')
     const promptSource = readFileSync(promptPath, 'utf8')
+    // Collapse whitespace so assertions match rendered text, not source wrapping.
+    const renderedText = html.replace(/\s+/g, ' ')
 
-    expect(html).toContain(
+    expect(renderedText).toContain(
       'Code and configuration self-modification is a disabled-by-default approval tier.',
     )
-    expect(html).toContain(
-      'Generated skills are validated, self-tested, and promoted through an evolution',
+    expect(renderedText).toContain(
+      'Generated skills are validated, self-tested, and promoted through an evolution log so automatic improvements stay inspectable.',
     )
-    expect(html).toContain('log so automatic improvements stay inspectable.')
     expect(html).not.toContain('promoted with user oversight')
 
     expect(configSource).toContain(

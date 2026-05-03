@@ -10,7 +10,7 @@
     <meta name="color-scheme" content="light" />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='5' y='5' width='54' height='54' rx='14' fill='%23ffffff'/%3E%3Crect x='5.5' y='5.5' width='53' height='53' rx='13.5' fill='none' stroke='%23dce1e7'/%3E%3Ccircle cx='32' cy='32' r='17.5' fill='none' stroke='%233e5f8a' stroke-width='8'/%3E%3Cpath d='M39.4 16.2C42.5 15 46.4 15.2 49 17.1C50.7 18.4 51.9 20.4 52.2 22.6C50.4 25 47.2 26.5 43.8 26.5C40.3 26.4 37.1 24.8 35.1 22.2C35.9 19.7 37.2 17.9 39.4 16.2Z' fill='%233e5f8a'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='5' y='5' width='54' height='54' rx='14' fill='%23ffffff'/%3E%3Crect x='5.5' y='5.5' width='53' height='53' rx='13.5' fill='none' stroke='%23dce1e7'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%233e5f8a' stroke-width='2'/%3E%3Ccircle cx='32' cy='32' r='10' fill='none' stroke='%233e5f8a' stroke-width='2'/%3E%3Ccircle cx='43' cy='21' r='3' fill='%233e5f8a'/%3E%3C/svg%3E"
     />
     <title>Ouroboros - Human-controlled local workspace AI agent</title>
     <style>
@@ -19,11 +19,6 @@
         --bg-secondary: #eceef0;
         --bg-tertiary: #dce1e7;
         --bg-chat: #ffffff;
-        --bg-input: #ffffff;
-        --bg-user-msg: #eff1f3;
-        --bg-tool-chip: #f1f3f6;
-        --bg-tool-expanded: #f8fafc;
-        --bg-rsi-card: linear-gradient(135deg, #f4f7fb 0%, #edf2f8 100%);
         --bg-hover: rgba(14, 17, 22, 0.05);
         --text-primary: #0e1116;
         --text-secondary: #5e6673;
@@ -35,9 +30,6 @@
         --accent-primary-hover: #334f74;
         --accent-muted: rgba(62, 95, 138, 0.1);
         --accent-highlight: #89a7d1;
-        --success: #16a34a;
-        --warning: #ea580c;
-        --danger: #dc2626;
         --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
         --font-mono: 'SF Mono', 'Fira Code', Consolas, monospace;
         --radius-standard: 6px;
@@ -238,243 +230,75 @@
       }
 
       .product-preview {
+        display: block;
         border: 1px solid var(--border-light);
         border-radius: var(--radius-large);
         background: var(--bg-chat);
         box-shadow: var(--shadow-lg);
         overflow: hidden;
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease;
       }
 
-      .preview-titlebar {
-        min-height: 42px;
-        padding: 0 14px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-        border-bottom: 1px solid var(--border-light);
-        background: var(--bg-secondary);
+      .product-preview:hover {
+        box-shadow: 0 18px 52px rgba(0, 0, 0, 0.16);
+        transform: translateY(-2px);
       }
 
-      .traffic {
-        display: flex;
-        gap: 7px;
-      }
-
-      .traffic span {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: var(--border-medium);
-      }
-
-      .preview-title {
-        overflow: hidden;
-        color: var(--text-secondary);
-        font-size: 12px;
-        font-weight: 500;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .preview-body {
-        display: grid;
-        grid-template-columns: 170px minmax(0, 1fr);
-        min-height: 500px;
-      }
-
-      .preview-sidebar {
-        padding: 16px 12px;
-        border-right: 1px solid var(--border-light);
-        background: var(--bg-sidebar, #eceef0);
-      }
-
-      .sidebar-button {
+      .product-preview-image {
+        display: block;
         width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        border: 1px solid var(--border-light);
-        border-radius: var(--radius-standard);
-        padding: 8px 10px;
-        background: var(--bg-chat);
-        color: var(--text-primary);
-        font-size: 13px;
-        font-weight: 500;
+        height: auto;
       }
 
-      .session-list {
-        margin-top: 18px;
+      .showcase-grid {
+        margin-top: 34px;
         display: grid;
-        gap: 8px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 22px;
       }
 
-      .session {
-        border-radius: var(--radius-standard);
-        padding: 8px 9px;
-        color: var(--text-secondary);
-        font-size: 12px;
-        line-height: 1.35;
-      }
-
-      .session.active {
-        background: var(--accent-muted);
-        color: var(--text-primary);
-      }
-
-      .preview-main {
-        min-width: 0;
-        padding: 22px;
-        background: var(--bg-chat);
-      }
-
-      .agent-row,
-      .user-row {
+      .shot {
         display: flex;
-        gap: 11px;
+        flex-direction: column;
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-large);
+        background: var(--bg-chat);
+        box-shadow: var(--shadow-md);
+        overflow: hidden;
+        color: inherit;
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease;
       }
 
-      .agent-row {
-        align-items: flex-start;
+      .shot:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.14);
       }
 
-      .avatar {
-        width: 28px;
-        height: 28px;
-        flex: 0 0 auto;
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-bottom: 1px solid var(--border-light);
       }
 
-      .agent-copy {
-        min-width: 0;
+      .shot-caption {
+        padding: 18px 20px 22px;
       }
 
-      .agent-name {
-        margin-bottom: 6px;
-        font-size: 14px;
+      .shot-caption h3 {
+        font-size: 16px;
         font-weight: 600;
       }
 
-      .message-text {
-        color: var(--text-primary);
-        font-size: 15px;
+      .shot-caption p {
+        margin-top: 8px;
+        color: var(--text-secondary);
+        font-size: 14px;
         line-height: 1.55;
-      }
-
-      .tool-stack {
-        margin-top: 14px;
-        display: grid;
-        gap: 8px;
-      }
-
-      .tool-chip {
-        width: fit-content;
-        max-width: 100%;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        border: 1px solid var(--border-light);
-        border-radius: var(--radius-standard);
-        padding: 6px 10px;
-        background: var(--bg-tool-chip);
-        color: var(--text-secondary);
-        font-size: 13px;
-        font-weight: 500;
-      }
-
-      .status-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--success);
-      }
-
-      .approval {
-        margin-top: 18px;
-        border: 1px solid var(--border-light);
-        border-radius: var(--radius-comfortable);
-        padding: 14px;
-        background: var(--bg-tool-expanded);
-      }
-
-      .approval-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .approval-title {
-        font-size: 14px;
-        font-weight: 600;
-      }
-
-      .risk {
-        border-radius: 999px;
-        padding: 4px 7px;
-        background: rgba(234, 88, 12, 0.1);
-        color: var(--warning);
-        font-size: 11px;
-        font-weight: 600;
-        line-height: 1;
-      }
-
-      .approval p {
-        margin-top: 6px;
-        color: var(--text-secondary);
-        font-size: 13px;
-        line-height: 1.45;
-      }
-
-      .approval-actions {
-        margin-top: 12px;
-        display: flex;
-        gap: 8px;
-      }
-
-      .mini-button {
-        border-radius: var(--radius-standard);
-        padding: 6px 10px;
-        font-size: 12px;
-        font-weight: 500;
-      }
-
-      .mini-primary {
-        background: var(--accent-primary);
-        color: var(--text-inverse);
-      }
-
-      .mini-secondary {
-        border: 1px solid var(--border-light);
-        background: var(--bg-chat);
-        color: var(--text-primary);
-      }
-
-      .user-row {
-        justify-content: flex-end;
-        margin-top: 22px;
-      }
-
-      .user-message {
-        max-width: 82%;
-        border-radius: 16px 16px 4px 16px;
-        padding: 12px 16px;
-        background: var(--bg-user-msg);
-        color: var(--text-primary);
-        font-size: 15px;
-        line-height: 1.45;
-      }
-
-      .rsi-card {
-        margin-top: 18px;
-        border: 1px solid rgba(62, 95, 138, 0.16);
-        border-left: 3px solid var(--accent-primary);
-        border-radius: var(--radius-comfortable);
-        padding: 12px 14px;
-        background: var(--bg-rsi-card);
-        color: var(--text-primary);
-        font-size: 13px;
-        line-height: 1.45;
       }
 
       .section {
@@ -746,12 +570,9 @@
         .split,
         .feature-grid,
         .surface-grid,
-        .truth-grid {
+        .truth-grid,
+        .showcase-grid {
           grid-template-columns: 1fr;
-        }
-
-        .preview-body {
-          grid-template-columns: 145px minmax(0, 1fr);
         }
       }
 
@@ -784,29 +605,6 @@
           white-space: normal;
         }
 
-        .preview-body {
-          display: block;
-          min-height: 0;
-        }
-
-        .preview-sidebar {
-          display: none;
-        }
-
-        .preview-main {
-          padding: 17px;
-        }
-
-        .approval-top {
-          align-items: flex-start;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .user-message {
-          max-width: 94%;
-        }
-
         .section-inner {
           padding: 54px 0;
         }
@@ -836,23 +634,14 @@
             <svg class="mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
               <rect x="5" y="5" width="54" height="54" rx="14" fill="#ffffff"></rect>
               <rect x="5.5" y="5.5" width="53" height="53" rx="13.5" stroke="#dce1e7"></rect>
-              <circle cx="32" cy="32" r="17.5" stroke="#3e5f8a" stroke-width="8"></circle>
-              <path
-                d="M39.4 16.2C42.5 15 46.4 15.2 49 17.1C50.7 18.4 51.9 20.4 52.2 22.6C50.4 25 47.2 26.5 43.8 26.5C40.3 26.4 37.1 24.8 35.1 22.2C35.9 19.7 37.2 17.9 39.4 16.2Z"
-                fill="#3e5f8a"
-              ></path>
-              <ellipse
-                cx="43.4"
-                cy="18.9"
-                rx="1.65"
-                ry="1.15"
-                fill="#ffffff"
-                transform="rotate(24 43.4 18.9)"
-              ></ellipse>
+              <circle cx="32" cy="32" r="18" stroke="#3e5f8a" stroke-width="2"></circle>
+              <circle cx="32" cy="32" r="10" stroke="#3e5f8a" stroke-width="2"></circle>
+              <circle cx="43" cy="21" r="3" fill="#3e5f8a"></circle>
             </svg>
             <span class="brand-name">Ouroboros</span>
           </a>
           <div class="nav-links">
+            <a href="#showcase">Showcase</a>
             <a href="#trust">Trust</a>
             <a href="#self-improvement">Self-improvement</a>
             <a href="#capabilities">Capabilities</a>
@@ -886,87 +675,76 @@
             </p>
           </div>
 
-          <div class="product-preview" aria-label="Ouroboros desktop preview">
-            <div class="preview-titlebar">
-              <div class="traffic" aria-hidden="true">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <div class="preview-title">Workspace mode - secondorderai/ouroboros</div>
+          <a
+            class="product-preview"
+            href="screenshots/Ouroboros-HTML5-AU-interest-rate-full.png"
+            aria-label="Open full screenshot - 30 years of Australian interest rate moves dashboard"
+          >
+            <img
+              class="product-preview-image"
+              src="screenshots/Ouroboros-HTML5-AU-interest-rate.png"
+              alt="Ouroboros desktop app: chat session that produced an interactive HTML5 dashboard of 30 years of Australian interest rate moves"
+              width="2400"
+              height="1500"
+              loading="eager"
+              decoding="async"
+            />
+          </a>
+        </section>
+
+        <section id="showcase" class="section showcase" aria-labelledby="showcase-title">
+          <div class="section-inner">
+            <div class="section-heading">
+              <h2 id="showcase-title">See it in action.</h2>
+              <p class="section-lede">
+                Real desktop sessions: the agent reasons in chat, calls tools with permission, and
+                ships sandboxed HTML5 app artifacts you can open, expand, and download from the
+                conversation.
+              </p>
             </div>
-            <div class="preview-body">
-              <aside class="preview-sidebar" aria-label="Preview sidebar">
-                <div class="sidebar-button">
-                  <span>New task</span>
-                  <span>+</span>
+            <div class="showcase-grid">
+              <a
+                class="shot"
+                href="screenshots/Ouroboros-HTML5-Orion-full.png"
+                aria-label="Open full screenshot - Artemis II Orion trajectory in 3D"
+              >
+                <img
+                  src="screenshots/Ouroboros-HTML5-Orion.png"
+                  alt="Ouroboros desktop app rendering an interactive 3D WebGL visualization of the Artemis II Orion trajectory next to the chat thread"
+                  width="2400"
+                  height="1500"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <div class="shot-caption">
+                  <h3>Artemis II Orion trajectory</h3>
+                  <p>
+                    NASA/JPL Horizons vector data for Orion, the Moon, and the Sun rendered as an
+                    embedded WebGL/Three.js artifact with playback, zoom, and orbit controls.
+                  </p>
                 </div>
-                <div class="session-list">
-                  <div class="session active">Launch page copy</div>
-                  <div class="session">Permission review</div>
-                  <div class="session">Skill audit</div>
-                  <div class="session">Release notes</div>
+              </a>
+              <a
+                class="shot"
+                href="screenshots/Ouroboros-diagram-full.png"
+                aria-label="Open full screenshot - Ouroboros architecture diagram"
+              >
+                <img
+                  src="screenshots/Ouroboros-diagram.png"
+                  alt="Ouroboros desktop app rendering a Mermaid architecture diagram of the Ouroboros system in a chat session"
+                  width="2400"
+                  height="1500"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <div class="shot-caption">
+                  <h3>Architecture diagram</h3>
+                  <p>
+                    Ask for a system diagram and the agent responds with a Mermaid artifact you can
+                    expand fullscreen, zoom, and inspect at any layer.
+                  </p>
                 </div>
-              </aside>
-              <div class="preview-main">
-                <div class="agent-row">
-                  <svg class="avatar" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-                    <rect x="5" y="5" width="54" height="54" rx="14" fill="#ffffff"></rect>
-                    <rect x="5.5" y="5.5" width="53" height="53" rx="13.5" stroke="#dce1e7"></rect>
-                    <circle cx="32" cy="32" r="17.5" stroke="#5e6673" stroke-width="8"></circle>
-                    <path
-                      d="M39.4 16.2C42.5 15 46.4 15.2 49 17.1C50.7 18.4 51.9 20.4 52.2 22.6C50.4 25 47.2 26.5 43.8 26.5C40.3 26.4 37.1 24.8 35.1 22.2C35.9 19.7 37.2 17.9 39.4 16.2Z"
-                      fill="#5e6673"
-                    ></path>
-                    <ellipse
-                      cx="43.4"
-                      cy="18.9"
-                      rx="1.65"
-                      ry="1.15"
-                      fill="#ffffff"
-                      transform="rotate(24 43.4 18.9)"
-                    ></ellipse>
-                  </svg>
-                  <div class="agent-copy">
-                    <div class="agent-name">Ouroboros</div>
-                    <p class="message-text">
-                      I can inspect the workspace, propose a change, and show the exact approval
-                      needed before editing files or running commands.
-                    </p>
-                    <div class="tool-stack" aria-label="Visible tool calls">
-                      <div class="tool-chip">
-                        <span class="status-dot"></span>Read docs/test-plan.md
-                      </div>
-                      <div class="tool-chip">
-                        <span class="status-dot"></span>Search packages/cli/src/tools
-                      </div>
-                    </div>
-                    <div class="approval">
-                      <div class="approval-top">
-                        <div class="approval-title">Approval required</div>
-                        <div class="risk">workspace write</div>
-                      </div>
-                      <p>
-                        Apply a focused patch to docs/index.html. Review the diff before allowing
-                        the change.
-                      </p>
-                      <div class="approval-actions">
-                        <span class="mini-button mini-primary">Approve</span>
-                        <span class="mini-button mini-secondary">Deny</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="user-row">
-                  <div class="user-message">
-                    Keep it local-first, inspectable, and honest about beta limits.
-                  </div>
-                </div>
-                <div class="rsi-card">
-                  Self-improvement is the core loop: observe, reflect, crystallize useful patterns,
-                  and keep memory plus evolution logs visible to the user.
-                </div>
-              </div>
+              </a>
             </div>
           </div>
         </section>
@@ -1000,8 +778,8 @@
                 <h3>Permissioned growth</h3>
                 <p>
                   Code and configuration self-modification is a disabled-by-default approval tier.
-                  Generated skills are validated, self-tested, and promoted through an evolution
-                  log so automatic improvements stay inspectable.
+                  Generated skills are validated, self-tested, and promoted through an evolution log
+                  so automatic improvements stay inspectable.
                 </p>
               </article>
             </div>
@@ -1024,8 +802,8 @@
                 <div>
                   <h3>Choose when extra thinking is worth it</h3>
                   <p>
-                    The skill classifies the task and gates meta mode so simple requests stay direct,
-                    while high-uncertainty work gets a stronger control loop.
+                    The skill classifies the task and gates meta mode so simple requests stay
+                    direct, while high-uncertainty work gets a stronger control loop.
                   </p>
                 </div>
               </div>
@@ -1311,7 +1089,7 @@
 
       <footer class="footer">
         <div class="footer-inner">
-          <div>Ouroboros is beta software from SecondOrder AI. Made in Australia.</div>
+          <div>Ouroboros is developed by SecondOrder AI. Made in Australia.</div>
           <div class="footer-links">
             <a href="https://github.com/secondorderai/ouroboros/releases/latest">Releases</a>
             <a href="https://github.com/secondorderai/ouroboros#security-and-privacy-note"
