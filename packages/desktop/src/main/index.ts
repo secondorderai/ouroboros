@@ -197,7 +197,24 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     if (hideTestWindow) {
-      writeTestLog('window ready-to-show skipped because OUROBOROS_TEST_HIDE_WINDOW=1')
+      // On Linux (CI/xvfb), Chromium's `ResizeObserver` /
+      // `IntersectionObserver` don't fire reliably for windows that were
+      // created with `show: false` and never shown — `react-virtuoso` then
+      // renders zero items, so every E2E assertion against streamed/queued
+      // messages fails with "element not found" even though the store has
+      // the data. We work around it by positioning the window offscreen and
+      // calling `.show()` so Chromium gives it a real layout target while
+      // remaining invisible to any logged-in user. macOS handles hidden
+      // windows fine here, and macOS's window-server clamps far-offscreen
+      // coordinates to the menu bar, which leaks the test window into the
+      // dock — keep `.show()`-skipped behaviour there.
+      if (process.platform === 'darwin') {
+        writeTestLog('window ready-to-show skipped because OUROBOROS_TEST_HIDE_WINDOW=1 (darwin)')
+      } else {
+        mainWindow?.setPosition(-50000, -50000)
+        mainWindow?.show()
+        writeTestLog('window shown offscreen for OUROBOROS_TEST_HIDE_WINDOW=1')
+      }
       return
     }
 

@@ -97,7 +97,17 @@ export function createWindowOptions(): Electron.BrowserWindowConstructorOptions 
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // E2E tests run with `OUROBOROS_TEST_HIDE_WINDOW=1` so the BrowserWindow
+      // is never `.show()`n. Chromium then treats the window as backgrounded
+      // and (on Linux/xvfb especially) throttles `requestAnimationFrame` and
+      // some timers to ~0 fps — which freezes `useStreamingBuffer`'s rAF flush
+      // and makes every streaming-text assertion fail with "element not found"
+      // on CI even though the same scenario passes when the window is shown.
+      // Disabling the throttle in test mode keeps the renderer's rAF cadence
+      // consistent with what the user sees in production (foregrounded
+      // window). Production behaviour is unchanged.
+      backgroundThrottling: process.env.NODE_ENV !== 'test',
     }
   }
 }
