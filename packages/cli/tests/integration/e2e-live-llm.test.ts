@@ -1,22 +1,28 @@
 /**
  * E2E Integration Tests with Real LLM Calls
  *
- * These tests make actual API calls to OpenAI using gpt-5.4 to verify
- * the full agent loop works end-to-end with real tool execution.
+ * These tests make actual API calls through whatever model+provider the
+ * nearest `.ouroboros` config selects, verifying the full agent loop works
+ * end-to-end with real tool execution.
  *
  * Requirements:
- *   - OPENAI_API_KEY must be set (via .env or environment)
+ *   - A `.ouroboros` config in cwd (or an ancestor) with a usable model, OR
+ *     env-var overrides that resolve to one. Provider credentials must be
+ *     available the same way the live CLI resolves them (env vars, apiKey
+ *     in config, or OAuth via `ouroboros auth login`).
  *
  * Run separately from unit tests:
  *   bun run test:live
  *
- * Skips automatically if no API key is present (CI-safe).
+ * Skips automatically if the configured provider can't be instantiated
+ * (CI-safe).
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { Agent } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import type { ToolDefinition } from '@src/tools/types'
 import { createProvider } from '@src/llm/provider'
+import { loadConfig } from '@src/config'
 import * as bashTool from '@src/tools/bash'
 import * as fileReadTool from '@src/tools/file-read'
 import * as fileWriteTool from '@src/tools/file-write'
@@ -30,18 +36,51 @@ import type { LanguageModel } from 'ai'
 
 // ── Configuration ────────────────────────────────────────────────────
 
-const MODEL_NAME = 'gpt-5.4'
 const MAX_ITERATIONS = 15
 const TEST_TIMEOUT = 60_000 // 60s per test
 
-const HAS_API_KEY = !!process.env.OPENAI_API_KEY
+type LiveProvider =
+  | { ok: true; model: LanguageModel; modelName: string; providerName: string }
+  | { ok: false; reason: string }
+
+function resolveLiveProvider(): LiveProvider {
+  const configResult = loadConfig()
+  if (!configResult.ok) {
+    return { ok: false, reason: `loadConfig failed: ${configResult.error.message}` }
+  }
+  const modelConfig = configResult.value.model
+  const providerResult = createProvider(modelConfig)
+  if (!providerResult.ok) {
+    return { ok: false, reason: providerResult.error.message }
+  }
+  return {
+    ok: true,
+    model: providerResult.value,
+    modelName: modelConfig.name,
+    providerName: modelConfig.provider,
+  }
+}
+
+const liveProvider = resolveLiveProvider()
+const HAS_LIVE_PROVIDER = liveProvider.ok
+
+if (!HAS_LIVE_PROVIDER) {
+  // Surface the reason so a developer running locally knows why everything skipped.
+  // eslint-disable-next-line no-console
+  console.warn(`[e2e-live-llm] Skipping live tests: ${liveProvider.reason}`)
+}
+
+const describeLabel = liveProvider.ok
+  ? `E2E Live LLM Tests (${liveProvider.providerName}/${liveProvider.modelName})`
+  : 'E2E Live LLM Tests (no live provider)'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function createLiveModel(): LanguageModel {
-  const result = createProvider({ provider: 'openai', name: MODEL_NAME })
-  if (!result.ok) throw new Error(`Failed to create model: ${result.error.message}`)
-  return result.value
+  if (!liveProvider.ok) {
+    throw new Error(`Live provider unavailable: ${liveProvider.reason}`)
+  }
+  return liveProvider.model
 }
 
 function createLiveAgent(
@@ -72,7 +111,7 @@ function createLiveAgent(
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe.skipIf(!HAS_API_KEY)('E2E Live LLM Tests (gpt-5.4)', () => {
+describe.skipIf(!HAS_LIVE_PROVIDER)(describeLabel, () => {
   let tempDir: string
 
   beforeEach(() => {
