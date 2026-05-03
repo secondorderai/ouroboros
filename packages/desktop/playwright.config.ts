@@ -3,13 +3,6 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 60_000,
-  // The default 5 s `expect()` timeout is too tight on the 2-vCPU GHA runner:
-  // first-launch Electron + a 2.9 MB renderer bundle, with 4 workers oversubscribing
-  // CPU under xvfb, regularly takes >5 s before React mounts the OnboardingWizard.
-  // Locally on macOS the same waits resolve in well under a second, so this only
-  // affects the slow path. Tests that legitimately hang still cap at the
-  // per-test timeout above.
-  expect: { timeout: process.env.CI ? 15_000 : 5_000 },
   retries: 1,
   // File-level parallelism. Each spec file launches its own Electron
   // instance; tests within a file share a module-level `launched` and an
