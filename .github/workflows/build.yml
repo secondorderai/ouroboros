@@ -105,29 +105,3 @@ jobs:
         run: bun run build:dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
-      - name: Upload artifacts
-        # `electron-builder` writes both the distributable installers and the
-        # unpacked `.app` bundle (~730 MB, 277 files) under `release/`.
-        # Uploading the whole directory pushed us into GHA's per-account
-        # artifact storage quota ("Failed to CreateArtifact: Artifact storage
-        # quota has been hit"). The `.app` is already inside the `.dmg` /
-        # `.zip`, so list only the files a downstream consumer actually needs:
-        # the installers, their blockmaps (for `electron-updater` differential
-        # downloads), and `latest-mac.yml` (the update feed). `retention-days`
-        # is dropped from the default 90 to 2 (matching the test-results
-        # retention above) so old artifacts age out before they silt up the
-        # quota again, and `overwrite: true` lets re-runs of the same
-        # workflow replace the previous artifact instead of stacking.
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-macos
-          path: |
-            packages/desktop/release/*.dmg
-            packages/desktop/release/*.dmg.blockmap
-            packages/desktop/release/*.zip
-            packages/desktop/release/*.zip.blockmap
-            packages/desktop/release/latest-mac.yml
-          if-no-files-found: warn
-          retention-days: 2
-          overwrite: true
