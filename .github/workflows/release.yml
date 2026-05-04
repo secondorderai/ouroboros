@@ -57,9 +57,19 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Create GitHub Release
+        # Attach only the distributables and the auto-update feed —
+        # `release/` also contains the unpacked `.app` bundle (already
+        # inside the `.dmg`/`.zip`) and electron-builder's intermediate
+        # working directories, which would balloon every release with
+        # hundreds of extra files.
         uses: softprops/action-gh-release@v3
         with:
-          files: packages/desktop/release/*
+          files: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.dmg.blockmap
+            packages/desktop/release/*.zip
+            packages/desktop/release/*.zip.blockmap
+            packages/desktop/release/latest-mac.yml
           draft: false
           prerelease: false
           generate_release_notes: true
