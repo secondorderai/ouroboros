@@ -115,9 +115,10 @@ jobs:
         # `.zip`, so list only the files a downstream consumer actually needs:
         # the installers, their blockmaps (for `electron-updater` differential
         # downloads), and `latest-mac.yml` (the update feed). `retention-days`
-        # is dropped from the default 90 so old artifacts age out before they
-        # silt up the quota again, and `overwrite: true` lets re-runs of the
-        # same workflow replace the previous artifact instead of stacking.
+        # is dropped from the default 90 to 7 (matching the test-results
+        # retention above) so old artifacts age out before they silt up the
+        # quota again, and `overwrite: true` lets re-runs of the same
+        # workflow replace the previous artifact instead of stacking.
         uses: actions/upload-artifact@v7
         with:
           name: desktop-macos
@@ -128,5 +129,5 @@ jobs:
             packages/desktop/release/*.zip.blockmap
             packages/desktop/release/latest-mac.yml
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
           overwrite: true
