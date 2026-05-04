@@ -32,19 +32,19 @@ jobs:
         working-directory: packages/cli
         run: |
           mkdir -p release
-          bun build --compile --minify ./src/cli.ts --target=bun-linux-x64 --outfile release/ouroboros-linux-x64
-          chmod +x release/ouroboros-linux-x64
-          ./release/ouroboros-linux-x64 --version
+          bun build --compile --minify ./src/cli.ts --target=bun-linux-x64 --outfile release/ouroboros-cli-linux-x64
+          chmod +x release/ouroboros-cli-linux-x64
+          ./release/ouroboros-cli-linux-x64 --version
 
       - name: Generate Linux checksum
         working-directory: packages/cli/release
-        run: sha256sum ouroboros-linux-x64 > SHA256SUMS-linux-x64
+        run: sha256sum ouroboros-cli-linux-x64 > SHA256SUMS-linux-x64
 
       - name: Publish Linux CLI binary to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            packages/cli/release/ouroboros-linux-x64
+            packages/cli/release/ouroboros-cli-linux-x64
             packages/cli/release/SHA256SUMS-linux-x64
           draft: false
           prerelease: false
@@ -74,26 +74,27 @@ jobs:
         working-directory: packages/cli
         run: |
           mkdir -p release
-          bun build --compile --minify ./src/cli.ts --target=bun-darwin-arm64 --outfile release/ouroboros-darwin-arm64
-          bun build --compile --minify ./src/cli.ts --target=bun-darwin-x64 --outfile release/ouroboros-darwin-x64
-          chmod +x release/ouroboros-darwin-arm64 release/ouroboros-darwin-x64
+          bun build --compile --minify ./src/cli.ts --target=bun-darwin-arm64 --outfile release/ouroboros-cli-darwin-arm64
+          bun build --compile --minify ./src/cli.ts --target=bun-darwin-x64 --outfile release/ouroboros-cli-darwin-x64
+          chmod +x release/ouroboros-cli-darwin-arm64 release/ouroboros-cli-darwin-x64
 
           if [[ "$(uname -m)" == "arm64" ]]; then
-            ./release/ouroboros-darwin-arm64 --version
+            ./release/ouroboros-cli-darwin-arm64 --version
           else
-            ./release/ouroboros-darwin-x64 --version
+            ./release/ouroboros-cli-darwin-x64 --version
           fi
 
       - name: Generate macOS checksums
         working-directory: packages/cli/release
-        run: shasum -a 256 ouroboros-darwin-arm64 ouroboros-darwin-x64 > SHA256SUMS-darwin
+        run: shasum -a 256 ouroboros-cli-darwin-arm64 ouroboros-cli-darwin-x64 >
+          SHA256SUMS-darwin
 
       - name: Publish macOS CLI binaries to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            packages/cli/release/ouroboros-darwin-arm64
-            packages/cli/release/ouroboros-darwin-x64
+            packages/cli/release/ouroboros-cli-darwin-arm64
+            packages/cli/release/ouroboros-cli-darwin-x64
             packages/cli/release/SHA256SUMS-darwin
           draft: false
           prerelease: false
