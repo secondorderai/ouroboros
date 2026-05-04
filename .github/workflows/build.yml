@@ -2,9 +2,9 @@ name: Build Desktop App
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   verify:
@@ -115,7 +115,7 @@ jobs:
         # `.zip`, so list only the files a downstream consumer actually needs:
         # the installers, their blockmaps (for `electron-updater` differential
         # downloads), and `latest-mac.yml` (the update feed). `retention-days`
-        # is dropped from the default 90 to 7 (matching the test-results
+        # is dropped from the default 90 to 2 (matching the test-results
         # retention above) so old artifacts age out before they silt up the
         # quota again, and `overwrite: true` lets re-runs of the same
         # workflow replace the previous artifact instead of stacking.
@@ -129,5 +129,5 @@ jobs:
             packages/desktop/release/*.zip.blockmap
             packages/desktop/release/latest-mac.yml
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 2
           overwrite: true
