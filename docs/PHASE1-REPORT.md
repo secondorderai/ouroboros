@@ -134,7 +134,7 @@ Phase 1 of Ouroboros is complete. The CLI MVP delivers a working agent that can 
 - Layer 2: Topic files (`memory/topics/*.md`), loaded on demand
 - Layer 3: SQLite transcripts with session/message schema, keyword search
 
-**Skill Discovery** — Scans `skills/core/`, `skills/staging/`, `skills/generated/` for SKILL.md files. Parses YAML frontmatter for catalog. Progressive disclosure: only name + description in system prompt; full instructions loaded on activation.
+**Skill Discovery** — Scans `skills/core/`, `skills/generated/`, and configured legacy staging directories for SKILL.md files. Parses YAML frontmatter for catalog. Progressive disclosure: only name + description in system prompt; full instructions loaded on activation.
 
 ---
 

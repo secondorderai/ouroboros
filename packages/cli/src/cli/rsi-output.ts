@@ -23,9 +23,9 @@ export function writeRSIEvent(event: RSIEvent, streams: RSIOutputStreams = defau
       break
 
     case 'rsi-crystallization':
-      if (event.result.outcome === 'promoted') {
+      if (event.result.outcome === 'generated') {
         const skillName = event.result.skillName ?? 'unknown'
-        streams.stdout.write(`[RSI] Skill crystallized and promoted: ${skillName}\n`)
+        streams.stdout.write(`[RSI] Skill crystallized and available: ${skillName}\n`)
       } else if (event.result.outcome === 'no-crystallization') {
         streams.stdout.write('[RSI] Reflection complete — no crystallization needed.\n')
       } else {

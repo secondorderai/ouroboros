@@ -78,7 +78,7 @@
                 <mxCell id="stage-reflect" value="&lt;b style=&quot;color:#6d28d9;&quot;&gt;2 · Reflect&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Score novelty &amp;amp; generalizability;&lt;br/&gt;propose a skill if both exceed&lt;br/&gt;noveltyThreshold." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#7c3aed;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
                     <mxGeometry x="620" y="340" width="260" height="120" as="geometry"/>
                 </mxCell>
-                <mxCell id="stage-crystallize" value="&lt;b style=&quot;color:#92400e;&quot;&gt;3 · Crystallize&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Generate skill, write to staging,&lt;br/&gt;run tests, promote on green.&lt;br/&gt;(detail at right →)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#b45309;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                <mxCell id="stage-crystallize" value="&lt;b style=&quot;color:#92400e;&quot;&gt;3 · Crystallize&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Generate skill, write to generated,&lt;br/&gt;validate and self-test;&lt;br/&gt;available on green." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#b45309;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
                     <mxGeometry x="620" y="620" width="260" height="120" as="geometry"/>
                 </mxCell>
                 <mxCell id="stage-dream" value="&lt;b style=&quot;color:#065f46;&quot;&gt;4 · Dream&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Consolidate sessions into durable&lt;br/&gt;MEMORY.md; promote / prune /&lt;br/&gt;resolve contradictions." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#047857;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
@@ -114,7 +114,7 @@
                 <mxCell id="pipe-label" value="&lt;b&gt;Crystallization pipeline&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#92400e;" parent="1" vertex="1">
                     <mxGeometry x="990" y="282" width="400" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="pipe-sub" value="rsi/crystallize.ts → skills/{staging,generated,core}" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#78350f;" parent="1" vertex="1">
+                <mxCell id="pipe-sub" value="rsi/crystallize.ts → skills/{generated,core}" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#78350f;" parent="1" vertex="1">
                     <mxGeometry x="990" y="302" width="500" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="pipe-A" value="&lt;b&gt;A. reflect()&lt;/b&gt;&lt;br/&gt;Score novelty / generalizability against threshold." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
@@ -123,17 +123,14 @@
                 <mxCell id="pipe-B" value="&lt;b&gt;B. shouldCrystallize()&lt;/b&gt;&lt;br/&gt;Gate. If false → outcome: &lt;i&gt;no-crystallization&lt;/i&gt;." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
                     <mxGeometry x="1010" y="412" width="510" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="pipe-C" value="&lt;b&gt;C. generateSkill() + writeSkillToStaging()&lt;/b&gt;&lt;br/&gt;Emit SKILL.md + scripts/test.ts → skills/staging/&amp;lt;name&amp;gt;/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                <mxCell id="pipe-C" value="&lt;b&gt;C. generateSkill() + writeSkillToGenerated()&lt;/b&gt;&lt;br/&gt;Emit SKILL.md + scripts/test.ts → skills/generated/&amp;lt;name&amp;gt;/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
                     <mxGeometry x="1010" y="484" width="510" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="pipe-D" value="&lt;b&gt;D. runSkillTests()&lt;/b&gt;&lt;br/&gt;On failure → outcome: &lt;i&gt;test-failed&lt;/i&gt; (skill stays in staging)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                <mxCell id="pipe-D" value="&lt;b&gt;D. runSkillTests()&lt;/b&gt;&lt;br/&gt;On failure → outcome: &lt;i&gt;test-failed&lt;/i&gt;." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b45309;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
                     <mxGeometry x="1010" y="556" width="510" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="pipe-E" value="&lt;b style=&quot;color:#065f46;&quot;&gt;E. promote&lt;/b&gt;&lt;br/&gt;Move staging → skills/generated/. Outcome: &lt;i&gt;promoted&lt;/i&gt;." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#047857;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
+                <mxCell id="pipe-E" value="&lt;b style=&quot;color:#065f46;&quot;&gt;E. available&lt;/b&gt;&lt;br/&gt;Passing tests keep the skill in skills/generated/. Outcome: &lt;i&gt;generated&lt;/i&gt;." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#047857;fontSize=11;align=left;spacingLeft=12;spacingTop=8;" parent="1" vertex="1">
                     <mxGeometry x="1010" y="628" width="510" height="60" as="geometry"/>
-                </mxCell>
-                <mxCell id="pipe-F" value="&lt;b style=&quot;color:#075985;&quot;&gt;F. (manual) curate to skills/core/&lt;/b&gt;&lt;br/&gt;Human-reviewed promotion of generated skills." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0369a1;fontSize=11;align=left;spacingLeft=12;spacingTop=8;dashed=1;" parent="1" vertex="1">
-                    <mxGeometry x="1010" y="700" width="510" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="pipe-eAB" style="endArrow=classic;html=1;strokeColor=#b45309;" parent="1" source="pipe-A" target="pipe-B" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
@@ -145,9 +142,6 @@
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="pipe-eDE" style="endArrow=classic;html=1;strokeColor=#b45309;" parent="1" source="pipe-D" target="pipe-E" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
-                </mxCell>
-                <mxCell id="pipe-eEF" style="endArrow=classic;html=1;strokeColor=#0369a1;dashed=1;" parent="1" source="pipe-E" target="pipe-F" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="pipe-link" style="endArrow=classic;html=1;strokeColor=#b45309;strokeWidth=2;dashed=1;" parent="1" source="stage-crystallize" target="pipe-A" edge="1">

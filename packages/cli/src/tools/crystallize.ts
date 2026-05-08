@@ -2,7 +2,7 @@
  * Crystallize Tool
  *
  * Exposes the full skill crystallization pipeline as a tool the agent can invoke.
- * Orchestrates: Reflect -> Generate -> Validate -> Test -> Promote.
+ * Orchestrates: Reflect -> Generate -> Validate -> Test.
  *
  * Takes a task summary and optionally a transcript, runs the full pipeline,
  * and returns a CrystallizationResult describing the outcome.
@@ -19,9 +19,9 @@ export const name = 'crystallize'
 
 export const description =
   'Run the full skill crystallization pipeline: reflect on a completed task, ' +
-  'generate a reusable skill, validate it, run tests, and promote it to the ' +
-  'skill catalog. Returns the pipeline outcome (no-crystallization, generated, ' +
-  'test-failed, or promoted).'
+  'generate a reusable skill, validate it, and run tests before making it ' +
+  'available in the skill catalog. Returns the pipeline outcome ' +
+  '(no-crystallization, generated, or test-failed).'
 
 export const schema = z.object({
   taskSummary: z.string().describe('Summary of the completed task to crystallize into a skill'),
@@ -55,7 +55,6 @@ export const execute: TypedToolExecute<typeof schema, CrystallizationResult> = a
   // Resolve skill directories
   const cwd = process.cwd()
   const skillDirs = {
-    staging: resolve(cwd, 'skills/staging'),
     generated: resolve(cwd, 'skills/generated'),
     core: resolve(cwd, 'skills/core'),
   }

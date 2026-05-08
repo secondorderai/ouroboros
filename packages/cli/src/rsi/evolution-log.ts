@@ -386,11 +386,12 @@ export function getStats(basePath?: string): Result<EvolutionStats> {
 
     const sessionsAnalyzed =
       analyzedSessionIds.size > 0 ? analyzedSessionIds.size : analyzedEntryCount
-    const crystallizationAttempts = byType['skill-promoted'] + byType['skill-failed']
+    const successfulCrystallizations = byType['skill-created'] + byType['skill-promoted']
+    const crystallizationAttempts = successfulCrystallizations + byType['skill-failed']
     const recoveryAttempts = successfulResumesAfterCompaction + byType['length-recovery-failed']
     const successRate =
       crystallizationAttempts > 0
-        ? byType['skill-promoted'] / crystallizationAttempts
+        ? successfulCrystallizations / crystallizationAttempts
         : recoveryAttempts > 0
           ? successfulResumesAfterCompaction / recoveryAttempts
           : 0

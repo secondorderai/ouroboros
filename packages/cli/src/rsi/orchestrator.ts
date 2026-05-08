@@ -178,7 +178,6 @@ export class RSIOrchestrator {
         existingSkills,
         transcript,
         skillDirs: {
-          staging: resolve(cwd, 'skills/staging'),
           generated: resolve(cwd, 'skills/generated'),
           core: resolve(cwd, 'skills/core'),
         },
@@ -191,8 +190,8 @@ export class RSIOrchestrator {
         appendEntry(
           {
             type:
-              crystalResult.outcome === 'promoted'
-                ? 'skill-promoted'
+              crystalResult.outcome === 'generated'
+                ? 'skill-created'
                 : crystalResult.outcome === 'test-failed'
                   ? 'skill-failed'
                   : 'skill-created',

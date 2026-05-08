@@ -71,7 +71,7 @@ describe('GitHub Pages landing page', () => {
       'Code and configuration self-modification is a disabled-by-default approval tier.',
     )
     expect(renderedText).toContain(
-      'Generated skills are validated, self-tested, and promoted through an evolution log so automatic improvements stay inspectable.',
+      'Generated skills are validated and self-tested before they become available in the catalog, with every automatic improvement recorded in the evolution log.',
     )
     expect(html).not.toContain('promoted with user oversight')
 
@@ -80,7 +80,7 @@ describe('GitHub Pages landing page', () => {
     )
     expect(crystallizeSource).toContain('3. Validate')
     expect(crystallizeSource).toContain('4. Test')
-    expect(crystallizeSource).toContain('5. Promote')
+    expect(crystallizeSource).not.toContain('5. Promote')
     expect(promptSource).toContain('do not require user intervention')
   })
 })

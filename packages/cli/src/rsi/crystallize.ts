@@ -11,18 +11,10 @@
  *   - reflect()              — LLM-powered reflection on a completed task
  *   - shouldCrystallize()    — threshold check for novelty/generalizability
  *   - generateSkill()        — LLM-powered skill generation from a ReflectionRecord
- *   - writeSkillToStaging()  — writes a GeneratedSkill to disk with validation
+ *   - writeSkillToGenerated() — writes a GeneratedSkill to disk with validation
  *   - parseSkillResponse()   — extracts skill components from raw LLM output
  */
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
@@ -1149,16 +1141,16 @@ export async function generateSkill(
 }
 
 /**
- * Write a generated skill to the staging directory.
+ * Write a generated skill to the generated skill directory.
  *
  * Validates name uniqueness and frontmatter before writing.
- * Creates: skills/staging/<name>/SKILL.md and skills/staging/<name>/scripts/test.ts
+ * Creates: skills/generated/<name>/SKILL.md and skills/generated/<name>/scripts/test.ts
  *
  * @param skill      - The generated skill to write
- * @param basePath   - Project root (skills/staging/ is resolved relative to this)
+ * @param basePath   - Project root (skills/generated/ is resolved relative to this)
  * @returns Result containing the absolute path to the skill directory or an error
  */
-export async function writeSkillToStaging(
+export async function writeSkillToGenerated(
   skill: GeneratedSkill,
   basePath: string,
 ): Promise<Result<string>> {
@@ -1183,19 +1175,19 @@ export async function writeSkillToStaging(
   if (!rtResult.ok) return rtResult as Result<never>
 
   // 6. Write files
-  const stagingDir = join(basePath, 'skills', 'staging', skill.name)
-  const scriptsDir = join(stagingDir, 'scripts')
+  const generatedDir = join(basePath, 'skills', 'generated', skill.name)
+  const scriptsDir = join(generatedDir, 'scripts')
 
   try {
     mkdirSync(scriptsDir, { recursive: true })
-    writeFileSync(join(stagingDir, 'SKILL.md'), skillMdContent, 'utf-8')
+    writeFileSync(join(generatedDir, 'SKILL.md'), skillMdContent, 'utf-8')
     writeFileSync(join(scriptsDir, 'test.ts'), skill.testScript, 'utf-8')
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     return err(new Error(`Failed to write skill files: ${message}`))
   }
 
-  return ok(stagingDir)
+  return ok(generatedDir)
 }
 
 // ── Crystallization pipeline types ──────────────────────────────────
@@ -1203,7 +1195,7 @@ export async function writeSkillToStaging(
 export { type SkillTestResult } from '@src/rsi/validate'
 
 export interface CrystallizationResult {
-  outcome: 'no-crystallization' | 'generated' | 'test-failed' | 'promoted'
+  outcome: 'no-crystallization' | 'generated' | 'test-failed'
   reflection?: ReflectionRecord
   skillName?: string
   skillPath?: string
@@ -1213,7 +1205,7 @@ export interface CrystallizationResult {
 export interface CrystallizeOptions {
   transcript?: string
   llm: LanguageModel
-  skillDirs: { staging: string; generated: string; core: string }
+  skillDirs: { generated: string; core: string }
   noveltyThreshold?: number
   existingSkills?: SkillCatalogEntry[]
   observationSessions?: ObservationCrystallizationSession[]
@@ -1224,10 +1216,9 @@ export interface CrystallizeOptions {
 /**
  * Orchestrate the full crystallization pipeline:
  *   1. Reflect — Analyze the task for reusable patterns
- *   2. Generate — Produce a skill directory in staging
+ *   2. Generate — Produce a skill directory in generated/
  *   3. Validate — Check SKILL.md against requirements
  *   4. Test — Run skill tests
- *   5. Promote — Move to generated/
  *
  * If any stage fails, the pipeline stops and reports the failure.
  */
@@ -1245,7 +1236,7 @@ export async function crystallize(
   } = options
 
   // ── Stage 1: Reflect ────────────────────────────────────────────────
-  process.stderr.write('[crystallize] Stage 1/5: Reflecting on task...\n')
+  process.stderr.write('[crystallize] Stage 1/4: Reflecting on task...\n')
 
   const reflectionResult =
     observationSessions.length > 0
@@ -1282,10 +1273,10 @@ export async function crystallize(
   }
 
   // ── Stage 2: Generate ───────────────────────────────────────────────
-  process.stderr.write('[crystallize] Stage 2/5: Generating skill...\n')
+  process.stderr.write('[crystallize] Stage 2/4: Generating skill...\n')
 
-  // basePath = project root; skillDirs.staging is <root>/skills/staging
-  const basePath = join(skillDirs.staging, '..', '..')
+  // basePath = project root; skillDirs.generated is <root>/skills/generated
+  const basePath = join(skillDirs.generated, '..', '..')
 
   const genResult = await generateSkill(reflection, transcript, llm, basePath)
   if (!genResult.ok) {
@@ -1294,24 +1285,24 @@ export async function crystallize(
 
   const skill = genResult.value
 
-  const writeResult = await writeSkillToStaging(skill, basePath)
+  const writeResult = await writeSkillToGenerated(skill, basePath)
   if (!writeResult.ok) {
     return err(new Error(`[generate] ${writeResult.error.message}`))
   }
 
-  const stagingPath = writeResult.value
+  const generatedPath = writeResult.value
 
-  process.stderr.write(`[crystallize] Skill written to ${stagingPath}\n`)
+  process.stderr.write(`[crystallize] Skill written to ${generatedPath}\n`)
 
   // ── Stage 3: Validate ───────────────────────────────────────────────
-  process.stderr.write('[crystallize] Stage 3/5: Validating skill...\n')
+  process.stderr.write('[crystallize] Stage 3/4: Validating skill...\n')
 
   const fmResult = validateFrontmatter(skill.frontmatter)
   if (!fmResult.ok) {
     return err(new Error(`[validate] ${fmResult.error.message}`))
   }
 
-  const skillMdPath = join(stagingPath, 'SKILL.md')
+  const skillMdPath = join(generatedPath, 'SKILL.md')
   let skillMdContent: string
   try {
     skillMdContent = readFileSync(skillMdPath, 'utf-8')
@@ -1325,7 +1316,7 @@ export async function crystallize(
     return err(new Error(`[validate] ${rtResult.error.message}`))
   }
 
-  const scriptsDir = join(stagingPath, 'scripts')
+  const scriptsDir = join(generatedPath, 'scripts')
   if (!existsSync(scriptsDir) || readdirSync(scriptsDir).length === 0) {
     return err(new Error('[validate] No test files found in scripts/ directory'))
   }
@@ -1333,44 +1324,28 @@ export async function crystallize(
   process.stderr.write('[crystallize] Validation passed.\n')
 
   // ── Stage 4: Test ───────────────────────────────────────────────────
-  process.stderr.write('[crystallize] Stage 4/5: Running tests...\n')
+  process.stderr.write('[crystallize] Stage 4/4: Running tests...\n')
 
-  const testResult = await runSkillTests(stagingPath)
+  const testResult = await runSkillTests(generatedPath)
   if (!testResult.ok) {
     return err(new Error(`[test] ${testResult.error.message}`))
   }
 
   if (testResult.value.overall !== 'pass') {
-    process.stderr.write(`[crystallize] Tests failed. Skill remains in staging at ${stagingPath}\n`)
+    process.stderr.write(`[crystallize] Tests failed for generated skill at ${generatedPath}\n`)
     return ok({
       outcome: 'test-failed',
       reflection,
       skillName: skill.name,
-      skillPath: stagingPath,
+      skillPath: generatedPath,
       testResult: testResult.value,
     })
   }
 
-  process.stderr.write('[crystallize] Tests passed.\n')
-
-  // ── Stage 5: Promote ────────────────────────────────────────────────
-  process.stderr.write('[crystallize] Stage 5/5: Promoting skill...\n')
-
-  const generatedPath = join(skillDirs.generated, skill.name)
-
-  try {
-    mkdirSync(skillDirs.generated, { recursive: true })
-    cpSync(stagingPath, generatedPath, { recursive: true })
-    rmSync(stagingPath, { recursive: true, force: true })
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    return err(new Error(`[promote] Failed to move skill to generated: ${message}`))
-  }
-
-  process.stderr.write(`[crystallize] Skill promoted to ${generatedPath}\n`)
+  process.stderr.write(`[crystallize] Tests passed. Skill available at ${generatedPath}\n`)
 
   return ok({
-    outcome: 'promoted',
+    outcome: 'generated',
     reflection,
     skillName: skill.name,
     skillPath: generatedPath,

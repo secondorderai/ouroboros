@@ -147,7 +147,7 @@ Slides in from the right (~350px). Contains:
    - "Reflected on file parsing task — no new skill needed"
    - "Crystallized: `bun-stream-parser` — passed 2/2 tests"
    - "Memory consolidated — merged 3 topics"
-4. **Skills list:** Scrollable list with status badges (core = blue, generated = amber, staging = gray). Tap a skill to see description and metadata.
+4. **Skills list:** Scrollable list with status badges (core = blue, generated = amber, builtin = blue-gray, legacy staging = gray when configured). Tap a skill to see description and metadata.
 5. **Dream trigger:** Button at bottom: "Run dream cycle" for manual memory consolidation.
 
 This drawer is the single place for all RSI visibility. Always one click away, never in the way.

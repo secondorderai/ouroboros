@@ -11,7 +11,7 @@ import {
   proposeCrystallizationsFromObservations,
   reflectFromObservationPatterns,
   generateSkill,
-  writeSkillToStaging,
+  writeSkillToGenerated,
   parseSkillResponse,
   validateSkillName,
   checkNameUniqueness,
@@ -965,7 +965,6 @@ describe('RSI Crystallize Module — Skill Generation', () => {
     // Create skills directory structure
     mkdirSync(join(tmpDir, 'skills', 'core'), { recursive: true })
     mkdirSync(join(tmpDir, 'skills', 'generated'), { recursive: true })
-    mkdirSync(join(tmpDir, 'skills', 'staging'), { recursive: true })
   })
 
   afterEach(() => {
@@ -974,7 +973,7 @@ describe('RSI Crystallize Module — Skill Generation', () => {
 
   // ── Test 1: Generates valid skill directory ─────────────────────
   describe('generates valid skill directory', () => {
-    it('should produce SKILL.md and scripts/test.ts in staging', async () => {
+    it('should produce SKILL.md and scripts/test.ts in generated', async () => {
       const record = makeReflection()
       const llm = mockModelReturning(VALID_LLM_OUTPUT)
 
@@ -982,7 +981,7 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(genResult.ok).toBe(true)
       if (!genResult.ok) return
 
-      const writeResult = await writeSkillToStaging(genResult.value, tmpDir)
+      const writeResult = await writeSkillToGenerated(genResult.value, tmpDir)
       expect(writeResult.ok).toBe(true)
       if (!writeResult.ok) return
 
@@ -1141,7 +1140,6 @@ describe('RSI Crystallize Module — Skill Generation', () => {
         noveltyThreshold: 0.7,
         existingSkills: [],
         skillDirs: {
-          staging: join(tmpDir, 'skills', 'staging'),
           generated: join(tmpDir, 'skills', 'generated'),
           core: join(tmpDir, 'skills', 'core'),
         },
@@ -1150,7 +1148,7 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(result.ok).toBe(true)
       if (!result.ok) return
 
-      expect(result.value.outcome).toBe('promoted')
+      expect(result.value.outcome).toBe('generated')
       expect(result.value.skillName).toBe('payment-webhook-debugging')
       expect(
         result.value.reflection?.sourceReferences?.map((reference) => reference.sessionId).sort(),
@@ -1168,7 +1166,7 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(genResult.ok).toBe(true)
       if (!genResult.ok) return
 
-      const writeResult = await writeSkillToStaging(genResult.value, tmpDir)
+      const writeResult = await writeSkillToGenerated(genResult.value, tmpDir)
       expect(writeResult.ok).toBe(true)
       if (!writeResult.ok) return
 
@@ -1236,14 +1234,14 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(genResult.ok).toBe(true)
       if (!genResult.ok) return
 
-      const writeResult = await writeSkillToStaging(genResult.value, tmpDir)
+      const writeResult = await writeSkillToGenerated(genResult.value, tmpDir)
       expect(writeResult.ok).toBe(false)
       if (writeResult.ok) return
       expect(writeResult.error.message).toContain('already exists')
       expect(writeResult.error.message).toContain('existing-skill')
     })
 
-    it('should error when skill name already exists in skills/staging/', async () => {
+    it('should error when skill name already exists in legacy skills/staging/', async () => {
       const existingDir = join(tmpDir, 'skills', 'staging', 'existing-skill')
       mkdirSync(existingDir, { recursive: true })
 
@@ -1254,7 +1252,7 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(genResult.ok).toBe(true)
       if (!genResult.ok) return
 
-      const writeResult = await writeSkillToStaging(genResult.value, tmpDir)
+      const writeResult = await writeSkillToGenerated(genResult.value, tmpDir)
       expect(writeResult.ok).toBe(false)
       if (writeResult.ok) return
       expect(writeResult.error.message).toContain('already exists')
@@ -1271,7 +1269,7 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(genResult.ok).toBe(true)
       if (!genResult.ok) return
 
-      const writeResult = await writeSkillToStaging(genResult.value, tmpDir)
+      const writeResult = await writeSkillToGenerated(genResult.value, tmpDir)
       expect(writeResult.ok).toBe(false)
       if (writeResult.ok) return
       expect(writeResult.error.message).toContain('already exists')
@@ -1288,7 +1286,7 @@ describe('RSI Crystallize Module — Skill Generation', () => {
       expect(genResult.ok).toBe(true)
       if (!genResult.ok) return
 
-      const writeResult = await writeSkillToStaging(genResult.value, tmpDir)
+      const writeResult = await writeSkillToGenerated(genResult.value, tmpDir)
       expect(writeResult.ok).toBe(true)
       if (!writeResult.ok) return
 
@@ -1456,7 +1454,7 @@ description: A test skill
       if (!result.ok) return
 
       expect(result.value.skillName).toBe('test-skill')
-      expect(result.value.path).toContain('skills/staging/test-skill')
+      expect(result.value.path).toContain('skills/generated/test-skill')
       expect(existsSync(join(result.value.path, 'SKILL.md'))).toBe(true)
       expect(existsSync(join(result.value.path, 'scripts', 'test.ts'))).toBe(true)
     })

@@ -151,7 +151,7 @@ function formatStats(stats: EvolutionStats): string {
   const lines = [
     `Total entries: ${stats.totalEntries}`,
     `Skills created: ${stats.skillsCreated}`,
-    `Skills promoted: ${stats.skillsPromoted}`,
+    `Legacy skills promoted: ${stats.skillsPromoted}`,
     `Skills failed: ${stats.skillsFailed}`,
     '',
     'By type:',

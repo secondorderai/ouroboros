@@ -273,8 +273,8 @@ function describeNotification(channel: string, params: Record<string, unknown>):
     case 'rsi/crystallization': {
       const outcome = params.outcome as string
       const name = params.skillName as string
-      if (outcome === 'promoted') {
-        return `Crystallized: \`${name}\` -- promoted to skill`
+      if (outcome === 'generated') {
+        return `Crystallized: \`${name}\` -- available as a skill`
       }
       return `Crystallization attempt: ${(params.description as string) || outcome}`
     }
@@ -756,7 +756,7 @@ export function useRSI(): UseRSIReturn {
         const payload = (params ?? {}) as Record<string, unknown>
         const runtimeParams = (params ?? {}) as RsiRuntimeNotification
 
-        if (channel === 'rsi/crystallization' && payload.outcome === 'promoted') {
+        if (channel === 'rsi/crystallization' && payload.outcome === 'generated') {
           if (flashTimer.current) clearTimeout(flashTimer.current)
           if (activeTimer.current) clearTimeout(activeTimer.current)
           setSerpentState('flash')

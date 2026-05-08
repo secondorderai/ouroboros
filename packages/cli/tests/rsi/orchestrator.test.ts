@@ -270,7 +270,6 @@ describe('RSI Orchestrator', () => {
     mkdirSync(join(tempDir, 'memory', 'topics'), { recursive: true })
     mkdirSync(join(tempDir, 'skills', 'core'), { recursive: true })
     mkdirSync(join(tempDir, 'skills', 'generated'), { recursive: true })
-    mkdirSync(join(tempDir, 'skills', 'staging'), { recursive: true })
   })
 
   afterEach(() => {
@@ -371,7 +370,7 @@ describe('RSI Orchestrator', () => {
     const crystalEvent = rsiEvents.find((e) => e.type === 'rsi-crystallization')
     expect(crystalEvent).toBeDefined()
     if (crystalEvent?.type === 'rsi-crystallization') {
-      expect(crystalEvent.result.outcome).toBe('promoted')
+      expect(crystalEvent.result.outcome).toBe('generated')
     }
   })
 

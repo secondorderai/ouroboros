@@ -337,7 +337,7 @@ No navigation bars, no tab strips, no activity bars. The command palette is the 
 
 | Requirement                 | Priority | Details                                                            |
 | --------------------------- | -------- | ------------------------------------------------------------------ |
-| Skills list in drawer       | P0       | Name + status badge (core/generated/staging) + description on tap. |
+| Skills list in drawer       | P0       | Name + status badge (core/generated/builtin, plus legacy staging when configured) + description on tap. |
 | Skills browsing via palette | P1       | Command palette "Browse skills" opens a modal list with search.    |
 | Skill detail view           | P2       | Full SKILL.md content rendered as markdown.                        |
 

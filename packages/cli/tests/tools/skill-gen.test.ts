@@ -101,7 +101,7 @@ describe('SkillGenTool', () => {
     expect(result.error.message).toContain('requires LLM dependency injection')
   })
 
-  test('createExecute writes a generated skill to staging', async () => {
+  test('createExecute writes a generated skill to generated', async () => {
     const runSkillGen = createExecute({
       llm: mockModelReturning(VALID_LLM_OUTPUT),
       basePath: tempDir,
@@ -112,7 +112,7 @@ describe('SkillGenTool', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.skillName).toBe('agent-workflow-regression-tests')
-    expect(result.value.path).toContain('skills/staging/agent-workflow-regression-tests')
+    expect(result.value.path).toContain('skills/generated/agent-workflow-regression-tests')
     expect(existsSync(join(result.value.path, 'SKILL.md'))).toBe(true)
     expect(existsSync(join(result.value.path, 'scripts', 'test.ts'))).toBe(true)
   })

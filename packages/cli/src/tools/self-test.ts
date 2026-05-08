@@ -2,8 +2,8 @@
  * SelfTestTool — Skill Test Runner
  *
  * Executes test scripts found in a skill's `scripts/` directory and reports
- * structured pass/fail results. This is the quality gate for skill promotion
- * from staging to active use.
+ * structured pass/fail results. This is the quality gate before a generated
+ * skill is considered available for active use.
  */
 import { z } from 'zod'
 import { type Result } from '@src/types'
@@ -18,7 +18,7 @@ export const description =
   "in the skill's scripts/ directory and executes each with the appropriate runner."
 
 export const schema = z.object({
-  skillPath: z.string().describe('Path to the skill directory (e.g., skills/staging/my-skill)'),
+  skillPath: z.string().describe('Path to the skill directory (e.g., skills/generated/my-skill)'),
 })
 
 export const execute: TypedToolExecute<typeof schema, SkillTestResult> = async (

@@ -12,14 +12,14 @@ and the full crystallization pipeline.
 graph LR
   subgraph Creation
     A[Reflection] --> B[Skill Generation]
-    B --> C[Staging SKILL.md]
+    B --> C[Generated SKILL.md]
   end
   subgraph Validation
     C --> D[self-test Tool]
     D --> E{All Tests Pass?}
   end
-  subgraph Promotion
-    E -->|Yes| F[Core/Generated]
+  subgraph Availability
+    E -->|Yes| F[Generated Catalog]
     E -->|No| G[Fix & Retry]
     G --> D
   end
@@ -37,7 +37,7 @@ graph LR
 
 The skill manager has comprehensive unit tests already covering:
 
-- **Discovery** — skills found in `core/`, `staging/`, `generated/`, and `builtin/` directories; multi-base-path precedence; deduplication; env var configuration (`OUROBOROS_BUILTIN_SKILLS_DIR`, `OUROBOROS_USER_SKILLS_DIRS`).
+- **Discovery** — skills found in `core/`, `generated/`, `builtin/`, and legacy/manual staging directories when configured; multi-base-path precedence; deduplication; env var configuration (`OUROBOROS_BUILTIN_SKILLS_DIR`, `OUROBOROS_USER_SKILLS_DIRS`).
 - **Frontmatter parsing** — required fields (`name`, `description`), optional fields (`license`, `compatibility`, `metadata`, `references`, `requiresApproval`); YAML sanitization (tab indentation, BOM); invalid YAML rejection.
 - **Activation** — full instruction body returned without frontmatter; explicit `references` loading; legacy `REFERENCE.md` heuristic; `fileList` capped at 10 entries per subdirectory; idempotent re-activation (handler fires once).
 - **Approval gate** — `requiresApproval: true` denies without handler, activates with approved handler, respects `bypassApproval` flag.
@@ -96,7 +96,7 @@ expect(result.value.overall).toBe('pass')
 Tests the LLM-driven skill generation pipeline:
 
 - **Reflection** — valid JSON parsing, schema validation, novelty/generalizability thresholds, existing-skill-awareness in prompts, malformed LLM output handling, reasoning model compatibility (no temperature for OpenAI o-series).
-- **Skill generation** — `generateSkill()` produces SKILL.md + scripts/test.ts; `writeSkillToStaging()` writes to staging directory; duplicate name rejection.
+- **Skill generation** — `generateSkill()` produces SKILL.md + scripts/test.ts; `writeSkillToGenerated()` writes to the generated directory; duplicate name rejection.
 - **Frontmatter conformance** — agentskills.io spec: `name`, `description`, `license: Apache-2.0`, `metadata.generated`, `metadata.author`, `metadata.version`, `metadata.confidence`, `metadata.source_task`.
 - **Observation-based crystallization** — repeated workflow sessions produce proposals with source references; one-off noise filtered out; `crystallize()` end-to-end with observation sessions.
 - **Validator helpers** — `validateSkillName` (kebab-case, length), `checkNameUniqueness`, `parseSkillResponse` (3 code blocks), `validateRoundTrip`.
@@ -130,7 +130,7 @@ Tests the `skill-gen` tool interface:
 
 - Tool exports (`name`, `description`, `schema`)
 - Default execute returns dependency injection error (no LLM)
-- `createExecute` with mock LLM writes complete skill to staging
+- `createExecute` with mock LLM writes complete skill to generated
 - Rejects `shouldCrystallize: false` reflection records
 
 ## 5. Unit Testing the Self-Test Tool
@@ -189,7 +189,7 @@ Tests the `/skill-name` slash command parsing and activation:
 ### Step 1: Create the skill fixture
 
 ```
-skills/staging/my-custom-skill/
+skills/generated/my-custom-skill/
 ├── SKILL.md
 ├── references/
 │   └── api-guide.md     (optional)
@@ -217,7 +217,7 @@ Detailed instructions for the agent...
 ### Step 2: Write the skill's test script
 
 ```typescript
-// skills/staging/my-custom-skill/scripts/test.ts
+// skills/generated/my-custom-skill/scripts/test.ts
 import { describe, test, expect } from 'bun:test'
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -242,10 +242,10 @@ describe('my-custom-skill', () => {
 
 ```bash
 # Via the tool interface:
-self-test { skillPath: "skills/staging/my-custom-skill" }
+self-test { skillPath: "skills/generated/my-custom-skill" }
 
 # Or directly with Bun:
-cd skills/staging/my-custom-skill && bun test scripts/test.ts
+cd skills/generated/my-custom-skill && bun test scripts/test.ts
 ```
 
 ### Step 4: Write unit tests for the skill manager
@@ -255,14 +255,14 @@ skill is discovered, activated, and its references load correctly:
 
 ```typescript
 test('my-custom-skill is discovered and activates correctly', async () => {
-  const skillDir = join(FIXTURES, 'staging', 'my-custom-skill')
+  const skillDir = join(FIXTURES, 'generated', 'my-custom-skill')
   writeSkillMd(skillDir, {
     name: 'my-custom-skill',
     description: 'Test skill',
     references: ['api-guide.md'],
   }, '# Instructions')
   // ... create reference file
-  discoverSkills(['staging'], FIXTURES)
+  discoverSkills(['generated'], FIXTURES)
   const result = await activateSkill('my-custom-skill')
   expect(result.ok).toBe(true)
 })
@@ -279,10 +279,10 @@ const result = await crystallize('Task summary', {
   observationSessions: [...],
   noveltyThreshold: 0.7,
   existingSkills: getSkillCatalog(),
-  skillDirs: { staging, generated, core },
+  skillDirs: { generated, core },
 })
 expect(result.ok).toBe(true)
-expect(result.value.outcome).toBe('promoted')
+expect(result.value.outcome).toBe('generated')
 ```
 
 ## Test File Summary
@@ -306,7 +306,7 @@ expect(result.value.outcome).toBe('promoted')
 3. **Activation** — `activateSkill` returns body without frontmatter
 4. **References** — declared references load as content; undeclared files appear in `fileList`
 5. **Self-test** — `scripts/test.ts` (or `.py`/`.sh`) passes when run via `self-test` tool
-6. **Name uniqueness** — no collision with existing skills in `core/`, `staging/`, `generated/`
+6. **Name uniqueness** — no collision with existing skills in `core/`, `generated/`, or legacy `staging/`
 7. **System prompt** — skill appears in catalog after discovery
 8. **Approval gate** — if `requiresApproval: true`, approval handler fires correctly
 

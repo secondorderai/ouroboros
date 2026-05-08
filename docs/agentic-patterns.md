@@ -82,10 +82,10 @@ Background: [docs/observe-reflect-crystallize-dream-memory-plan.md](observe-refl
 ### Crystallization (Skill Synthesis Pipeline)
 - **Where:** [packages/cli/src/rsi/crystallize.ts](../packages/cli/src/rsi/crystallize.ts),
   [packages/cli/src/tools/crystallize.ts](../packages/cli/src/tools/crystallize.ts)
-- **What:** Full pipeline: novelty score → generate `SKILL.md` → Zod-validate
-  frontmatter → run skill self-test → promote `skills/staging` → `skills/core`.
-  Returns a `CrystallizationResult` with one of `no-crystallization | generated
-  | test-failed | promoted`.
+- **What:** Full pipeline: novelty score → generate `SKILL.md` in
+  `skills/generated` → Zod-validate frontmatter → run skill self-test. Returns
+  a `CrystallizationResult` with one of `no-crystallization | generated |
+  test-failed`.
 - **Notable:** Crystallization fails closed — generated skills must pass
   validation and self-test before they enter the active catalogue. A bad
   reflection cannot poison the skill set.
@@ -101,7 +101,7 @@ Background: [docs/observe-reflect-crystallize-dream-memory-plan.md](observe-refl
 - **Where:** [packages/cli/src/rsi/evolution-log.ts](../packages/cli/src/rsi/evolution-log.ts)
 - **What:** Append-only log of every reflection, crystallization, dream, and
   validation event. This is the data you tune novelty thresholds and skill
-  promotion rates against.
+  generation success rates against.
 
 ### Orchestrator (Lifecycle Hooks)
 - **Where:** [packages/cli/src/rsi/orchestrator.ts](../packages/cli/src/rsi/orchestrator.ts)
@@ -193,7 +193,8 @@ own token budget, rather than a single retrieval-augmented store.
 ### `SKILL.md` Catalogue
 - **Where:** [packages/cli/src/tools/skill-manager.ts](../packages/cli/src/tools/skill-manager.ts),
   [packages/cli/src/skills/skill-invocation.ts](../packages/cli/src/skills/skill-invocation.ts),
-  `skills/{core,staging,generated}/`
+  `skills/{core,generated}/` plus legacy/manual staging directories when
+  configured.
 - **What:** Each skill is a `SKILL.md` with YAML frontmatter (`name`,
   `description`, `references`, `requiresApproval`) and free-form
   instructions. Follows the [agentskills.io](https://agentskills.io) spec.
@@ -201,10 +202,9 @@ own token budget, rather than a single retrieval-augmented store.
   (name + one-line description). Full instructions are loaded into context
   **only when the agent activates the skill** via tool call. This keeps the
   base prompt small while making thousands of skills addressable.
-- **Notable:** Three directories form a promotion pipeline — `generated` (just
-  crystallised) → `staging` (validated) → `core` (battle-tested). Skills can
-  declare `requiresApproval: true` to gate activation behind a human
-  approval handler.
+- **Notable:** Crystallized skills are written directly to `skills/generated`
+  and become available after validation and self-test pass. Skills can declare
+  `requiresApproval: true` to gate activation behind a human approval handler.
 
 ### Skill Generation as a Tool
 - **Where:** [packages/cli/src/tools/skill-gen.ts](../packages/cli/src/tools/skill-gen.ts)

@@ -10,7 +10,7 @@
 import { z } from 'zod'
 import type { LanguageModel } from 'ai'
 import { type Result, ok, err } from '@src/types'
-import { type ReflectionRecord, generateSkill, writeSkillToStaging } from '@src/rsi/crystallize'
+import { type ReflectionRecord, generateSkill, writeSkillToGenerated } from '@src/rsi/crystallize'
 
 // ── Tool interface ─────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ export const name = 'skill-gen'
 
 export const description =
   'Generate a new skill from a reflection record. Takes a structured reflection ' +
-  '(from the reflect tool) and produces a complete skill directory in skills/staging/ ' +
+  '(from the reflect tool) and produces a complete skill directory in skills/generated/ ' +
   'with SKILL.md and test script. Only operates on reflections marked shouldCrystallize: true.'
 
 export const schema = z.object({
@@ -63,8 +63,8 @@ export function createExecute(deps: SkillGenToolDeps) {
     const genResult = await generateSkill(record, transcript, deps.llm, basePath)
     if (!genResult.ok) return genResult as Result<never>
 
-    // 2. Write to staging
-    const writeResult = await writeSkillToStaging(genResult.value, basePath)
+    // 2. Write to generated skills
+    const writeResult = await writeSkillToGenerated(genResult.value, basePath)
     if (!writeResult.ok) return writeResult as Result<never>
 
     return ok({
