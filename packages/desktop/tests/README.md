@@ -17,6 +17,8 @@ mocked CLI JSON-RPC behavior.
 - `team-graph.spec.ts`: team graph notifications and renderer state.
 - `steering.spec.ts`: mid-turn steering lifecycle states.
 - `mermaid-*.spec.ts`: Mermaid rendering, theme, zoom, and lightbox behavior.
+- `test-plan/*.md` + `.agents/skills/ouroboros-intent-e2e`: intent-based
+  E2E charters driven through Agent Browser and Electron CDP.
 - `scripts/electron-cdp-smoke.sh`: manual CDP smoke harness for launch,
   restart, and packaged-app checks.
 
@@ -29,6 +31,13 @@ bun run build:vite
 bun run test:e2e:contracts
 bun run test:e2e:real
 bun run test:e2e
+```
+
+Intent E2E is an opt-in layer while it stabilizes:
+
+```bash
+bun run test:intent:e2e -- test-plan/desktop-onboarding-chat.md --dry-run
+bun run test:intent:e2e -- test-plan/desktop-onboarding-chat.md
 ```
 
 Electron windows are hidden by default during E2E runs so local tests do not steal focus or cover

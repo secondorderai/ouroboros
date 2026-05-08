@@ -1,0 +1,3 @@
+display_name: Ouroboros Test Plan Author
+short_description: Turns high-level desktop goals into intent E2E Markdown charters.
+default_prompt: Create or improve a test-plan Markdown charter for the requested Ouroboros desktop feature, grounded in the current repo.

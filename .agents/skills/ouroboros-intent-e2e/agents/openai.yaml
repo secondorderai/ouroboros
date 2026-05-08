@@ -1,0 +1,3 @@
+display_name: Ouroboros Intent E2E
+short_description: Runs Markdown desktop QA charters through Agent Browser and Electron CDP.
+default_prompt: Run the selected test-plan Markdown file against the Ouroboros desktop app and produce evidence-backed pass/fail artifacts.

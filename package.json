@@ -14,6 +14,7 @@
     "test:cli": "bun run --filter @ouroboros/cli test",
     "test:cli:live": "bun run --filter @ouroboros/cli test:live",
     "test:desktop": "bun run --filter @ouroboros/desktop build:vite && bun run --filter @ouroboros/desktop test:e2e",
+    "test:intent:e2e": "bun run --filter @ouroboros/desktop test:intent:e2e",
     "test:all": "bun run test:cli && bun run test:desktop",
     "lint": "bun run --filter '*' lint",
     "ts-check": "bun run --filter '*' ts-check",

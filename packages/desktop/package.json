@@ -21,6 +21,7 @@
     "test:e2e": "npx playwright test",
     "test:e2e:contracts": "npx playwright test tests/e2e/renderer-contract.spec.ts",
     "test:e2e:real": "npx playwright test tests/e2e/real-flows.spec.ts tests/e2e/main-process.spec.ts",
+    "test:intent:e2e": "bun scripts/run-intent-e2e.ts",
     "test:cdp:smoke": "bash scripts/electron-cdp-smoke.sh",
     "ts-check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "echo 'No linter configured yet'"
