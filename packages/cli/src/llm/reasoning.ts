@@ -8,7 +8,7 @@
  *     `providerOptions.anthropic = { thinking: { type: 'adaptive' }, effort }`
  *   (Required mode on Opus 4.7; recommended replacement for the deprecated
  *   `thinking.type: 'enabled'` + `budget_tokens` shape.)
- * - OpenAI reasoning (o-series and GPT-5 family):
+ * - OpenAI reasoning (GPT-5 family):
  *     `providerOptions.openai = { reasoningEffort }`
  *
  * The unified enum has five levels (`minimal | low | medium | high | max`).

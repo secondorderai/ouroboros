@@ -643,7 +643,7 @@ describe('reflect()', () => {
     expect((providerOptions?.openai?.instructions as string).length).toBeGreaterThan(0)
   })
 
-  test('omits temperature for o-series snapshot variants (registry prefix match)', async () => {
+  test('omits temperature for GPT-5 snapshot variants (registry prefix match)', async () => {
     const mockResponse = JSON.stringify({
       taskSummary: 'Created a new feature',
       novelty: 0.9,
@@ -654,7 +654,7 @@ describe('reflect()', () => {
 
     const { llm, doGenerateCalls } = createCapturingLLM({
       provider: 'openai.responses',
-      modelId: 'o3-mini-2025-01-31',
+      modelId: 'gpt-5.4-medium-2026-01-01',
       responseText: mockResponse,
     })
 

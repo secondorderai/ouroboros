@@ -254,7 +254,7 @@ export const configSchema = z.object({
         .enum(['minimal', 'low', 'medium', 'high', 'max'])
         .default('medium')
         .describe(
-          'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on o-series and GPT-5. Silently ignored on unsupported models. "minimal" is OpenAI-only; "max" is Anthropic-only — clamped to the closest supported level.',
+          'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on GPT-5. Silently ignored on unsupported models. "minimal" is OpenAI-only; "max" is Anthropic-only — clamped to the closest supported level.',
         ),
     })
     .default({ provider: 'openai' as const, name: 'gpt-5.5', reasoningEffort: 'medium' }),
