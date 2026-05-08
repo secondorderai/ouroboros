@@ -1,4 +1,4 @@
-# Ouroboros
+# Ouroboros - A local first Self-Improving AI Agent (Research Preview)
 
 Ouroboros is a Bun/TypeScript monorepo for a Recursive Self Improving (RSI) AI agent.
 It includes a CLI agent, an Electron desktop app, shared protocol/types, runtime
