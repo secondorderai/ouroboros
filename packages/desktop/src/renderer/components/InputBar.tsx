@@ -686,9 +686,6 @@ function reasoningKindForModel(
     if (id.startsWith(prefix)) return 'anthropic-adaptive'
   }
 
-  if (id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4-mini')) {
-    return 'openai-reasoning'
-  }
   if (id.startsWith('gpt-5') && !id.startsWith('gpt-5-chat')) {
     return 'openai-reasoning'
   }

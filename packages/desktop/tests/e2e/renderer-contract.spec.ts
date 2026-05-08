@@ -233,12 +233,12 @@ test('onboarding provider and model selection are single choice', async ({}, tes
   await clearRpcOverrides(launched.page)
   await setRpcOverride(launched.page, 'config/testConnection', {
     ok: true,
-    result: { success: true, models: ['o4-mini', 'o3'] },
+    result: { success: true, models: ['gpt-5.5', 'gpt-5.4'] },
   })
 
   await launched.page.getByPlaceholder('sk-...').fill('sk-test-key')
   await launched.page.getByRole('button', { name: 'Test Connection' }).click()
-  await expect(launched.page.getByLabel('Model')).toHaveValue('o4-mini')
+  await expect(launched.page.getByLabel('Model')).toHaveValue('gpt-5.5')
 })
 
 test('onboarding provider cards do not retain selected-looking borders after switching', async ({}, testInfo) => {

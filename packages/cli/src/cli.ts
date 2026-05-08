@@ -55,7 +55,7 @@ program
   .option('--model <model>', 'Override model selection (e.g., openai/gpt-5.4)')
   .option(
     '--reasoning-effort <effort>',
-    'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on o-series and GPT-5. Ignored for unsupported models.',
+    'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on GPT-5. Ignored for unsupported models.',
   )
   .option('-v, --verbose', 'Show tool call details (name, args, result)')
   .option('--no-stream', 'Wait for full response before printing')

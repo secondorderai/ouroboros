@@ -391,10 +391,10 @@ describe('CLI', () => {
   // -------------------------------------------------------------------
   describe('model flag overrides config', () => {
     test('parseModelFlag parses explicit providers', () => {
-      const openAIResult = parseModelFlag('openai/gpt-4o')
+      const openAIResult = parseModelFlag('openai/gpt-5.5')
       expect(openAIResult.ok).toBe(true)
       if (openAIResult.ok) {
-        expect(openAIResult.value).toEqual({ provider: 'openai', name: 'gpt-4o' })
+        expect(openAIResult.value).toEqual({ provider: 'openai', name: 'gpt-5.5' })
       }
 
       const chatGPTResult = parseModelFlag('openai-chatgpt/gpt-5.4')

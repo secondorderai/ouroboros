@@ -17,7 +17,7 @@ describe('buildReasoningProviderOptions', () => {
   })
 
   test('no-op when model has no reasoning support, even if effort is set', () => {
-    const result = buildReasoningProviderOptions(fakeModel('openai.chat', 'gpt-4o'), 'high')
+    const result = buildReasoningProviderOptions(fakeModel('openai.chat', 'some-model'), 'high')
     expect(result.providerOptions).toBeUndefined()
     expect(result.forceTemperatureOne).toBe(false)
   })
@@ -69,7 +69,7 @@ describe('buildReasoningProviderOptions', () => {
   })
 
   test('OpenAI reasoning: medium passes through, no forced temperature', () => {
-    const result = buildReasoningProviderOptions(fakeModel('openai.responses', 'o3'), 'medium')
+    const result = buildReasoningProviderOptions(fakeModel('openai.responses', 'gpt-5.4'), 'medium')
     expect(result.providerOptions).toEqual({ openai: { reasoningEffort: 'medium' } })
     expect(result.forceTemperatureOne).toBe(false)
   })
@@ -83,7 +83,7 @@ describe('buildReasoningProviderOptions', () => {
   })
 
   test('OpenAI reasoning clamp: max becomes high', () => {
-    const result = buildReasoningProviderOptions(fakeModel('openai.responses', 'o3'), 'max')
+    const result = buildReasoningProviderOptions(fakeModel('openai.responses', 'gpt-5.4'), 'max')
     expect(result.providerOptions).toEqual({ openai: { reasoningEffort: 'high' } })
     expect(result.forceTemperatureOne).toBe(false)
   })

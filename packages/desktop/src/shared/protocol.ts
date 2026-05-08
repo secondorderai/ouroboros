@@ -795,7 +795,7 @@ export interface OuroborosConfig {
     apiKey?: string
     /**
      * Reasoning effort. Maps to Anthropic adaptive thinking on Claude 4.6+ or
-     * to OpenAI reasoning_effort on o-series and GPT-5. Silently ignored on
+     * to OpenAI reasoning_effort on GPT-5. Silently ignored on
      * unsupported models. Defaults to `medium` when unset. `minimal` is
      * OpenAI-only; `max` is Anthropic-only — out-of-range values are clamped to
      * the closest supported level.

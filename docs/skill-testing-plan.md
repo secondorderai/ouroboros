@@ -95,7 +95,7 @@ expect(result.value.overall).toBe('pass')
 
 Tests the LLM-driven skill generation pipeline:
 
-- **Reflection** — valid JSON parsing, schema validation, novelty/generalizability thresholds, existing-skill-awareness in prompts, malformed LLM output handling, reasoning model compatibility (no temperature for OpenAI o-series).
+- **Reflection** — valid JSON parsing, schema validation, novelty/generalizability thresholds, existing-skill-awareness in prompts, malformed LLM output handling, reasoning model compatibility.
 - **Skill generation** — `generateSkill()` produces SKILL.md + scripts/test.ts; `writeSkillToGenerated()` writes to the generated directory; duplicate name rejection.
 - **Frontmatter conformance** — agentskills.io spec: `name`, `description`, `license: Apache-2.0`, `metadata.generated`, `metadata.author`, `metadata.version`, `metadata.confidence`, `metadata.source_task`.
 - **Observation-based crystallization** — repeated workflow sessions produce proposals with source references; one-off noise filtered out; `crystallize()` end-to-end with observation sessions.

@@ -158,7 +158,7 @@ export interface LLMCallOptions {
   /**
    * Reasoning effort for capable models. Maps to Anthropic adaptive thinking
    * (`thinking.type: 'adaptive'` + `effort`) on Claude Opus 4.6/4.7 and Sonnet
-   * 4.6, or to OpenAI `reasoningEffort` on o-series and GPT-5 models. Silently
+   * 4.6, or to OpenAI `reasoningEffort` on GPT-5 models. Silently
    * ignored on models that don't support reasoning. Values outside a provider's
    * accepted set are clamped to the closest level.
    */

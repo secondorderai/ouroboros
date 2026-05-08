@@ -563,7 +563,7 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'anthropic', name: 'claude-3-opus' },
+        model: { provider: 'anthropic', name: 'old-file-model' },
       }),
     )
 
@@ -763,7 +763,7 @@ describe('loadConfig', () => {
     const config = {
       model: {
         provider: 'openai',
-        name: 'gpt-4o',
+        name: 'gpt-5.5',
         apiKey: 'cfg-openai',
       },
       permissions: {
@@ -804,7 +804,7 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.model.provider).toBe('openai')
-    expect(result.value.model.name).toBe('gpt-4o')
+    expect(result.value.model.name).toBe('gpt-5.5')
     expect(result.value.model.apiKey).toBe('cfg-openai')
     expect(result.value.permissions.tier2).toBe(false)
     expect(result.value.skillDirectories).toEqual(['skills/core', 'skills/custom'])
@@ -825,7 +825,7 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'anthropic', name: 'claude-3-5-sonnet-latest' },
+        model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
       }),
     )
 
@@ -842,7 +842,7 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'openai', name: 'gpt-4o' },
+        model: { provider: 'openai', name: 'gpt-5.5' },
       }),
     )
 
@@ -851,7 +851,7 @@ describe('loadConfig', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.value.memory.contextWindowTokens).toBe(128_000)
+    expect(result.value.memory.contextWindowTokens).toBe(1_050_000)
     expect(result.value.memory.contextWindowSource).toBe('model-registry')
   })
 
@@ -859,7 +859,7 @@ describe('loadConfig', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'openai', name: 'gpt-4o-2024-08-06' },
+        model: { provider: 'openai', name: 'gpt-5.5-2026-01-01' },
       }),
     )
 
@@ -868,7 +868,7 @@ describe('loadConfig', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.value.memory.contextWindowTokens).toBe(128_000)
+    expect(result.value.memory.contextWindowTokens).toBe(1_050_000)
     expect(result.value.memory.contextWindowSource).toBe('model-registry')
   })
 
@@ -893,11 +893,28 @@ describe('loadConfig', () => {
     expect(result.value.memory.contextWindowSource).toBe('unknown')
   })
 
+  test('falls back to undefined for removed legacy model IDs', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'openai', name: 'gpt-4o' },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.memory.contextWindowTokens).toBeUndefined()
+    expect(result.value.memory.contextWindowSource).toBe('unknown')
+  })
+
   test('explicit contextWindowTokens overrides auto-detection', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
       JSON.stringify({
-        model: { provider: 'anthropic', name: 'claude-3-5-sonnet-latest' },
+        model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
         memory: { contextWindowTokens: 50_000 },
       }),
     )

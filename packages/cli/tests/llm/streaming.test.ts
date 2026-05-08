@@ -556,13 +556,13 @@ describe('streamResponse', () => {
     expect(capturedOptions?.temperature).toBe(1)
   })
 
-  test('passes openai reasoning effort through providerOptions for o-series', async () => {
+  test('passes openai reasoning effort through providerOptions for GPT-5', async () => {
     let capturedOptions: Record<string, unknown> | undefined
 
     const model = {
       specificationVersion: 'v3',
       provider: 'openai.responses',
-      modelId: 'o3',
+      modelId: 'gpt-5.4',
       supportedUrls: {},
       doGenerate: async () => {
         throw new Error('Not implemented')
@@ -643,7 +643,7 @@ describe('streamResponse', () => {
     const model = {
       specificationVersion: 'v3',
       provider: 'openai.chat',
-      modelId: 'gpt-4o',
+      modelId: 'some-model',
       supportedUrls: {},
       doGenerate: async () => {
         throw new Error('Not implemented')
@@ -943,7 +943,7 @@ describe('generateResponse', () => {
     const model = {
       specificationVersion: 'v3',
       provider: 'openai.responses',
-      modelId: 'o3',
+      modelId: 'gpt-5.4',
       supportedUrls: {},
       doStream: async () => {
         throw new Error('Not implemented')

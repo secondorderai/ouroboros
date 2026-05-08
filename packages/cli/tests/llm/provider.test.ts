@@ -107,7 +107,7 @@ describe('createProvider', () => {
 
     const config: ModelConfig = {
       provider: 'openai',
-      name: 'gpt-4o',
+      name: 'gpt-5.5',
       baseUrl: undefined,
     }
 
@@ -118,7 +118,7 @@ describe('createProvider', () => {
 
     const model = result.value as Record<string, unknown>
     expect(model).toBeDefined()
-    expect(model.modelId).toBe('gpt-4o')
+    expect(model.modelId).toBe('gpt-5.5')
     expect(typeof model.doGenerate).toBe('function')
     expect(typeof model.doStream).toBe('function')
   })
@@ -128,7 +128,7 @@ describe('createProvider', () => {
 
     const result = createProvider({
       provider: 'openai',
-      name: 'gpt-4o',
+      name: 'gpt-5.5',
       baseUrl: undefined,
       apiKey: 'config-openai-key',
     })
@@ -137,7 +137,7 @@ describe('createProvider', () => {
     if (!result.ok) return
 
     const model = result.value as Record<string, unknown>
-    expect(model.modelId).toBe('gpt-4o')
+    expect(model.modelId).toBe('gpt-5.5')
   })
 
   test('creates OpenAI-compatible model with baseUrl', () => {
@@ -264,7 +264,7 @@ describe('createProvider', () => {
 
     const config: ModelConfig = {
       provider: 'openai',
-      name: 'gpt-4o',
+      name: 'gpt-5.5',
       baseUrl: undefined,
     }
 
@@ -316,7 +316,7 @@ describe('createProvider', () => {
 
     const result = createProvider({
       provider: 'openai-chatgpt',
-      name: 'gpt-4o',
+      name: 'some-model',
     })
 
     expect(result.ok).toBe(false)

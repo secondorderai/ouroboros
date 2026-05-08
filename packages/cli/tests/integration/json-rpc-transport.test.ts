@@ -120,7 +120,7 @@ describe('json-rpc transport', () => {
     writeFileSync(
       join(configDir, 'config.json'),
       JSON.stringify({
-        model: { provider: 'anthropic', name: 'claude-3-5-sonnet-latest' },
+        model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
         permissions: { tier0: true, tier1: true, tier2: true, tier3: true, tier4: false },
       }),
     )

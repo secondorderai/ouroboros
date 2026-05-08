@@ -39,9 +39,6 @@ function reasoningKindFor(modelName: string): ReasoningKind | null {
     if (id.startsWith(prefix)) return 'anthropic-adaptive'
   }
 
-  if (id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4-mini')) {
-    return 'openai-reasoning'
-  }
   if (id.startsWith('gpt-5') && !id.startsWith('gpt-5-chat')) {
     return 'openai-reasoning'
   }
@@ -331,7 +328,7 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
             id='settings-model'
             type='text'
             style={styles.input}
-            placeholder='e.g. claude-3-opus-20240229'
+            placeholder='e.g. claude-sonnet-4-6'
             value={modelName}
             onChange={handleModelChange}
           />
