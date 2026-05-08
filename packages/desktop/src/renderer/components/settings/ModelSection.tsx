@@ -49,10 +49,7 @@ function reasoningKindFor(modelName: string): ReasoningKind | null {
   return null
 }
 
-export function ModelSection({
-  config,
-  onConfigChange,
-}: ModelSectionProps): React.ReactElement {
+export function ModelSection({ config, onConfigChange }: ModelSectionProps): React.ReactElement {
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [apiKeyError, setApiKeyError] = useState<string | null>(null)
@@ -64,10 +61,10 @@ export function ModelSection({
   const [testing, setTesting] = useState(false)
   const [authStatus, setAuthStatus] = useState<AuthStatusResult | null>(null)
 
-  const provider = config?.model?.provider ?? 'anthropic'
+  const provider = config?.model?.provider ?? 'openai'
   const modelName = config?.model?.name ?? ''
   const baseUrl = config?.model?.baseUrl ?? ''
-  const reasoningEffort = config?.model?.reasoningEffort
+  const reasoningEffort = config?.model?.reasoningEffort ?? 'medium'
   const isChatGPTProvider = provider === 'openai-chatgpt'
   const reasoningKind = reasoningKindFor(modelName)
 
@@ -88,17 +85,17 @@ export function ModelSection({
       const nextProvider = e.target.value as Provider
       onConfigChange('model.provider', nextProvider)
       if (nextProvider === 'openai-chatgpt') {
-        onConfigChange('model.name', 'gpt-5.4')
+        onConfigChange('model.name', 'gpt-5.5')
       }
     },
-    [onConfigChange]
+    [onConfigChange],
   )
 
   const handleModelChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       onConfigChange('model.name', e.target.value)
     },
-    [onConfigChange]
+    [onConfigChange],
   )
 
   const handleBaseUrlChange = useCallback(
@@ -106,25 +103,21 @@ export function ModelSection({
       setTestResult(null)
       onConfigChange('model.baseUrl', e.target.value)
     },
-    [onConfigChange]
+    [onConfigChange],
   )
 
   const handleReasoningEffortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const next = e.target.value
-      onConfigChange('model.reasoningEffort', next === '' ? undefined : (next as ReasoningEffort))
+      onConfigChange('model.reasoningEffort', e.target.value as ReasoningEffort)
     },
-    [onConfigChange]
+    [onConfigChange],
   )
 
-  const handleApiKeyChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setApiKey(e.target.value)
-      setApiKeyError(null)
-      setTestResult(null)
-    },
-    []
-  )
+  const handleApiKeyChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setApiKey(e.target.value)
+    setApiKeyError(null)
+    setTestResult(null)
+  }, [])
 
   const handleApiKeyBlur = useCallback(async () => {
     if (!apiKey) return
@@ -187,7 +180,7 @@ export function ModelSection({
           if (poll.success) {
             setTestResult({ success: true, message: 'Connected to ChatGPT subscription' })
             if (!poll.models.includes(modelName)) {
-              onConfigChange('model.name', poll.models[0] ?? 'gpt-5.4')
+              onConfigChange('model.name', poll.models[0] ?? 'gpt-5.5')
             }
           } else {
             setTestResult({
@@ -218,7 +211,7 @@ export function ModelSection({
         authType: null,
         pending: false,
         availableMethods: ['browser', 'headless'],
-        models: ['gpt-5.4'],
+        models: ['gpt-5.5'],
       })
       setTestResult({ success: true, message: 'Disconnected from ChatGPT subscription' })
     } catch (error) {
@@ -254,11 +247,11 @@ export function ModelSection({
 
       {/* Provider selector */}
       <div style={styles.field}>
-        <label style={styles.label} htmlFor="settings-provider">
+        <label style={styles.label} htmlFor='settings-provider'>
           Provider
         </label>
         <select
-          id="settings-provider"
+          id='settings-provider'
           style={styles.select}
           value={provider}
           onChange={handleProviderChange}
@@ -273,15 +266,15 @@ export function ModelSection({
 
       {!isChatGPTProvider && (
         <div style={styles.field}>
-          <label style={styles.label} htmlFor="settings-api-key">
+          <label style={styles.label} htmlFor='settings-api-key'>
             API Key
           </label>
           <div style={styles.inputRow}>
             <input
-              id="settings-api-key"
+              id='settings-api-key'
               type={showKey ? 'text' : 'password'}
               style={styles.input}
-              placeholder="Enter your API key..."
+              placeholder='Enter your API key...'
               value={apiKey}
               onChange={handleApiKeyChange}
               onBlur={handleApiKeyBlur}
@@ -289,7 +282,7 @@ export function ModelSection({
             <button
               style={styles.toggleButton}
               onClick={() => setShowKey((prev) => !prev)}
-              type="button"
+              type='button'
             >
               {showKey ? 'Hide' : 'Show'}
             </button>
@@ -301,14 +294,14 @@ export function ModelSection({
 
       {provider === 'openai-compatible' && (
         <div style={styles.field}>
-          <label style={styles.label} htmlFor="settings-base-url">
+          <label style={styles.label} htmlFor='settings-base-url'>
             Base URL
           </label>
           <input
-            id="settings-base-url"
-            type="text"
+            id='settings-base-url'
+            type='text'
             style={styles.input}
-            placeholder="https://api.example.com/v1"
+            placeholder='https://api.example.com/v1'
             value={baseUrl}
             onChange={handleBaseUrlChange}
           />
@@ -317,17 +310,17 @@ export function ModelSection({
 
       {/* Model selector */}
       <div style={styles.field}>
-        <label style={styles.label} htmlFor="settings-model">
+        <label style={styles.label} htmlFor='settings-model'>
           Model
         </label>
         {isChatGPTProvider ? (
           <select
-            id="settings-model"
+            id='settings-model'
             style={styles.select}
             value={modelName}
             onChange={handleModelChange}
           >
-            {(authStatus?.models.length ? authStatus.models : ['gpt-5.4']).map((model) => (
+            {(authStatus?.models.length ? authStatus.models : ['gpt-5.5']).map((model) => (
               <option key={model} value={model}>
                 {model}
               </option>
@@ -335,10 +328,10 @@ export function ModelSection({
           </select>
         ) : (
           <input
-            id="settings-model"
-            type="text"
+            id='settings-model'
+            type='text'
             style={styles.input}
-            placeholder="e.g. claude-3-opus-20240229"
+            placeholder='e.g. claude-3-opus-20240229'
             value={modelName}
             onChange={handleModelChange}
           />
@@ -347,16 +340,15 @@ export function ModelSection({
 
       {reasoningKind !== null && (
         <div style={styles.field}>
-          <label style={styles.label} htmlFor="settings-reasoning-effort">
+          <label style={styles.label} htmlFor='settings-reasoning-effort'>
             Reasoning effort
           </label>
           <select
-            id="settings-reasoning-effort"
+            id='settings-reasoning-effort'
             style={styles.select}
-            value={reasoningEffort ?? ''}
+            value={reasoningEffort}
             onChange={handleReasoningEffortChange}
           >
-            <option value="">(disabled)</option>
             {REASONING_EFFORT_OPTIONS.map((effort) => (
               <option key={effort} value={effort}>
                 {effort}
@@ -382,17 +374,17 @@ export function ModelSection({
               : 'Use your ChatGPT Plus or Pro subscription to access Codex models.'}
           </div>
           <div style={styles.inputRow}>
-            <button
-              style={styles.testButton}
-              onClick={handleChatGPTLogin}
-              disabled={testing}
-            >
-              {testing ? 'Waiting for sign-in...' : authStatus?.connected ? 'Reconnect' : 'Sign in with ChatGPT'}
+            <button style={styles.testButton} onClick={handleChatGPTLogin} disabled={testing}>
+              {testing
+                ? 'Waiting for sign-in...'
+                : authStatus?.connected
+                  ? 'Reconnect'
+                  : 'Sign in with ChatGPT'}
             </button>
             <button
               style={styles.toggleButton}
               onClick={handleChatGPTLogout}
-              type="button"
+              type='button'
               disabled={testing || !authStatus?.connected}
             >
               Sign out
@@ -403,20 +395,14 @@ export function ModelSection({
 
       {!isChatGPTProvider && (
         <div style={styles.field}>
-          <button
-            style={styles.testButton}
-            onClick={handleTestConnection}
-            disabled={testing}
-          >
+          <button style={styles.testButton} onClick={handleTestConnection} disabled={testing}>
             {testing ? 'Testing...' : 'Test Connection'}
           </button>
           {testResult && (
             <div
               style={{
                 ...styles.testResult,
-                color: testResult.success
-                  ? 'var(--accent-green)'
-                  : 'var(--accent-red)',
+                color: testResult.success ? 'var(--accent-green)' : 'var(--accent-red)',
               }}
             >
               {testResult.success ? '\u2713 ' : '\u2717 '}
@@ -430,9 +416,7 @@ export function ModelSection({
         <div
           style={{
             ...styles.testResult,
-            color: testResult.success
-              ? 'var(--accent-green)'
-              : 'var(--accent-red)',
+            color: testResult.success ? 'var(--accent-green)' : 'var(--accent-red)',
           }}
         >
           {testResult.success ? '\u2713 ' : '\u2717 '}

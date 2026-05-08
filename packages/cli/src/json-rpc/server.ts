@@ -12,7 +12,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { Agent, type AgentEventHandler } from '@src/agent'
 import { OpenAIChatGPTAuthManager } from '@src/auth/openai-chatgpt'
-import type { OuroborosConfig } from '@src/config'
+import { loadConfig, type OuroborosConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { ModeManager, PLAN_MODE } from '@src/modes'
@@ -32,7 +32,7 @@ import {
   setSkillApprovalHandler,
   type SkillApprovalRequest,
 } from '@src/tools/skill-manager'
-import { createRegistry } from '@src/tools/registry'
+import { createRegistry, ToolRegistry } from '@src/tools/registry'
 import { McpManager } from '@src/mcp/manager'
 import {
   setWorkerDiffApprovalHandler,
@@ -67,6 +67,14 @@ export interface JsonRpcServerOptions {
   config: OuroborosConfig
   configDir: string
   maxStepsOverride?: number
+}
+
+export function resolveSessionAgentConfig(
+  basePath: string,
+  fallback: OuroborosConfig,
+): OuroborosConfig {
+  const result = loadConfig(basePath)
+  return result.ok ? result.value : fallback
 }
 
 /**
@@ -404,13 +412,22 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
    * working; production multi-session use always passes a sessionId.
    */
   let anonymousAgent: Agent | null = null
+  function cloneRegistry(): ToolRegistry {
+    const cloned = new ToolRegistry()
+    for (const [, tool] of registry.entries()) {
+      cloned.register(tool)
+    }
+    return cloned
+  }
+
   function buildAgent(basePath = configDir): Agent {
-    const providerResult = createProvider(config.model)
+    const agentConfig = resolveSessionAgentConfig(basePath, config)
+    const providerResult = createProvider(agentConfig.model)
     if (!providerResult.ok) {
       throw new Error(providerResult.error.message)
     }
     const rsiOrchestrator = new RSIOrchestrator({
-      config,
+      config: agentConfig,
       llm: providerResult.value,
       onEvent: eventProxy,
       basePath,
@@ -418,9 +435,9 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     })
     return new Agent({
       model: providerResult.value,
-      toolRegistry: registry,
+      toolRegistry: cloneRegistry(),
       onEvent: eventProxy,
-      config,
+      config: agentConfig,
       transcriptStore,
       basePath,
       rsiOrchestrator,

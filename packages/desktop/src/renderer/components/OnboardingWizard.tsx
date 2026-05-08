@@ -48,10 +48,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
   const [direction, setDirection] = useState<'forward' | 'back'>('forward')
 
   // Step 1 state
-  const [provider, setProvider] = useState<AIProvider>('anthropic')
+  const [provider, setProvider] = useState<AIProvider>('openai')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
-  const [model, setModel] = useState('claude-opus-4-20250514')
+  const [model, setModel] = useState('gpt-5.5')
 
   // Step 2 state
   const [workspace, setWorkspace] = useState('')

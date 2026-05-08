@@ -162,20 +162,18 @@ export function App(): React.ReactElement {
   const canChangeWorkspaceMode = messages.length === 0 && !isAgentRunning
 
   const handleOnboardingComplete = useCallback(() => {
-      localStorage.setItem(ONBOARDING_DONE_KEY, 'true')
-      setShowOnboarding(false)
+    localStorage.setItem(ONBOARDING_DONE_KEY, 'true')
+    setShowOnboarding(false)
 
-      // Re-fetch config to pick up the model name set during onboarding
-      window.ouroboros
-        ?.rpc('config/get', {})
-        .then((result) => {
-          const config = result as { model?: { name?: string } }
-          if (config?.model?.name) setModelName(config.model.name)
-        })
-        .catch(() => {})
-    },
-    [setModelName],
-  )
+    // Re-fetch config to pick up the model name set during onboarding
+    window.ouroboros
+      ?.rpc('config/get', {})
+      .then((result) => {
+        const config = result as { model?: { name?: string } }
+        if (config?.model?.name) setModelName(config.model.name)
+      })
+      .catch(() => {})
+  }, [setModelName])
 
   // Persist sidebar state
   useEffect(() => {
@@ -311,8 +309,15 @@ export function App(): React.ReactElement {
         if (config?.model?.name) {
           setModelName(config.model.name)
         }
-        if (config?.model?.reasoningEffort) {
-          setReasoningEffort(config.model.reasoningEffort as 'minimal' | 'low' | 'medium' | 'high' | 'max')
+        if (config?.model) {
+          setReasoningEffort(
+            (config.model.reasoningEffort ?? 'medium') as
+              | 'minimal'
+              | 'low'
+              | 'medium'
+              | 'high'
+              | 'max',
+          )
         }
       })
       .catch((err) => {

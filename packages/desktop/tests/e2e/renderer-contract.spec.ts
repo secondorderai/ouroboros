@@ -193,7 +193,7 @@ test('onboarding provider and model selection are single choice', async ({}, tes
   const accentBorder = 'rgb(62, 95, 138)'
   const unselectedBorder = 'rgb(220, 225, 231)'
   await expect(providerGroup.getByRole('radio', { checked: true })).toHaveCount(1)
-  await expect(launched.page.getByRole('radio', { name: 'Anthropic' })).toHaveAttribute(
+  await expect(launched.page.getByRole('radio', { name: 'OpenAI API' })).toHaveAttribute(
     'aria-checked',
     'true',
   )

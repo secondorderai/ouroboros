@@ -66,8 +66,8 @@ describe('loadConfig', () => {
     const config: OuroborosConfig = result.value
 
     // Model defaults
-    expect(config.model.provider).toBe('anthropic')
-    expect(config.model.name).toBe('claude-sonnet-4-20250514')
+    expect(config.model.provider).toBe('openai')
+    expect(config.model.name).toBe('gpt-5.5')
     expect(config.model.baseUrl).toBeUndefined()
     expect(config.model.apiKey).toBeUndefined()
 
@@ -90,8 +90,8 @@ describe('loadConfig', () => {
 
     // Memory defaults
     expect(config.memory.consolidationSchedule).toBe('session-end')
-    // Auto-detected from default model claude-sonnet-4-20250514
-    expect(config.memory.contextWindowTokens).toBe(200_000)
+    // Auto-detected from default model gpt-5.5
+    expect(config.memory.contextWindowTokens).toBe(1_050_000)
     expect(config.memory.contextWindowSource).toBe('model-registry')
     expect(config.memory.warnRatio).toBe(DEFAULT_MEMORY_CONFIG.warnRatio)
     expect(config.memory.flushRatio).toBe(DEFAULT_MEMORY_CONFIG.flushRatio)
@@ -457,14 +457,24 @@ describe('loadConfig', () => {
     expect(result.error.message).toContain('model.provider')
   })
 
-  test('defaults model.reasoningEffort to undefined', () => {
+  test('defaults model.reasoningEffort to medium', () => {
     writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify({}))
 
     const result = loadConfig(tempDir)
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.model.reasoningEffort).toBeUndefined()
+    expect(result.value.model.reasoningEffort).toBe('medium')
+  })
+
+  test('defaults unset model.reasoningEffort to medium', () => {
+    writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify({ model: {} }))
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.model.reasoningEffort).toBe('medium')
   })
 
   test('accepts every valid reasoningEffort level (minimal/low/medium/high/max)', () => {

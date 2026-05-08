@@ -994,6 +994,7 @@ describe('Agent', () => {
       )
       mkdirSync(tempDir, { recursive: true })
       writeFileSync(join(tempDir, 'AGENTS.md'), '# Root instructions\n\nFollow repo rules.')
+      const originalCwd = process.cwd()
       process.chdir(tempDir)
 
       let capturedOptions: unknown = null
@@ -1034,6 +1035,7 @@ describe('Agent', () => {
 
         await agent.run('Test')
       } finally {
+        process.chdir(originalCwd)
         rmSync(tempDir, { recursive: true, force: true })
       }
 
@@ -1048,6 +1050,65 @@ describe('Agent', () => {
       expect(opts.skills).toHaveLength(1)
       expect(opts.memory).toBe('Test memory content')
       expect(opts.agentsInstructions).toContain('Follow repo rules.')
+    })
+
+    test('system prompt builder resolves AGENTS.md from agent basePath', async () => {
+      registry.register(makeTool('test-tool'))
+
+      const baseDir = join(
+        tmpdir(),
+        `ouroboros-agent-basepath-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      )
+      const workspaceDir = join(baseDir, 'workspace')
+      mkdirSync(workspaceDir, { recursive: true })
+      writeFileSync(
+        join(workspaceDir, 'AGENTS.md'),
+        '# Workspace instructions\n\nUse workspace rules.',
+      )
+
+      let capturedOptions: unknown = null
+      const model = createMockModel([
+        [
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'Ok' },
+          { type: 'text-end', id: 'tx1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 5,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 1, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
+
+      try {
+        const agent = new Agent(
+          makeAgentOptions(model, registry, {
+            basePath: workspaceDir,
+            systemPromptBuilder: (opts) => {
+              capturedOptions = opts
+              return 'Test system prompt'
+            },
+            memoryProvider: () => '',
+            skillCatalogProvider: () => [],
+          }),
+        )
+
+        await agent.run('Test')
+      } finally {
+        rmSync(baseDir, { recursive: true, force: true })
+      }
+
+      expect(capturedOptions).toBeDefined()
+      const opts = capturedOptions as { agentsInstructions: string }
+      expect(opts.agentsInstructions).toContain('Use workspace rules.')
     })
   })
 

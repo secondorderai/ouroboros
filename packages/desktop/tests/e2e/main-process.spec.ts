@@ -40,7 +40,7 @@ test('renderer can observe CLI ready status and round-trip a JSON-RPC request th
   const config = await launched.page.evaluate(() => window.ouroboros.rpc('config/get', {}))
   expect(config).toMatchObject({
     model: {
-      provider: 'anthropic',
+      provider: 'openai',
     },
   })
 })

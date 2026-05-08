@@ -76,12 +76,6 @@ const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
   'claude-3-5-sonnet': { contextWindowTokens: 200_000, provider: 'anthropic' },
   'claude-3-5-haiku-20241022': { contextWindowTokens: 200_000, provider: 'anthropic' },
   'claude-3-5-haiku': { contextWindowTokens: 200_000, provider: 'anthropic' },
-  'claude-3-opus-20240229': { contextWindowTokens: 200_000, provider: 'anthropic' },
-  'claude-3-opus': { contextWindowTokens: 200_000, provider: 'anthropic' },
-  'claude-3-sonnet-20240229': { contextWindowTokens: 200_000, provider: 'anthropic' },
-  'claude-3-sonnet': { contextWindowTokens: 200_000, provider: 'anthropic' },
-  'claude-3-haiku-20240307': { contextWindowTokens: 200_000, provider: 'anthropic' },
-  'claude-3-haiku': { contextWindowTokens: 200_000, provider: 'anthropic' },
 
   // ── OpenAI — GPT-5.5 series (1.05M context) ────────────────────────
   'gpt-5.5': { contextWindowTokens: 1_050_000, provider: 'openai', reasoning: OPENAI_REASONING },
@@ -216,18 +210,8 @@ const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
   'mistral-large-3': { contextWindowTokens: 256_000, provider: 'mistral' },
   'devstral-2': { contextWindowTokens: 256_000, provider: 'mistral' },
 
-  // ── Xiaomi — Mimo series (262K–1M context) ─────────────────────────
-  'mimo-v2-pro': { contextWindowTokens: 1_000_000, provider: 'xiaomi' },
-  'mimo-v2-flash': { contextWindowTokens: 262_100, provider: 'xiaomi' },
-
   // ── NVIDIA — Nemotron series ───────────────────────────────────────
   'nemotron-3-super': { contextWindowTokens: 128_000, provider: 'nvidia' },
-
-  // ── Other notable models ───────────────────────────────────────────
-  'step-3.5-flash': { contextWindowTokens: 256_000, provider: 'stepfun' },
-  'elephant-alpha': { contextWindowTokens: 256_000, provider: 'openrouter' },
-  'kat-coder-pro': { contextWindowTokens: 256_000, provider: 'kwai' },
-  'mercury-2': { contextWindowTokens: 128_000, provider: 'inception' },
 }
 
 /**

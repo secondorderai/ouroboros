@@ -288,7 +288,7 @@ overrides for common model and RSI fields. All fields are optional.
 {
   "model": {
     "provider": "openai",
-    "name": "gpt-5.4",
+    "name": "gpt-5.5",
     "baseUrl": "https://api.openai.com/v1",
     "apiMode": "responses",
     "reasoningEffort": "medium"

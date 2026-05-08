@@ -211,9 +211,9 @@ const PROVIDER_HELP_URLS: Record<AIProvider, string> = {
 
 const DEFAULT_MODELS: Record<AIProvider, string> = {
   anthropic: 'claude-opus-4-7',
-  openai: 'gpt-5.4',
-  'openai-compatible': 'gpt-5.4',
-  'openai-chatgpt': 'gpt-5.4',
+  openai: 'gpt-5.5',
+  'openai-compatible': 'gpt-5.5',
+  'openai-chatgpt': 'gpt-5.5',
 }
 
 // ── Component ───────────────────────────────────────────────

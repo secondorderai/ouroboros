@@ -24,8 +24,7 @@ context limit.
 7. Read the bottom row for the active mode, selected skill, context usage,
    reasoning effort, and model name.
 8. If a context badge appears, hover it to see the token breakdown.
-9. If a reasoning chip appears, click it to choose the reasoning effort or clear
-   the override.
+9. If a reasoning chip appears, click it to choose the reasoning effort.
 
 ## Try It
 

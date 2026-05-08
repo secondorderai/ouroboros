@@ -24,6 +24,7 @@ import {
   HandlerError,
   type HandlerContext,
 } from '@src/json-rpc/handlers'
+import { resolveSessionAgentConfig } from '@src/json-rpc/server'
 import { writeMessage } from '@src/json-rpc/transport'
 import { ModeManager } from '@src/modes/manager'
 import { TaskGraphStore, type TaskGraph } from '@src/team/task-graph'
@@ -452,6 +453,44 @@ describe('JSON-RPC', () => {
       ).rejects.toThrow('params.workspacePath must be an existing directory')
 
       ctx.transcriptStore.close()
+    })
+
+    test('session agent config resolves from the selected workspace', async () => {
+      const baseDir = mkdtempSync(join(tmpdir(), 'ouroboros-workspace-config-'))
+      const launchDir = join(baseDir, 'desktop-launch')
+      const workspaceDir = join(baseDir, 'workspace')
+      mkdirSync(launchDir, { recursive: true })
+      mkdirSync(workspaceDir, { recursive: true })
+      writeFileSync(
+        join(launchDir, '.ouroboros'),
+        JSON.stringify({
+          model: { provider: 'openai-chatgpt', name: 'gpt-5.5' },
+          memory: { contextWindowTokens: 1_000_000, contextWindowSource: 'config' },
+        }),
+      )
+      writeFileSync(
+        join(workspaceDir, '.ouroboros'),
+        JSON.stringify({
+          model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+          memory: { contextWindowTokens: 200_000, contextWindowSource: 'config' },
+        }),
+      )
+
+      const fallback = makeTestConfig()
+
+      try {
+        const launchConfig = resolveSessionAgentConfig(launchDir, fallback)
+        const workspaceConfig = resolveSessionAgentConfig(workspaceDir, launchConfig)
+
+        expect(launchConfig.model.provider).toBe('openai-chatgpt')
+        expect(launchConfig.model.name).toBe('gpt-5.5')
+        expect(launchConfig.memory.contextWindowTokens).toBe(1_000_000)
+        expect(workspaceConfig.model.provider).toBe('anthropic')
+        expect(workspaceConfig.model.name).toBe('claude-sonnet-4-20250514')
+        expect(workspaceConfig.memory.contextWindowTokens).toBe(200_000)
+      } finally {
+        rmSync(baseDir, { recursive: true, force: true })
+      }
     })
 
     test('existing sessions without workspace_mode load as workspace mode', async () => {
@@ -946,15 +985,62 @@ describe('JSON-RPC', () => {
       writeFileSync(join(nestedDir, 'AGENTS.md'), '# Nested\n\nNested rules.')
 
       const promptCalls: Array<Record<string, unknown>> = []
+      const registry = new ToolRegistry()
+      const model = createMockModel([
+        [
+          { type: 'text-start', id: 'tx1' },
+          { type: 'text-delta', id: 'tx1', delta: 'First' },
+          { type: 'text-end', id: 'tx1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+        [
+          { type: 'text-start', id: 'tx2' },
+          { type: 'text-delta', id: 'tx2', delta: 'Second' },
+          { type: 'text-end', id: 'tx2' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: {
+                total: 10,
+                noCache: undefined,
+                cacheRead: undefined,
+                cacheWrite: undefined,
+              },
+              outputTokens: { total: 5, text: undefined, reasoning: undefined },
+            },
+          },
+        ],
+      ])
       const ctx = createTestContext({
         configDir: baseDir,
-        agentOptions: {
-          systemPromptBuilder: (options) => {
-            promptCalls.push(options as Record<string, unknown>)
-            return 'You are a test assistant.'
-          },
-        },
+        model,
+        registry,
       })
+      ctx.getAgent = () =>
+        new Agent(
+          makeAgentOptions(model, registry, {
+            onEvent: bridgeAgentEvent,
+            config: ctx.config,
+            basePath: ctx.configDir,
+            systemPromptBuilder: (options) => {
+              promptCalls.push(options as Record<string, unknown>)
+              return 'You are a test assistant.'
+            },
+          }),
+        )
       const handlers = createHandlers(ctx)
 
       const workspaceHandler = handlers.get('workspace/set')!
@@ -1943,8 +2029,8 @@ describe('JSON-RPC', () => {
       const handlers = createHandlers(ctx)
 
       const result = (await handlers.get('config/get')!({})) as OuroborosConfig
-      expect(result.model.provider).toBe('anthropic')
-      expect(result.model.name).toBe('claude-sonnet-4-20250514')
+      expect(result.model.provider).toBe('openai')
+      expect(result.model.name).toBe('gpt-5.5')
 
       ctx.transcriptStore.close()
     })
@@ -1967,6 +2053,29 @@ describe('JSON-RPC', () => {
       // Get should reflect the change
       const getResult = (await handlers.get('config/get')!({})) as OuroborosConfig
       expect(getResult.model.name).toBe('test-model')
+
+      ctx.transcriptStore.close()
+    })
+
+    test('config/set defaults unset reasoning effort to medium', async () => {
+      const config = makeTestConfig()
+      writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config, null, 2), 'utf-8')
+
+      const ctx = createTestContext({ config, configDir: tempDir })
+      const handlers = createHandlers(ctx)
+
+      const setResult = (await handlers.get('config/set')!({
+        path: 'model.reasoningEffort',
+        value: undefined,
+      })) as OuroborosConfig
+
+      expect(setResult.model.reasoningEffort).toBe('medium')
+      expect(ctx.config.model.reasoningEffort).toBe('medium')
+
+      const persisted = JSON.parse(readFileSync(join(tempDir, '.ouroboros'), 'utf-8')) as {
+        model?: { reasoningEffort?: string }
+      }
+      expect(persisted.model?.reasoningEffort).toBe('medium')
 
       ctx.transcriptStore.close()
     })
@@ -2000,7 +2109,7 @@ describe('JSON-RPC', () => {
       const authManager = {
         testConnection: async () => ({
           ok: true as const,
-          value: { models: ['gpt-5.4', 'gpt-5.4-mini'], accountId: 'acct_test' },
+          value: { models: ['gpt-5.5', 'gpt-5.4-mini'], accountId: 'acct_test' },
         }),
       } as unknown as OpenAIChatGPTAuthManager
       const ctx = createTestContext({ authManager })
@@ -2012,7 +2121,7 @@ describe('JSON-RPC', () => {
 
       expect(result).toEqual({
         success: true,
-        models: ['gpt-5.4', 'gpt-5.4-mini'],
+        models: ['gpt-5.5', 'gpt-5.4-mini'],
       })
 
       ctx.transcriptStore.close()
@@ -2053,7 +2162,7 @@ describe('JSON-RPC', () => {
           authType: null,
           pending: false,
           availableMethods: ['browser', 'headless'],
-          models: ['gpt-5.4'],
+          models: ['gpt-5.5'],
         }),
         startLogin: async () => ({
           ok: true as const,
@@ -2074,7 +2183,7 @@ describe('JSON-RPC', () => {
             authType: 'oauth' as const,
             pending: false,
             availableMethods: ['browser', 'headless'] as const,
-            models: ['gpt-5.4'],
+            models: ['gpt-5.5'],
             flowId: 'flow-1',
             method: 'browser' as const,
             success: true,

@@ -8,8 +8,8 @@ import { join } from 'node:path'
 
 const defaultConfig = {
   model: {
-    provider: 'anthropic',
-    name: 'claude-opus-4-20250514',
+    provider: 'openai',
+    name: 'gpt-5.5',
   },
   permissions: {
     tier0: true,
@@ -153,7 +153,7 @@ async function handleRequest(request) {
       } else {
         writeResult(request.id, {
           success: true,
-          models: ['claude-opus-4-20250514', 'gpt-5.4'],
+          models: ['gpt-5.5', 'claude-opus-4-20250514'],
         })
       }
       return
@@ -503,7 +503,7 @@ function createRuntimeState(currentScenario) {
       pending: false,
       flowId: null,
       accountId: currentScenario.authStatus?.accountId,
-      models: currentScenario.authStatus?.models ?? ['gpt-5.4', 'gpt-5.4-mini'],
+      models: currentScenario.authStatus?.models ?? ['gpt-5.5', 'gpt-5.4-mini'],
     },
   }
 }

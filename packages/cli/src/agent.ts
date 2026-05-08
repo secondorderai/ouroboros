@@ -627,7 +627,11 @@ export class Agent {
         return result.ok
           ? result.value
           : ({
-              model: { provider: 'anthropic', name: 'claude-opus-4-7' },
+              model: {
+                provider: 'anthropic',
+                name: 'claude-opus-4-7',
+                reasoningEffort: 'medium',
+              },
               permissions: {
                 tier0: true,
                 tier1: true,
@@ -1193,7 +1197,7 @@ export class Agent {
     memorySections = this.loadPromptMemory(),
   ): string {
     const tools = this.toolRegistry.getTools()
-    const agentsInstructions = getAgentsMdInstructions()
+    const agentsInstructions = getAgentsMdInstructions(this.basePath)
 
     discoverConfiguredSkills(
       this.config.skillDirectories,

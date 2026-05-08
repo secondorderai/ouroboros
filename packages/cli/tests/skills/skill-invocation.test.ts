@@ -17,7 +17,7 @@ const FIXTURES = resolve(import.meta.dir, '../fixtures/skill-invocation-test')
 
 function makeConfig(): OuroborosConfig {
   return {
-    model: { provider: 'anthropic', name: 'claude-opus-4-7' },
+    model: { provider: 'anthropic', name: 'claude-opus-4-7', reasoningEffort: 'medium' },
     permissions: { tier0: true, tier1: true, tier2: true, tier3: false, tier4: false },
     skillDirectories: ['skills/core'],
     disabledSkills: [],

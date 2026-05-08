@@ -16,9 +16,12 @@ import {
 import { getAuth } from '@src/auth'
 import type { LanguageModel } from 'ai'
 import type { OuroborosConfig } from '@src/config'
+import type { ReasoningEffort } from '@src/llm/types'
 import { type Result, ok, err } from '@src/types'
 
-export type ModelConfig = OuroborosConfig['model']
+export type ModelConfig = Omit<OuroborosConfig['model'], 'reasoningEffort'> & {
+  reasoningEffort?: ReasoningEffort
+}
 
 const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'openai-compatible', 'openai-chatgpt'] as const
 const DEBUG_HTTP_ENV = 'OUROBOROS_DEBUG_HTTP'

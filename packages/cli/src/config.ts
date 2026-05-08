@@ -241,9 +241,9 @@ export const configSchema = z.object({
     .strictObject({
       provider: z
         .enum(['anthropic', 'openai', 'openai-compatible', 'openai-chatgpt'])
-        .default('anthropic')
+        .default('openai')
         .describe('LLM provider to use'),
-      name: z.string().default('claude-sonnet-4-20250514').describe('Model name/identifier'),
+      name: z.string().default('gpt-5.5').describe('Model name/identifier'),
       baseUrl: z.string().url().optional().describe('Base URL for OpenAI-compatible endpoints'),
       apiMode: z
         .enum(['responses', 'chat', 'completion'])
@@ -252,12 +252,12 @@ export const configSchema = z.object({
       apiKey: z.string().min(1).optional().describe('Fallback API key for the selected provider'),
       reasoningEffort: z
         .enum(['minimal', 'low', 'medium', 'high', 'max'])
-        .optional()
+        .default('medium')
         .describe(
           'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on o-series and GPT-5. Silently ignored on unsupported models. "minimal" is OpenAI-only; "max" is Anthropic-only — clamped to the closest supported level.',
         ),
     })
-    .default({ provider: 'anthropic' as const, name: 'claude-sonnet-4-20250514' }),
+    .default({ provider: 'openai' as const, name: 'gpt-5.5', reasoningEffort: 'medium' }),
 
   permissions: z
     .object(permissionSchema.shape)

@@ -22,7 +22,8 @@ reasoning effort for a task.
 4. For API-key providers, enter the API key and save it.
 5. For `OpenAI-compatible`, enter `Base URL`.
 6. Enter or select the model name.
-7. If `Reasoning Effort` is shown, choose a value or leave it disabled.
+7. If `Reasoning Effort` is shown, choose a value. New or unset configs default
+   to `medium`.
 8. For API-key providers, click `Test Connection`.
 9. For `ChatGPT Subscription`, click `Sign in with ChatGPT` and complete the
    browser sign-in. Use `Sign out` to disconnect.

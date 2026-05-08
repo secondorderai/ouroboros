@@ -247,7 +247,11 @@ Apply the SecondOrder method.`,
         memoryProvider: () => '',
         basePath: tempDir,
         config: {
-          model: { provider: 'anthropic', name: 'claude-opus-4-7' },
+          model: {
+            provider: 'anthropic',
+            name: 'claude-opus-4-7',
+            reasoningEffort: 'medium',
+          },
           permissions: { tier0: true, tier1: true, tier2: true, tier3: false, tier4: false },
           // No core/generated skills in this temp dir — only the env-var source.
           skillDirectories: ['skills/core', 'skills/generated'],

@@ -103,10 +103,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       // meaningful for steering, so they fall through to normal send only
       // when the agent is idle.
       if (!trimmed) return
-      steerCurrentRun(
-        trimmed,
-        attachedImages.length > 0 ? attachedImages : undefined,
-      )
+      steerCurrentRun(trimmed, attachedImages.length > 0 ? attachedImages : undefined)
     } else {
       sendMessage(
         trimmed,
@@ -230,9 +227,10 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
       for (const r of grantResult.rejected) grantRejected.push(r)
     }
 
-    const result = pathsToValidate.length > 0
-      ? await api.validateImageAttachments(pathsToValidate)
-      : { accepted: [], rejected: [] }
+    const result =
+      pathsToValidate.length > 0
+        ? await api.validateImageAttachments(pathsToValidate)
+        : { accepted: [], rejected: [] }
     setAttachedImages((prev) => mergeUniqueImages(prev, result.accepted))
     setAttachmentError(formatAttachmentError([...grantRejected, ...result.rejected]))
   }, [])
@@ -418,10 +416,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 
   // ---- Reasoning effort helpers --------------------------------------------
 
-  const reasoningKind = useMemo(
-    () => reasoningKindForModel(modelName),
-    [modelName],
-  )
+  const reasoningKind = useMemo(() => reasoningKindForModel(modelName), [modelName])
 
   const REASONING_EFFORT_OPTIONS = useMemo(() => {
     if (reasoningKind === 'anthropic-adaptive') {
@@ -455,22 +450,6 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
     },
     [setReasoningEffort],
   )
-
-  const handleReasoningClear = useCallback(async () => {
-    setSavingReasoning(true)
-    setReasoningMenuOpen(false)
-    setReasoningEffort(null)
-    try {
-      await window.ouroboros?.rpc('config/set', {
-        path: 'model.reasoningEffort',
-        value: undefined,
-      })
-    } catch (err) {
-      console.error('config/set reasoningEffort clear failed:', err)
-    } finally {
-      setSavingReasoning(false)
-    }
-  }, [setReasoningEffort])
 
   // ---- Render --------------------------------------------------------------
 
@@ -629,7 +608,6 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
           {selectedSkill && (
             <SkillChip skill={selectedSkill} onRemove={() => setSelectedSkill(null)} />
           )}
-
         </div>
 
         <div style={styles.metaRight}>
@@ -656,11 +634,11 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
                 style={styles.reasoningChip}
                 onClick={handleReasoningChipClick}
                 disabled={savingReasoning}
-                aria-label={`Reasoning effort: ${reasoningEffort ?? 'off'}`}
+                aria-label={`Reasoning effort: ${reasoningEffort ?? 'medium'}`}
                 title='Change reasoning effort'
               >
                 <ReasoningIcon />
-                <span style={styles.reasoningChipLabel}>{reasoningEffort ?? 'off'}</span>
+                <span style={styles.reasoningChipLabel}>{reasoningEffort ?? 'medium'}</span>
               </button>
               {reasoningMenuOpen && (
                 <div style={styles.reasoningMenu} role='menu' aria-label='Reasoning effort picker'>
@@ -678,16 +656,6 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
                       {effort}
                     </button>
                   ))}
-                  {reasoningEffort && (
-                    <button
-                      style={styles.reasoningMenuClear}
-                      onClick={handleReasoningClear}
-                      role='menuitem'
-                      disabled={savingReasoning}
-                    >
-                      {savingReasoning ? 'saving…' : 'Clear'}
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -707,7 +675,9 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
  * Detect which reasoning style (if any) the given model supports.
  * Mirrors the logic in ModelSection.tsx and model-capabilities.ts.
  */
-function reasoningKindForModel(modelName: string | null): 'anthropic-adaptive' | 'openai-reasoning' | null {
+function reasoningKindForModel(
+  modelName: string | null,
+): 'anthropic-adaptive' | 'openai-reasoning' | null {
   if (!modelName) return null
   const id = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName
 
@@ -1529,22 +1499,5 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'var(--accent-amber-bg)',
     color: 'var(--accent-amber)',
     fontWeight: 700,
-  },
-  reasoningMenuClear: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    border: 'none',
-    borderTop: '1px solid var(--border-light)',
-    backgroundColor: 'transparent',
-    color: 'var(--text-tertiary)',
-    fontSize: 11,
-    fontFamily: 'var(--font-sans)',
-    padding: '6px 10px',
-    borderRadius: 6,
-    cursor: 'pointer',
-    textAlign: 'left',
-    marginTop: 2,
-    whiteSpace: 'nowrap',
   },
 }
