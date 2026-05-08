@@ -62,6 +62,7 @@ packages/desktop/resources/cli/**/*
 packages/desktop/skills/**/*
 packages/desktop/memory/**/*
 .ouroboros
+.ouroboros-org
 
 # Local Docs
 local-docs/**/*
