@@ -18,7 +18,9 @@ mocked CLI JSON-RPC behavior.
 - `steering.spec.ts`: mid-turn steering lifecycle states.
 - `mermaid-*.spec.ts`: Mermaid rendering, theme, zoom, and lightbox behavior.
 - `test-plan/*.md` + `.agents/skills/ouroboros-intent-e2e`: intent-based
-  E2E charters driven through Agent Browser and Electron CDP.
+  E2E charters that invoke Codex non-interactively against the selected
+  charter and skill. Codex drives Agent Browser through CLI commands against
+  Electron CDP; Agent Browser is the automation tool, not the LLM agent.
 - `scripts/electron-cdp-smoke.sh`: manual CDP smoke harness for launch,
   restart, and packaged-app checks.
 

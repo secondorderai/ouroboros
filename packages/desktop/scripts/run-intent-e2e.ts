@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import {
+  access,
   mkdir,
   mkdtemp,
   readFile,
@@ -30,6 +31,7 @@ interface CliOptions {
   headed: boolean
   dryRun: boolean
   agentBrowserBin: string
+  codexBin: string
   model?: string
 }
 
@@ -97,6 +99,7 @@ export function parseArgs(args: string[]): CliOptions {
     headed: process.env.OUROBOROS_TEST_HIDE_WINDOW === '0',
     dryRun: false,
     agentBrowserBin: process.env.AGENT_BROWSER_BIN ?? 'agent-browser',
+    codexBin: process.env.CODEX_BIN ?? 'codex',
   }
 
   for (let i = 0; i < args.length; i += 1) {
@@ -129,6 +132,9 @@ export function parseArgs(args: string[]): CliOptions {
         break
       case '--agent-browser-bin':
         options.agentBrowserBin = next()
+        break
+      case '--codex-bin':
+        options.codexBin = next()
         break
       case '--model':
         options.model = next()
@@ -166,22 +172,27 @@ export function buildAgentPrompt(params: {
   planPath: string
   outputDir: string
   debugPort: number
+  agentBrowserBin: string
   runtimePaths: RuntimePaths
 }): string {
   return `You are running Ouroboros desktop intent E2E testing.
 
-Use Agent Browser against the already-launched Electron app on CDP port ${params.debugPort}.
-Follow the repo skill .agents/skills/ouroboros-intent-e2e/SKILL.md.
+Use the ouroboros-intent-e2e skill.
+Drive the already-launched Electron app using Agent Browser against CDP port ${params.debugPort}.
+Follow the repo skill at .agents/skills/ouroboros-intent-e2e/SKILL.md.
 
 Hard rules:
 - Test only the running app. Do not inspect source code while executing this plan.
-- Start by loading current Agent Browser guidance: agent-browser skills get core and agent-browser skills get electron.
-- Connect with: agent-browser connect ${params.debugPort}
+- Do not modify repo source files while executing the test.
+- Start by loading current Agent Browser guidance: ${params.agentBrowserBin} skills get core and ${params.agentBrowserBin} skills get electron.
+- Connect with: ${params.agentBrowserBin} connect ${params.debugPort}
 - Use snapshot-act-snapshot discipline; refs become stale after UI changes.
 - Capture screenshots, console output, and page errors into ${params.outputDir}.
-- Write ${join(params.outputDir, 'report.md')} and ${join(params.outputDir, 'result.json')}.
+- Write report.md, result.json, screenshots, console output, and page errors into ${params.outputDir}.
+- Specifically write ${join(params.outputDir, 'report.md')} and ${join(params.outputDir, 'result.json')}.
 - The result JSON must contain: verdict, summary, checks, bugs, artifacts, consoleErrors.
 - verdict must be PASS, FAIL, or INCONCLUSIVE.
+- Agent Browser is only the browser automation tool in this flow; do not use agent-browser chat.
 
 Runtime files you may inspect for test evidence:
 - mock CLI log: ${params.runtimePaths.mockLogPath}
@@ -207,7 +218,8 @@ Options:
   --debug-port <port>         Electron CDP port, default ${DEFAULT_DEBUG_PORT}
   --timeout-ms <ms>           Agent run timeout, default ${DEFAULT_TIMEOUT_MS}
   --agent-browser-bin <path>  agent-browser binary, default agent-browser
-  --model <name>              Model passed to agent-browser chat
+  --codex-bin <path>          Codex binary, default codex
+  --model <name>              Model passed to Codex exec
   --headed                    Show Electron window
   --dry-run                   Prepare artifacts and prompt without launching`
 }
@@ -318,9 +330,13 @@ function launchElectron(params: {
   )
 }
 
-async function runCommand(command: string[], timeoutMs: number): Promise<CommandResult> {
+async function runCommand(
+  command: string[],
+  timeoutMs: number,
+  stdin?: string,
+): Promise<CommandResult> {
   const proc = spawn(command[0], command.slice(1), {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
   let stdout = ''
   let stderr = ''
@@ -330,6 +346,11 @@ async function runCommand(command: string[], timeoutMs: number): Promise<Command
   proc.stderr?.on('data', (chunk) => {
     stderr += chunk.toString()
   })
+  if (stdin != null) {
+    proc.stdin?.end(stdin)
+  } else {
+    proc.stdin?.end()
+  }
 
   const exitCode = await new Promise<number | null>((resolveExit, rejectExit) => {
     const timer = setTimeout(() => {
@@ -350,27 +371,49 @@ async function runCommand(command: string[], timeoutMs: number): Promise<Command
   return { command, exitCode, stdout, stderr }
 }
 
-async function runAgentBrowser(params: {
+export function buildCodexCommand(params: {
+  codexBin: string
+  repoRoot: string
+  outputDir: string
+  model?: string
+}): string[] {
+  const command = [
+    params.codexBin,
+    '--ask-for-approval',
+    'never',
+    'exec',
+    '--cd',
+    params.repoRoot,
+    '--sandbox',
+    'danger-full-access',
+    '--output-last-message',
+    join(params.outputDir, 'codex-final.md'),
+  ]
+
+  if (params.model) {
+    command.push('--model', params.model)
+  }
+
+  command.push('-')
+  return command
+}
+
+async function runCodex(params: {
   options: CliOptions
   promptPath: string
   outputDir: string
+  repoRoot: string
 }): Promise<IntentResult> {
   const prompt = await readFile(params.promptPath, 'utf8')
-  const command = [
-    params.options.agentBrowserBin,
-    '--session',
-    `ouroboros-intent-${slugifyPlanName(params.options.planPath)}`,
-    '--cdp',
-    String(params.options.debugPort),
-    'chat',
-    prompt,
-  ]
-  if (params.options.model) {
-    command.splice(1, 0, '--model', params.options.model)
-  }
+  const command = buildCodexCommand({
+    codexBin: params.options.codexBin,
+    repoRoot: params.repoRoot,
+    outputDir: params.outputDir,
+    model: params.options.model,
+  })
 
-  const result = await runCommand(command, params.options.timeoutMs)
-  const transcriptPath = join(params.outputDir, 'agent-browser-transcript.txt')
+  const result = await runCommand(command, params.options.timeoutMs, prompt)
+  const transcriptPath = join(params.outputDir, 'codex-transcript.txt')
   await writeFile(
     transcriptPath,
     [
@@ -388,9 +431,9 @@ async function runAgentBrowser(params: {
     verdict: result.exitCode === 0 ? 'PASS' : 'FAIL',
     summary:
       result.exitCode === 0
-        ? 'Agent Browser completed the intent plan.'
-        : 'Agent Browser exited with a non-zero status.',
-    artifacts: [transcriptPath],
+        ? 'Codex completed the intent plan.'
+        : 'Codex exited with a non-zero status.',
+    artifacts: [transcriptPath, join(params.outputDir, 'codex-final.md')],
     command: result.command,
     exitCode: result.exitCode,
     stdout: result.stdout,
@@ -398,25 +441,38 @@ async function runAgentBrowser(params: {
   }
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function writeFallbackResult(outputDir: string, result: IntentResult): Promise<void> {
   const resultPath = join(outputDir, 'result.json')
   const reportPath = join(outputDir, 'report.md')
-  await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`)
-  await writeFile(
-    reportPath,
-    [
-      '# Intent E2E Result',
-      '',
-      `Verdict: ${result.verdict}`,
-      '',
-      result.summary,
-      '',
-      '## Artifacts',
-      '',
-      ...result.artifacts.map((artifact) => `- ${artifact}`),
-      '',
-    ].join('\n'),
-  )
+  if (!(await pathExists(resultPath))) {
+    await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`)
+  }
+  if (!(await pathExists(reportPath))) {
+    await writeFile(
+      reportPath,
+      [
+        '# Intent E2E Result',
+        '',
+        `Verdict: ${result.verdict}`,
+        '',
+        result.summary,
+        '',
+        '## Artifacts',
+        '',
+        ...result.artifacts.map((artifact) => `- ${artifact}`),
+        '',
+      ].join('\n'),
+    )
+  }
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
@@ -439,6 +495,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     planPath: absolutePlanPath,
     outputDir,
     debugPort: options.debugPort,
+    agentBrowserBin: options.agentBrowserBin,
     runtimePaths,
   })
   const promptPath = join(outputDir, 'prompt.md')
@@ -464,7 +521,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       headed: options.headed,
     })
     await waitForCdp(options.debugPort, 15_000)
-    const result = await runAgentBrowser({ options, promptPath, outputDir })
+    const result = await runCodex({ options, promptPath, outputDir, repoRoot })
     await writeFallbackResult(outputDir, result)
     console.log(`Intent E2E ${result.verdict}: ${outputDir}`)
     if (result.verdict === 'FAIL') process.exitCode = 1
