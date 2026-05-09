@@ -22,6 +22,8 @@ and previewed it inline next to the conversation.
   <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of 30 years of Australian interest rate moves" src="docs/screenshots/Ouroboros-HTML5-AU-interest-rate.png" width="900">
 </a>
 
+Prompt to try: Create HTML5 app showing Australian RBA interest rate change over the last 30 years.
+
 ### HTML5 app artifact - Artemis II Orion trajectory in 3D
 
 The agent rendered NASA/JPL Horizons vector data for Orion, the Moon, and the
@@ -31,6 +33,8 @@ Sun as an embedded WebGL/Three.js artifact, scaled for readability.
   <img alt="Ouroboros desktop app showing a chat session that produced an interactive 3D WebGL visualization of the Artemis II Orion trajectory" src="docs/screenshots/Ouroboros-HTML5-Orion.png" width="900">
 </a>
 
+Prompt to try: Create a HTML5 app to render trajectory of NASA/JPL Horizons vector data for Orion, the Moon, and the Sun, with display scaling applied for readability. Use WebGL and real data from the Artemis I! mission. Make sure to test the app thoroughly until it is fully functional. Pay close attention to the rendering of the planets and fly paths. I want to be able to interact with the 3D rendering. Ensure it has realistic orbital mechanics.
+
 ### Architecture diagram preview
 
 When asked for a high-level Ouroboros architecture diagram, the agent produced
@@ -39,6 +43,8 @@ a Mermaid diagram artifact with a fullscreen preview and zoom controls.
 <a href="docs/screenshots/Ouroboros-diagram-full.png">
   <img alt="Ouroboros desktop app rendering a Mermaid architecture diagram of Ouroboros with zoomable fullscreen preview" src="docs/screenshots/Ouroboros-diagram.png" width="900">
 </a>
+
+Prompt to try: Create a high level architecture diagram.
 
 ## Installation
 

@@ -1,16 +1,12 @@
 <mxfile host="65bd71144e">
     <diagram id="ouroboros-arch" name="Standard Agent Harness">
-        <mxGraphModel dx="700" dy="620" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="1039" dy="488" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
-
-                <!-- ── Title ─────────────────────────────────── -->
-                <mxCell id="title" value="&lt;b&gt;Ouroboros — Standard Agent Harness&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontColor=#1a1a2e;" parent="1" vertex="1">
+                <mxCell id="title" value="&lt;b&gt;Ouroboros Agent Harness&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontColor=#1a1a2e;" parent="1" vertex="1">
                     <mxGeometry x="520" y="15" width="480" height="40" as="geometry"/>
                 </mxCell>
-
-                <!-- ── Consumer Layer (outside harness) ──────── -->
                 <mxCell id="consumer-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;strokeWidth=1;dashed=1;arcSize=8;" parent="1" vertex="1">
                     <mxGeometry x="300" y="70" width="920" height="100" as="geometry"/>
                 </mxCell>
@@ -29,8 +25,6 @@
                 <mxCell id="con-custom" value="&lt;b&gt;Your Code&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Tests, scripts,&lt;br&gt;Slack bots, …&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;strokeDasharray=3 3;" parent="1" vertex="1">
                     <mxGeometry x="800" y="100" width="140" height="60" as="geometry"/>
                 </mxCell>
-
-                <!-- ── Interface arrows (consumer → harness) ─── -->
                 <mxCell id="iface-label-run" value="&lt;font style=&quot;font-size:11px&quot;&gt;&lt;b&gt;agent.run(prompt)&lt;/b&gt;&lt;/font&gt;" style="text;html=1;align=center;fontSize=11;fontColor=#d6b656;" parent="1" vertex="1">
                     <mxGeometry x="430" y="175" width="160" height="20" as="geometry"/>
                 </mxCell>
@@ -49,21 +43,15 @@
                 <mxCell id="iface-arrow-down4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#d6b656;dashed=1;" parent="1" source="con-custom" target="agent" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-
-                <!-- ══ HARNESS BOUNDARY ══════════════════════── -->
                 <mxCell id="harness" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#d6b656;strokeWidth=3;arcSize=4;" parent="1" vertex="1">
                     <mxGeometry x="40" y="200" width="1520" height="720" as="geometry"/>
                 </mxCell>
                 <mxCell id="harness-label" value="&lt;font style=&quot;font-size:14px;color:#d6b656&quot;&gt;&lt;b&gt;HARNESS&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#999&quot;&gt;composable, embeddable, provider-agnostic&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=12;fontColor=#333;" parent="1" vertex="1">
                     <mxGeometry x="60" y="205" width="500" height="25" as="geometry"/>
                 </mxCell>
-
-                <!-- ── Agent Loop ────────────────────────────── -->
                 <mxCell id="agent" value="&lt;b style=&quot;font-size:14px&quot;&gt;Agent Loop&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;src/agent.ts&lt;br&gt;&lt;br&gt;Plan → Act → Observe → Loop&lt;br&gt;&lt;br&gt;Events: text, tool-call-start/end, turn-complete,&lt;br&gt;thinking, status, subagent-*, artifact, error&lt;br&gt;&lt;br&gt;Steer / cancel mid-turn • Parallel tool exec&lt;br&gt;5-tier permission lease • Mode-scoped tools&lt;br&gt;AGENTS.md ancestry • Iteration guard&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=11;verticalAlign=middle;arcSize=10;" parent="1" vertex="1">
                     <mxGeometry x="530" y="250" width="340" height="170" as="geometry"/>
                 </mxCell>
-
-                <!-- ── LLM Layer ─────────────────────────────── -->
                 <mxCell id="llm-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
                     <mxGeometry x="60" y="255" width="420" height="155" as="geometry"/>
                 </mxCell>
@@ -90,8 +78,6 @@
                         <mxPoint y="-10" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-
-                <!-- ── External LLM APIs ─────────────────────── -->
                 <mxCell id="ext-anthropic" value="&lt;b&gt;Anthropic&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Claude&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" parent="1" vertex="1">
                     <mxGeometry x="60" y="440" width="100" height="40" as="geometry"/>
                 </mxCell>
@@ -110,8 +96,6 @@
                 <mxCell id="edge-prov-compat" style="rounded=1;strokeWidth=1;strokeColor=#b85450;dashed=1;" parent="1" source="llm-provider" target="ext-compat" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-
-                <!-- ── Tool Layer ────────────────────────────── -->
                 <mxCell id="tool-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
                     <mxGeometry x="940" y="240" width="600" height="470" as="geometry"/>
                 </mxCell>
@@ -129,8 +113,6 @@
                         <mxPoint y="-10" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-
-                <!-- Built-in tools grid -->
                 <mxCell id="tool-bash" value="&lt;b&gt;bash&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Shell exec&lt;br&gt;+ timeout&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="960" y="355" width="90" height="50" as="geometry"/>
                 </mxCell>
@@ -161,8 +143,6 @@
                 <mxCell id="tool-skillmgr" value="&lt;b&gt;skill-manager&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Discover, Activate&lt;br&gt;Deactivate, Info&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="1380" y="420" width="90" height="50" as="geometry"/>
                 </mxCell>
-
-                <!-- Row 3: RSI + execution tools -->
                 <mxCell id="tool-codeexec" value="&lt;b&gt;code-exec&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Sandboxed JS&lt;br&gt;worker runtime&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="960" y="485" width="90" height="50" as="geometry"/>
                 </mxCell>
@@ -178,8 +158,6 @@
                 <mxCell id="tool-selftest" value="&lt;b&gt;self-test&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Validate&lt;br&gt;new skill&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="1380" y="485" width="90" height="50" as="geometry"/>
                 </mxCell>
-
-                <!-- Row 4: Multi-agent + creative tools -->
                 <mxCell id="tool-skillgen" value="&lt;b&gt;skill-gen&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Draft SKILL.md&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="960" y="550" width="90" height="50" as="geometry"/>
                 </mxCell>
@@ -195,8 +173,6 @@
                 <mxCell id="tool-artifact" value="&lt;b&gt;create-artifact&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;HTML/SVG/MD&lt;br&gt;CSP-sandboxed&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="1380" y="550" width="90" height="50" as="geometry"/>
                 </mxCell>
-
-                <!-- Row 5: Modes + ops + drop-in slot -->
                 <mxCell id="tool-mode" value="&lt;b&gt;mode tools&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;enter-mode&lt;br&gt;submit-plan&lt;br&gt;exit-mode&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="960" y="615" width="100" height="60" as="geometry"/>
                 </mxCell>
@@ -212,8 +188,6 @@
                 <mxCell id="tool-grid-label" value="&lt;font color=&quot;#999&quot;&gt;Auto-discovered at startup — add tools by dropping files into src/tools/. MCP servers contribute additional tools through src/mcp/adapter.ts.&lt;/font&gt;" style="text;html=1;align=center;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="960" y="685" width="560" height="20" as="geometry"/>
                 </mxCell>
-
-                <!-- ── Memory Layer ──────────────────────────── -->
                 <mxCell id="mem-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
                     <mxGeometry x="370" y="520" width="520" height="140" as="geometry"/>
                 </mxCell>
@@ -253,8 +227,6 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-
-                <!-- ── Skills Layer ──────────────────────────── -->
                 <mxCell id="skill-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=8;" parent="1" vertex="1">
                     <mxGeometry x="370" y="680" width="520" height="110" as="geometry"/>
                 </mxCell>
@@ -280,16 +252,12 @@
                         <mxPoint y="-10" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-
-                <!-- ── Config Layer ──────────────────────────── -->
                 <mxCell id="config" value="&lt;b&gt;Config&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size:10px&quot;&gt;config.ts — Zod schema + env vars + .ouroboros JSON &amp;nbsp;|&amp;nbsp; types.ts — Result&amp;lt;T, E&amp;gt;, ok(), err()&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;fontSize=11;" parent="1" vertex="1">
                     <mxGeometry x="60" y="840" width="600" height="40" as="geometry"/>
                 </mxCell>
                 <mxCell id="config-note" value="&lt;font color=&quot;#999&quot;&gt;All behavior (model, permissions, memory, skills) driven by config — no hardcoded settings&lt;/font&gt;" style="text;html=1;align=left;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="60" y="885" width="550" height="20" as="geometry"/>
                 </mxCell>
-
-                <!-- ── RSI Layer (built on harness primitives) ── -->
                 <mxCell id="rsi-group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#ccc;strokeWidth=1;strokeDasharray=5 5;arcSize=8;" parent="1" vertex="1">
                     <mxGeometry x="940" y="730" width="600" height="160" as="geometry"/>
                 </mxCell>
@@ -311,8 +279,6 @@
                 <mxCell id="rsi-note" value="&lt;font color=&quot;#999&quot;&gt;Hooks fire after each task: post-task reflect → optional crystallize → self-test → checkpoint. Dream runs at session-end.&lt;/font&gt;" style="text;html=1;align=center;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="960" y="830" width="560" height="40" as="geometry"/>
                 </mxCell>
-
-                <!-- ── Legend ─────────────────────────────────── -->
                 <mxCell id="legend-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#ccc;strokeWidth=1;" parent="1" vertex="1">
                     <mxGeometry x="60" y="510" width="260" height="180" as="geometry"/>
                 </mxCell>
@@ -361,7 +327,6 @@
                 <mxCell id="legend-dashed-t" value="Phase 2 / extensible" style="text;html=1;align=left;fontSize=10;fontColor=#666;" parent="1" vertex="1">
                     <mxGeometry x="110" y="671" width="130" height="20" as="geometry"/>
                 </mxCell>
-
             </root>
         </mxGraphModel>
     </diagram>
