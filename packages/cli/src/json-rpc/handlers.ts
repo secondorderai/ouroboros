@@ -18,7 +18,7 @@ import {
 } from '@src/auth/openai-chatgpt'
 import type { OuroborosConfig } from '@src/config'
 import type { LLMFilePart, LLMMessage } from '@src/llm/types'
-import { saveConfig } from '@src/config'
+import { hydrateContextWindowConfig, saveConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { activateSkillForRun } from '@src/skills/skill-invocation'
 import { readCheckpoint } from '@src/memory/checkpoints'
@@ -903,14 +903,16 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, `Invalid config: ${issues}`)
     }
 
+    const hydratedConfig = hydrateContextWindowConfig(parsed.data)
+
     // Persist to disk
-    const saveResult = saveConfig(ctx.configDir, parsed.data)
+    const saveResult = saveConfig(ctx.configDir, hydratedConfig)
     if (!saveResult.ok) {
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, saveResult.error.message)
     }
 
-    ctx.setConfig(parsed.data)
-    return parsed.data
+    ctx.setConfig(hydratedConfig)
+    return hydratedConfig
   })
 
   handlers.set('config/testConnection', async (params) => {
@@ -976,14 +978,14 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       )
     }
 
-    const updatedConfig: OuroborosConfig = {
+    const updatedConfig = hydrateContextWindowConfig({
       ...ctx.config,
       model: {
         ...ctx.config.model,
         provider: provider as 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt',
         apiKey,
       },
-    }
+    })
 
     const saveResult = saveConfig(ctx.configDir, updatedConfig)
     if (!saveResult.ok) {

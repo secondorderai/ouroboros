@@ -449,6 +449,36 @@ export const configSchema = z.object({
 export type OuroborosConfig = z.infer<typeof configSchema>
 
 /**
+ * Refresh derived context-window diagnostics from the current model registry.
+ *
+ * `contextWindowTokens` is persisted in some flows because desktop settings
+ * edits round-trip the hydrated runtime config. Treat only `source: "config"`
+ * (and legacy values without a source) as user-authored overrides; all other
+ * sources are derived and should follow the selected model.
+ */
+export function hydrateContextWindowConfig(config: OuroborosConfig): OuroborosConfig {
+  const hasContextWindowTokens = typeof config.memory.contextWindowTokens === 'number'
+  const source = config.memory.contextWindowSource
+  const isExplicitOverride = hasContextWindowTokens && (source === 'config' || source === undefined)
+
+  if (isExplicitOverride) {
+    config.memory.contextWindowSource = 'config'
+    return config
+  }
+
+  const detected = getContextWindowTokens(config.model.name, config.model.provider)
+  if (detected !== null) {
+    config.memory.contextWindowTokens = detected
+    config.memory.contextWindowSource = 'model-registry'
+  } else {
+    delete config.memory.contextWindowTokens
+    config.memory.contextWindowSource = 'unknown'
+  }
+
+  return config
+}
+
+/**
  * Apply environment variable overrides on top of a parsed config.
  * Environment variables use the OUROBOROS_ prefix with underscores for nesting.
  *
@@ -631,23 +661,7 @@ export function loadConfig(
   // Auto-detect context window from model registry when not explicitly configured.
   // Explicit user config always takes precedence.
   const config = result.data
-  const explicitMemory =
-    typeof merged.memory === 'object' && merged.memory !== null
-      ? (merged.memory as Record<string, unknown>)
-      : {}
-  const hasExplicitContextWindowTokens = typeof explicitMemory.contextWindowTokens === 'number'
-
-  if (config.memory.contextWindowTokens === undefined) {
-    const detected = getContextWindowTokens(config.model.name, config.model.provider)
-    if (detected !== null) {
-      config.memory.contextWindowTokens = detected
-      config.memory.contextWindowSource = 'model-registry'
-    } else {
-      config.memory.contextWindowSource = 'unknown'
-    }
-  } else if (!config.memory.contextWindowSource) {
-    config.memory.contextWindowSource = hasExplicitContextWindowTokens ? 'config' : 'unknown'
-  }
+  hydrateContextWindowConfig(config)
 
   return ok(config)
 }
