@@ -1,3 +1,14 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+
+let mockedHomedir: string | undefined
+mock.module('node:os', () => {
+  const real = require('node:os')
+  return {
+    ...real,
+    homedir: () => mockedHomedir ?? real.homedir(),
+  }
+})
+
 import { getAuthFilePath, removeAuth, setAuth } from '@src/auth'
 import {
   buildAuthorizeUrl,
@@ -8,10 +19,9 @@ import {
   OPENAI_CHATGPT_PROVIDER,
   parseJwtClaims,
 } from '@src/auth/openai-chatgpt'
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
-import { dirname, join, sep } from 'node:path'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'ouroboros-auth-test-'))
@@ -33,23 +43,17 @@ function createJwt(payload: Record<string, unknown>): string {
 }
 
 describe('openai-chatgpt auth', () => {
-  const savedEnv: Record<string, string | undefined> = {}
   const originalFetch = globalThis.fetch
   let tempDir: string
 
   beforeEach(() => {
     tempDir = makeTempDir()
-    savedEnv.OUROBOROS_AUTH_FILE = process.env.OUROBOROS_AUTH_FILE
-    process.env.OUROBOROS_AUTH_FILE = join(tempDir, 'auth.json')
+    mockedHomedir = tempDir
     globalThis.fetch = originalFetch
   })
 
   afterEach(() => {
-    if (savedEnv.OUROBOROS_AUTH_FILE === undefined) {
-      delete process.env.OUROBOROS_AUTH_FILE
-    } else {
-      process.env.OUROBOROS_AUTH_FILE = savedEnv.OUROBOROS_AUTH_FILE
-    }
+    mockedHomedir = undefined
     globalThis.fetch = originalFetch
     rmSync(tempDir, { recursive: true, force: true })
   })
@@ -70,7 +74,7 @@ describe('openai-chatgpt auth', () => {
     expect(mode).toBe(0o600)
 
     const raw = JSON.parse(readFileSync(authPath, 'utf8')) as Record<string, unknown>
-    expect(raw[OPENAI_CHATGPT_PROVIDER]).toBeDefined()
+    expect((raw.auth as Record<string, unknown>)[OPENAI_CHATGPT_PROVIDER]).toBeDefined()
   })
 
   test('parseJwtClaims and extractAccountIdFromClaims support ChatGPT account claims', () => {
@@ -123,11 +127,10 @@ describe('openai-chatgpt auth', () => {
     expect(authResult.value.refresh).toBe('refresh-token-next')
     expect(authResult.value.accountId).toBe('acct_refresh')
 
-    const storedAuth = JSON.parse(readFileSync(getAuthFilePath(), 'utf8')) as Record<
-      string,
-      { access: string; refresh: string; accountId?: string }
-    >
-    expect(storedAuth[OPENAI_CHATGPT_PROVIDER]).toEqual(
+    const storedConfig = JSON.parse(readFileSync(getAuthFilePath(), 'utf8')) as {
+      auth: Record<string, { access: string; refresh: string; accountId?: string }>
+    }
+    expect(storedConfig.auth[OPENAI_CHATGPT_PROVIDER]).toEqual(
       expect.objectContaining({
         access: refreshedAccessToken,
         refresh: 'refresh-token-next',
@@ -184,8 +187,10 @@ describe('openai-chatgpt auth', () => {
     const removeResult = removeAuth(OPENAI_CHATGPT_PROVIDER)
     expect(removeResult.ok).toBe(true)
 
-    const raw = JSON.parse(readFileSync(getAuthFilePath(), 'utf8')) as Record<string, unknown>
-    expect(raw[OPENAI_CHATGPT_PROVIDER]).toBeUndefined()
+    const raw = JSON.parse(readFileSync(getAuthFilePath(), 'utf8')) as {
+      auth?: Record<string, unknown>
+    }
+    expect(raw.auth?.[OPENAI_CHATGPT_PROVIDER]).toBeUndefined()
   })
 
   test('browser login uses official Codex authorize parameters', () => {
@@ -211,31 +216,9 @@ describe('openai-chatgpt auth', () => {
     expect(isSupportedOpenAIChatGPTModel('gpt-5.5')).toBe(true)
   })
 
-  test('default auth file does not collide with the .ouroboros config file', () => {
-    delete process.env.OUROBOROS_AUTH_FILE
-
-    const defaultPath = getAuthFilePath()
-
-    // .ouroboros is the established convention for the runtime config FILE
-    // (see packages/cli/src/config.ts). The auth store must not place itself
-    // inside ~/.ouroboros, otherwise mkdirSync({recursive:true}) throws EEXIST
-    // when the config file already exists at that path.
-    expect(defaultPath.startsWith(homedir() + sep)).toBe(true)
-    expect(defaultPath).not.toContain(`${sep}.ouroboros${sep}`)
-    expect(dirname(defaultPath)).toBe(homedir())
-  })
-
-  test('setAuth succeeds when ~/.ouroboros already exists as a config file', () => {
-    // Reproduces the user-reported bug: ~/.ouroboros is a real JSON config
-    // file (per the .ouroboros file convention). The auth store must coexist
-    // with it instead of trying to mkdir over it.
-    const fakeHome = makeTempDir()
-    const configFilePath = join(fakeHome, '.ouroboros')
+  test('setAuth preserves existing ~/.ouroboros runtime config', () => {
+    const configFilePath = join(tempDir, '.ouroboros')
     writeFileSync(configFilePath, '{"model":{"provider":"anthropic","name":"claude"}}', 'utf-8')
-
-    // Point the auth store at the default-style location relative to fakeHome.
-    // After the fix, this is a sibling file, not a path inside the config file.
-    process.env.OUROBOROS_AUTH_FILE = join(fakeHome, '.ouroboros-auth.json')
 
     const result = setAuth(OPENAI_CHATGPT_PROVIDER, {
       type: 'oauth',
@@ -245,12 +228,32 @@ describe('openai-chatgpt auth', () => {
     })
 
     expect(result.ok).toBe(true)
-    // Original config file must remain intact and unmodified.
     expect(statSync(configFilePath).isFile()).toBe(true)
-    expect(readFileSync(configFilePath, 'utf-8')).toBe(
-      '{"model":{"provider":"anthropic","name":"claude"}}',
+    const raw = JSON.parse(readFileSync(configFilePath, 'utf-8')) as {
+      model?: { provider?: string; name?: string }
+      auth?: Record<string, unknown>
+    }
+    expect(raw.model).toEqual({ provider: 'anthropic', name: 'claude' })
+    expect(raw.auth?.[OPENAI_CHATGPT_PROVIDER]).toBeDefined()
+  })
+
+  test('legacy .ouroboros-auth.json is ignored after hard cutover', async () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros-auth.json'),
+      JSON.stringify({
+        [OPENAI_CHATGPT_PROVIDER]: {
+          type: 'oauth',
+          refresh: 'legacy-refresh',
+          access: 'legacy-access',
+          expires: Date.now() + 60_000,
+        },
+      }),
+      'utf-8',
     )
 
-    rmSync(fakeHome, { recursive: true, force: true })
+    const authResult = await ensureOpenAIChatGPTAuth()
+
+    expect(getAuthFilePath()).toBe(join(tempDir, '.ouroboros'))
+    expect(authResult.ok).toBe(false)
   })
 })

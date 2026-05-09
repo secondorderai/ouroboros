@@ -69,3 +69,4 @@ local-docs/**/*
 Dockerfile.ci-repro
 .claude/scheduled_tasks.lock
 test-results/**/*
+packages/desktop/old-config-data/**/*

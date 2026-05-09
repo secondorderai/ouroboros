@@ -17,7 +17,6 @@ import {
   OPENAI_CHATGPT_PROVIDER,
 } from '@src/auth/openai-chatgpt'
 import type { OuroborosConfig } from '@src/config'
-import { loadConfig, resolveConfigDir } from '@src/config'
 import type { LLMFilePart, LLMMessage } from '@src/llm/types'
 import { saveConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
@@ -1369,15 +1368,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.directory is required')
     }
     try {
-      const resolvedDir = resolveConfigDir(dir)
-      const configResult = loadConfig(resolvedDir)
-      if (!configResult.ok) {
-        throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, configResult.error.message)
-      }
-
       process.chdir(dir)
-      ctx.setConfig(configResult.value)
-      ctx.setConfigDir?.(resolvedDir)
       refreshSkills()
 
       if (ctx.currentSessionId) {
@@ -1480,14 +1471,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
   handlers.set('workspace/clear', async () => {
     try {
-      const configResult = loadConfig(ctx.initialConfigDir)
-      if (!configResult.ok) {
-        throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, configResult.error.message)
-      }
-
       process.chdir(ctx.initialCwd)
-      ctx.setConfig(configResult.value)
-      ctx.setConfigDir?.(ctx.initialConfigDir)
       refreshSkills()
 
       if (ctx.currentSessionId) {

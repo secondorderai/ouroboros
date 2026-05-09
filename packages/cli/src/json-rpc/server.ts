@@ -12,7 +12,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { Agent, type AgentEventHandler } from '@src/agent'
 import { OpenAIChatGPTAuthManager } from '@src/auth/openai-chatgpt'
-import { loadConfig, type OuroborosConfig } from '@src/config'
+import type { OuroborosConfig } from '@src/config'
 import { createProvider } from '@src/llm/provider'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { ModeManager, PLAN_MODE } from '@src/modes'
@@ -73,8 +73,8 @@ export function resolveSessionAgentConfig(
   basePath: string,
   fallback: OuroborosConfig,
 ): OuroborosConfig {
-  const result = loadConfig(basePath)
-  return result.ok ? result.value : fallback
+  void basePath
+  return fallback
 }
 
 /**
@@ -449,7 +449,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
   function getAgentForSession(sessionId?: string): Agent {
     const targetSessionId = sessionId ?? currentSessionId ?? undefined
     if (!targetSessionId) {
-      if (!anonymousAgent) anonymousAgent = buildAgent()
+      if (!anonymousAgent) anonymousAgent = buildAgent(process.cwd())
       return anonymousAgent
     }
     const existing = agentsBySession.get(targetSessionId)

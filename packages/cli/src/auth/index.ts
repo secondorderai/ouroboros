@@ -1,7 +1,8 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { chmodSync } from 'node:fs'
+import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { z } from 'zod'
+import { readOuroborosFile, writeOuroborosFile } from '@src/config'
 import { type Result, ok, err } from '@src/types'
 
 const oauthAuthSchema = z.object({
@@ -19,65 +20,67 @@ const authStoreSchema = z.record(z.string(), authInfoSchema)
 type AuthStore = z.infer<typeof authStoreSchema>
 
 // Auth is per-user, not per-project: subscription tokens (e.g. ChatGPT OAuth)
-// belong to the human, so we want a single login that works across every
-// workspace. `OUROBOROS_AUTH_FILE` overrides for tests; `configDir` is honored
-// only when explicitly passed (legacy/test isolation), otherwise we fall back
-// to `<homedir>/.ouroboros-auth.json`. Homedir is resolved at call time so
-// tests can override `HOME`.
-export function getAuthFilePath(configDir?: string): string {
-  if (process.env.OUROBOROS_AUTH_FILE) return process.env.OUROBOROS_AUTH_FILE
-  if (configDir) return join(configDir, '.ouroboros-auth.json')
-  return join(homedir(), '.ouroboros-auth.json')
+// belong to the human, so one login should work across every workspace. Auth
+// is embedded under the private top-level `auth` key in ~/.ouroboros.
+export function getAuthFilePath(): string {
+  return join(homedir(), '.ouroboros')
 }
 
-function loadAuthStore(configDir?: string): Result<AuthStore> {
-  const authPath = getAuthFilePath(configDir)
+function getAuthDir(): string {
+  return homedir()
+}
 
-  if (!existsSync(authPath)) {
+function loadAuthStore(): Result<AuthStore> {
+  const fileResult = readOuroborosFile(getAuthDir())
+  if (!fileResult.ok) {
+    return err(new Error(`Failed to read auth store: ${fileResult.error.message}`))
+  }
+
+  const auth = fileResult.value.auth
+  if (auth === undefined) {
     return ok({})
   }
 
-  try {
-    const raw = readFileSync(authPath, 'utf-8')
-    const parsed = JSON.parse(raw) as unknown
-    const result = authStoreSchema.safeParse(parsed)
-    if (!result.success) {
-      const issues = result.error.issues
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        .join('; ')
-      return err(new Error(`Invalid auth store: ${issues}`))
-    }
-    return ok(result.data)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return err(new Error(`Failed to read auth store: ${message}`))
+  const result = authStoreSchema.safeParse(auth)
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ')
+    return err(new Error(`Invalid auth store: ${issues}`))
   }
+  return ok(result.data)
 }
 
-function saveAuthStore(store: AuthStore, configDir?: string): Result<void> {
-  const authPath = getAuthFilePath(configDir)
-  const authDir = dirname(authPath)
+function saveAuthStore(store: AuthStore): Result<void> {
+  const dir = getAuthDir()
+  const fileResult = readOuroborosFile(dir)
+  if (!fileResult.ok) {
+    return err(new Error(`Failed to read auth store: ${fileResult.error.message}`))
+  }
+
+  const writeResult = writeOuroborosFile(dir, {
+    ...fileResult.value,
+    auth: store,
+  })
+  if (!writeResult.ok) {
+    return err(new Error(`Failed to write auth store: ${writeResult.error.message}`))
+  }
 
   try {
-    mkdirSync(authDir, { recursive: true, mode: 0o700 })
-    writeFileSync(authPath, JSON.stringify(store, null, 2) + '\n', {
-      encoding: 'utf-8',
-      mode: 0o600,
-    })
-    chmodSync(authPath, 0o600)
-    return ok(undefined)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return err(new Error(`Failed to write auth store: ${message}`))
+    chmodSync(getAuthFilePath(), 0o600)
+  } catch {
+    // Best-effort hardening; write failures are already reported above.
   }
+
+  return ok(undefined)
 }
 
-export function listAuth(configDir?: string): Result<Record<string, AuthInfo>> {
-  return loadAuthStore(configDir)
+export function listAuth(): Result<Record<string, AuthInfo>> {
+  return loadAuthStore()
 }
 
-export function getAuth(provider: string, configDir?: string): Result<AuthInfo | undefined> {
-  const storeResult = loadAuthStore(configDir)
+export function getAuth(provider: string, _configDir?: string): Result<AuthInfo | undefined> {
+  const storeResult = loadAuthStore()
   if (!storeResult.ok) {
     return storeResult
   }
@@ -85,30 +88,27 @@ export function getAuth(provider: string, configDir?: string): Result<AuthInfo |
   return ok(storeResult.value[provider])
 }
 
-export function setAuth(provider: string, info: AuthInfo, configDir?: string): Result<void> {
-  const storeResult = loadAuthStore(configDir)
+export function setAuth(provider: string, info: AuthInfo, _configDir?: string): Result<void> {
+  const storeResult = loadAuthStore()
   if (!storeResult.ok) {
     return storeResult
   }
 
-  return saveAuthStore(
-    {
-      ...storeResult.value,
-      [provider]: info,
-    },
-    configDir,
-  )
+  return saveAuthStore({
+    ...storeResult.value,
+    [provider]: info,
+  })
 }
 
-export function removeAuth(provider: string, configDir?: string): Result<void> {
-  const storeResult = loadAuthStore(configDir)
+export function removeAuth(provider: string, _configDir?: string): Result<void> {
+  const storeResult = loadAuthStore()
   if (!storeResult.ok) {
     return storeResult
   }
 
   const nextStore = { ...storeResult.value }
   delete nextStore[provider]
-  return saveAuthStore(nextStore, configDir)
+  return saveAuthStore(nextStore)
 }
 
 export function isAuthExpired(auth: Pick<AuthInfo, 'expires'>, now = Date.now()): boolean {

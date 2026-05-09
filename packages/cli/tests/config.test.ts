@@ -7,9 +7,10 @@ import {
   getSelectablePrimaryAgentDefinitions,
   loadConfig,
   resolveConfigDir,
+  saveConfig,
   type OuroborosConfig,
 } from '@src/config'
-import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -404,7 +405,61 @@ describe('loadConfig', () => {
     })
   })
 
-  test('finds the nearest .ouroboros in an ancestor directory', () => {
+  test('uses direct start directory .ouroboros before fallback', () => {
+    const startDir = join(tempDir, 'workspace')
+    const fallbackDir = join(tempDir, 'home')
+    mkdirSync(startDir, { recursive: true })
+    mkdirSync(fallbackDir, { recursive: true })
+
+    writeFileSync(
+      join(startDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'openai', name: 'gpt-5.4' },
+      }),
+    )
+    writeFileSync(
+      join(fallbackDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+      }),
+    )
+
+    expect(resolveConfigDir(startDir, { fallbackDir })).toBe(startDir)
+
+    const result = loadConfig(startDir, { fallbackDir })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.provider).toBe('openai')
+    expect(result.value.model.name).toBe('gpt-5.4')
+  })
+
+  test('falls back to configured home directory when start directory has no .ouroboros', () => {
+    const startDir = join(tempDir, 'workspace')
+    const fallbackDir = join(tempDir, 'home')
+    mkdirSync(startDir, { recursive: true })
+    mkdirSync(fallbackDir, { recursive: true })
+
+    writeFileSync(
+      join(fallbackDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+      }),
+    )
+
+    expect(resolveConfigDir(startDir, { fallbackDir })).toBe(fallbackDir)
+
+    const result = loadConfig(startDir, { fallbackDir })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.model.provider).toBe('anthropic')
+    expect(result.value.model.name).toBe('claude-sonnet-4-20250514')
+  })
+
+  test('does not discover .ouroboros from ancestor directories', () => {
     const workspaceDir = join(tempDir, 'workspace')
     const packageDir = join(workspaceDir, 'packages', 'cli')
     mkdirSync(packageDir, { recursive: true })
@@ -416,7 +471,7 @@ describe('loadConfig', () => {
       }),
     )
 
-    expect(resolveConfigDir(packageDir)).toBe(workspaceDir)
+    expect(resolveConfigDir(packageDir)).toBe(packageDir)
 
     const result = loadConfig(packageDir)
 
@@ -424,7 +479,48 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.model.provider).toBe('openai')
-    expect(result.value.model.name).toBe('gpt-5.4')
+    expect(result.value.model.name).toBe('gpt-5.5')
+  })
+
+  test('saveConfig preserves private top-level auth data', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        auth: {
+          'openai-chatgpt': {
+            type: 'oauth',
+            refresh: 'refresh-token',
+            access: 'access-token',
+            expires: Date.now() + 60_000,
+          },
+        },
+        model: { provider: 'openai', name: 'gpt-5.4' },
+      }),
+    )
+
+    const configResult = loadConfig(tempDir)
+    expect(configResult.ok).toBe(true)
+    if (!configResult.ok) return
+
+    const saveResult = saveConfig(tempDir, {
+      ...configResult.value,
+      model: { ...configResult.value.model, name: 'gpt-5.5' },
+    })
+    expect(saveResult.ok).toBe(true)
+
+    const raw = JSON.parse(readFileSync(join(tempDir, '.ouroboros'), 'utf-8')) as {
+      auth?: unknown
+      model?: { name?: string }
+    }
+    expect(raw.model?.name).toBe('gpt-5.5')
+    expect(raw.auth).toEqual({
+      'openai-chatgpt': {
+        type: 'oauth',
+        refresh: 'refresh-token',
+        access: 'access-token',
+        expires: expect.any(Number),
+      },
+    })
   })
 
   test('validates and rejects invalid schema', () => {

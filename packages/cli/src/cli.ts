@@ -42,11 +42,16 @@ import { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { RSIEvent } from '@src/rsi/types'
 import { TranscriptStore } from '@src/memory/transcripts'
 import { resolve as resolvePath } from 'node:path'
+import { homedir } from 'node:os'
 import { Command } from 'commander'
 
 // ── CLI program definition ──────────────────────────────────────────
 
 const program = new Command()
+
+function getConfigDiscoveryOptions() {
+  return { fallbackDir: homedir() }
+}
 
 program
   .name('ouroboros')
@@ -93,14 +98,14 @@ program
   .option('--mode <mode>', 'Dream mode: consolidate-only or full', 'consolidate-only')
   .option('--config <path>', 'Path to .ouroboros config file directory')
   .action(async (dreamOpts: { mode?: string; config?: string }) => {
-    const configResult = loadConfig(dreamOpts.config)
+    const configResult = loadConfig(dreamOpts.config, getConfigDiscoveryOptions())
     if (!configResult.ok) {
       process.stderr.write(`${configResult.error.message}\n`)
       process.exit(1)
     }
 
     const config = configResult.value
-    const configDir = resolveConfigDir(dreamOpts.config)
+    const configDir = resolveConfigDir(dreamOpts.config, getConfigDiscoveryOptions())
     const providerResult = createProvider(config.model)
     if (!providerResult.ok) {
       process.stderr.write(`${providerResult.error.message}\n`)
@@ -164,7 +169,7 @@ async function runMain(): Promise<void> {
   }>()
 
   // Load config
-  const configResult = loadConfig(opts.config)
+  const configResult = loadConfig(opts.config, getConfigDiscoveryOptions())
   if (!configResult.ok) {
     process.stderr.write(`${configResult.error.message}\n`)
     process.exit(1)
@@ -214,7 +219,7 @@ async function runMain(): Promise<void> {
   // Must branch early — the server creates its own provider, registry,
   // and manages its own Agent lifecycle.
   if (opts.jsonRpc === true) {
-    const configDir = resolveConfigDir(opts.config)
+    const configDir = resolveConfigDir(opts.config, getConfigDiscoveryOptions())
     await startJsonRpcServer({ config, configDir, maxStepsOverride })
     // startJsonRpcServer runs indefinitely — this line is never reached.
     return
@@ -223,7 +228,7 @@ async function runMain(): Promise<void> {
   const verbose = opts.verbose === true
   const noStream = !opts.stream
   const prompt = await detectPrompt(opts.message)
-  const configDir = resolveConfigDir(opts.config)
+  const configDir = resolveConfigDir(opts.config, getConfigDiscoveryOptions())
 
   // Create LLM provider
   const providerResult = createProvider(config.model)
@@ -418,8 +423,7 @@ function parseSingleShotPrompt(
  *   "claude-sonnet-4-20250514"            → provider=anthropic (default), name=claude-sonnet-4-20250514
  */
 async function runAuthList(): Promise<void> {
-  const configDir = resolveConfigDir()
-  const authResult = listAuth(configDir)
+  const authResult = listAuth()
   if (!authResult.ok) {
     process.stderr.write(`${authResult.error.message}\n`)
     process.exit(1)

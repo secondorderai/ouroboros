@@ -455,7 +455,7 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
-    test('session agent config resolves from the selected workspace', async () => {
+    test('session agent config remains anchored to launch config', async () => {
       const baseDir = mkdtempSync(join(tmpdir(), 'ouroboros-workspace-config-'))
       const launchDir = join(baseDir, 'desktop-launch')
       const workspaceDir = join(baseDir, 'workspace')
@@ -482,12 +482,9 @@ describe('JSON-RPC', () => {
         const launchConfig = resolveSessionAgentConfig(launchDir, fallback)
         const workspaceConfig = resolveSessionAgentConfig(workspaceDir, launchConfig)
 
-        expect(launchConfig.model.provider).toBe('openai-chatgpt')
-        expect(launchConfig.model.name).toBe('gpt-5.5')
-        expect(launchConfig.memory.contextWindowTokens).toBe(1_000_000)
-        expect(workspaceConfig.model.provider).toBe('anthropic')
-        expect(workspaceConfig.model.name).toBe('claude-sonnet-4-20250514')
-        expect(workspaceConfig.memory.contextWindowTokens).toBe(200_000)
+        expect(launchConfig).toBe(fallback)
+        expect(workspaceConfig).toBe(fallback)
+        expect(workspaceConfig.model.provider).toBe('openai')
       } finally {
         rmSync(baseDir, { recursive: true, force: true })
       }
@@ -1034,7 +1031,7 @@ describe('JSON-RPC', () => {
           makeAgentOptions(model, registry, {
             onEvent: bridgeAgentEvent,
             config: ctx.config,
-            basePath: ctx.configDir,
+            basePath: process.cwd(),
             systemPromptBuilder: (options) => {
               promptCalls.push(options as Record<string, unknown>)
               return 'You are a test assistant.'
@@ -1063,6 +1060,44 @@ describe('JSON-RPC', () => {
       expect(String(promptCalls[0]?.agentsInstructions ?? '')).not.toContain('Nested rules.')
       expect(String(promptCalls[1]?.agentsInstructions ?? '')).toContain('Root rules.')
       expect(String(promptCalls[1]?.agentsInstructions ?? '')).toContain('Nested rules.')
+    })
+
+    test('workspace/set changes cwd without loading workspace .ouroboros config', async () => {
+      const baseDir = realpathSync(
+        mkdtempSync(join(tmpdir(), `ouroboros-jsonrpc-workspace-config-${crypto.randomUUID()}-`)),
+      )
+      const configDir = join(baseDir, 'config')
+      const workspaceDir = join(baseDir, 'workspace')
+      mkdirSync(configDir, { recursive: true })
+      mkdirSync(workspaceDir, { recursive: true })
+      writeFileSync(
+        join(workspaceDir, '.ouroboros'),
+        JSON.stringify({
+          model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+        }),
+      )
+
+      const originalCwd = process.cwd()
+      const ctx = createTestContext({ configDir })
+      const handlers = createHandlers(ctx)
+      const workspaceHandler = handlers.get('workspace/set')!
+
+      try {
+        const beforeConfig = ctx.config
+        const result = (await workspaceHandler({ directory: workspaceDir })) as {
+          directory: string
+        }
+
+        expect(result.directory).toBe(realpathSync(workspaceDir))
+        expect(process.cwd()).toBe(realpathSync(workspaceDir))
+        expect(ctx.config).toBe(beforeConfig)
+        expect(ctx.config.model.provider).toBe('openai')
+        expect(ctx.configDir).toBe(configDir)
+      } finally {
+        process.chdir(originalCwd)
+        rmSync(baseDir, { recursive: true, force: true })
+        ctx.transcriptStore.close()
+      }
     })
 
     test('workspace/clear reverts cwd to the initial launch directory', async () => {

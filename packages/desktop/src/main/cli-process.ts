@@ -138,28 +138,28 @@ export class CLIProcessManager extends EventEmitter {
       const fixturePath = join(app.getAppPath(), '..', '..', 'tests', 'fixtures', 'mock-cli.mjs')
       return {
         command: process.env.OUROBOROS_TEST_NODE_BINARY ?? 'node',
-        args: [fixturePath, '--json-rpc', TEST_SCENARIO_PATH],
+        args: [fixturePath, '--json-rpc', ...this.getCliConfigArgs(), TEST_SCENARIO_PATH],
       }
     }
 
     const envPath = process.env.OUROBOROS_CLI_PATH
     if (envPath) {
       if (envPath.endsWith('.ts')) {
-        return { command: 'bun', args: ['run', envPath, '--json-rpc'] }
+        return { command: 'bun', args: ['run', envPath, '--json-rpc', ...this.getCliConfigArgs()] }
       }
-      return { command: envPath, args: ['--json-rpc'] }
+      return { command: envPath, args: ['--json-rpc', ...this.getCliConfigArgs()] }
     }
 
     if (app.isPackaged) {
       return {
         command: this.resolvePackagedCliPath(),
-        args: ['--json-rpc', '--config', this.getPackagedCliConfigDir()],
+        args: ['--json-rpc', ...this.getCliConfigArgs()],
       }
     }
 
     return {
       command: join(app.getAppPath(), '..', 'cli', 'dist', process.platform === 'win32' ? 'ouroboros.exe' : 'ouroboros'),
-      args: ['--json-rpc'],
+      args: ['--json-rpc', ...this.getCliConfigArgs()],
     }
   }
 
@@ -266,17 +266,11 @@ export class CLIProcessManager extends EventEmitter {
   }
 
   private getCliWorkingDirectory(): string {
-    if (process.env.NODE_ENV === 'test') {
-      return app.getPath('userData')
-    }
-    if (app.isPackaged) {
-      return app.getPath('home')
-    }
-    return process.cwd()
+    return app.getPath('userData')
   }
 
-  private getPackagedCliConfigDir(): string {
-    return app.getPath('userData')
+  private getCliConfigArgs(): string[] {
+    return ['--config', app.getPath('userData')]
   }
 
   private resolvePackagedCliPath(): string {

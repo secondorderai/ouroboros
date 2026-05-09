@@ -1,10 +1,14 @@
 import { z } from 'zod'
-import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { type AgentDefinition, type PermissionConfig, type Result, ok, err } from '@src/types'
 import { getContextWindowTokens } from '@src/llm/model-capabilities'
 
 const CONFIG_FILE_NAME = '.ouroboros'
+
+export interface ConfigDiscoveryOptions {
+  fallbackDir?: string
+}
 
 export const DEFAULT_MEMORY_CONFIG = {
   consolidationSchedule: 'session-end' as const,
@@ -525,62 +529,94 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
 /**
  * Resolve the directory whose `.ouroboros` file should be used for config.
  *
- * Starting from `cwd`, walks up parent directories until it finds a
- * `.ouroboros` file. If none is found, returns the original `cwd`.
+ * Checks only the supplied start directory, then an optional fallback
+ * directory. If neither contains `.ouroboros`, returns the start directory so
+ * writes create config at the runtime anchor instead of an ancestor.
  */
-export function resolveConfigDir(cwd?: string): string {
+export function resolveConfigDir(cwd?: string, options: ConfigDiscoveryOptions = {}): string {
   const startDir = resolve(cwd ?? process.cwd())
-  let currentDir = startDir
 
-  while (true) {
-    const configPath = resolve(currentDir, CONFIG_FILE_NAME)
-    try {
-      if (statSync(configPath).isFile()) {
-        return currentDir
-      }
-    } catch {
-      // statSync throws if path doesn't exist — continue walking up
+  if (isConfigFile(resolve(startDir, CONFIG_FILE_NAME))) {
+    return startDir
+  }
+
+  if (options.fallbackDir) {
+    const fallbackDir = resolve(options.fallbackDir)
+    if (isConfigFile(resolve(fallbackDir, CONFIG_FILE_NAME))) {
+      return fallbackDir
     }
+  }
 
-    const parentDir = dirname(currentDir)
-    if (parentDir === currentDir) {
-      return startDir
+  return startDir
+}
+
+function isConfigFile(path: string): boolean {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+export function getOuroborosFilePath(dir: string): string {
+  return resolve(dir, CONFIG_FILE_NAME)
+}
+
+export function readOuroborosFile(dir: string): Result<Record<string, unknown>> {
+  const configPath = getOuroborosFilePath(dir)
+
+  if (!existsSync(configPath) || !isConfigFile(configPath)) {
+    return ok({})
+  }
+
+  try {
+    const raw = readFileSync(configPath, 'utf-8')
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return err(new Error('.ouroboros must contain a JSON object'))
     }
+    return ok(parsed as Record<string, unknown>)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return err(new Error(`Failed to parse .ouroboros config file: ${message}`))
+  }
+}
 
-    currentDir = parentDir
+export function writeOuroborosFile(dir: string, data: Record<string, unknown>): Result<void> {
+  const configPath = getOuroborosFilePath(dir)
+  try {
+    mkdirSync(dirname(configPath), { recursive: true })
+    writeFileSync(configPath, JSON.stringify(data, null, 2) + '\n', 'utf-8')
+    return ok(undefined)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return err(new Error(`Failed to write .ouroboros config file: ${message}`))
   }
 }
 
 /**
- * Load configuration from the nearest `.ouroboros` file, environment variables,
- * and defaults.
+ * Load configuration from `.ouroboros`, environment variables, and defaults.
  *
  * Priority (highest to lowest):
  *   1. Environment variables (OUROBOROS_*)
- *   2. The nearest `.ouroboros` JSON file in the current directory or an ancestor
+ *   2. The `.ouroboros` JSON file in the start directory, or fallback directory
  *   3. Zod schema defaults
  *
  * @param cwd - Working directory to search from (defaults to process.cwd())
  * @returns Result containing the validated config or a descriptive error
  */
-export function loadConfig(cwd?: string): Result<OuroborosConfig> {
-  const configDir = resolveConfigDir(cwd)
-  const configPath = resolve(configDir, CONFIG_FILE_NAME)
-
-  let fileConfig: Record<string, unknown> = {}
-
-  if (existsSync(configPath) && statSync(configPath).isFile()) {
-    try {
-      const raw = readFileSync(configPath, 'utf-8')
-      fileConfig = JSON.parse(raw) as Record<string, unknown>
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      return err(new Error(`Failed to parse .ouroboros config file: ${message}`))
-    }
+export function loadConfig(
+  cwd?: string,
+  options: ConfigDiscoveryOptions = {},
+): Result<OuroborosConfig> {
+  const configDir = resolveConfigDir(cwd, options)
+  const fileResult = readOuroborosFile(configDir)
+  if (!fileResult.ok) {
+    return err(fileResult.error)
   }
 
   // Apply env overrides on top of file config
-  const merged = applyEnvOverrides(fileConfig)
+  const merged = applyEnvOverrides(fileResult.value)
 
   // Validate through Zod (applies defaults for missing fields)
   const result = configSchema.safeParse(merged)
@@ -624,12 +660,13 @@ export function loadConfig(cwd?: string): Result<OuroborosConfig> {
  * @returns Result indicating success or failure
  */
 export function saveConfig(cwd: string, config: OuroborosConfig): Result<void> {
-  const configPath = resolve(cwd, CONFIG_FILE_NAME)
-  try {
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
-    return ok(undefined)
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    return err(new Error(`Failed to write .ouroboros config file: ${message}`))
+  const existingResult = readOuroborosFile(cwd)
+  if (!existingResult.ok) {
+    return err(existingResult.error)
   }
+
+  return writeOuroborosFile(cwd, {
+    ...existingResult.value,
+    ...config,
+  })
 }

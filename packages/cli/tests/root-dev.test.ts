@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadConfig } from '@src/config'
@@ -18,6 +18,21 @@ function readJsonFile<T>(path: string): T {
 
 async function runRootDevInPty(): Promise<{ output: string }> {
   const innerCmd = `cd "${REPO_ROOT}" && bun run dev`
+  const tempHome = mkdtempSync(join(tmpdir(), 'ouroboros-root-dev-home-'))
+  writeFileSync(
+    join(tempHome, '.ouroboros'),
+    JSON.stringify({
+      auth: {
+        'openai-chatgpt': {
+          type: 'oauth',
+          refresh: 'test-refresh',
+          access: 'test-access',
+          expires: Date.now() + 60_000,
+        },
+      },
+    }),
+    { encoding: 'utf-8', mode: 0o600 },
+  )
   // BSD script (macOS) takes `[file] [command...]`; util-linux script (Linux)
   // requires `-c <command>` with the typescript file as the only positional.
   const args =
@@ -35,6 +50,7 @@ async function runRootDevInPty(): Promise<{ output: string }> {
     // Existing keys from the parent env take precedence.
     env: {
       ...process.env,
+      HOME: tempHome,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? 'test-key',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? 'test-key',
       OUROBOROS_OPENAI_COMPATIBLE_API_KEY:
@@ -76,6 +92,7 @@ async function runRootDevInPty(): Promise<{ output: string }> {
   } finally {
     clearTimeout(deadline)
     if (killTimer) clearTimeout(killTimer)
+    rmSync(tempHome, { recursive: true, force: true })
   }
 
   return { output }
@@ -155,10 +172,9 @@ describe('root dev workflow regressions', () => {
     }
 
     const tempDir = mkdtempSync(join(tmpdir(), 'ouroboros-auth-list-'))
-    const authFile = join(tempDir, 'auth.json')
 
     const result = await runCliPackageDevCommand(['auth', 'list'], {
-      OUROBOROS_AUTH_FILE: authFile,
+      HOME: tempDir,
     })
     const combined = result.stdout + result.stderr
 

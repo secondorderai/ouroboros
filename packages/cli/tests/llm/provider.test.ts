@@ -30,12 +30,11 @@ describe('createProvider', () => {
     savedEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
     savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
     savedEnv.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
-    savedEnv.OUROBOROS_AUTH_FILE = process.env.OUROBOROS_AUTH_FILE
     delete process.env.ANTHROPIC_API_KEY
     delete process.env.OPENAI_API_KEY
     delete process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
     tempAuthDir = mkdtempSync(join(tmpdir(), 'ouroboros-provider-auth-'))
-    process.env.OUROBOROS_AUTH_FILE = join(tempAuthDir, 'auth.json')
+    mockedHomedir = tempAuthDir
   })
 
   afterEach(() => {
@@ -55,11 +54,7 @@ describe('createProvider', () => {
     } else {
       delete process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY
     }
-    if (savedEnv.OUROBOROS_AUTH_FILE !== undefined) {
-      process.env.OUROBOROS_AUTH_FILE = savedEnv.OUROBOROS_AUTH_FILE
-    } else {
-      delete process.env.OUROBOROS_AUTH_FILE
-    }
+    mockedHomedir = undefined
     rmSync(tempAuthDir, { recursive: true, force: true })
   })
 
@@ -350,26 +345,25 @@ describe('createProvider', () => {
 
   test('chatgpt provider reads auth from the homedir default', () => {
     // Regression for: desktop login succeeded (auth saved by the auth manager
-    // to ~/.ouroboros-auth.json) but agent/run kept reporting "Missing ChatGPT
-    // subscription login" because createProvider was reading from
-    // <configDir>/.ouroboros-auth.json instead. The provider must read from
-    // the same default path the manager uses, regardless of any per-workspace
-    // config dir the surrounding RPC server is using.
-    delete process.env.OUROBOROS_AUTH_FILE
+    // to ~/.ouroboros) but agent/run kept reporting "Missing ChatGPT
+    // subscription login". The provider must read from the same default path
+    // the manager uses.
     const fakeHome = mkdtempSync(join(tmpdir(), 'ouroboros-fake-home-'))
     mockedHomedir = fakeHome
 
     try {
       // Auth lives ONLY at the homedir default (mirrors the manager's writes).
       writeFileSync(
-        join(fakeHome, '.ouroboros-auth.json'),
+        join(fakeHome, '.ouroboros'),
         JSON.stringify({
-          [OPENAI_CHATGPT_PROVIDER]: {
-            type: 'oauth',
-            refresh: 'home-refresh',
-            access: 'home-access',
-            expires: Date.now() + 60_000,
-            accountId: 'acct_home',
+          auth: {
+            [OPENAI_CHATGPT_PROVIDER]: {
+              type: 'oauth',
+              refresh: 'home-refresh',
+              access: 'home-access',
+              expires: Date.now() + 60_000,
+              accountId: 'acct_home',
+            },
           },
         }),
         { encoding: 'utf-8', mode: 0o600 },
