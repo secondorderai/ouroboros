@@ -2092,6 +2092,36 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('config/set refreshes stale derived context window for selected model', async () => {
+      const config = makeTestConfig()
+      config.model.provider = 'openai-chatgpt'
+      config.model.name = 'gpt-5.4'
+      config.memory.contextWindowTokens = 200_000
+      config.memory.contextWindowSource = 'model-registry'
+      writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config, null, 2), 'utf-8')
+
+      const ctx = createTestContext({ config, configDir: tempDir })
+      const handlers = createHandlers(ctx)
+
+      const setResult = (await handlers.get('config/set')!({
+        path: 'model.name',
+        value: 'gpt-5.5',
+      })) as OuroborosConfig
+
+      expect(setResult.model.name).toBe('gpt-5.5')
+      expect(setResult.memory.contextWindowTokens).toBe(1_050_000)
+      expect(setResult.memory.contextWindowSource).toBe('model-registry')
+      expect(ctx.config.memory.contextWindowTokens).toBe(1_050_000)
+
+      const persisted = JSON.parse(readFileSync(join(tempDir, '.ouroboros'), 'utf-8')) as {
+        memory?: { contextWindowTokens?: number; contextWindowSource?: string }
+      }
+      expect(persisted.memory?.contextWindowTokens).toBe(1_050_000)
+      expect(persisted.memory?.contextWindowSource).toBe('model-registry')
+
+      ctx.transcriptStore.close()
+    })
+
     test('config/set defaults unset reasoning effort to medium', async () => {
       const config = makeTestConfig()
       writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config, null, 2), 'utf-8')

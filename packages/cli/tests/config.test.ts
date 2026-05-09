@@ -951,6 +951,27 @@ describe('loadConfig', () => {
     expect(result.value.memory.contextWindowSource).toBe('model-registry')
   })
 
+  test('refreshes persisted model-registry contextWindowTokens for the selected model', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'openai-chatgpt', name: 'gpt-5.5' },
+        memory: {
+          contextWindowTokens: 200_000,
+          contextWindowSource: 'model-registry',
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.memory.contextWindowTokens).toBe(1_050_000)
+    expect(result.value.memory.contextWindowSource).toBe('model-registry')
+  })
+
   test('auto-detects contextWindowTokens via prefix match', () => {
     writeFileSync(
       join(tempDir, '.ouroboros'),
