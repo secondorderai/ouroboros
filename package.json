@@ -32,7 +32,8 @@
     "ip-address": "10.2.0",
     "tar": "^7.5.13",
     "react": "19.2.5",
-    "react-dom": "19.2.5"
+    "react-dom": "19.2.5",
+    "fast-uri": "^3.1.2"
   },
   "dependencies": {
     "mermaid": "^11.14.0"
