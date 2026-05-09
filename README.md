@@ -13,6 +13,17 @@ spawns the CLI in JSON-RPC mode and talks to it over NDJSON on stdio.
 A few snapshots of the desktop app showing what it produces in real sessions.
 Click any image for the full-resolution view.
 
+### HTML5 app artifact - Nasdaq 100 performance and prediction
+
+Ouroboros generated a self-contained interactive dashboard from a chat prompt
+and previewed it inline next to the conversation.
+
+<a href="docs/screenshots/Ouroboros-HTML5-Nasdaq-full.png">
+  <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of Nasdaq 100 performance and prediction" src="docs/screenshots/Ouroboros-HTML5-Nasdaq.png" width="900">
+</a>
+
+Prompt to try: Create a HTML app report on Nasdaq 100 performance this year and predict next 4 weeks performance based on current news and events.
+
 ### HTML5 app artifact - 30 years of Australian interest rate moves
 
 Ouroboros generated a self-contained interactive dashboard from a chat prompt
