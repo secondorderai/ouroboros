@@ -1032,6 +1032,8 @@ test('update banner can be exercised without leaving the renderer contract suite
   await launched.page.getByRole('button', { name: 'Restart now' }).click()
 
   await expect.poll(async () => getInstallUpdateCount(launched!.page)).toBe(1)
+  await expect(launched.page.getByRole('button', { name: 'Restarting...' })).toBeVisible()
+  await expect.poll(async () => readFile(launched!.paths.bootLogPath, 'utf8')).toContain('cli exit')
 })
 
 test('update settings can manually check and report up-to-date status', async ({}, testInfo) => {
