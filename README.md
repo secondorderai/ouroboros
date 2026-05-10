@@ -65,7 +65,7 @@ Ouroboros currently ships as a macOS beta release build. Download the latest
 macOS beta from the latest release:
 
 <p>
-  <a href="https://github.com/secondorderai/ouroboros/releases/download/v0.1.2/Ouroboros-0.1.2-mac-universal.dmg">
+  <a href="https://github.com/secondorderai/ouroboros/releases">
     <img alt="Download latest macOS beta" src="https://img.shields.io/badge/Download-macOS%20Beta-111111?style=for-the-badge&logo=apple&logoColor=white">
   </a>
 </p>
@@ -84,9 +84,9 @@ with, review permission prompts carefully, and keep backups of important work._
 
 - [Bun](https://bun.sh) v1.3+
 - One configured model provider:
-  - `ANTHROPIC_API_KEY` for Anthropic, the default provider
-  - `OPENAI_API_KEY` for OpenAI
-  - an OpenAI-compatible endpoint and key
+  - `OPENAI_API_KEY` for OpenAI, the default provider (`gpt-5.5`)
+  - `ANTHROPIC_API_KEY` for Anthropic
+  - an OpenAI-compatible endpoint plus `OUROBOROS_OPENAI_COMPATIBLE_API_KEY`
   - a ChatGPT Plus/Pro login for the `openai-chatgpt` provider
 
 ```bash
@@ -112,8 +112,11 @@ bun run build
 
 ./dist/ouroboros
 ./dist/ouroboros -m "Summarize this repo"
+./dist/ouroboros --model openai/gpt-5.5 --reasoning-effort medium --plan
 echo "Explain this" | ./dist/ouroboros
 ./dist/ouroboros --json-rpc
+./dist/ouroboros auth login --provider openai-chatgpt
+./dist/ouroboros dream --mode consolidate-only
 ```
 
 ### Desktop App
@@ -131,17 +134,24 @@ Build distributables:
 ```bash
 cd packages/desktop
 bun run build        # unpacked current-platform package
+bun run build:vite   # Vite/Electron build only
 bun run build:mac    # macOS package
 bun run build:win    # Windows package
+bun run build:dist   # distributable packages without publish
+bun run release      # publish through electron-builder config
 ```
 
 ## Current Feature Surface
 
 - **Agent loop:** provider-agnostic ReAct loop with streaming, parallel tool
-  calls, tool-result observation, cancellation, steering, and context usage
-  events.
+  calls, tool-result observation, cancellation, steering, Plan mode, and
+  context usage events.
 - **Desktop bridge:** Electron main process spawns the CLI with `--json-rpc`;
-  renderer calls typed preload APIs and receives protocol notifications.
+  renderer calls typed preload APIs through a policy gate and receives protocol
+  notifications.
+- **Desktop shell:** onboarding, Simple and Workspace modes, sessions, command
+  palette, settings, update banner, file/image attachments, steering, status
+  badges, and Ask User dialogs.
 - **Agent Skills:** Agent Skills `SKILL.md` discovery, activation,
   slash invocation (`/<skill> prompt`), approval-aware activation, built-in
   desktop skills, user-global skill roots, workspace skill directories, and
@@ -155,7 +165,8 @@ bun run build:win    # Windows package
   consolidation, evolution logging, and desktop RSI history/checkpoint views.
 - **Artifacts:** `create-artifact` writes sandboxed self-contained HTML
   artifacts under session storage; desktop lists, previews, follows latest,
-  hides/shows, fullscreen-toggles, downloads, and opens artifacts safely.
+  hides/shows, fullscreen-toggles, downloads, opens artifacts safely, and
+  renders enhanced Mermaid diagrams.
 - **Modes:** mode tools and JSON-RPC methods support Plan mode state,
   submission, entry, and exit.
 - **Subagents and teams:** configurable agent definitions, read-only
@@ -178,7 +189,7 @@ Ouroboros is split into four primary layers:
 
 - `packages/cli`: core agent, CLI entrypoint, tools, JSON-RPC server, memory,
   RSI, MCP, subagents, teams, artifacts, and Bun tests.
-- `packages/desktop`: Electron 33 + React 19 presentation layer. Main process
+- `packages/desktop`: Electron 41 + React 19 presentation layer. Main process
   owns native services and the CLI child process; preload exposes typed APIs;
   renderer owns chat, settings, artifacts, RSI, approvals, and team graph UI.
 - `packages/shared`: protocol/domain/result types consumed by CLI and desktop.
@@ -268,25 +279,27 @@ Review these boundaries before using it with sensitive work:
 
 ## CLI Flags
 
-| Flag                                | Description                                               |
-| ----------------------------------- | --------------------------------------------------------- |
-| `-m <prompt>`, `--message <prompt>` | Single-shot prompt mode                                   |
-| `--model <provider/model>`          | Override configured model                                 |
-| `--verbose`, `-v`                   | Show tool call details                                    |
-| `--no-stream`                       | Wait for the full response before printing                |
-| `--config <path>`                   | Use a specific `.ouroboros` config file                   |
-| `--max-steps <steps>`               | Override autonomous step limit                            |
-| `--no-rsi`                          | Disable RSI hooks for this run                            |
-| `--debug-tools`                     | Print registered tools and exit                           |
-| `--json-rpc`                        | Start the long-running desktop/automation JSON-RPC server |
+| Flag                                | Description                                                        |
+| ----------------------------------- | ------------------------------------------------------------------ |
+| `-m <prompt>`, `--message <prompt>` | Single-shot prompt mode                                            |
+| `--model <provider/model>`          | Override configured model                                          |
+| `--reasoning-effort <effort>`       | Set reasoning effort: `minimal`, `low`, `medium`, `high`, or `max` |
+| `--plan`                            | Enter Plan mode for the first message                              |
+| `--verbose`, `-v`                   | Show tool call details                                             |
+| `--no-stream`                       | Wait for the full response before printing                         |
+| `--config <path>`                   | Use a specific `.ouroboros` config file                            |
+| `--max-steps <steps>`               | Override autonomous step limit                                     |
+| `--no-rsi`                          | Disable RSI hooks for this run                                     |
+| `--debug-tools`                     | Print registered tools and exit                                    |
+| `--json-rpc`                        | Start the long-running desktop/automation JSON-RPC server          |
 
 Auth subcommands:
 
 ```bash
+./dist/ouroboros auth list
 ./dist/ouroboros auth login --provider openai-chatgpt
 ./dist/ouroboros auth login --provider openai-chatgpt --method browser
 ./dist/ouroboros auth login --provider openai-chatgpt --method headless
-./dist/ouroboros auth list
 ./dist/ouroboros auth logout --provider openai-chatgpt
 ```
 
@@ -294,6 +307,8 @@ Manual memory consolidation:
 
 ```bash
 ./dist/ouroboros dream
+./dist/ouroboros dream --mode consolidate-only
+./dist/ouroboros dream --mode full
 ```
 
 ## Configuration
@@ -474,6 +489,10 @@ Desktop package:
 cd packages/desktop
 bun run dev
 bun run build:vite
+bun run build
+bun run build:mac
+bun run build:dist
+bun run release
 bun run test:e2e
 bun run test:e2e:contracts
 bun run test:e2e:real
@@ -510,7 +529,8 @@ ouroboros/
 ├── memory/             # Runtime memory, transcripts, artifacts, checkpoints
 ├── docs/               # Maintained docs plus dated historical specs
 ├── tickets/            # Multi-agent orchestration ticket records
-└── completed-tickets/  # Historical completed implementation ticket records
+├── test-plan/          # Intent-based desktop E2E test plans
+└── scripts/            # Repo-level verification and helper scripts
 ```
 
 ## Historical Docs
