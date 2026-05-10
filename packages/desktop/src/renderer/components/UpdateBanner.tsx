@@ -55,18 +55,23 @@ const dismissButtonStyle: React.CSSProperties = {
 export function UpdateBanner(): React.ReactElement | null {
   const [version, setVersion] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
 
   useEffect(() => {
     const cleanup = window.electronAPI.onUpdateDownloaded((v: string) => {
       setVersion(v);
       setDismissed(false);
+      setIsRestarting(false);
     });
 
     return cleanup;
   }, []);
 
   const handleRestart = useCallback(() => {
-    window.electronAPI.installUpdate();
+    setIsRestarting(true);
+    void window.electronAPI.installUpdate().catch(() => {
+      setIsRestarting(false);
+    });
   }, []);
 
   const handleDismiss = useCallback(() => {
@@ -82,8 +87,8 @@ export function UpdateBanner(): React.ReactElement | null {
       <span>
         Update available (v{version}). Restart to apply.
       </span>
-      <button style={restartButtonStyle} onClick={handleRestart}>
-        Restart now
+      <button style={restartButtonStyle} onClick={handleRestart} disabled={isRestarting}>
+        {isRestarting ? "Restarting..." : "Restart now"}
       </button>
       <button style={dismissButtonStyle} onClick={handleDismiss}>
         Dismiss
