@@ -1,14 +1,45 @@
 #!/usr/bin/env sh
 # Ouroboros pre-push guardrail.
 #
-# Runs lint, typecheck, and the CLI test suite before every `git push` so
-# regressions are caught locally instead of on CI. Desktop E2E is skipped
-# here (too slow for every push); CI runs it.
+# Runs lint and typecheck before every `git push`. The CLI test suite runs only
+# when the pushed changes touch packages/. Desktop E2E is skipped here (too slow
+# for every push); CI runs it.
 #
 # To bypass in an emergency: `git push --no-verify` (not recommended).
 
 set -e
 
+has_packages_changes=false
+
+while read -r local_ref local_sha remote_ref remote_sha
+do
+  case "$local_sha" in
+    0000000000000000000000000000000000000000)
+      continue
+      ;;
+  esac
+
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    new_commits=$(git rev-list "$local_sha" --not --remotes)
+    if [ -n "$new_commits" ]; then
+      changed_files=$(git diff-tree --no-commit-id --name-only -r $new_commits)
+    else
+      changed_files=$(git diff-tree --no-commit-id --name-only -r "$local_sha")
+    fi
+  else
+    changed_files=$(git diff --name-only "$remote_sha" "$local_sha")
+  fi
+
+  if printf '%s\n' "$changed_files" | grep -q '^packages/'; then
+    has_packages_changes=true
+  fi
+done
+
 bun run lint
 bun run ts-check
-bun run test:cli
+
+if [ "$has_packages_changes" = true ]; then
+  bun run test:cli
+else
+  echo "Skipping bun run test:cli because no pushed files changed under packages/."
+fi
