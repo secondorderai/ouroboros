@@ -299,7 +299,9 @@ Manual memory consolidation:
 ## Configuration
 
 Ouroboros reads `.ouroboros` JSON from the workspace, with environment
-overrides for common model and RSI fields. All fields are optional.
+overrides for common model and RSI fields. All fields are optional. See the
+[`.ouroboros` configuration guide](docs/ouroboros-configuration.md) for
+discovery rules, schema details, and MCP examples.
 
 ```json
 {
