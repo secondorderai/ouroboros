@@ -26,9 +26,6 @@ Prompt to try: Create a HTML app report on Nasdaq 100 performance this year and 
 
 ### HTML5 app artifact - 30 years of Australian interest rate moves
 
-Ouroboros generated a self-contained interactive dashboard from a chat prompt
-and previewed it inline next to the conversation.
-
 <a href="docs/screenshots/Ouroboros-HTML5-AU-interest-rate-full.png">
   <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of 30 years of Australian interest rate moves" src="docs/screenshots/Ouroboros-HTML5-AU-interest-rate.png" width="900">
 </a>
