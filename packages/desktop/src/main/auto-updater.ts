@@ -32,6 +32,10 @@ interface UpdateStoreSchema {
 let store: Store<UpdateStoreSchema> | null = null
 let lastResult: UpdateCheckResult | null = null
 
+interface InstallUpdateOptions {
+  beforeInstall?: () => Promise<void>
+}
+
 /** Send an event to all renderer windows. */
 function broadcastToRenderers(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -187,7 +191,7 @@ export function initAutoUpdater(): void {
   }
 }
 
-export function handleInstallUpdate(): void {
+export async function handleInstallUpdate(options: InstallUpdateOptions = {}): Promise<void> {
   recordInstallUpdateRequest()
 
   const logPath = process.env.OUROBOROS_TEST_INSTALL_UPDATE_LOG_PATH ??
@@ -197,10 +201,16 @@ export function handleInstallUpdate(): void {
     appendFileSync(logPath, `${new Date().toISOString()}\n`)
   }
 
-  if (process.env.NODE_ENV === 'test' || !canRunRealUpdater()) {
+  if (process.env.NODE_ENV === 'test') {
+    await options.beforeInstall?.()
     return
   }
 
+  if (!canRunRealUpdater()) {
+    return
+  }
+
+  await options.beforeInstall?.()
   autoUpdater.quitAndInstall()
 }
 

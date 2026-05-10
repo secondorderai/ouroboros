@@ -348,8 +348,15 @@ function registerThemeIpcHandlers(): void {
     openArtifactPath(rawPath)
   })
 
-  ipcMain.on('update:install', () => {
-    handleInstallUpdate()
+  ipcMain.handle('update:install', async () => {
+    await handleInstallUpdate({
+      beforeInstall: async () => {
+        if (!cliProcess) return
+        if (rpcClient) rpcClient.rejectAll('Application is shutting down for update')
+        await cliProcess.shutdown()
+        cliProcess = null
+      },
+    })
   })
 
   ipcMain.handle('update:check', () => {

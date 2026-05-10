@@ -81,9 +81,7 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('update:getPreferences') as Promise<UpdatePreferences>,
   setUpdatePreferences: (preferences: UpdatePreferences) =>
     ipcRenderer.invoke('update:setPreferences', preferences) as Promise<void>,
-  installUpdate: () => {
-    ipcRenderer.send('update:install')
-  },
+  installUpdate: () => ipcRenderer.invoke('update:install') as Promise<void>,
 }
 
 // ── Ouroboros API (CLI JSON-RPC bridge) ────────────────────────────

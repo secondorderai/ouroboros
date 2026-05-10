@@ -53,7 +53,7 @@ export interface ElectronAPI {
   checkForUpdates: () => Promise<UpdateCheckResult>
   getUpdatePreferences: () => Promise<UpdatePreferences>
   setUpdatePreferences: (preferences: UpdatePreferences) => Promise<void>
-  installUpdate: () => void
+  installUpdate: () => Promise<void>
 }
 
 /** IPC bridge API for JSON-RPC communication with CLI */
