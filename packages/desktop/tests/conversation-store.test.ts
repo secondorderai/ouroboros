@@ -27,6 +27,7 @@ function resetStore(): void {
     workspaceModeError: null,
     modelName: null,
     contextUsage: null,
+    responseStartedAt: null,
     reasoningEffort: null,
   })
 }
@@ -71,6 +72,7 @@ describe('conversation store normalization', () => {
             pendingSubmittedPlan: null,
             isAgentRunning: true,
             contextUsage: null,
+            responseStartedAt: new Date(Date.now() - 1500).toISOString(),
             nextId: 1,
           },
         ],
@@ -883,6 +885,7 @@ describe('per-session notification routing', () => {
       currentSessionId: 'session-A',
       activeRunSessionId: 'session-A',
       messages: [],
+      responseStartedAt: new Date(Date.now() - 2500).toISOString(),
       sessions: [
         {
           id: 'session-A',
@@ -906,7 +909,66 @@ describe('per-session notification routing', () => {
     expect(state.messages).toHaveLength(1)
     expect(state.messages[0].role).toBe('agent')
     expect(state.messages[0].text).toBe('reply for A')
+    expect(state.messages[0].responseDurationMs).toBeGreaterThanOrEqual(2000)
     expect(state.sessions[0].runStatus).toBe('idle')
+    expect(state.responseStartedAt).toBeNull()
+  })
+
+  test('handleTurnComplete for a background session stores response duration in the snapshot', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-B',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'A user message',
+          timestamp: '2025-01-01T00:00:00Z',
+        },
+      ],
+      sessionRunSnapshots: new Map([
+        [
+          'session-B',
+          {
+            messages: [],
+            streamingText: 'partial',
+            activeToolCalls: new Map(),
+            pendingToolCalls: [],
+            pendingSubagentRuns: [],
+            pendingActivatedSkills: [],
+            pendingSubmittedPlan: null,
+            isAgentRunning: true,
+            contextUsage: null,
+            responseStartedAt: new Date(Date.now() - 3200).toISOString(),
+            nextId: 1,
+          },
+        ],
+      ]),
+      sessions: [
+        {
+          id: 'session-B',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 0,
+          title: 'B',
+          titleSource: 'auto',
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnComplete({
+      sessionId: 'session-B',
+      text: 'reply for B',
+      iterations: 1,
+    })
+
+    const state = useConversationStore.getState()
+    expect(state.messages.map((m) => m.text)).toEqual(['A user message'])
+    const bMessage = state.sessionRunSnapshots.get('session-B')?.messages[0]
+    expect(bMessage?.role).toBe('agent')
+    expect(bMessage?.responseDurationMs).toBeGreaterThanOrEqual(3000)
   })
 
   test('handleSkillActivated ignores activations from non-current sessions', () => {
@@ -971,6 +1033,55 @@ describe('per-session notification routing', () => {
     expect(state.messages.map((m) => m.text)).toEqual(['A user message'])
     expect(state.sessions[0].runStatus).toBe('error')
     expect(state.activeRunSessionId).toBeNull()
+  })
+
+  test('handleTurnAborted preserves response duration on partial assistant text', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-A',
+      isAgentRunning: true,
+      streamingText: 'partial answer',
+      responseStartedAt: new Date(Date.now() - 2100).toISOString(),
+      sessions: [
+        {
+          id: 'session-A',
+          createdAt: '2025-01-01T00:00:00Z',
+          lastActive: '2025-01-01T00:00:00Z',
+          messageCount: 0,
+          title: 'A',
+          titleSource: 'auto',
+          runStatus: 'running',
+        },
+      ],
+    })
+
+    useConversationStore.getState().handleTurnAborted({
+      sessionId: 'session-A',
+      iterations: 1,
+      partialText: 'partial answer',
+    })
+
+    const agentMessage = useConversationStore.getState().messages.find((m) => m.role === 'agent')
+    expect(agentMessage?.responseDurationMs).toBeGreaterThanOrEqual(2000)
+  })
+
+  test('handleAgentError preserves response duration on partial assistant text', () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'session-A',
+      activeRunSessionId: 'session-A',
+      isAgentRunning: true,
+      streamingText: 'partial before error',
+      responseStartedAt: new Date(Date.now() - 1800).toISOString(),
+    })
+
+    useConversationStore
+      .getState()
+      .handleAgentError({ sessionId: 'session-A', message: 'run failed' })
+
+    const agentMessage = useConversationStore.getState().messages.find((m) => m.role === 'agent')
+    expect(agentMessage?.responseDurationMs).toBeGreaterThanOrEqual(1000)
   })
 })
 
@@ -1051,8 +1162,10 @@ describe('per-session snapshots survive view switches', () => {
             pendingToolCalls: [],
             pendingSubagentRuns: [],
             pendingActivatedSkills: [],
+            pendingSubmittedPlan: null,
             isAgentRunning: true,
             contextUsage: null,
+            responseStartedAt: null,
             nextId: 2,
           },
         ],
@@ -1101,8 +1214,10 @@ describe('per-session snapshots survive view switches', () => {
             pendingToolCalls: [],
             pendingSubagentRuns: [],
             pendingActivatedSkills: [],
+            pendingSubmittedPlan: null,
             isAgentRunning: true,
             contextUsage: null,
+            responseStartedAt: null,
             nextId: 2,
           },
         ],
@@ -1188,6 +1303,7 @@ describe('loadSession image preview hydration', () => {
 
     const before = useConversationStore.getState().messages[0]
     expect(before.imageAttachments?.[0].previewDataUrl).toBeUndefined()
+    await Promise.resolve()
     expect(calls).toEqual([['/tmp/watermark2.webp']])
 
     resolveValidate({
@@ -1204,6 +1320,7 @@ describe('loadSession image preview hydration', () => {
     })
 
     await validatePromise
+    await Promise.resolve()
     await Promise.resolve()
 
     const after = useConversationStore.getState().messages[0]
@@ -1225,6 +1342,7 @@ describe('loadSession image preview hydration', () => {
           role: 'assistant',
           content: 'Let me read it.',
           timestamp: '2025-01-01T00:00:01Z',
+          responseDurationMs: 3456,
           toolCalls: [
             {
               id: 'tc-1',
@@ -1246,6 +1364,7 @@ describe('loadSession image preview hydration', () => {
     const messages = useConversationStore.getState().messages
     expect(messages).toHaveLength(3)
     expect(messages[1].role).toBe('agent')
+    expect(messages[1].responseDurationMs).toBe(3456)
     expect(messages[1].toolCalls).toEqual([
       {
         id: 'tc-1',

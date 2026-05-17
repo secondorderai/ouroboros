@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import type { CompletedToolCall, Message, SubagentRun, ToolCallState } from '../../shared/protocol'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { StreamingCursor } from './StreamingCursor'
@@ -51,7 +51,21 @@ const nameStyle: React.CSSProperties = {
   lineHeight: 1.4,
   letterSpacing: '0.01em',
   color: 'var(--text-primary)',
+}
+
+const metaRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
   marginBottom: 10,
+}
+
+const durationStyle: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: 1.4,
+  fontWeight: 500,
+  color: 'var(--text-tertiary)',
+  whiteSpace: 'nowrap',
 }
 
 const contentStyle: React.CSSProperties = {
@@ -163,6 +177,53 @@ function completedToState(tc: CompletedToolCall): ToolCallState {
   }
 }
 
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000))
+  if (totalSeconds < 60) return `${totalSeconds}s`
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+function useElapsedDurationMs(startedAt: string | null | undefined, isRunning: boolean): number | null {
+  const getElapsed = (): number | null => {
+    if (!startedAt) return null
+    const start = Date.parse(startedAt)
+    if (!Number.isFinite(start)) return null
+    return Math.max(0, Date.now() - start)
+  }
+
+  const [elapsed, setElapsed] = useState<number | null>(() => getElapsed())
+
+  useEffect(() => {
+    setElapsed(getElapsed())
+    if (!startedAt || !isRunning) return undefined
+
+    const interval = window.setInterval(() => {
+      setElapsed(getElapsed())
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [startedAt, isRunning])
+
+  return elapsed
+}
+
+interface MessageMetaRowProps {
+  durationLabel?: string
+}
+
+const MessageMetaRow: React.FC<MessageMetaRowProps> = ({ durationLabel }) => (
+  <div style={metaRowStyle}>
+    <div style={nameStyle}>Ouroboros</div>
+    {durationLabel && (
+      <span style={durationStyle} data-testid='agent-response-duration'>
+        {durationLabel}
+      </span>
+    )}
+  </div>
+)
+
 function getToolProgressLabel(toolName: string): string {
   switch (toolName) {
     case 'bash':
@@ -245,89 +306,11 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
   expandedToolCallIds,
   onToolCallExpandedChange,
   onOpenTeamGraph,
-}) => (
-  <div
-    style={wrapperStyle}
-    className='agent-message agent-message--assistant'
-    data-testid='agent-message'
-  >
-    <div style={avatarStyle} aria-label='Ouroboros avatar'>
-      O
-    </div>
-    <div style={bodyStyle}>
-      <div
-        style={surfaceStyle}
-        className='agent-message__surface'
-        data-testid='agent-message-surface'
-      >
-        <div style={nameStyle}>Ouroboros</div>
-        {message.activatedSkills && message.activatedSkills.length > 0 && (
-          <SkillBadgeRow skills={message.activatedSkills} />
-        )}
-        <div
-          style={contentStyle}
-          className='agent-message__content'
-          data-testid='agent-message-content'
-        >
-          <MarkdownRenderer content={message.text} />
-        </div>
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <div style={toolCallsWrapperStyle}>
-            {message.toolCalls.map((tc) => (
-              <ToolCallChip
-                key={tc.id}
-                toolCall={completedToState(tc)}
-                expanded={expandedToolCallIds?.has(tc.id)}
-                onExpandedChange={(expanded) => onToolCallExpandedChange?.(tc.id, expanded)}
-              />
-            ))}
-          </div>
-        )}
-        {message.subagentRuns && message.subagentRuns.length > 0 && (
-          <SubagentActivityList runs={message.subagentRuns} onOpenTeamGraph={onOpenTeamGraph} />
-        )}
-      </div>
-    </div>
-  </div>
-)
-
-// ---------------------------------------------------------------------------
-// Streaming agent message (in-progress)
-// ---------------------------------------------------------------------------
-
-interface StreamingAgentMessageProps {
-  text: string
-  activeToolCalls: Map<string, ToolCallState>
-  completedToolCalls: CompletedToolCall[]
-  subagentRuns: SubagentRun[]
-  /** Skills active for the in-progress turn (from store.pendingActivatedSkills). */
-  activatedSkills?: readonly string[]
-  isRunning: boolean
-  expandedToolCallIds?: ReadonlySet<string>
-  onToolCallExpandedChange?: (toolCallId: string, expanded: boolean) => void
-  onOpenTeamGraph?: () => void
-}
-
-export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
-  text,
-  activeToolCalls,
-  completedToolCalls,
-  subagentRuns,
-  activatedSkills,
-  isRunning,
-  expandedToolCallIds,
-  onToolCallExpandedChange,
-  onOpenTeamGraph,
 }) => {
-  const activeEntries = useMemo(() => Array.from(activeToolCalls.values()), [activeToolCalls])
-  const visibleToolCalls = useMemo(
-    () => [...completedToolCalls.map(completedToState), ...activeEntries],
-    [completedToolCalls, activeEntries],
-  )
-  const progressMessage = useMemo(
-    () => getProgressMessage(activeEntries, completedToolCalls, text, isRunning),
-    [activeEntries, completedToolCalls, text, isRunning],
-  )
+  const durationLabel =
+    typeof message.responseDurationMs === 'number'
+      ? `Took ${formatDuration(message.responseDurationMs)}`
+      : undefined
 
   return (
     <div
@@ -344,7 +327,96 @@ export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
           className='agent-message__surface'
           data-testid='agent-message-surface'
         >
-          <div style={nameStyle}>Ouroboros</div>
+          <MessageMetaRow durationLabel={durationLabel} />
+          {message.activatedSkills && message.activatedSkills.length > 0 && (
+            <SkillBadgeRow skills={message.activatedSkills} />
+          )}
+          <div
+            style={contentStyle}
+            className='agent-message__content'
+            data-testid='agent-message-content'
+          >
+            <MarkdownRenderer content={message.text} />
+          </div>
+          {message.toolCalls && message.toolCalls.length > 0 && (
+            <div style={toolCallsWrapperStyle}>
+              {message.toolCalls.map((tc) => (
+                <ToolCallChip
+                  key={tc.id}
+                  toolCall={completedToState(tc)}
+                  expanded={expandedToolCallIds?.has(tc.id)}
+                  onExpandedChange={(expanded) => onToolCallExpandedChange?.(tc.id, expanded)}
+                />
+              ))}
+            </div>
+          )}
+          {message.subagentRuns && message.subagentRuns.length > 0 && (
+            <SubagentActivityList runs={message.subagentRuns} onOpenTeamGraph={onOpenTeamGraph} />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Streaming agent message (in-progress)
+// ---------------------------------------------------------------------------
+
+interface StreamingAgentMessageProps {
+  text: string
+  activeToolCalls: Map<string, ToolCallState>
+  completedToolCalls: CompletedToolCall[]
+  subagentRuns: SubagentRun[]
+  /** Skills active for the in-progress turn (from store.pendingActivatedSkills). */
+  activatedSkills?: readonly string[]
+  isRunning: boolean
+  responseStartedAt?: string | null
+  expandedToolCallIds?: ReadonlySet<string>
+  onToolCallExpandedChange?: (toolCallId: string, expanded: boolean) => void
+  onOpenTeamGraph?: () => void
+}
+
+export const StreamingAgentMessage: React.FC<StreamingAgentMessageProps> = ({
+  text,
+  activeToolCalls,
+  completedToolCalls,
+  subagentRuns,
+  activatedSkills,
+  isRunning,
+  responseStartedAt,
+  expandedToolCallIds,
+  onToolCallExpandedChange,
+  onOpenTeamGraph,
+}) => {
+  const activeEntries = useMemo(() => Array.from(activeToolCalls.values()), [activeToolCalls])
+  const visibleToolCalls = useMemo(
+    () => [...completedToolCalls.map(completedToState), ...activeEntries],
+    [completedToolCalls, activeEntries],
+  )
+  const progressMessage = useMemo(
+    () => getProgressMessage(activeEntries, completedToolCalls, text, isRunning),
+    [activeEntries, completedToolCalls, text, isRunning],
+  )
+  const elapsedMs = useElapsedDurationMs(responseStartedAt, isRunning)
+  const durationLabel = elapsedMs == null ? undefined : `${formatDuration(elapsedMs)} elapsed`
+
+  return (
+    <div
+      style={wrapperStyle}
+      className='agent-message agent-message--assistant'
+      data-testid='agent-message'
+    >
+      <div style={avatarStyle} aria-label='Ouroboros avatar'>
+        O
+      </div>
+      <div style={bodyStyle}>
+        <div
+          style={surfaceStyle}
+          className='agent-message__surface'
+          data-testid='agent-message-surface'
+        >
+          <MessageMetaRow durationLabel={durationLabel} />
           {activatedSkills && activatedSkills.length > 0 && (
             <SkillBadgeRow skills={activatedSkills} />
           )}

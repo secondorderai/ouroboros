@@ -55,6 +55,7 @@ export interface SessionRunSnapshot {
   pendingSubmittedPlan: Plan | null
   isAgentRunning: boolean
   contextUsage: AgentContextUsageParams | null
+  responseStartedAt: string | null
   nextId: number
 }
 
@@ -122,6 +123,9 @@ export interface ConversationState {
 
   /** Current estimated context usage for the active conversation. */
   contextUsage: AgentContextUsageParams | null
+
+  /** ISO timestamp for the currently running assistant response. */
+  responseStartedAt: string | null
 
   // -- Actions ---------------------------------------------------------------
 
@@ -303,6 +307,7 @@ function emptySnapshot(): SessionRunSnapshot {
     pendingSubmittedPlan: null,
     isAgentRunning: false,
     contextUsage: null,
+    responseStartedAt: null,
     nextId: 1,
   }
 }
@@ -319,6 +324,7 @@ function snapshotFromFlat(state: ConversationState): SessionRunSnapshot {
     pendingSubmittedPlan: state.pendingSubmittedPlan,
     isAgentRunning: state.isAgentRunning,
     contextUsage: state.contextUsage,
+    responseStartedAt: state.responseStartedAt,
     nextId: state.nextId,
   }
 }
@@ -334,6 +340,7 @@ function flatFromSnapshot(snap: SessionRunSnapshot): {
   pendingSubmittedPlan: Plan | null
   isAgentRunning: boolean
   contextUsage: AgentContextUsageParams | null
+  responseStartedAt: string | null
   nextId: number
 } {
   return {
@@ -346,8 +353,16 @@ function flatFromSnapshot(snap: SessionRunSnapshot): {
     pendingSubmittedPlan: snap.pendingSubmittedPlan,
     isAgentRunning: snap.isAgentRunning,
     contextUsage: snap.contextUsage,
+    responseStartedAt: snap.responseStartedAt,
     nextId: snap.nextId,
   }
+}
+
+function responseDurationMs(startedAt: string | null, endedAt = Date.now()): number | undefined {
+  if (!startedAt) return undefined
+  const started = Date.parse(startedAt)
+  if (!Number.isFinite(started)) return undefined
+  return Math.max(0, endedAt - started)
 }
 
 /**
@@ -1080,6 +1095,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   modelName: null,
   reasoningEffort: null,
   contextUsage: null,
+  responseStartedAt: null,
 
   // ---- Actions -------------------------------------------------------------
 
@@ -1092,6 +1108,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
     const id = makeId('user', state.nextId)
     const sentAt = new Date().toISOString()
+    const responseStartedAt = sentAt
     const userMessage: Message = {
       id,
       role: 'user',
@@ -1115,6 +1132,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       pendingActivatedSkills: skillName ? [skillName] : [],
       pendingSubmittedPlan: null,
       activePlanDecision: null,
+      responseStartedAt,
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: runSessionId
@@ -1251,6 +1269,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         role: 'agent',
         text: finalText,
         timestamp: new Date().toISOString(),
+        responseDurationMs: responseDurationMs(state.responseStartedAt),
         toolCalls: state.pendingToolCalls.length > 0 ? [...state.pendingToolCalls] : undefined,
         subagentRuns:
           state.pendingSubagentRuns.length > 0 ? [...state.pendingSubagentRuns] : undefined,
@@ -1267,6 +1286,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       pendingSubagentRuns: [],
       pendingActivatedSkills: [],
       pendingSubmittedPlan: null,
+      responseStartedAt: null,
       nextId: state.nextId + 1,
       contextUsage: null,
       sessions: state.activeRunSessionId
@@ -1438,6 +1458,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         pendingToolCalls: [],
         pendingSubagentRuns: [],
         pendingSubmittedPlan: null,
+        responseStartedAt: null,
         nextId: withStatus.nextId,
       })
       return
@@ -1461,6 +1482,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
               role: 'agent',
               text: partialText,
               timestamp: new Date().toISOString(),
+              responseDurationMs: responseDurationMs(snap.responseStartedAt),
               toolCalls:
                 snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
               subagentRuns:
@@ -1478,6 +1500,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         activeToolCalls: new Map(),
         pendingToolCalls: [],
         pendingSubagentRuns: [],
+        responseStartedAt: null,
       })),
       ...(ownedActiveRun
         ? {
@@ -1487,6 +1510,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             activeToolCalls: new Map(),
             pendingToolCalls: [],
             pendingSubagentRuns: [],
+            responseStartedAt: null,
           }
         : {}),
     })
@@ -1625,6 +1649,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           role: 'agent',
           text: finalAgentText(params.text, submittedPlan),
           timestamp: new Date().toISOString(),
+          responseDurationMs: responseDurationMs(s.responseStartedAt),
           toolCalls: s.pendingToolCalls.length > 0 ? [...s.pendingToolCalls] : undefined,
           subagentRuns: s.pendingSubagentRuns.length > 0 ? [...s.pendingSubagentRuns] : undefined,
           activatedSkills:
@@ -1640,6 +1665,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           pendingSubagentRuns: [],
           pendingActivatedSkills: [],
           pendingSubmittedPlan: null,
+          responseStartedAt: null,
           activePlanDecision: submittedPlan ? { sessionId: null, plan: submittedPlan } : null,
           nextId: s.nextId + 1,
         }
@@ -1662,6 +1688,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         role: 'agent',
         text: finalAgentText(params.text, submittedPlan),
         timestamp: new Date().toISOString(),
+        responseDurationMs: responseDurationMs(snap.responseStartedAt),
         toolCalls: snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
         subagentRuns:
           snap.pendingSubagentRuns.length > 0 ? [...snap.pendingSubagentRuns] : undefined,
@@ -1678,6 +1705,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         pendingSubagentRuns: [],
         pendingActivatedSkills: [],
         pendingSubmittedPlan: null,
+        responseStartedAt: null,
         nextId: snap.nextId + 1,
       }
     })
@@ -1747,6 +1775,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           role: 'agent',
           text: finalText,
           timestamp: new Date().toISOString(),
+          responseDurationMs: responseDurationMs(snap.responseStartedAt),
           toolCalls: snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
           subagentRuns:
             snap.pendingSubagentRuns.length > 0 ? [...snap.pendingSubagentRuns] : undefined,
@@ -1767,6 +1796,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         pendingSubagentRuns: [],
         pendingActivatedSkills: [],
         pendingSubmittedPlan: null,
+        responseStartedAt: null,
         nextId: withStatus.nextId,
         contextUsage: null,
       }
@@ -1860,6 +1890,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           pendingSubagentRuns: [],
           pendingActivatedSkills: [],
           pendingSubmittedPlan: null,
+          responseStartedAt: null,
           nextId: s.nextId + 1,
           contextUsage: null,
         }
@@ -1878,6 +1909,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           role: 'agent',
           text: snap.streamingText,
           timestamp: new Date().toISOString(),
+          responseDurationMs: responseDurationMs(snap.responseStartedAt),
           toolCalls: snap.pendingToolCalls.length > 0 ? [...snap.pendingToolCalls] : undefined,
           subagentRuns:
             snap.pendingSubagentRuns.length > 0 ? [...snap.pendingSubagentRuns] : undefined,
@@ -1900,6 +1932,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         pendingSubagentRuns: [],
         pendingActivatedSkills: [],
         pendingSubmittedPlan: null,
+        responseStartedAt: null,
         nextId: nextId + 1,
         contextUsage: null,
       }
@@ -2102,6 +2135,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       text: normalizeTextContent(m.content),
       timestamp: m.timestamp,
       imageAttachments: m.imageAttachments,
+      ...(m.role === 'assistant' && typeof m.responseDurationMs === 'number'
+        ? { responseDurationMs: m.responseDurationMs }
+        : {}),
       ...(m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0
         ? { toolCalls: m.toolCalls }
         : {}),
@@ -2142,6 +2178,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             pendingSubmittedPlan: cliRunCompleted ? null : (existing?.pendingSubmittedPlan ?? null),
             isAgentRunning: cliRunCompleted ? false : state.activeRunSessionId === id,
             contextUsage: existing?.contextUsage ?? null,
+            responseStartedAt: cliRunCompleted ? null : (existing?.responseStartedAt ?? null),
             nextId: messages.length + 1,
           }
     snapshots.set(id, incoming)
