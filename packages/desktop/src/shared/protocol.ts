@@ -172,6 +172,8 @@ export interface Message {
   imageAttachments?: ImageAttachment[]
   /** Completed tool calls that appeared during this agent turn. */
   toolCalls?: CompletedToolCall[]
+  /** Elapsed wall-clock time for this assistant response, in milliseconds. */
+  responseDurationMs?: number
   /** Subagent activity that appeared during this agent turn. */
   subagentRuns?: SubagentRun[]
   /** Skills active for this agent turn (deduped by name). Set on assistant
@@ -761,6 +763,8 @@ export interface SessionMessage {
   content: string
   timestamp: string
   imageAttachments?: ImageAttachment[]
+  /** Elapsed wall-clock time for this assistant response, in milliseconds. */
+  responseDurationMs?: number
   /** Tool calls made during this assistant turn (assistant role only). */
   toolCalls?: CompletedToolCall[]
   /** Skills active for this assistant turn (deduped by name). */

@@ -769,6 +769,9 @@ test('streaming assistant text renders markdown before turn completion', async (
   const streamingMessage = launched.page.locator('[data-testid="agent-message"]').last()
 
   await expect(streamingMessage.getByText('Writing the response...')).toBeVisible()
+  await expect(streamingMessage.getByTestId('agent-response-duration')).toContainText(
+    /\d+s elapsed/,
+  )
   await expect(streamingMessage.getByRole('heading', { name: 'Short answer' })).toBeVisible()
   await expect(streamingMessage.getByText('First point')).toBeVisible()
   await expect(streamingMessage.locator('.code-block-wrapper')).toBeVisible()
@@ -802,6 +805,9 @@ test('streaming assistant text renders markdown before turn completion', async (
   })
 
   await expect(launched.page.getByRole('heading', { name: 'Short answer' }).last()).toBeVisible()
+  const completedMessage = launched.page.locator('[data-testid="agent-message"]').last()
+  await expect(completedMessage.getByTestId('agent-response-duration')).toContainText(/Took \d+s/)
+  await expect(completedMessage.getByTestId('agent-progress-chip')).toHaveCount(0)
 })
 
 test('streaming status chip stays at the bottom of a growing assistant bubble', async ({}, testInfo) => {
