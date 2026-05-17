@@ -35,8 +35,5 @@
     "react-dom": "19.2.5",
     "fast-uri": "^3.1.2",
     "hono": "^4.12.18"
-  },
-  "dependencies": {
-    "mermaid": "^11.14.0"
   }
 }
