@@ -2533,10 +2533,17 @@ describe('JSON-RPC', () => {
         const loadResult = (await handlers.get('session/load')!({
           id: newResult.sessionId,
         })) as {
-          messages: Array<{ role: string; content: string; activatedSkills?: string[] }>
+          messages: Array<{
+            role: string
+            content: string
+            activatedSkills?: string[]
+            responseDurationMs?: number
+          }>
         }
         const assistant = loadResult.messages.find((m) => m.role === 'assistant')
         expect(assistant?.activatedSkills).toEqual(['meta-thinking'])
+        expect(typeof assistant?.responseDurationMs).toBe('number')
+        expect(assistant!.responseDurationMs!).toBeGreaterThanOrEqual(0)
 
         const userMsg = loadResult.messages.find((m) => m.role === 'user')
         expect(userMsg?.activatedSkills).toBeUndefined()

@@ -619,6 +619,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     try {
       const agent = ctx.getAgent(sessionId ?? undefined)
       const historyBeforeRun = agent.getConversationHistory().length
+      const responseStartedAt = Date.now()
       const result = await runScoped(sessionId ?? '', () =>
         agent.run(message, {
           responseStyle:
@@ -632,6 +633,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
           abortSignal: abort.signal,
         }),
       )
+      const responseDurationMs = Math.max(0, Date.now() - responseStartedAt)
       if (sessionId) {
         // Drain skill activations attributed to *this* session — both the
         // user-selected one (via activateSkillForRun above) and any mid-turn
@@ -641,7 +643,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
           ctx.transcriptStore,
           sessionId,
           agent.getConversationHistory().slice(historyBeforeRun),
-          { activatedSkills },
+          { activatedSkills, responseDurationMs },
         )
         if (!persistResult.ok) {
           throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, persistResult.error.message)
@@ -1848,6 +1850,7 @@ interface DesktopSessionMessage {
   content: string
   timestamp: string
   imageAttachments?: ImageAttachmentMetadata[]
+  responseDurationMs?: number
   toolCalls?: DesktopToolCall[]
   activatedSkills?: string[]
 }
@@ -1877,6 +1880,12 @@ function readMetadataStringArray(
   return strings.length > 0 ? strings : undefined
 }
 
+function readMetadataDurationMs(metadata: Record<string, unknown> | null): number | undefined {
+  if (!metadata) return undefined
+  const value = metadata.responseDurationMs
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
 function toDesktopSessionData(session: SessionWithMessages) {
   const messages: DesktopSessionMessage[] = []
   let currentAssistant: DesktopSessionMessage | null = null
@@ -1904,6 +1913,8 @@ function toDesktopSessionData(session: SessionWithMessages) {
       }
       const activatedSkills = readMetadataStringArray(row.metadata, 'activatedSkills')
       if (activatedSkills) currentAssistant.activatedSkills = activatedSkills
+      const responseDurationMs = readMetadataDurationMs(row.metadata)
+      if (responseDurationMs != null) currentAssistant.responseDurationMs = responseDurationMs
       messages.push(currentAssistant)
       continue
     }
@@ -2218,7 +2229,7 @@ function persistConversationDelta(
   transcriptStore: TranscriptStore,
   sessionId: string,
   historyDelta: LLMMessage[],
-  options: { activatedSkills?: string[] } = {},
+  options: { activatedSkills?: string[]; responseDurationMs?: number } = {},
 ) {
   // Attach activated-skills metadata to the FIRST assistant message in this
   // delta only. A run produces at most one user-visible assistant turn from
@@ -2226,7 +2237,14 @@ function persistConversationDelta(
   // reasoning splits) reuse the same activations conceptually but storing
   // duplicates would just bloat the UI.
   const activatedSkills = options.activatedSkills ?? []
+  const responseDurationMs =
+    typeof options.responseDurationMs === 'number' &&
+    Number.isFinite(options.responseDurationMs) &&
+    options.responseDurationMs >= 0
+      ? options.responseDurationMs
+      : undefined
   let assistantSkillsConsumed = false
+  let assistantDurationConsumed = false
 
   for (const message of historyDelta) {
     if (message.role === 'user') {
@@ -2242,13 +2260,20 @@ function persistConversationDelta(
 
     if (message.role === 'assistant') {
       if (message.content.trim().length > 0) {
-        const metadata =
-          !assistantSkillsConsumed && activatedSkills.length > 0 ? { activatedSkills } : undefined
-        if (metadata) assistantSkillsConsumed = true
+        const metadata: Record<string, unknown> = {}
+        if (!assistantSkillsConsumed && activatedSkills.length > 0) {
+          metadata.activatedSkills = activatedSkills
+          assistantSkillsConsumed = true
+        }
+        if (!assistantDurationConsumed && responseDurationMs != null) {
+          metadata.responseDurationMs = responseDurationMs
+          assistantDurationConsumed = true
+        }
+        const hasMetadata = Object.keys(metadata).length > 0
         const addResult = transcriptStore.addMessage(sessionId, {
           role: 'assistant',
           content: message.content,
-          ...(metadata ? { metadata } : {}),
+          ...(hasMetadata ? { metadata } : {}),
         })
         if (!addResult.ok) return addResult
       }
