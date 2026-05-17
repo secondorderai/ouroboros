@@ -83,14 +83,19 @@ export function UpdateBanner(): React.ReactElement | null {
   }
 
   return (
-    <div style={bannerStyle} role="alert">
+    <div style={bannerStyle} className="no-drag" role="alert">
       <span>
         Update available (v{version}). Restart to apply.
       </span>
-      <button style={restartButtonStyle} onClick={handleRestart} disabled={isRestarting}>
+      <button
+        style={restartButtonStyle}
+        className="no-drag"
+        onClick={handleRestart}
+        disabled={isRestarting}
+      >
         {isRestarting ? "Restarting..." : "Restart now"}
       </button>
-      <button style={dismissButtonStyle} onClick={handleDismiss}>
+      <button style={dismissButtonStyle} className="no-drag" onClick={handleDismiss}>
         Dismiss
       </button>
     </div>

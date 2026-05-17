@@ -1035,6 +1035,15 @@ test('update banner can be exercised without leaving the renderer contract suite
   await expect(launched.page.getByRole('alert')).toContainText(
     'Update available (v1.2.3). Restart to apply.',
   )
+  await expect(launched.page.getByRole('alert')).toHaveCSS('-webkit-app-region', 'no-drag')
+  await expect(launched.page.getByRole('button', { name: 'Restart now' })).toHaveCSS(
+    '-webkit-app-region',
+    'no-drag',
+  )
+  await expect(launched.page.getByRole('button', { name: 'Dismiss' })).toHaveCSS(
+    '-webkit-app-region',
+    'no-drag',
+  )
   await launched.page.getByRole('button', { name: 'Restart now' }).click()
 
   await expect.poll(async () => getInstallUpdateCount(launched!.page)).toBe(1)
