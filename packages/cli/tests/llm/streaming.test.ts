@@ -637,6 +637,45 @@ describe('streamResponse', () => {
     })
   })
 
+  test('omits maxOutputTokens for ChatGPT subscription responses stream calls', async () => {
+    let capturedOptions: Record<string, unknown> | undefined
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.5',
+      supportedUrls: {},
+      doGenerate: async () => {
+        throw new Error('Not implemented')
+      },
+      doStream: async (options: Record<string, unknown>) => {
+        capturedOptions = options
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
+            },
+          }),
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = streamResponse(model, testMessages, { maxTokens: 2500 })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    for await (const _ of result.value.stream) void _
+
+    expect(capturedOptions?.maxOutputTokens).toBeUndefined()
+    expect(capturedOptions?.providerOptions).toEqual({
+      openai: {
+        store: false,
+        instructions: 'You are a helpful assistant.',
+      },
+    })
+  })
+
   test('does not inject providerOptions for models without reasoning support', async () => {
     let capturedOptions: Record<string, unknown> | undefined
 
@@ -973,6 +1012,50 @@ describe('generateResponse', () => {
     expect(result.ok).toBe(true)
     expect(capturedOptions?.providerOptions).toEqual({
       openai: { reasoningEffort: 'low' },
+    })
+  })
+
+  test('omits maxOutputTokens for ChatGPT subscription responses generate calls', async () => {
+    let capturedOptions: Record<string, unknown> | undefined
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.5',
+      supportedUrls: {},
+      doStream: async () => {
+        throw new Error('Not implemented')
+      },
+      doGenerate: async (options: Record<string, unknown>) => {
+        capturedOptions = options
+        return {
+          content: [{ type: 'text', id: 'gen', text: 'ok' }],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: {
+            inputTokens: {
+              total: 1,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: { total: 1, text: undefined, reasoning: undefined },
+          },
+          warnings: [],
+        }
+      },
+    } as unknown as LanguageModel
+
+    const result = await generateResponse(model, [{ role: 'user', content: 'hello' }], {
+      maxTokens: 2500,
+    })
+    expect(result.ok).toBe(true)
+
+    expect(capturedOptions?.maxOutputTokens).toBeUndefined()
+    expect(capturedOptions?.providerOptions).toEqual({
+      openai: {
+        store: false,
+        instructions: 'You are a helpful assistant.',
+      },
     })
   })
 })

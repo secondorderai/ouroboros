@@ -123,8 +123,7 @@ function getProviderPromptOptions(
   model: LanguageModel,
   options?: LLMCallOptions,
 ): PreparedPromptOptions {
-  const provider = (model as { provider?: unknown }).provider
-  const isChatgptResponses = provider === `${OPENAI_CHATGPT_PROVIDER}.responses`
+  const isChatgptResponses = isChatgptResponsesModel(model)
 
   const reasoning = buildReasoningProviderOptions(model, options?.reasoningEffort)
 
@@ -158,6 +157,18 @@ function getProviderPromptOptions(
   }
 
   return result
+}
+
+function isChatgptResponsesModel(model: LanguageModel): boolean {
+  const provider = (model as { provider?: unknown }).provider
+  return provider === `${OPENAI_CHATGPT_PROVIDER}.responses`
+}
+
+function getMaxOutputTokens(model: LanguageModel, options?: LLMCallOptions): number | undefined {
+  // The ChatGPT subscription Responses backend rejects the AI SDK's
+  // maxOutputTokens field as an unsupported `max_output_tokens` parameter.
+  if (isChatgptResponsesModel(model)) return undefined
+  return options?.maxTokens
 }
 
 /**
@@ -427,7 +438,7 @@ export function streamResponse(
       ...promptOptions,
       messages: modelMessages,
       temperature: effectiveTemperature ?? options?.temperature,
-      maxOutputTokens: options?.maxTokens,
+      maxOutputTokens: getMaxOutputTokens(model, options),
       stopSequences: options?.stopSequences,
       tools,
       abortSignal: options?.abortSignal,
@@ -539,7 +550,7 @@ export async function generateResponse(
       ...promptOptions,
       messages: modelMessages,
       temperature: effectiveTemperature ?? options?.temperature,
-      maxOutputTokens: options?.maxTokens,
+      maxOutputTokens: getMaxOutputTokens(model, options),
       stopSequences: options?.stopSequences,
       tools,
       abortSignal: options?.abortSignal,
