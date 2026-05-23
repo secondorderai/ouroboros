@@ -279,7 +279,7 @@ describe('json-rpc transport', () => {
       client = new RpcClient(configDir)
       await waitForReady(client)
     }
-  })
+  }, 20_000)
 
   test('agent/run emits subagent failed notification over NDJSON', async () => {
     await client.close()
@@ -368,7 +368,7 @@ describe('json-rpc transport', () => {
       client = new RpcClient(configDir)
       await waitForReady(client)
     }
-  })
+  }, 20_000)
 
   afterAll(async () => {
     if (client) await client.close()

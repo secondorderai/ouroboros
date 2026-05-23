@@ -2600,6 +2600,38 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('session/truncate removes persisted messages from the requested visible message onward', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      ctx.transcriptStore.addMessage(newResult.sessionId, { role: 'user', content: 'First ask' })
+      ctx.transcriptStore.addMessage(newResult.sessionId, {
+        role: 'assistant',
+        content: 'First answer',
+      })
+      ctx.transcriptStore.addMessage(newResult.sessionId, { role: 'user', content: 'Second ask' })
+      ctx.transcriptStore.addMessage(newResult.sessionId, {
+        role: 'assistant',
+        content: 'Second answer',
+      })
+
+      const truncateResult = (await handlers.get('session/truncate')!({
+        id: newResult.sessionId,
+        messageIndex: 0,
+      })) as { id: string; messageCount: number }
+      expect(truncateResult).toEqual({ id: newResult.sessionId, messageCount: 0 })
+
+      const loadResult = (await handlers.get('session/load')!({
+        id: newResult.sessionId,
+      })) as {
+        messages: Array<{ role: string; content: string }>
+      }
+      expect(loadResult.messages).toEqual([])
+
+      ctx.transcriptStore.close()
+    })
+
     test('agent/run persists transcript messages to the active session', async () => {
       const ctx = createTestContext()
       const handlers = createHandlers(ctx)
@@ -3668,6 +3700,7 @@ description: A disabled skill
         'session/list',
         'session/load',
         'session/new',
+        'session/truncate',
         'session/delete',
         'config/get',
         'config/set',
@@ -3744,6 +3777,22 @@ description: A disabled skill
       } catch (e) {
         expect((e as { code: number }).code).toBe(JSON_RPC_ERRORS.INVALID_PARAMS.code)
       }
+
+      ctx.transcriptStore.close()
+    })
+
+    test('session/truncate rejects invalid params', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      await expect(handlers.get('session/truncate')!({})).rejects.toMatchObject({
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      })
+      await expect(
+        handlers.get('session/truncate')!({ id: 'session-1', messageIndex: -1 }),
+      ).rejects.toMatchObject({
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+      })
 
       ctx.transcriptStore.close()
     })

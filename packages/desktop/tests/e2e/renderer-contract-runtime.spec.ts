@@ -1198,17 +1198,86 @@ test('chats persist when switching between sessions — regression for "chats lo
   // 3. Click back to the first session in the sidebar. The new session
   //    has aria-label "Open untitled session" until it gets a title; the
   //    titled "Session A" entry uses 'Session: ...'.
-  await expect(
-    launched.page.getByRole('button', { name: 'Open untitled session' }),
-  ).toBeVisible()
-  await launched.page
-    .getByRole('button', { name: 'Session: First message in session A' })
-    .click()
+  await expect(launched.page.getByRole('button', { name: 'Open untitled session' })).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Session: First message in session A' }).click()
 
   // 4. The first session's chat history is restored — both the user's
   //    original message and the assistant's reply must be visible again.
   await expect(chatList.getByText('First message in session A')).toBeVisible()
   await expect(chatList.getByText('Reply to first session')).toBeVisible()
+})
+
+test('retrying an older user message rolls back chat and replays that prompt', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      sessions: [
+        {
+          id: 'session-retry',
+          createdAt: '2026-04-25T00:00:00.000Z',
+          lastActive: '2026-04-25T00:00:03.000Z',
+          title: 'Retryable chat',
+          titleSource: 'manual',
+          workspaceMode: 'simple',
+          messages: [
+            {
+              role: 'user',
+              content: 'First question to retry',
+              timestamp: '2026-04-25T00:00:00.000Z',
+            },
+            {
+              role: 'assistant',
+              content: 'First answer to remove',
+              timestamp: '2026-04-25T00:00:01.000Z',
+            },
+            {
+              role: 'user',
+              content: 'Second question to remove',
+              timestamp: '2026-04-25T00:00:02.000Z',
+            },
+            {
+              role: 'assistant',
+              content: 'Second answer to remove',
+              timestamp: '2026-04-25T00:00:03.000Z',
+            },
+          ],
+        },
+      ],
+      agentRuns: [
+        {
+          response: {
+            text: 'Retried answer',
+            iterations: 1,
+            stopReason: 'completed',
+            maxIterationsReached: false,
+          },
+          notifications: [
+            { delayMs: 5, method: 'agent/text', params: { text: 'Retried answer' } },
+            {
+              delayMs: 10,
+              method: 'agent/turnComplete',
+              params: { text: 'Retried answer', iterations: 1 },
+            },
+          ],
+        },
+      ],
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByRole('button', { name: /Session: Retryable chat/ }).click()
+  const chatList = launched.page.getByTestId('virtuoso-item-list')
+  await expect(chatList.getByText('First question to retry')).toBeVisible()
+  await expect(chatList.getByText('Second answer to remove')).toBeVisible()
+
+  await chatList.getByRole('button', { name: 'Retry' }).first().click()
+
+  await expect(chatList.getByText('Second question to remove')).toHaveCount(0)
+  await expect(chatList.getByText('Second answer to remove')).toHaveCount(0)
+  await expect(chatList.getByText('Retried answer')).toBeVisible()
+
+  const log = await readFile(launched.paths.mockLogPath, 'utf8')
+  expect(log).toContain('"method":"session/truncate"')
+  expect(log).toContain('"message":"First question to retry"')
 })
 
 test('switching mid-processing preserves the in-flight chat (user message + partial reply)', async ({}, testInfo) => {
@@ -1269,9 +1338,7 @@ test('switching mid-processing preserves the in-flight chat (user message + part
   // 3. Immediately switch BACK to A while its run is (very likely) still
   //    streaming. The user's question and the partial streamed reply must
   //    be visible — that's the UX fix.
-  await launched.page
-    .getByRole('button', { name: 'Session: Initial question for A' })
-    .click()
+  await launched.page.getByRole('button', { name: 'Session: Initial question for A' }).click()
   await expect(chatList.getByText('Initial question for A')).toBeVisible()
   // The partial reply ("Slow reply") was preserved; once the turn
   // completes, the full reply ("Slow reply for A") will appear in its

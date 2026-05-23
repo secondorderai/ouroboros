@@ -843,6 +843,27 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     return { sessionId: result.value, workspacePath, workspaceMode }
   })
 
+  handlers.set('session/truncate', async (params) => {
+    const id = params.id
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, 'params.id is required')
+    }
+    const messageIndex = params.messageIndex
+    if (typeof messageIndex !== 'number' || !Number.isInteger(messageIndex) || messageIndex < 0) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.messageIndex must be a non-negative integer',
+      )
+    }
+
+    ctx.cancelSessionRun?.(id)
+    const result = ctx.transcriptStore.truncateSessionFromVisibleMessage(id, messageIndex)
+    if (!result.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, result.error.message)
+    ctx.forgetSession?.(id)
+    return { id, messageCount: result.value }
+  })
+
   handlers.set('session/delete', async (params) => {
     const id = params.id
     if (typeof id !== 'string') {

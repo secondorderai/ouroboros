@@ -786,6 +786,63 @@ export class TranscriptStore {
   }
 
   /**
+   * Remove transcript rows from the desktop-visible message at `messageIndex`
+   * onward. Desktop-visible messages are user/assistant rows; tool call/result
+   * rows are hidden behind the assistant message and are deleted when their
+   * owning assistant turn is truncated.
+   */
+  truncateSessionFromVisibleMessage(sessionId: string, messageIndex: number): Result<number> {
+    try {
+      if (!Number.isInteger(messageIndex) || messageIndex < 0) {
+        return err(new Error('messageIndex must be a non-negative integer'))
+      }
+
+      const session = this.db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId) as {
+        id: string
+      } | null
+      if (!session) {
+        return err(new Error(`Session "${sessionId}" not found`))
+      }
+
+      const rows = this.db
+        .prepare(
+          `SELECT rowid, role
+           FROM messages
+           WHERE session_id = ?
+           ORDER BY created_at ASC, rowid ASC`,
+        )
+        .all(sessionId) as Array<{ rowid: number; role: MessageRole }>
+
+      let visibleIndex = -1
+      let cutoffRowid: number | null = null
+      for (const row of rows) {
+        if (row.role !== 'user' && row.role !== 'assistant') continue
+        visibleIndex += 1
+        if (visibleIndex === messageIndex) {
+          cutoffRowid = row.rowid
+          break
+        }
+      }
+
+      if (cutoffRowid == null) {
+        return err(new Error(`Message index ${messageIndex} not found in session "${sessionId}"`))
+      }
+
+      this.db
+        .prepare('DELETE FROM messages WHERE session_id = ? AND rowid >= ?')
+        .run(sessionId, cutoffRowid)
+
+      const remaining = this.db
+        .prepare('SELECT COUNT(*) AS count FROM messages WHERE session_id = ?')
+        .get(sessionId) as { count: number }
+      return ok(remaining.count)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      return err(new Error(`Failed to truncate session: ${message}`))
+    }
+  }
+
+  /**
    * Keyword search across message content using LIKE.
    */
   searchTranscripts(query: string): Result<SearchResult[]> {

@@ -171,9 +171,7 @@ describe('conversation store sessions', () => {
 
     expect(calls.map((call) => call.method)).toEqual(['session/new', 'agent/run'])
     expect(calls[0].params).toEqual({ workspaceMode: 'simple' })
-    expect(calls[1].params).toEqual(
-      expect.objectContaining({ sessionId: 'session-first-message' }),
-    )
+    expect(calls[1].params).toEqual(expect.objectContaining({ sessionId: 'session-first-message' }))
     expect(useConversationStore.getState().currentSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().activeRunSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().sessions[0]).toEqual(
@@ -398,7 +396,6 @@ describe('conversation store sessions', () => {
 
   test('does NOT overwrite a meaningful auto title on subsequent sendMessage', async () => {
     resetStore()
-
     ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
       ouroboros: { rpc: () => Promise.resolve({ text: 'ok' }) },
     }
@@ -418,8 +415,18 @@ describe('conversation store sessions', () => {
         },
       ],
       messages: [
-        { id: 'user-1', role: 'user', text: 'How to fix the login bug?', timestamp: '2026-04-23T00:00:00.000Z' },
-        { id: 'agent-1', role: 'agent', text: 'Here is the fix.', timestamp: '2026-04-23T00:00:01.000Z' },
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'How to fix the login bug?',
+          timestamp: '2026-04-23T00:00:00.000Z',
+        },
+        {
+          id: 'agent-1',
+          role: 'agent',
+          text: 'Here is the fix.',
+          timestamp: '2026-04-23T00:00:01.000Z',
+        },
       ],
     })
 
@@ -434,6 +441,172 @@ describe('conversation store sessions', () => {
         runStatus: 'running',
       }),
     )
+  })
+
+  test('retryFromUserMessage reuses the latest user bubble and starts agent/run', async () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'sess-r',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'Try this again',
+          timestamp: '2026-04-25T00:00:00Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'sess-r',
+          createdAt: '2026-04-25T00:00:00Z',
+          lastActive: '2026-04-25T00:00:00Z',
+          messageCount: 1,
+          runStatus: 'idle',
+        },
+      ],
+      nextId: 2,
+    })
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({})
+        },
+      },
+    }
+
+    useConversationStore.getState().retryFromUserMessage('user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const state = useConversationStore.getState()
+    expect(state.messages.map((m) => m.id)).toEqual(['user-1'])
+    expect(state.isAgentRunning).toBe(true)
+    expect(calls.map((call) => call.method)).toEqual(['session/truncate', 'agent/run'])
+    expect(calls[0]!.params).toEqual({ id: 'sess-r', messageIndex: 0 })
+    expect(calls[1]!.params).toEqual(
+      expect.objectContaining({ message: 'Try this again', sessionId: 'sess-r' }),
+    )
+  })
+
+  test('retryFromUserMessage truncates later visible messages before replaying', async () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'sess-old',
+      messages: [
+        { id: 'user-1', role: 'user', text: 'First question', timestamp: '2026-04-25T00:00:00Z' },
+        { id: 'agent-2', role: 'agent', text: 'First answer', timestamp: '2026-04-25T00:00:01Z' },
+        { id: 'user-3', role: 'user', text: 'Follow-up', timestamp: '2026-04-25T00:00:02Z' },
+        { id: 'error-4', role: 'error', text: 'Failed', timestamp: '2026-04-25T00:00:03Z' },
+      ],
+      nextId: 5,
+    })
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({})
+        },
+      },
+    }
+
+    useConversationStore.getState().retryFromUserMessage('user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(useConversationStore.getState().messages.map((m) => m.text)).toEqual(['First question'])
+    expect(calls.find((call) => call.method === 'session/truncate')?.params).toEqual({
+      id: 'sess-old',
+      messageIndex: 0,
+    })
+    expect(calls.find((call) => call.method === 'agent/run')?.params).toEqual(
+      expect.objectContaining({ message: 'First question', sessionId: 'sess-old' }),
+    )
+  })
+
+  test('retryFromUserMessage preserves files, image metadata, and selected skill', async () => {
+    resetStore()
+    useConversationStore.setState({
+      currentSessionId: 'sess-assets',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'Review these assets',
+          timestamp: '2026-04-25T00:00:00Z',
+          files: ['/tmp/a.txt'],
+          imageAttachments: [
+            {
+              path: '/tmp/image.png',
+              name: 'image.png',
+              mediaType: 'image/png',
+              sizeBytes: 123,
+              previewDataUrl: 'data:image/png;base64,abc',
+            },
+          ],
+          retrySkillName: 'code-review',
+        },
+      ],
+      nextId: 2,
+    })
+
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: { ouroboros: unknown } }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          return Promise.resolve({})
+        },
+      },
+    }
+
+    useConversationStore.getState().retryFromUserMessage('user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const runParams = calls.find((call) => call.method === 'agent/run')?.params
+    expect(runParams).toEqual(
+      expect.objectContaining({
+        message: 'Review these assets',
+        files: ['/tmp/a.txt'],
+        skillName: 'code-review',
+      }),
+    )
+    expect(runParams?.images).toEqual([
+      { path: '/tmp/image.png', name: 'image.png', mediaType: 'image/png', sizeBytes: 123 },
+    ])
+  })
+
+  test('retryFromUserMessage is ignored while an agent run is active', () => {
+    resetStore()
+    useConversationStore.setState({
+      isAgentRunning: true,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: 'Do not retry yet',
+          timestamp: '2026-04-25T00:00:00Z',
+        },
+        {
+          id: 'agent-2',
+          role: 'agent',
+          text: 'Existing answer',
+          timestamp: '2026-04-25T00:00:01Z',
+        },
+      ],
+    })
+
+    useConversationStore.getState().retryFromUserMessage('user-1')
+
+    expect(useConversationStore.getState().messages.map((m) => m.text)).toEqual([
+      'Do not retry yet',
+      'Existing answer',
+    ])
   })
 
   test('seeds pendingActivatedSkills from sendMessage and folds into the assistant turn', () => {

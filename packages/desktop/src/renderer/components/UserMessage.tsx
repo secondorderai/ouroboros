@@ -128,38 +128,54 @@ const SteerMessage: React.FC<UserMessageProps> = ({ message }) => {
 }
 
 export const UserMessage: React.FC<UserMessageProps> = ({ message }) => {
+  const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
+  const retryFromUserMessage = useConversationStore((s) => s.retryFromUserMessage)
+
   if (message.kind === 'steer') {
     return <SteerMessage message={message} />
   }
   return (
     <div style={wrapperStyle}>
-      <div style={bubbleStyle}>
-        {looksLikeMarkdown(message.text) ? (
-          <MarkdownRenderer content={message.text} />
-        ) : (
-          <div style={plainTextStyle}>{message.text}</div>
-        )}
-        {message.files && message.files.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            {message.files.map((file, i) => (
-              <span key={i} style={fileChipStyle}>
-                {file.split('/').pop()}
-              </span>
-            ))}
-          </div>
-        )}
-        {message.imageAttachments && message.imageAttachments.length > 0 && (
-          <div style={imageGridStyle}>
-            {message.imageAttachments.map((image) => (
-              <div key={image.path} style={imageAttachmentStyle}>
-                {image.previewDataUrl ? (
-                  <img src={image.previewDataUrl} alt={image.name} style={imagePreviewStyle} />
-                ) : null}
-                <span style={imageNameStyle} title={image.path}>
-                  {image.name}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        <div style={bubbleStyle}>
+          {looksLikeMarkdown(message.text) ? (
+            <MarkdownRenderer content={message.text} />
+          ) : (
+            <div style={plainTextStyle}>{message.text}</div>
+          )}
+          {message.files && message.files.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+              {message.files.map((file, i) => (
+                <span key={i} style={fileChipStyle}>
+                  {file.split('/').pop()}
                 </span>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+          {message.imageAttachments && message.imageAttachments.length > 0 && (
+            <div style={imageGridStyle}>
+              {message.imageAttachments.map((image) => (
+                <div key={image.path} style={imageAttachmentStyle}>
+                  {image.previewDataUrl ? (
+                    <img src={image.previewDataUrl} alt={image.name} style={imagePreviewStyle} />
+                  ) : null}
+                  <span style={imageNameStyle} title={image.path}>
+                    {image.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {!isAgentRunning && (
+          <div style={retryActionsStyle}>
+            <button
+              type='button'
+              style={retryButtonStyle}
+              onClick={() => retryFromUserMessage(message.id)}
+            >
+              Retry
+            </button>
           </div>
         )}
       </div>
@@ -205,6 +221,22 @@ const orphanDismissButtonStyle: React.CSSProperties = {
   fontSize: 12,
   cursor: 'pointer',
   padding: '3px 6px',
+}
+
+const retryActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  marginTop: 6,
+}
+
+const retryButtonStyle: React.CSSProperties = {
+  border: '1px solid var(--border-light)',
+  background: 'transparent',
+  color: 'var(--text-tertiary)',
+  borderRadius: 6,
+  padding: '3px 8px',
+  fontSize: 12,
+  cursor: 'pointer',
 }
 
 function captionForSteerStatus(status: Message['steerStatus']): string {
