@@ -1025,17 +1025,27 @@ test('mode notifications update both the composer and settings surfaces', async 
   await expect(launched.page.getByRole('button', { name: 'Open mode picker' })).toBeVisible()
 })
 
-test('update banner can be exercised without leaving the renderer contract suite', async ({}, testInfo) => {
+test('sidebar update alert can be exercised without leaving the renderer contract suite', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()
   await resetInstallUpdateCount(launched.page)
 
   await emitUpdateDownloaded(launched.page, '1.2.3')
 
-  await expect(launched.page.getByRole('alert')).toContainText(
-    'Update available (v1.2.3). Restart to apply.',
-  )
-  await expect(launched.page.getByRole('alert')).toHaveCSS('-webkit-app-region', 'no-drag')
+  const alert = launched.page.getByRole('alert', { name: 'Update available' })
+  const settingsButton = launched.page.getByRole('button', { name: 'Open settings' })
+
+  await expect(alert).toContainText('Update v1.2.3 ready')
+  await expect(alert).toContainText('Restart to apply')
+  await expect(alert).toHaveCSS('-webkit-app-region', 'no-drag')
+  await expect.poll(async () =>
+    launched!.page.evaluate(() => {
+      const alertEl = document.querySelector('[role="alert"]')
+      const settingsEl = document.querySelector('[aria-label="Open settings"]')
+      if (!alertEl || !settingsEl) return false
+      return alertEl.getBoundingClientRect().bottom <= settingsEl.getBoundingClientRect().top
+    }),
+  ).toBe(true)
   await expect(launched.page.getByRole('button', { name: 'Restart now' })).toHaveCSS(
     '-webkit-app-region',
     'no-drag',
@@ -1044,6 +1054,7 @@ test('update banner can be exercised without leaving the renderer contract suite
     '-webkit-app-region',
     'no-drag',
   )
+  await expect(settingsButton).toBeVisible()
   await launched.page.getByRole('button', { name: 'Restart now' }).click()
 
   await expect.poll(async () => getInstallUpdateCount(launched!.page)).toBe(1)
@@ -1084,9 +1095,8 @@ test('update settings can manually check and report a downloaded update', async 
   await launched.page.getByRole('button', { name: 'Check for updates' }).click()
 
   await expect(launched.page.getByText('Version 2.0.0 is ready to install.')).toBeVisible()
-  await expect(launched.page.getByRole('alert')).toContainText(
-    'Update available (v2.0.0). Restart to apply.',
-  )
+  await expect(launched.page.getByRole('alert')).toContainText('Update v2.0.0 ready')
+  await expect(launched.page.getByRole('alert')).toContainText('Restart to apply')
 })
 
 test('update preferences persist across relaunch', async ({}, testInfo) => {

@@ -102,7 +102,7 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
       ['/tmp/spec.md', '/tmp/spec.md', '/tmp/notes.txt'],
       '/tmp/next-workspace',
     ],
-    // Fire the update banner explicitly later via emitUpdateDownloaded
+    // Fire the update alert explicitly later via emitUpdateDownloaded
     // instead of racing the auto-updater's setTimeout against the
     // renderer's IPC subscription on slow CI.
   })
@@ -172,8 +172,9 @@ test('happy-path onboarding, chat streaming, dialogs, and updater use the produc
 
   await emitUpdateDownloaded(launched.page, '9.9.9')
   await expect(launched.page.getByRole('alert')).toContainText(
-    'Update available (v9.9.9). Restart to apply.',
+    'Update v9.9.9 ready',
   )
+  await expect(launched.page.getByRole('alert')).toContainText('Restart to apply')
   await launched.page.getByRole('button', { name: 'Dismiss' }).click()
   await expect(launched.page.getByRole('alert')).not.toBeVisible()
 })

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
+import { UpdateAlert } from './UpdateBanner'
 import type {
   SessionData,
   SessionInfo,
@@ -445,6 +446,7 @@ export function Sidebar({
 
       <div style={styles.footer}>
         <div style={styles.footerLabel}>App</div>
+        <UpdateAlert />
         <button
           style={styles.settingsItem}
           onClick={onOpenSettings}

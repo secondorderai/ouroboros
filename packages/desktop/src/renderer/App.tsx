@@ -11,7 +11,6 @@ import { ApprovalToastContainer } from './components/ApprovalToastContainer'
 import { ApprovalQueue } from './components/ApprovalQueue'
 import { AskUserDialog } from './components/AskUserDialog'
 import { PlanDecisionDialog } from './components/PlanDecisionDialog'
-import { UpdateBanner } from './components/UpdateBanner'
 import { OuroborosMark } from './components/OuroborosMark'
 import { TeamGraphDrawer } from './components/TeamGraphDrawer'
 import { useTheme } from './hooks/useTheme'
@@ -480,7 +479,6 @@ export function App(): React.ReactElement {
 
   return (
     <div style={styles.app}>
-      <UpdateBanner />
       <TitleBar
         resolvedTheme={resolvedTheme}
         onToggleTheme={toggleTheme}
