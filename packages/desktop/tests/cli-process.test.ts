@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const mockedApp = {
   isPackaged: false,
@@ -15,11 +17,36 @@ mock.module('electron', () => ({
   dialog: { showErrorBox: () => {} },
 }))
 
+const expectedAgentBrowserBinary =
+  process.platform === 'darwin' && process.arch === 'x64'
+    ? 'agent-browser-darwin-x64'
+    : process.platform === 'win32'
+      ? 'agent-browser-win32-x64.exe'
+      : process.platform === 'linux' && process.arch === 'arm64'
+        ? 'agent-browser-linux-arm64'
+        : process.platform === 'linux'
+          ? 'agent-browser-linux-x64'
+          : 'agent-browser-darwin-arm64'
+
 async function createManager() {
   const { CLIProcessManager } = await import('../src/main/cli-process')
   return new CLIProcessManager({ onStdoutLine: () => {} }) as unknown as {
     getCliPath: () => { command: string; args: string[] }
     getCliWorkingDirectory: () => string
+    getAgentBrowserDir: () => string
+    getAgentBrowserBinPath: () => string
+    getCliEnvironment: () => NodeJS.ProcessEnv
+  }
+}
+
+async function createManagerWithCdp(port: number) {
+  const { CLIProcessManager } = await import('../src/main/cli-process')
+  return new CLIProcessManager({
+    onStdoutLine: () => {},
+    getAutomationBrowserCdpPort: () => port,
+    getAutomationBrowserCdpStatePath: () => '/tmp/ouroboros-user-data/automation-browser-cdp.json',
+  }) as unknown as {
+    getCliEnvironment: () => NodeJS.ProcessEnv
   }
 }
 
@@ -42,6 +69,10 @@ describe('CLIProcessManager config discovery', () => {
     expect(cliPath.args).toContain('--config')
     expect(cliPath.args[cliPath.args.indexOf('--config') + 1]).toBe('/tmp/ouroboros-user-data')
     expect(manager.getCliWorkingDirectory()).toBe('/tmp/ouroboros-user-data')
+    expect(manager.getAgentBrowserDir()).toBe('/tmp/ouroboros-desktop-app/resources/agent-browser')
+    expect(manager.getAgentBrowserBinPath()).toBe(
+      `/tmp/ouroboros-desktop-app/resources/agent-browser/bin/${expectedAgentBrowserBinary}`,
+    )
   })
 
   test('packaged CLI spawn also passes userData config', async () => {
@@ -55,5 +86,47 @@ describe('CLIProcessManager config discovery', () => {
 
     expect(cliPath.args).toEqual(['--json-rpc', '--config', '/tmp/ouroboros-user-data'])
     expect(manager.getCliWorkingDirectory()).toBe('/tmp/ouroboros-user-data')
+    expect(manager.getAgentBrowserDir()).toBe('/tmp/ouroboros-resources/agent-browser')
+    expect(manager.getAgentBrowserBinPath()).toBe(
+      `/tmp/ouroboros-resources/agent-browser/bin/${expectedAgentBrowserBinary}`,
+    )
+  })
+
+  test('CLI env includes bundled skill and Agent Browser paths', async () => {
+    delete process.env.NODE_ENV
+    process.env.PATH = '/usr/bin'
+
+    const manager = await createManager()
+    const env = manager.getCliEnvironment()
+
+    expect(env.OUROBOROS_BUILTIN_SKILLS_DIR).toBe(
+      '/tmp/ouroboros-desktop-app/resources/skills/builtin',
+    )
+    expect(env.OUROBOROS_AGENT_BROWSER_DIR).toBe(
+      '/tmp/ouroboros-desktop-app/resources/agent-browser',
+    )
+    expect(env.OUROBOROS_AGENT_BROWSER_BIN).toBe(
+      `/tmp/ouroboros-desktop-app/resources/agent-browser/bin/${expectedAgentBrowserBinary}`,
+    )
+    expect(env.PATH?.split(':')[0]).toBe('/tmp/ouroboros-desktop-app/resources/agent-browser/bin')
+  })
+
+  test('CLI env includes managed Automation Browser CDP port when running', async () => {
+    delete process.env.NODE_ENV
+
+    const manager = await createManagerWithCdp(9333)
+    const env = manager.getCliEnvironment()
+
+    expect(env.OUROBOROS_AGENT_BROWSER_CDP).toBe('9333')
+    expect(env.OUROBOROS_AGENT_BROWSER_CDP_FILE).toBe(
+      '/tmp/ouroboros-user-data/automation-browser-cdp.json',
+    )
+  })
+
+  test('electron-builder packages Agent Browser resources', () => {
+    const yml = readFileSync(resolve(import.meta.dir, '../electron-builder.yml'), 'utf-8')
+
+    expect(yml).toContain('from: resources/agent-browser/')
+    expect(yml).toContain('to: agent-browser/')
   })
 })

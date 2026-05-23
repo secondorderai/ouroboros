@@ -51,6 +51,8 @@ extraResources:
     filter: ['ouroboros*']
   - from: resources/skills/builtin/
     to: skills/builtin/
+  - from: resources/agent-browser/
+    to: agent-browser/
 
 publish:
   provider: github

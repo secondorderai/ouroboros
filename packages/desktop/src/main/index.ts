@@ -7,6 +7,7 @@ import { createWindowOptions, saveBounds, restoreMaximized } from './window'
 import { CLIProcessManager } from './cli-process'
 import { RpcClient } from './rpc-client'
 import { registerIpcHandlers } from './ipc-handlers'
+import { AutomationBrowserManager } from './automation-browser'
 import type { RpcPolicyGate } from './rpc-policy'
 import {
   checkForUpdatesNow,
@@ -50,6 +51,8 @@ let mainWindow: BrowserWindow | null = null
 let cliProcess: CLIProcessManager | null = null
 let rpcClient: RpcClient | null = null
 let rpcPolicyGate: RpcPolicyGate | null = null
+let automationBrowser: AutomationBrowserManager | null = null
+let quitting = false
 const SAFE_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 // Single instance lock
@@ -77,6 +80,9 @@ if (!gotTheLock) {
     registerThemeIpcHandlers()
     writeTestLog('theme ipc registered')
 
+    automationBrowser = new AutomationBrowserManager()
+    writeTestLog('automation browser initialized')
+
     // Initialize CLI process and RPC client
     const initialized = initializeCLI()
     cliProcess = initialized.cliProcess
@@ -93,6 +99,7 @@ if (!gotTheLock) {
     const handlers = registerIpcHandlers({
       rpcClient,
       cliProcess,
+      automationBrowser,
       getMainWindow: () => mainWindow,
       store,
     })
@@ -128,11 +135,15 @@ app.on('window-all-closed', () => {
 
 // Graceful shutdown of CLI process
 app.on('before-quit', async (event) => {
-  if (cliProcess) {
+  if (quitting) return
+  if (cliProcess || automationBrowser) {
+    quitting = true
     event.preventDefault()
     if (rpcClient) rpcClient.rejectAll('Application is shutting down')
-    await cliProcess.shutdown()
+    await cliProcess?.shutdown()
+    await automationBrowser?.stop()
     cliProcess = null
+    automationBrowser = null
     app.quit()
   }
 })
@@ -146,6 +157,8 @@ function initializeCLI(): { cliProcess: CLIProcessManager; rpcClient: RpcClient 
     onStdoutLine: (line) => client.handleLine(line),
     onStderrLine: (line) => writeTestLog(`[cli-stderr] ${line}`),
     onStatusChange: (status) => writeTestLog(`[cli-status] ${status}`),
+    getAutomationBrowserCdpPort: () => automationBrowser?.getCdpPort(),
+    getAutomationBrowserCdpStatePath: () => automationBrowser?.getCdpStatePath(),
   })
 
   client.attach(cli)
@@ -158,10 +171,7 @@ function initializeCLI(): { cliProcess: CLIProcessManager; rpcClient: RpcClient 
   return { cliProcess: cli, rpcClient: client }
 }
 
-async function performHealthCheck(
-  cli: CLIProcessManager,
-  client: RpcClient,
-): Promise<void> {
+async function performHealthCheck(cli: CLIProcessManager, client: RpcClient): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 500))
   const healthy = await client.healthCheck()
   if (healthy) {
@@ -184,8 +194,8 @@ function createWindow(): void {
     ...(iconPath && process.platform !== 'darwin' ? { icon: iconPath } : {}),
     webPreferences: {
       ...options.webPreferences,
-      preload: join(__dirname, '../preload/preload.cjs')
-    }
+      preload: join(__dirname, '../preload/preload.cjs'),
+    },
   })
 
   restoreMaximized(mainWindow)
@@ -221,10 +231,18 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
-  mainWindow.on('resized', () => { if (mainWindow) saveBounds(mainWindow) })
-  mainWindow.on('moved', () => { if (mainWindow) saveBounds(mainWindow) })
-  mainWindow.on('maximize', () => { if (mainWindow) saveBounds(mainWindow) })
-  mainWindow.on('unmaximize', () => { if (mainWindow) saveBounds(mainWindow) })
+  mainWindow.on('resized', () => {
+    if (mainWindow) saveBounds(mainWindow)
+  })
+  mainWindow.on('moved', () => {
+    if (mainWindow) saveBounds(mainWindow)
+  })
+  mainWindow.on('maximize', () => {
+    if (mainWindow) saveBounds(mainWindow)
+  })
+  mainWindow.on('unmaximize', () => {
+    if (mainWindow) saveBounds(mainWindow)
+  })
 
   mainWindow.on('closed', () => {
     if (mainWindow) rpcPolicyGate?.forgetWindow(mainWindow)
@@ -240,20 +258,22 @@ function createWindow(): void {
   const isMac = process.platform === 'darwin'
   const menu = Menu.buildFromTemplate([
     ...(isMac
-      ? [{
-          label: APP_NAME,
-          submenu: [
-            { role: 'about' as const },
-            {
-              label: 'Check for Updates...',
-              click: () => {
-                void checkForUpdatesNow()
+      ? [
+          {
+            label: APP_NAME,
+            submenu: [
+              { role: 'about' as const },
+              {
+                label: 'Check for Updates...',
+                click: () => {
+                  void checkForUpdatesNow()
+                },
               },
-            },
-            { type: 'separator' as const },
-            { role: 'quit' as const }
-          ]
-        }]
+              { type: 'separator' as const },
+              { role: 'quit' as const },
+            ],
+          },
+        ]
       : []),
     {
       label: 'Edit',
@@ -265,7 +285,7 @@ function createWindow(): void {
         { role: 'copy' as const },
         { role: 'paste' as const },
         { role: 'selectAll' as const },
-      ]
+      ],
     },
     {
       label: 'View',
@@ -273,13 +293,15 @@ function createWindow(): void {
         {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+B',
-          click: () => { mainWindow?.webContents.send('sidebar:toggle') }
+          click: () => {
+            mainWindow?.webContents.send('sidebar:toggle')
+          },
         },
         { type: 'separator' as const },
         { role: 'reload' as const },
         { role: 'forceReload' as const },
-        { role: 'toggleDevTools' as const }
-      ]
+        { role: 'toggleDevTools' as const },
+      ],
     },
     {
       label: 'Window',
@@ -288,9 +310,9 @@ function createWindow(): void {
         { role: 'zoom' as const },
         ...(isMac
           ? [{ type: 'separator' as const }, { role: 'front' as const }]
-          : [{ role: 'close' as const }])
-      ]
-    }
+          : [{ role: 'close' as const }]),
+      ],
+    },
   ])
   Menu.setApplicationMenu(menu)
 
@@ -374,7 +396,6 @@ function registerThemeIpcHandlers(): void {
   ipcMain.handle('app:getHomeDirectory', () => {
     return homedir()
   })
-
 }
 
 function openExternalUrl(rawUrl: string): void {
@@ -397,9 +418,9 @@ function openExternalUrl(rawUrl: string): void {
 }
 
 function recordExternalUrl(url: string, allowed: boolean): void {
-  const logPath = process.env.OUROBOROS_TEST_EXTERNAL_URL_LOG_PATH ?? (
-    process.env.NODE_ENV === 'test' ? TEST_EXTERNAL_URL_LOG_PATH : undefined
-  )
+  const logPath =
+    process.env.OUROBOROS_TEST_EXTERNAL_URL_LOG_PATH ??
+    (process.env.NODE_ENV === 'test' ? TEST_EXTERNAL_URL_LOG_PATH : undefined)
   if (!logPath) return
 
   mkdirSync(dirname(logPath), { recursive: true })
@@ -437,9 +458,9 @@ function openArtifactPath(rawPath: string): void {
 }
 
 function recordOpenArtifact(path: string, allowed: boolean, reason?: string): void {
-  const logPath = process.env.OUROBOROS_TEST_OPEN_ARTIFACT_LOG_PATH ?? (
-    process.env.NODE_ENV === 'test' ? TEST_OPEN_ARTIFACT_LOG_PATH : undefined
-  )
+  const logPath =
+    process.env.OUROBOROS_TEST_OPEN_ARTIFACT_LOG_PATH ??
+    (process.env.NODE_ENV === 'test' ? TEST_OPEN_ARTIFACT_LOG_PATH : undefined)
   if (!logPath) return
   mkdirSync(dirname(logPath), { recursive: true })
   const record: Record<string, unknown> = { path, allowed }

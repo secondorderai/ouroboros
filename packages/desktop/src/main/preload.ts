@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
+  type AutomationBrowserLaunchParams,
+  type AutomationBrowserStatus,
   IPC_CHANNELS,
   type CLIStatus,
   type CLIStatusEvent,
@@ -82,6 +84,26 @@ const electronAPI: ElectronAPI = {
   setUpdatePreferences: (preferences: UpdatePreferences) =>
     ipcRenderer.invoke('update:setPreferences', preferences) as Promise<void>,
   installUpdate: () => ipcRenderer.invoke('update:install') as Promise<void>,
+  getAutomationBrowserStatus: () =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.AUTOMATION_BROWSER_GET_STATUS,
+    ) as Promise<AutomationBrowserStatus>,
+  launchAutomationBrowser: (params: AutomationBrowserLaunchParams) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.AUTOMATION_BROWSER_LAUNCH,
+      params,
+    ) as Promise<AutomationBrowserStatus>,
+  stopAutomationBrowser: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATION_BROWSER_STOP) as Promise<AutomationBrowserStatus>,
+  onAutomationBrowserStatus: (callback: (status: AutomationBrowserStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: AutomationBrowserStatus) => {
+      callback(status)
+    }
+    ipcRenderer.on(IPC_CHANNELS.AUTOMATION_BROWSER_STATUS, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.AUTOMATION_BROWSER_STATUS, handler)
+    }
+  },
 }
 
 // ── Ouroboros API (CLI JSON-RPC bridge) ────────────────────────────

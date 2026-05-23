@@ -8,7 +8,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { app, dialog } from 'electron'
 import { EventEmitter } from 'node:events'
 import type { CLIStatus, CLIStatusEvent } from '../shared/protocol'
@@ -29,6 +29,22 @@ const MACOS_PACKAGED_CLI_BY_ARCH: Partial<Record<NodeJS.Architecture, string>> =
   x64: 'ouroboros-darwin-x64',
 }
 
+const AGENT_BROWSER_BINARY_BY_PLATFORM: Partial<
+  Record<NodeJS.Platform, Partial<Record<NodeJS.Architecture, string>>>
+> = {
+  darwin: {
+    arm64: 'agent-browser-darwin-arm64',
+    x64: 'agent-browser-darwin-x64',
+  },
+  linux: {
+    arm64: 'agent-browser-linux-arm64',
+    x64: 'agent-browser-linux-x64',
+  },
+  win32: {
+    x64: 'agent-browser-win32-x64.exe',
+  },
+}
+
 export type LineHandler = (line: string) => void
 
 export interface CLIProcessManagerOptions {
@@ -37,6 +53,8 @@ export interface CLIProcessManagerOptions {
   onStatusChange?: (status: CLIStatus) => void
   /** Extra environment variables to inject when spawning the CLI process (e.g. persisted API keys). */
   extraEnv?: Record<string, string>
+  getAutomationBrowserCdpPort?: () => number | undefined
+  getAutomationBrowserCdpStatePath?: () => string | undefined
 }
 
 export class CLIProcessManager extends EventEmitter {
@@ -58,6 +76,8 @@ export class CLIProcessManager extends EventEmitter {
   private readonly onStdoutLine: LineHandler
   private readonly onStderrLine: LineHandler
   private readonly onStatusChange: (status: CLIStatus) => void
+  private readonly getAutomationBrowserCdpPort: () => number | undefined
+  private readonly getAutomationBrowserCdpStatePath: () => string | undefined
   private extraEnv: Record<string, string>
 
   constructor(options: CLIProcessManagerOptions) {
@@ -65,6 +85,9 @@ export class CLIProcessManager extends EventEmitter {
     this.onStdoutLine = options.onStdoutLine
     this.onStderrLine = options.onStderrLine ?? (() => {})
     this.onStatusChange = options.onStatusChange ?? (() => {})
+    this.getAutomationBrowserCdpPort = options.getAutomationBrowserCdpPort ?? (() => undefined)
+    this.getAutomationBrowserCdpStatePath =
+      options.getAutomationBrowserCdpStatePath ?? (() => undefined)
     this.extraEnv = options.extraEnv ?? {}
   }
 
@@ -108,9 +131,15 @@ export class CLIProcessManager extends EventEmitter {
     })
   }
 
-  getStatus(): CLIStatus { return this.status }
-  getStatusHistory(): CLIStatusEvent[] { return [...this.statusHistory] }
-  getStderrLog(): string[] { return [...this.stderrLog] }
+  getStatus(): CLIStatus {
+    return this.status
+  }
+  getStatusHistory(): CLIStatusEvent[] {
+    return [...this.statusHistory]
+  }
+  getStderrLog(): string[] {
+    return [...this.stderrLog]
+  }
 
   markReady(): void {
     this.setStatus('ready')
@@ -119,6 +148,16 @@ export class CLIProcessManager extends EventEmitter {
 
   markError(): void {
     this.setStatus('error')
+  }
+
+  restart(): void {
+    this.intentionalShutdown = true
+    void this.shutdown().then(() => {
+      this.process = null
+      this.restartCount = 0
+      this.intentionalShutdown = false
+      this.start()
+    })
   }
 
   private setStatus(status: CLIStatus): void {
@@ -158,7 +197,13 @@ export class CLIProcessManager extends EventEmitter {
     }
 
     return {
-      command: join(app.getAppPath(), '..', 'cli', 'dist', process.platform === 'win32' ? 'ouroboros.exe' : 'ouroboros'),
+      command: join(
+        app.getAppPath(),
+        '..',
+        'cli',
+        'dist',
+        process.platform === 'win32' ? 'ouroboros.exe' : 'ouroboros',
+      ),
       args: ['--json-rpc', ...this.getCliConfigArgs()],
     }
   }
@@ -172,11 +217,7 @@ export class CLIProcessManager extends EventEmitter {
       this.process = spawn(command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd,
-        env: {
-          ...process.env,
-          ...this.extraEnv,
-          OUROBOROS_BUILTIN_SKILLS_DIR: this.getBuiltinSkillsDir(),
-        },
+        env: this.getCliEnvironment(),
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -214,7 +255,7 @@ export class CLIProcessManager extends EventEmitter {
   }
 
   private drainBuffer(stream: 'stdout' | 'stderr'): void {
-    const bufferKey = stream === 'stdout' ? 'stdoutBuffer' as const : 'stderrBuffer' as const
+    const bufferKey = stream === 'stdout' ? ('stdoutBuffer' as const) : ('stderrBuffer' as const)
     const handler = stream === 'stdout' ? this.onStdoutLine : this.onStderrLine
 
     let newlineIndex: number
@@ -263,6 +304,45 @@ export class CLIProcessManager extends EventEmitter {
     // app.getAppPath() resolves to packages/desktop in dev (same anchor used
     // by getCliPath above when locating the CLI binary).
     return join(app.getAppPath(), 'resources', 'skills', 'builtin')
+  }
+
+  private getAgentBrowserDir(): string {
+    if (app.isPackaged) {
+      return join(process.resourcesPath, 'agent-browser')
+    }
+    return join(app.getAppPath(), 'resources', 'agent-browser')
+  }
+
+  private getAgentBrowserBinPath(): string {
+    const dir = this.getAgentBrowserDir()
+    const platformBinary = AGENT_BROWSER_BINARY_BY_PLATFORM[process.platform]?.[process.arch]
+    if (platformBinary) {
+      return join(dir, 'bin', platformBinary)
+    }
+    return join(dir, process.platform === 'win32' ? 'agent-browser.exe' : 'agent-browser')
+  }
+
+  private getCliEnvironment(): NodeJS.ProcessEnv {
+    const agentBrowserDir = this.getAgentBrowserDir()
+    const agentBrowserBinDir = join(agentBrowserDir, 'bin')
+    const automationBrowserPort = this.getAutomationBrowserCdpPort()
+    const automationBrowserCdpStatePath = this.getAutomationBrowserCdpStatePath()
+    return {
+      ...process.env,
+      ...this.extraEnv,
+      PATH: [agentBrowserBinDir, this.extraEnv.PATH, process.env.PATH]
+        .filter(Boolean)
+        .join(delimiter),
+      OUROBOROS_BUILTIN_SKILLS_DIR: this.getBuiltinSkillsDir(),
+      OUROBOROS_AGENT_BROWSER_DIR: agentBrowserDir,
+      OUROBOROS_AGENT_BROWSER_BIN: this.getAgentBrowserBinPath(),
+      ...(automationBrowserPort
+        ? { OUROBOROS_AGENT_BROWSER_CDP: String(automationBrowserPort) }
+        : {}),
+      ...(automationBrowserCdpStatePath
+        ? { OUROBOROS_AGENT_BROWSER_CDP_FILE: automationBrowserCdpStatePath }
+        : {}),
+    }
   }
 
   private getCliWorkingDirectory(): string {

@@ -8,6 +8,7 @@ import { MemorySection } from '../components/settings/MemorySection'
 import { ModeSection } from '../components/settings/ModeSection'
 import { SkillsSection } from '../components/settings/SkillsSection'
 import { UpdatesSection } from '../components/settings/UpdatesSection'
+import { AutomationBrowserSection } from '../components/settings/AutomationBrowserSection'
 import { useConversationStore } from '../stores/conversationStore'
 import type { Theme, OuroborosConfig } from '../../shared/protocol'
 
@@ -28,6 +29,7 @@ export type SettingsSectionId =
   | 'memory'
   | 'mode'
   | 'updates'
+  | 'automation-browser'
 
 interface SectionDef {
   id: SettingsSectionId
@@ -76,6 +78,11 @@ const SECTIONS: SectionDef[] = [
     label: 'Updates',
     description: 'macOS update checks and install readiness.',
   },
+  {
+    id: 'automation-browser',
+    label: 'Automation Browser',
+    description: 'Managed Chrome browser for web automation.',
+  },
 ]
 
 export function SettingsOverlay({
@@ -99,6 +106,7 @@ export function SettingsOverlay({
         'memory',
         'mode',
         'updates',
+        'automation-browser',
       ]
       if (valid.includes(initialSection as SettingsSectionId)) {
         setActiveSection(initialSection as SettingsSectionId)
@@ -177,7 +185,7 @@ export function SettingsOverlay({
         setSaveError(message)
       }
     },
-    [config, setModelName]
+    [config, setModelName],
   )
 
   if (!isOpen && !exiting) return null
@@ -188,11 +196,7 @@ export function SettingsOverlay({
       className={exiting ? 'settings-overlay-exit' : 'settings-overlay-enter'}
     >
       {/* Close button */}
-      <button
-        style={styles.closeButton}
-        onClick={handleClose}
-        aria-label="Close settings"
-      >
+      <button style={styles.closeButton} onClick={handleClose} aria-label='Close settings'>
         <CloseIcon />
       </button>
 
@@ -211,9 +215,7 @@ export function SettingsOverlay({
               key={section.id}
               style={{
                 ...styles.navItem,
-                ...(activeSection === section.id
-                  ? styles.navItemActive
-                  : {}),
+                ...(activeSection === section.id ? styles.navItemActive : {}),
               }}
               onClick={() => setActiveSection(section.id)}
               aria-current={activeSection === section.id ? 'page' : undefined}
@@ -227,60 +229,37 @@ export function SettingsOverlay({
         {/* Active section content */}
         <div style={styles.content}>
           {(loadError || saveError) && (
-            <div style={styles.errorBanner}>
-              {loadError ?? saveError}
-            </div>
+            <div style={styles.errorBanner}>{loadError ?? saveError}</div>
           )}
           {activeSection === 'model' && (
-            <ModelSection
-              config={config}
-              onConfigChange={handleConfigChange}
-            />
+            <ModelSection config={config} onConfigChange={handleConfigChange} />
           )}
           {activeSection === 'appearance' && (
-            <AppearanceSection
-              theme={theme}
-              onSetTheme={onSetTheme}
-            />
+            <AppearanceSection theme={theme} onSetTheme={onSetTheme} />
           )}
           {activeSection === 'permissions' && (
-            <PermissionsSection
-              config={config}
-              onConfigChange={handleConfigChange}
-            />
+            <PermissionsSection config={config} onConfigChange={handleConfigChange} />
           )}
           {activeSection === 'skills' && (
-            <SkillsSection
-              config={config}
-              onConfigChange={handleConfigChange}
-            />
+            <SkillsSection config={config} onConfigChange={handleConfigChange} />
           )}
           {activeSection === 'rsi' && (
-            <RsiSection
-              config={config}
-              onConfigChange={handleConfigChange}
-            />
+            <RsiSection config={config} onConfigChange={handleConfigChange} />
           )}
           {activeSection === 'memory' && (
-            <MemorySection
-              config={config}
-              onConfigChange={handleConfigChange}
-            />
+            <MemorySection config={config} onConfigChange={handleConfigChange} />
           )}
           {activeSection === 'mode' && <ModeSection />}
           {activeSection === 'updates' && <UpdatesSection />}
+          {activeSection === 'automation-browser' && <AutomationBrowserSection />}
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   )
 }
 
-function applyConfigChange(
-  config: OuroborosConfig,
-  path: string,
-  value: unknown,
-): OuroborosConfig {
+function applyConfigChange(config: OuroborosConfig, path: string, value: unknown): OuroborosConfig {
   const next = structuredClone(config)
 
   if (path.startsWith('permissions.')) {
@@ -327,17 +306,17 @@ function applyConfigChange(
 function CloseIcon(): React.ReactElement {
   return (
     <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width='18'
+      height='18'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
     >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1='18' y1='6' x2='6' y2='18' />
+      <line x1='6' y1='6' x2='18' y2='18' />
     </svg>
   )
 }

@@ -12,7 +12,10 @@ import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from
 import type Store from 'electron-store'
 import type { RpcClient } from './rpc-client'
 import type { CLIProcessManager } from './cli-process'
+import type { AutomationBrowserManager } from './automation-browser'
 import {
+  type AutomationBrowserLaunchParams,
+  type AutomationBrowserStatus,
   IPC_CHANNELS,
   type CLIStatus,
   type CLIStatusEvent,
@@ -67,6 +70,7 @@ const IMAGE_MEDIA_TYPES: Record<string, SupportedImageMediaType> = {
 export interface IpcHandlerContext {
   rpcClient: RpcClient
   cliProcess: CLIProcessManager
+  automationBrowser: AutomationBrowserManager
   getMainWindow: () => BrowserWindow | null
   store: Store<{ theme: Theme; apiKeys?: Record<string, string> }>
 }
@@ -81,6 +85,7 @@ export function registerIpcHandlers(ctx: IpcHandlerContext): RegisteredIpcHandle
   const policyGate = registerRpcHandler(ctx, imageGrants)
   registerDialogHandlers(ctx, imageGrants)
   registerArtifactSaveHandler()
+  registerAutomationBrowserHandlers(ctx)
   registerImageAttachmentHandlers(ctx, imageGrants)
   registerNotificationForwarding(ctx)
   registerCLIStatusForwarding(ctx)
@@ -88,6 +93,34 @@ export function registerIpcHandlers(ctx: IpcHandlerContext): RegisteredIpcHandle
     registerTestHandlers(ctx)
   }
   return { policyGate, imageGrants }
+}
+
+function registerAutomationBrowserHandlers(ctx: IpcHandlerContext): void {
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATION_BROWSER_GET_STATUS,
+    (): AutomationBrowserStatus => ctx.automationBrowser.getStatus(),
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATION_BROWSER_LAUNCH,
+    async (_event, params: AutomationBrowserLaunchParams): Promise<AutomationBrowserStatus> => {
+      const profileMode =
+        params?.profileMode === 'default-profile' ? 'default-profile' : 'managed-profile'
+      return ctx.automationBrowser.launch({ profileMode })
+    },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATION_BROWSER_STOP,
+    async (): Promise<AutomationBrowserStatus> => ctx.automationBrowser.stop(),
+  )
+
+  ctx.automationBrowser.on('status', (status: AutomationBrowserStatus) => {
+    const win = ctx.getMainWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.AUTOMATION_BROWSER_STATUS, status)
+    }
+  })
 }
 
 function registerRpcHandler(ctx: IpcHandlerContext, imageGrants: ImageGrantStore): RpcPolicyGate {
@@ -245,7 +278,10 @@ function isPotentialImagePath(path: unknown): path is string {
   return Boolean(IMAGE_MEDIA_TYPES[extname(path).toLowerCase()])
 }
 
-function findOwningWindow(ctx: IpcHandlerContext, event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+function findOwningWindow(
+  ctx: IpcHandlerContext,
+  event: Electron.IpcMainInvokeEvent,
+): BrowserWindow | null {
   const main = ctx.getMainWindow()
   if (main && !main.isDestroyed() && main.webContents.id === event.sender.id) {
     return main
@@ -347,7 +383,8 @@ function registerImageAttachmentHandlers(
         if (!imageGrants.has(window, path)) {
           rejected.push({
             path,
-            reason: 'Path is not authorised — attach via the file picker or drop it onto the chat area',
+            reason:
+              'Path is not authorised — attach via the file picker or drop it onto the chat area',
           })
           continue
         }

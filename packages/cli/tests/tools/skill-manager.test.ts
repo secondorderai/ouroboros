@@ -472,6 +472,35 @@ describe('SkillManager', () => {
     }
   })
 
+  test('checked-in desktop built-in skills include agent-browser', () => {
+    const desktopBuiltinRoot = resolve(import.meta.dir, '../../../desktop/resources/skills/builtin')
+    const previousBuiltin = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+    const previousUser = process.env.OUROBOROS_USER_SKILLS_DIRS
+    process.env.OUROBOROS_BUILTIN_SKILLS_DIR = desktopBuiltinRoot
+    process.env.OUROBOROS_USER_SKILLS_DIRS = ''
+    try {
+      discoverConfiguredSkills([])
+
+      const info = getSkillInfo('agent-browser')
+      expect(info.ok).toBe(true)
+      if (info.ok) {
+        expect(info.value.status).toBe('builtin')
+        expect(info.value.description).toContain('browse or automate websites')
+      }
+    } finally {
+      if (previousBuiltin === undefined) {
+        delete process.env.OUROBOROS_BUILTIN_SKILLS_DIR
+      } else {
+        process.env.OUROBOROS_BUILTIN_SKILLS_DIR = previousBuiltin
+      }
+      if (previousUser === undefined) {
+        delete process.env.OUROBOROS_USER_SKILLS_DIRS
+      } else {
+        process.env.OUROBOROS_USER_SKILLS_DIRS = previousUser
+      }
+    }
+  })
+
   test('discoverConfiguredSkills is a no-op for built-ins when env var is unset', () => {
     const previousBuiltin = process.env.OUROBOROS_BUILTIN_SKILLS_DIR
     const previousUser = process.env.OUROBOROS_USER_SKILLS_DIRS

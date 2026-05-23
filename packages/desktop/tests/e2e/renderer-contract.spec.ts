@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { LaunchedApp } from './helpers'
@@ -84,13 +84,128 @@ test('onboarding renders and preload bridges are available', async ({}, testInfo
     hasRpc: typeof window.ouroboros?.rpc === 'function',
     hasNotificationBridge: typeof window.ouroboros?.onNotification === 'function',
     hasExternalOpen: typeof window.electronAPI?.openExternal === 'function',
+    hasAutomationStatus: typeof window.electronAPI?.getAutomationBrowserStatus === 'function',
+    hasAutomationLaunch: typeof window.electronAPI?.launchAutomationBrowser === 'function',
+    hasAutomationStop: typeof window.electronAPI?.stopAutomationBrowser === 'function',
   }))
 
   expect(bridgeInfo).toEqual({
     hasRpc: true,
     hasNotificationBridge: true,
     hasExternalOpen: true,
+    hasAutomationStatus: true,
+    hasAutomationLaunch: true,
+    hasAutomationStop: true,
   })
+})
+
+test('settings exposes Automation Browser status and profile prompt', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await launched.page.getByRole('button', { name: /Automation Browser/ }).click()
+  await expect(
+    launched.page.getByRole('heading', { name: 'Automation Browser', exact: true }),
+  ).toBeVisible()
+  await expect(launched.page.getByText(/Automation Browser is/)).toBeVisible()
+
+  await launched.page.getByRole('button', { name: 'Launch Automation Browser' }).click()
+  await expect(
+    launched.page.getByRole('dialog', { name: 'Choose automation browser profile' }),
+  ).toBeVisible()
+  await expect(
+    launched.page.getByRole('button', { name: /Separate automation profile/ }),
+  ).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: /My Chrome profile/ })).toBeVisible()
+})
+
+test('Automation Browser CDP state is available to prompts immediately after launch', async ({}, testInfo) => {
+  const chromeDir = await mkdtemp(path.join(tmpdir(), 'ouroboros-fake-chrome-'))
+  const chromePath = path.join(chromeDir, 'google-chrome')
+  await writeFile(
+    chromePath,
+    [
+      '#!/usr/bin/env node',
+      "const http = require('node:http')",
+      "const arg = process.argv.find((value) => value.startsWith('--remote-debugging-port='))",
+      "const port = Number(arg?.split('=')[1])",
+      'const server = http.createServer((req, res) => {',
+      "  if (req.url === '/json/version') {",
+      "    res.writeHead(200, { 'content-type': 'application/json' })",
+      "    res.end(JSON.stringify({ Browser: 'Fake Chrome', webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/browser/test` }))",
+      '    return',
+      '  }',
+      '  res.writeHead(404)',
+      '  res.end()',
+      '})',
+      "server.listen(port, '127.0.0.1')",
+      "process.on('SIGTERM', () => server.close(() => process.exit(0)))",
+      'setInterval(() => {}, 1000)',
+    ].join('\n'),
+    'utf8',
+  )
+  await chmod(chromePath, 0o755)
+
+  launched = await launchTestApp(testInfo, {
+    env: { PATH: `${chromeDir}${path.delimiter}${process.env.PATH ?? ''}` },
+    scenario: {
+      defaultAgentRun: {
+        notifications: [
+          {
+            method: 'agent/text',
+            params: { sessionId: null, text: 'Browser automation request received.' },
+          },
+          {
+            method: 'agent/turnComplete',
+            params: {
+              sessionId: null,
+              text: 'Browser automation request received.',
+              iterations: 1,
+            },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+  await launched.page.getByRole('button', { name: /Automation Browser/ }).click()
+  await launched.page.getByRole('button', { name: 'Launch Automation Browser' }).click()
+  await launched.page.getByRole('button', { name: /Separate automation profile/ }).click()
+  await expect(launched.page.getByText(/Automation Browser is running on local port/)).toBeVisible()
+
+  const logAfterLaunch = await readFile(launched.paths.mockLogPath, 'utf8')
+  const envLine = logAfterLaunch
+    .split('\n')
+    .find((line) => line.startsWith('[env] ') && line.includes('agentBrowserCdpFile'))
+  expect(envLine).toBeTruthy()
+  const envPayload = JSON.parse(envLine!.slice('[env] '.length)) as {
+    agentBrowserCdpFile: string
+  }
+  const cdpState = JSON.parse(await readFile(envPayload.agentBrowserCdpFile, 'utf8')) as {
+    port: number
+  }
+  expect(cdpState.port).toBeGreaterThan(0)
+
+  await launched.page.getByLabel('Close settings').click()
+  await launched.page.getByLabel('Message input').fill('Use browser automation to open example.com')
+  await launched.page.keyboard.press('Enter')
+
+  await expect(launched.page.getByText('Browser automation request received.')).toBeVisible()
+  await expect
+    .poll(async () => readFile(launched!.paths.mockLogPath, 'utf8').catch(() => ''))
+    .toContain('Use browser automation to open example.com')
 })
 
 test('command palette supports empty search state and Escape close', async ({}, testInfo) => {

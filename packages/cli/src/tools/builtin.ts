@@ -2,6 +2,7 @@ import type { ToolDefinition } from './types'
 
 import * as askUserTool from './ask-user'
 import * as bashTool from './bash'
+import * as browserAutomationTool from './browser-automation'
 import * as codeExecTool from './code-exec'
 import * as createArtifactTool from './create-artifact'
 import * as crystallizeTool from './crystallize'
@@ -31,6 +32,7 @@ import * as exitModeTool from '@src/modes/tools/exit-mode'
 export const BUILTIN_TOOLS: ToolDefinition[] = [
   askUserTool,
   bashTool,
+  browserAutomationTool,
   codeExecTool,
   createArtifactTool,
   crystallizeTool,

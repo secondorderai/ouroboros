@@ -39,6 +39,8 @@ logLine(
     hasAnthropicApiKey: Boolean(process.env.ANTHROPIC_API_KEY),
     hasOpenAIApiKey: Boolean(process.env.OPENAI_API_KEY),
     hasOpenAICompatibleApiKey: Boolean(process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY),
+    agentBrowserCdp: process.env.OUROBOROS_AGENT_BROWSER_CDP ?? null,
+    agentBrowserCdpFile: process.env.OUROBOROS_AGENT_BROWSER_CDP_FILE ?? null,
   }),
 )
 logLine(
@@ -126,7 +128,9 @@ async function handleRequest(request) {
     case 'config/set':
       setPath(runtime.config, String(request.params?.path ?? ''), request.params?.value)
       if (request.params?.path === 'disabledSkills') {
-        const disabled = new Set(Array.isArray(request.params.value) ? request.params.value.map(String) : [])
+        const disabled = new Set(
+          Array.isArray(request.params.value) ? request.params.value.map(String) : [],
+        )
         runtime.skills = runtime.skills.map((skill) =>
           typeof skill === 'object' && skill !== null && 'name' in skill
             ? { ...skill, enabled: !disabled.has(String(skill.name)) }
@@ -264,6 +268,22 @@ async function handleRequest(request) {
       runtime.sessions.unshift(newSession)
       runtime.currentSessionId = newSession.id
       writeResult(request.id, { sessionId: newSession.id })
+      return
+    }
+    case 'session/truncate': {
+      const id = request.params?.id
+      const messageIndex = request.params?.messageIndex
+      const session = runtime.sessions.find((entry) => entry.id === id)
+      if (!session || typeof messageIndex !== 'number' || !Number.isInteger(messageIndex)) {
+        writeResponse({
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32602, message: 'Invalid session truncate params' },
+        })
+        return
+      }
+      session.messages = session.messages.slice(0, messageIndex)
+      writeResult(request.id, { id, messageCount: session.messages.length })
       return
     }
     case 'session/delete': {

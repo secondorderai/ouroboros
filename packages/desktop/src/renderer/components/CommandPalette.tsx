@@ -26,126 +26,247 @@ export interface PaletteAction {
 
 function PlusIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <line x1='12' y1='5' x2='12' y2='19' />
+      <line x1='5' y1='12' x2='19' y2='12' />
     </svg>
   )
 }
 
 function MoonStarsIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-      <line x1="17" y1="2" x2="17" y2="4" />
-      <line x1="20" y1="5" x2="22" y2="5" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z' />
+      <line x1='17' y1='2' x2='17' y2='4' />
+      <line x1='20' y1='5' x2='22' y2='5' />
     </svg>
   )
 }
 
 function FolderIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <path d='M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z' />
     </svg>
   )
 }
 
 function ZapIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <polygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2' />
     </svg>
   )
 }
 
 function ClockIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <circle cx='12' cy='12' r='10' />
+      <polyline points='12 6 12 12 16 14' />
     </svg>
   )
 }
 
 function CheckSquareIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 11 12 14 22 4" />
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <polyline points='9 11 12 14 22 4' />
+      <path d='M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' />
     </svg>
   )
 }
 
 function CpuIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
-      <rect x="9" y="9" width="6" height="6" />
-      <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-      <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-      <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-      <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <rect x='4' y='4' width='16' height='16' rx='2' ry='2' />
+      <rect x='9' y='9' width='6' height='6' />
+      <line x1='9' y1='1' x2='9' y2='4' />
+      <line x1='15' y1='1' x2='15' y2='4' />
+      <line x1='9' y1='20' x2='9' y2='23' />
+      <line x1='15' y1='20' x2='15' y2='23' />
+      <line x1='20' y1='9' x2='23' y2='9' />
+      <line x1='20' y1='14' x2='23' y2='14' />
+      <line x1='1' y1='9' x2='4' y2='9' />
+      <line x1='1' y1='14' x2='4' y2='14' />
     </svg>
   )
 }
 
 function ShieldIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' />
     </svg>
   )
 }
 
 function KeyIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <path d='M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4' />
     </svg>
   )
 }
 
 function PaletteIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="12" r="4" />
-      <line x1="21.17" y1="8" x2="12" y2="8" />
-      <line x1="3.95" y1="6.06" x2="8.54" y2="14" />
-      <line x1="10.88" y1="21.94" x2="15.46" y2="14" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <circle cx='12' cy='12' r='10' />
+      <circle cx='12' cy='12' r='4' />
+      <line x1='21.17' y1='8' x2='12' y2='8' />
+      <line x1='3.95' y1='6.06' x2='8.54' y2='14' />
+      <line x1='10.88' y1='21.94' x2='15.46' y2='14' />
     </svg>
   )
 }
 
 function SearchIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <circle cx='11' cy='11' r='8' />
+      <line x1='21' y1='21' x2='16.65' y2='16.65' />
     </svg>
   )
 }
 
 function LayersIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-      <polyline points="2 17 12 22 22 17" />
-      <polyline points="2 12 12 17 22 12" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <polygon points='12 2 2 7 12 12 22 7 12 2' />
+      <polyline points='2 17 12 22 22 17' />
+      <polyline points='2 12 12 17 22 12' />
     </svg>
   )
 }
 
 function NetworkIcon(): React.ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="6" r="3" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="12" cy="18" r="3" />
-      <path d="M8.6 7.7 10.9 15" />
-      <path d="M15.4 7.7 13.1 15" />
-      <path d="M9 6h6" />
+    <svg
+      width='16'
+      height='16'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+    >
+      <circle cx='6' cy='6' r='3' />
+      <circle cx='18' cy='6' r='3' />
+      <circle cx='12' cy='18' r='3' />
+      <path d='M8.6 7.7 10.9 15' />
+      <path d='M15.4 7.7 13.1 15' />
+      <path d='M9 6h6' />
     </svg>
   )
 }
@@ -170,6 +291,7 @@ function createDefaultActions(handlers: {
   onManageApiKeys: () => void
   onAppearance: () => void
   onModes: () => void
+  onAutomationBrowser: () => void
 }): PaletteAction[] {
   const isMac = navigator.userAgent.includes('Mac')
   const mod = isMac ? 'Cmd' : 'Ctrl'
@@ -286,6 +408,14 @@ function createDefaultActions(handlers: {
       description: 'Review and switch planning modes',
       handler: handlers.onModes,
     },
+    {
+      id: 'automation-browser',
+      group: 'Settings',
+      icon: <SearchIcon />,
+      title: 'Automation Browser',
+      description: 'Launch Chrome for browser automation',
+      handler: handlers.onAutomationBrowser,
+    },
   ]
 }
 
@@ -339,7 +469,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           ?.rpc('session/new', { workspaceMode: 'simple' })
           .then((result) => {
             resetConversation()
-            store.createNewSession(result.sessionId, result.workspacePath, result.workspaceMode ?? 'simple')
+            store.createNewSession(
+              result.sessionId,
+              result.workspacePath,
+              result.workspaceMode ?? 'simple',
+            )
           })
           .catch((err: unknown) => {
             console.error('session/new failed:', err)
@@ -351,17 +485,19 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         })
       },
       onOpenWorkspace: () => {
-        window.ouroboros?.showOpenDialog({
-          title: 'Open Workspace Folder',
-          properties: ['openDirectory'],
-        }).then((dir) => {
-          const directory = Array.isArray(dir) ? dir[0] : dir
-          if (directory) {
-            const store = useConversationStore.getState()
-            store.setSelectedWorkspacePath(directory)
-            store.setWorkspaceMode('workspace')
-          }
-        })
+        window.ouroboros
+          ?.showOpenDialog({
+            title: 'Open Workspace Folder',
+            properties: ['openDirectory'],
+          })
+          .then((dir) => {
+            const directory = Array.isArray(dir) ? dir[0] : dir
+            if (directory) {
+              const store = useConversationStore.getState()
+              store.setSelectedWorkspacePath(directory)
+              store.setWorkspaceMode('workspace')
+            }
+          })
       },
       onBrowseSkills: () => {
         if (onOpenRSIDrawer) onOpenRSIDrawer()
@@ -393,6 +529,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       onModes: () => {
         if (onOpenSettings) onOpenSettings('mode')
       },
+      onAutomationBrowser: () => {
+        if (onOpenSettings) onOpenSettings('automation-browser')
+      },
     })
   }, [onOpenApprovals, onOpenRSIDrawer, onOpenSettings, onOpenTeamGraph, resetConversation])
 
@@ -418,10 +557,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   }, [filteredActions])
 
   // Flat list for keyboard navigation (excluding group headers)
-  const flatItems = useMemo(
-    () => groupedActions.flatMap((g) => g.items),
-    [groupedActions]
-  )
+  const flatItems = useMemo(() => groupedActions.flatMap((g) => g.items), [groupedActions])
 
   // Animate close
   const handleClose = useCallback(() => {
@@ -441,7 +577,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       // Slight delay so palette closes before handler runs
       setTimeout(() => action.handler(), 160)
     },
-    [handleClose]
+    [handleClose],
   )
 
   // Reset selection when query changes
@@ -479,9 +615,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           break
         case 'ArrowUp':
           e.preventDefault()
-          setSelectedIndex((prev) =>
-            prev <= 0 ? Math.max(flatItems.length - 1, 0) : prev - 1
-          )
+          setSelectedIndex((prev) => (prev <= 0 ? Math.max(flatItems.length - 1, 0) : prev - 1))
           break
         case 'Enter':
           e.preventDefault()
@@ -495,7 +629,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           break
       }
     },
-    [flatItems, selectedIndex, executeAction, handleClose]
+    [flatItems, selectedIndex, executeAction, handleClose],
   )
 
   if (!isOpen) return null
@@ -509,44 +643,44 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       <div
         className={`command-palette-backdrop${closing ? ' closing' : ''}`}
         onClick={handleClose}
-        aria-hidden="true"
+        aria-hidden='true'
       />
 
       {/* Palette */}
       <div
         className={`command-palette${closing ? ' closing' : ''}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Command palette"
+        role='dialog'
+        aria-modal='true'
+        aria-label='Command palette'
         onKeyDown={handleKeyDown}
       >
         {/* Search input */}
-        <div className="command-palette-input-wrapper">
-          <span className="command-palette-search-icon">
+        <div className='command-palette-input-wrapper'>
+          <span className='command-palette-search-icon'>
             <SearchIcon />
           </span>
           <input
             ref={inputRef}
-            className="command-palette-input"
-            type="text"
-            placeholder="Search actions..."
+            className='command-palette-input'
+            type='text'
+            placeholder='Search actions...'
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            autoComplete="off"
+            autoComplete='off'
             spellCheck={false}
           />
         </div>
 
-        <div className="command-palette-divider" />
+        <div className='command-palette-divider' />
 
         {/* Action list */}
-        <div className="command-palette-list" ref={listRef}>
+        <div className='command-palette-list' ref={listRef}>
           {groupedActions.length === 0 ? (
-            <div className="command-palette-empty">No matching actions</div>
+            <div className='command-palette-empty'>No matching actions</div>
           ) : (
             groupedActions.map(({ group, items }) => (
               <div key={group}>
-                <div className="command-palette-group-header">{group}</div>
+                <div className='command-palette-group-header'>{group}</div>
                 {items.map((action) => {
                   const currentFlatIndex = flatIndex++
                   return (
@@ -555,20 +689,18 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       className={`command-palette-item${currentFlatIndex === selectedIndex ? ' selected' : ''}`}
                       onClick={() => executeAction(action)}
                       onMouseEnter={() => setSelectedIndex(currentFlatIndex)}
-                      role="option"
+                      role='option'
                       aria-selected={currentFlatIndex === selectedIndex}
                     >
-                      <span className="command-palette-item-icon">{action.icon}</span>
-                      <div className="command-palette-item-content">
-                        <span className="command-palette-item-title">{action.title}</span>
-                        <span className="command-palette-item-description">
+                      <span className='command-palette-item-icon'>{action.icon}</span>
+                      <div className='command-palette-item-content'>
+                        <span className='command-palette-item-title'>{action.title}</span>
+                        <span className='command-palette-item-description'>
                           {action.description}
                         </span>
                       </div>
                       {action.shortcut && (
-                        <span className="command-palette-item-shortcut">
-                          {action.shortcut}
-                        </span>
+                        <span className='command-palette-item-shortcut'>{action.shortcut}</span>
                       )}
                     </div>
                   )

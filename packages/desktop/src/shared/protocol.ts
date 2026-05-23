@@ -31,6 +31,21 @@ export interface UpdateCheckResult {
   errorMessage?: string
 }
 
+export type AutomationBrowserProfileMode = 'managed-profile' | 'default-profile'
+export type AutomationBrowserState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+
+export interface AutomationBrowserStatus {
+  state: AutomationBrowserState
+  chromePath?: string
+  port?: number
+  profileMode?: AutomationBrowserProfileMode
+  errorMessage?: string
+}
+
+export interface AutomationBrowserLaunchParams {
+  profileMode: AutomationBrowserProfileMode
+}
+
 /** API exposed from main process to renderer via preload script */
 export interface ElectronAPI {
   getTheme: () => Promise<Theme>
@@ -54,6 +69,12 @@ export interface ElectronAPI {
   getUpdatePreferences: () => Promise<UpdatePreferences>
   setUpdatePreferences: (preferences: UpdatePreferences) => Promise<void>
   installUpdate: () => Promise<void>
+  getAutomationBrowserStatus: () => Promise<AutomationBrowserStatus>
+  launchAutomationBrowser: (
+    params: AutomationBrowserLaunchParams,
+  ) => Promise<AutomationBrowserStatus>
+  stopAutomationBrowser: () => Promise<AutomationBrowserStatus>
+  onAutomationBrowserStatus: (callback: (status: AutomationBrowserStatus) => void) => () => void
 }
 
 /** IPC bridge API for JSON-RPC communication with CLI */
@@ -170,6 +191,8 @@ export interface Message {
   files?: string[]
   /** Attached image metadata and optional local preview data (user messages only). */
   imageAttachments?: ImageAttachment[]
+  /** UI-only slash skill name used when replaying a local user message. */
+  retrySkillName?: string
   /** Completed tool calls that appeared during this agent turn. */
   toolCalls?: CompletedToolCall[]
   /** Elapsed wall-clock time for this assistant response, in milliseconds. */
@@ -492,6 +515,14 @@ export interface SessionLoadParams {
 export interface SessionNewParams {
   workspaceMode?: WorkspaceMode
   workspacePath?: string
+}
+export interface SessionTruncateParams {
+  id: string
+  messageIndex: number
+}
+export interface SessionTruncateResult {
+  id: string
+  messageCount: number
 }
 export interface SessionDeleteParams {
   id: string
@@ -1079,6 +1110,7 @@ export interface RpcMethodMap {
   'session/list': { params: SessionListParams; result: SessionListResult }
   'session/load': { params: SessionLoadParams; result: SessionData }
   'session/new': { params: SessionNewParams; result: SessionNewResult }
+  'session/truncate': { params: SessionTruncateParams; result: SessionTruncateResult }
   'session/delete': { params: SessionDeleteParams; result: SessionDeleteResult }
   'session/rename': { params: SessionRenameParams; result: SessionRenameResult }
   'config/get': { params: ConfigGetParams; result: OuroborosConfig }
@@ -1167,6 +1199,7 @@ export const RPC_METHOD_NAMES = [
   'session/list',
   'session/load',
   'session/new',
+  'session/truncate',
   'session/delete',
   'session/rename',
   'config/get',
@@ -1253,6 +1286,7 @@ export const RPC_RISK_CLASSES: Record<RpcMethod, RpcRiskClass> = {
   'agent/cancel': 'write-low',
   'agent/steer': 'write-low',
   'session/new': 'write-low',
+  'session/truncate': 'write-low',
   'session/rename': 'write-low',
   'config/testConnection': 'write-low',
   'auth/startLogin': 'write-low',
@@ -1561,6 +1595,10 @@ export const IPC_CHANNELS = {
   REGISTER_DROPPED_IMAGE_PATHS: 'ouroboros:register-dropped-image-paths',
   REGISTER_SESSION_IMAGE_PATHS: 'ouroboros:register-session-image-paths',
   SAVE_ARTIFACT: 'ouroboros:save-artifact',
+  AUTOMATION_BROWSER_STATUS: 'ouroboros:automation-browser-status',
+  AUTOMATION_BROWSER_GET_STATUS: 'ouroboros:automation-browser-get-status',
+  AUTOMATION_BROWSER_LAUNCH: 'ouroboros:automation-browser-launch',
+  AUTOMATION_BROWSER_STOP: 'ouroboros:automation-browser-stop',
 } as const
 
 /**

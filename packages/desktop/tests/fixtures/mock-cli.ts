@@ -120,6 +120,8 @@ logLine(
     hasAnthropicApiKey: Boolean(process.env.ANTHROPIC_API_KEY),
     hasOpenAIApiKey: Boolean(process.env.OPENAI_API_KEY),
     hasOpenAICompatibleApiKey: Boolean(process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY),
+    agentBrowserCdp: process.env.OUROBOROS_AGENT_BROWSER_CDP ?? null,
+    agentBrowserCdpFile: process.env.OUROBOROS_AGENT_BROWSER_CDP_FILE ?? null,
   }),
 )
 logLine(
@@ -360,6 +362,22 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         workspacePath: newSession.workspacePath,
         workspaceMode: newSession.workspaceMode,
       })
+      return
+    }
+    case 'session/truncate': {
+      const id = request.params?.id
+      const messageIndex = request.params?.messageIndex
+      const session = runtime.sessions.find((entry) => entry.id === id)
+      if (!session || typeof messageIndex !== 'number' || !Number.isInteger(messageIndex)) {
+        writeResponse({
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32602, message: 'Invalid session truncate params' },
+        })
+        return
+      }
+      session.messages = session.messages.slice(0, messageIndex)
+      writeResult(request.id, { id, messageCount: session.messages.length })
       return
     }
     case 'session/delete': {
