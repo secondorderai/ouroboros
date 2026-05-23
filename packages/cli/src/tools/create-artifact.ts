@@ -13,6 +13,10 @@ export const description =
   `allowlisted CDNs (${DEFAULT_CDN_ALLOWLIST.join(', ')}); ` +
   'all other network access is blocked. The artifact is sandboxed (no same-origin, no fetch, no eval). ' +
   'Do not use \'eval\', dynamic function constructors, or <script type="text/babel"> -- the CSP omits unsafe-eval. ' +
+  'For charts, use Chart.js for simple lightweight bar/line/pie/scatter charts, Apache ECharts for dashboards, ' +
+  'SQL or data analytics, histograms, heatmaps, boxplots, zoom/toolbox needs, or richer interactions, and D3 or ' +
+  'Observable Plot only for bespoke custom visualizations. Chart artifacts should include a text summary and a ' +
+  'table or data fallback when practical. ' +
   'Omit `supersedes` for a brand-new artifact; set it only to an artifactId from a previous ' +
   'create-artifact response to publish a new version of that artifact.'
 

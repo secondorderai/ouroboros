@@ -57,6 +57,7 @@ describe('ToolRegistry', () => {
       'file-read',
       'file-write',
       'memory',
+      'postgres-analytics',
       'reflect',
       'self-test',
       'skill-gen',
@@ -68,7 +69,7 @@ describe('ToolRegistry', () => {
       'web-fetch',
       'web-search',
     ])
-    expect(registry.size).toBe(23)
+    expect(registry.size).toBe(24)
   })
 
   test('getTools() returns metadata with name, description, and parameters', async () => {
@@ -145,8 +146,10 @@ describe('ToolRegistry', () => {
     expect(parent.getTool('file-write')).toBeDefined()
     expect(parent.getTool('file-edit')).toBeDefined()
     expect(parent.getTool('bash')).toBeDefined()
-    expect(parent.size).toBe(26)
+    expect(parent.getTool('postgres-analytics')).toBeDefined()
+    expect(parent.size).toBe(27)
     expect(child.getTool('file-write')).toBeUndefined()
+    expect(child.getTool('postgres-analytics')).toBeUndefined()
     expect(child.size).toBe(3)
   })
 
@@ -209,6 +212,22 @@ describe('ToolRegistry', () => {
     if (!result.ok) {
       expect(result.error.message).toContain('denied by read-only policy')
       expect(result.error.message).toContain('cannot write files')
+    }
+  })
+
+  test('read-only registry denies PostgreSQL analytics explicitly', async () => {
+    const { createRegistry } = await import('@src/tools/registry')
+
+    const parent = await createRegistry()
+    const child = createReadOnlyToolRegistry(parent)
+    const result = await child.executeTool('postgres-analytics', {
+      question: 'How many orders are there?',
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.message).toContain('denied by read-only policy')
+      expect(result.error.message).toContain('external databases')
     }
   })
 
@@ -299,6 +318,7 @@ describe('ToolRegistry', () => {
       'file-read',
       'file-write',
       'memory',
+      'postgres-analytics',
       'reflect',
       'self-test',
       'skill-gen',
@@ -311,7 +331,7 @@ describe('ToolRegistry', () => {
       'web-fetch',
       'web-search',
     ])
-    expect(bundledRegistry.size).toBe(26)
+    expect(bundledRegistry.size).toBe(27)
   })
 
   test('all built-in tools produce JSON Schema with type: "object" (AI SDK requirement)', async () => {

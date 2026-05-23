@@ -58,6 +58,16 @@ function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
       ...overrides?.artifacts,
       cdnAllowlist: overrides?.artifacts?.cdnAllowlist ?? base.artifacts.cdnAllowlist,
     },
+    analytics: {
+      ...base.analytics,
+      ...overrides?.analytics,
+      postgres: {
+        ...base.analytics.postgres,
+        ...overrides?.analytics?.postgres,
+        connections:
+          overrides?.analytics?.postgres?.connections ?? base.analytics.postgres.connections,
+      },
+    },
     mcp: {
       servers: overrides?.mcp?.servers ?? base.mcp.servers,
     },

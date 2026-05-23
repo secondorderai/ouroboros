@@ -33,6 +33,7 @@ describe('loadConfig', () => {
     savedEnv.OUROBOROS_CONSOLIDATION = process.env.OUROBOROS_CONSOLIDATION
     savedEnv.OUROBOROS_NOVELTY = process.env.OUROBOROS_NOVELTY
     savedEnv.OUROBOROS_AUTO_REFLECT = process.env.OUROBOROS_AUTO_REFLECT
+    savedEnv.OUROBOROS_POSTGRES_URL = process.env.OUROBOROS_POSTGRES_URL
     savedEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
     savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
@@ -43,6 +44,7 @@ describe('loadConfig', () => {
     delete process.env.OUROBOROS_CONSOLIDATION
     delete process.env.OUROBOROS_NOVELTY
     delete process.env.OUROBOROS_AUTO_REFLECT
+    delete process.env.OUROBOROS_POSTGRES_URL
     delete process.env.ANTHROPIC_API_KEY
     delete process.env.OPENAI_API_KEY
   })
@@ -116,6 +118,63 @@ describe('loadConfig', () => {
     expect(config.rsi.crystallizeFromRepeatedPatternsOnly).toBe(
       DEFAULT_RSI_CONFIG.crystallizeFromRepeatedPatternsOnly,
     )
+
+    expect(config.analytics.postgres.connections).toEqual([])
+  })
+
+  test('loads configured PostgreSQL analytics connections without secrets', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        analytics: {
+          postgres: {
+            connections: [
+              {
+                id: 'warehouse',
+                connectionStringEnv: 'WAREHOUSE_DATABASE_URL',
+                defaultSchema: 'analytics',
+                statementTimeoutMs: 5000,
+                maxRows: 250,
+                allowTables: ['analytics.orders', 'analytics.customers'],
+              },
+            ],
+          },
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.analytics.postgres.connections).toEqual([
+      {
+        id: 'warehouse',
+        connectionStringEnv: 'WAREHOUSE_DATABASE_URL',
+        defaultSchema: 'analytics',
+        statementTimeoutMs: 5000,
+        maxRows: 250,
+        allowTables: ['analytics.orders', 'analytics.customers'],
+      },
+    ])
+  })
+
+  test('adds default PostgreSQL analytics connection from OUROBOROS_POSTGRES_URL env', () => {
+    process.env.OUROBOROS_POSTGRES_URL = 'postgres://user:secret@example.test/db'
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.analytics.postgres.connections).toEqual([
+      {
+        id: 'default',
+        connectionStringEnv: 'OUROBOROS_POSTGRES_URL',
+        defaultSchema: 'public',
+        statementTimeoutMs: 10_000,
+        maxRows: 500,
+      },
+    ])
   })
 
   test('loads partial agent maxSteps config with defaults for omitted profiles', () => {

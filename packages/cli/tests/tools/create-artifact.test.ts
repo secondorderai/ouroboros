@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { execute, schema } from '@src/tools/create-artifact'
+import { description, execute, schema } from '@src/tools/create-artifact'
 import { DEFAULT_CDN_ALLOWLIST } from '@src/artifacts/csp'
 import { resolveArtifactPath } from '@src/memory/paths'
 import type { ToolExecutionContext } from '@src/tools/types'
@@ -46,6 +46,14 @@ describe('create-artifact tool', () => {
 
   afterEach(() => {
     rmSync(basePath, { recursive: true, force: true })
+  })
+
+  test('describes charting library guidance without changing schema', () => {
+    expect(description).toContain('Chart.js')
+    expect(description).toContain('Apache ECharts')
+    expect(description).toContain('D3')
+    expect(description).toContain('table or data fallback')
+    expect(schema.shape).not.toHaveProperty('chartLibrary')
   })
 
   test('happy path: writes file with CSP, returns metadata, emits event', async () => {

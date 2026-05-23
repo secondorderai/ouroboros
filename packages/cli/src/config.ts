@@ -49,6 +49,19 @@ export const DEFAULT_ARTIFACTS_CONFIG = {
   maxBytes: 1_048_576,
 }
 
+export const DEFAULT_ANALYTICS_CONFIG = {
+  postgres: {
+    connections: [] as Array<{
+      id: string
+      connectionStringEnv: string
+      defaultSchema: string
+      statementTimeoutMs: number
+      maxRows: number
+      allowTables?: string[]
+    }>,
+  },
+}
+
 const READ_ONLY_PERMISSIONS: PermissionConfig = {
   tier0: true,
   tier1: false,
@@ -233,6 +246,35 @@ export type McpServerConfig = z.infer<typeof mcpServerSchema>
 export type McpLocalServerConfig = z.infer<typeof mcpLocalServerSchema>
 export type McpRemoteServerConfig = z.infer<typeof mcpRemoteServerSchema>
 export type McpConfig = z.infer<typeof mcpConfigSchema>
+
+const postgresConnectionSchema = z.object({
+  id: z
+    .string()
+    .regex(
+      /^[a-z][a-z0-9-]*$/,
+      'PostgreSQL analytics connection id must be lowercase alphanumeric with hyphens',
+    ),
+  connectionStringEnv: z
+    .string()
+    .regex(
+      /^[A-Z_][A-Z0-9_]*$/,
+      'PostgreSQL connection string env var must use uppercase letters, numbers, and underscores',
+    ),
+  defaultSchema: z.string().min(1).default('public'),
+  statementTimeoutMs: z.number().int().positive().max(120_000).default(10_000),
+  maxRows: z.number().int().positive().max(10_000).default(500),
+  allowTables: z.array(z.string().min(1)).optional(),
+})
+
+const analyticsConfigSchema = z
+  .object({
+    postgres: z
+      .object({
+        connections: z.array(postgresConnectionSchema).default([]),
+      })
+      .default(DEFAULT_ANALYTICS_CONFIG.postgres),
+  })
+  .default(DEFAULT_ANALYTICS_CONFIG)
 
 /**
  * Zod schema for the .ouroboros configuration file.
@@ -440,6 +482,8 @@ export const configSchema = z.object({
     })
     .default(DEFAULT_ARTIFACTS_CONFIG),
 
+  analytics: analyticsConfigSchema,
+
   mcp: mcpConfigSchema.default({ servers: [] }),
 })
 
@@ -488,6 +532,7 @@ export function hydrateContextWindowConfig(config: OuroborosConfig): OuroborosCo
  *   OUROBOROS_CONSOLIDATION   -> memory.consolidationSchedule
  *   OUROBOROS_NOVELTY         -> rsi.noveltyThreshold
  *   OUROBOROS_AUTO_REFLECT    -> rsi.autoReflect
+ *   OUROBOROS_POSTGRES_URL    -> analytics.postgres.connections.default
  */
 function applyEnvOverrides(config: Record<string, unknown>): Record<string, unknown> {
   const env = process.env
@@ -509,6 +554,18 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
       ? ({ ...config.rsi } as Record<string, unknown>)
       : config.rsi !== undefined
         ? (config.rsi as Record<string, unknown>)
+        : ({} as Record<string, unknown>)
+  const analytics =
+    typeof config.analytics === 'object' && config.analytics !== null
+      ? ({ ...config.analytics } as Record<string, unknown>)
+      : config.analytics !== undefined
+        ? (config.analytics as Record<string, unknown>)
+        : ({} as Record<string, unknown>)
+  const postgres =
+    typeof analytics.postgres === 'object' && analytics.postgres !== null
+      ? ({ ...analytics.postgres } as Record<string, unknown>)
+      : analytics.postgres !== undefined
+        ? (analytics.postgres as Record<string, unknown>)
         : ({} as Record<string, unknown>)
 
   if (env.OUROBOROS_MODEL_PROVIDER) {
@@ -544,12 +601,38 @@ function applyEnvOverrides(config: Record<string, unknown>): Record<string, unkn
   if (env.OUROBOROS_AUTO_REFLECT) {
     rsi.autoReflect = env.OUROBOROS_AUTO_REFLECT === 'true'
   }
+  if (env.OUROBOROS_POSTGRES_URL) {
+    const existingConnections = Array.isArray(postgres.connections)
+      ? (postgres.connections as unknown[])
+      : []
+    postgres.connections = [
+      ...existingConnections.filter(
+        (connection) =>
+          !(
+            typeof connection === 'object' &&
+            connection !== null &&
+            (connection as { id?: unknown }).id === 'default'
+          ),
+      ),
+      {
+        id: 'default',
+        connectionStringEnv: 'OUROBOROS_POSTGRES_URL',
+        defaultSchema: 'public',
+        statementTimeoutMs: 10_000,
+        maxRows: 500,
+      },
+    ]
+  }
 
   return {
     ...config,
     model,
     memory,
     rsi,
+    analytics: {
+      ...analytics,
+      postgres,
+    },
   }
 }
 

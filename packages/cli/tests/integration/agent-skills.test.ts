@@ -286,6 +286,7 @@ Apply the SecondOrder method.`,
             cdnAllowlist: DEFAULT_ARTIFACTS_CONFIG.cdnAllowlist,
             maxBytes: 1_048_576,
           },
+          analytics: { postgres: { connections: [] } },
           mcp: { servers: [] },
         },
       })

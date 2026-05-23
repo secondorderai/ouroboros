@@ -12,6 +12,7 @@
 import { getAgentsMdInstructions } from '@src/agents-md'
 import {
   BUILT_IN_AGENT_DEFINITIONS,
+  DEFAULT_ANALYTICS_CONFIG,
   DEFAULT_ARTIFACTS_CONFIG,
   loadConfig,
   type ContextWindowSource,
@@ -677,6 +678,7 @@ export class Agent {
                 cdnAllowlist: DEFAULT_ARTIFACTS_CONFIG.cdnAllowlist,
                 maxBytes: 1_048_576,
               },
+              analytics: DEFAULT_ANALYTICS_CONFIG,
               mcp: { servers: [] },
             } satisfies OuroborosConfig)
       })()

@@ -69,6 +69,15 @@ describe('hardenHtml', () => {
     expect(result.value.warnings).toEqual([])
   })
 
+  test('does not warn on ECharts from jsDelivr', () => {
+    const html =
+      '<html><head><script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script></head><body></body></html>'
+    const result = hardenHtml(html, DEFAULT_CDN_ALLOWLIST)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.warnings).toEqual([])
+  })
+
   test('does not warn on Google Fonts stylesheet links', () => {
     const html =
       '<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"></head><body></body></html>'

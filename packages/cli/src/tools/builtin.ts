@@ -12,6 +12,7 @@ import * as fileEditTool from './file-edit'
 import * as fileReadTool from './file-read'
 import * as fileWriteTool from './file-write'
 import * as memoryTool from './memory'
+import * as postgresAnalyticsTool from './postgres-analytics'
 import * as reflectTool from './reflect'
 import * as selfTestTool from './self-test'
 import * as skillGenTool from './skill-gen'
@@ -42,6 +43,7 @@ export const BUILTIN_TOOLS: ToolDefinition[] = [
   fileReadTool,
   fileWriteTool,
   memoryTool,
+  postgresAnalyticsTool,
   reflectTool,
   selfTestTool,
   skillGenTool,

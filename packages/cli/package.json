@@ -26,10 +26,12 @@
     "@ai-sdk/provider": "3.0.8",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "@ouroboros/shared": "workspace:*",
+    "@types/pg": "^8.20.0",
     "ai": "6.0.146",
     "better-sqlite3": "12.8.0",
     "commander": "14.0.3",
     "ink": "6.8.0",
+    "pg": "^8.21.0",
     "react": "19.2.4",
     "yaml": "2.8.3",
     "zod": "4.3.6"
