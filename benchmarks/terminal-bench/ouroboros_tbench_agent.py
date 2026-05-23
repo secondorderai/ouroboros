@@ -10,6 +10,8 @@ from harbor.models.agent.context import AgentContext
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTAINER_REPO_DIR = "/installed-agent/ouroboros"
+CONTAINER_HOME_CONFIG_DIR = "/installed-agent/ouroboros-host-home"
+CONTAINER_OUROBOROS_CONFIG = f"{CONTAINER_HOME_CONFIG_DIR}/.ouroboros"
 AGENT_LOG_NAME = "ouroboros.txt"
 AGENT_STDOUT_NAME = "ouroboros-stdout.txt"
 AGENT_STDERR_NAME = "ouroboros-stderr.txt"
@@ -18,6 +20,11 @@ AGENT_STDERR_NAME = "ouroboros-stderr.txt"
 def _env_or_default(name: str, default: str) -> str:
     value = os.environ.get(name)
     return value if value and value.strip() else default
+
+
+def _env_or_none(name: str) -> str | None:
+    value = os.environ.get(name)
+    return value if value and value.strip() else None
 
 
 class OuroborosInstalledAgent(BaseInstalledAgent):
@@ -67,6 +74,14 @@ class OuroborosInstalledAgent(BaseInstalledAgent):
         upload_dir = self._prepare_repo_upload()
         await environment.upload_dir(upload_dir, CONTAINER_REPO_DIR)
 
+        host_config = self._host_ouroboros_config_path()
+        if host_config.exists():
+            await self.exec_as_root(
+                environment,
+                command=f"mkdir -p {shlex.quote(CONTAINER_HOME_CONFIG_DIR)}",
+            )
+            await environment.upload_file(host_config, CONTAINER_OUROBOROS_CONFIG)
+
         await self.exec_as_agent(
             environment,
             command=(
@@ -82,27 +97,45 @@ class OuroborosInstalledAgent(BaseInstalledAgent):
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
-        model = _env_or_default("OUROBOROS_TBENCH_MODEL", "openai/gpt-5.5")
-        reasoning = _env_or_default("OUROBOROS_TBENCH_REASONING", "medium")
+        model = _env_or_none("OUROBOROS_TBENCH_MODEL")
+        reasoning = _env_or_none("OUROBOROS_TBENCH_REASONING")
         max_steps = _env_or_default("OUROBOROS_TBENCH_MAX_STEPS", "50")
 
         env = {
             "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
-            "OUROBOROS_TBENCH_MODEL": model,
-            "OUROBOROS_TBENCH_REASONING": reasoning,
+            "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY", ""),
+            "OUROBOROS_OPENAI_COMPATIBLE_API_KEY": os.environ.get(
+                "OUROBOROS_OPENAI_COMPATIBLE_API_KEY", ""
+            ),
+            "OUROBOROS_TBENCH_MODEL": model or "",
+            "OUROBOROS_TBENCH_REASONING": reasoning or "",
             "OUROBOROS_TBENCH_MAX_STEPS": max_steps,
         }
         env = {key: value for key, value in env.items() if value}
 
+        cli_options = [
+            "--no-stream",
+            "--no-rsi",
+            "--max-steps",
+            shlex.quote(max_steps),
+        ]
+        if model:
+            cli_options.extend(["--model", shlex.quote(model)])
+        if reasoning:
+            cli_options.extend(["--reasoning-effort", shlex.quote(reasoning)])
+
         command = (
             "mkdir -p /logs/agent && "
+            "if [ -f "
+            f"{shlex.quote(CONTAINER_OUROBOROS_CONFIG)}"
+            " ]; then "
+            f"cp {shlex.quote(CONTAINER_OUROBOROS_CONFIG)} \"$HOME/.ouroboros\" && "
+            "chmod 600 \"$HOME/.ouroboros\"; "
+            "fi && "
             'export BUN_INSTALL="$HOME/.bun"; '
             'export PATH="$BUN_INSTALL/bin:$PATH"; '
             f"{shlex.quote(CONTAINER_REPO_DIR)}/packages/cli/dist/ouroboros "
-            f"--model {shlex.quote(model)} "
-            f"--reasoning-effort {shlex.quote(reasoning)} "
-            "--no-stream --no-rsi "
-            f"--max-steps {shlex.quote(max_steps)} "
+            f"{' '.join(cli_options)} "
             f"-m {shlex.quote(instruction)} "
             f"> /logs/agent/{AGENT_STDOUT_NAME} "
             f"2> /logs/agent/{AGENT_STDERR_NAME}; "
@@ -126,9 +159,11 @@ class OuroborosInstalledAgent(BaseInstalledAgent):
 
         context.metadata = {
             "agent": self.name(),
-            "model": _env_or_default("OUROBOROS_TBENCH_MODEL", "openai/gpt-5.5"),
-            "reasoning_effort": _env_or_default("OUROBOROS_TBENCH_REASONING", "medium"),
+            "model": _env_or_none("OUROBOROS_TBENCH_MODEL") or "from ~/.ouroboros",
+            "reasoning_effort": _env_or_none("OUROBOROS_TBENCH_REASONING")
+            or "from ~/.ouroboros/default",
             "max_steps": _env_or_default("OUROBOROS_TBENCH_MAX_STEPS", "50"),
+            "uses_host_ouroboros_config": self._host_ouroboros_config_path().exists(),
             "log_path": str(log_path),
             "stdout_path": str(stdout_path),
             "stderr_path": str(stderr_path),
@@ -158,6 +193,12 @@ class OuroborosInstalledAgent(BaseInstalledAgent):
         )
         shutil.copytree(REPO_ROOT, target, ignore=ignore)
         return target
+
+    def _host_ouroboros_config_path(self) -> Path:
+        configured_path = os.environ.get("OUROBOROS_TBENCH_CONFIG_PATH")
+        if configured_path and configured_path.strip():
+            return Path(configured_path).expanduser()
+        return Path.home() / ".ouroboros"
 
     def _read_excerpt(self, path: Path, limit: int = 4000) -> str | None:
         if not path.exists():

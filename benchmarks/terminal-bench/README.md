@@ -26,14 +26,38 @@ ouroboros_tbench_agent:OuroborosInstalledAgent
 - `uv` installed.
 - Network access from task containers for installing Bun and calling the model
   provider.
-- `OPENAI_API_KEY` exported in the shell.
+- `~/.ouroboros` exists and contains the model config plus
+  `openai-chatgpt` OAuth auth.
+
+For ChatGPT subscription runs, `~/.ouroboros` should include at least:
+
+```json
+{
+  "model": {
+    "provider": "openai-chatgpt",
+    "name": "gpt-5.5",
+    "reasoningEffort": "medium"
+  }
+}
+```
+
+Then log in once:
+
+```bash
+cd packages/cli
+bun run dev -- auth login --provider openai-chatgpt
+```
+
+The adapter copies this host config file into each task container as the
+container user's `~/.ouroboros` before invoking Ouroboros.
 
 Optional environment variables:
 
-- `OUROBOROS_TBENCH_MODEL`, default `openai/gpt-5.5`
-- `OUROBOROS_TBENCH_REASONING`, default `medium`
+- `OUROBOROS_TBENCH_CONFIG_PATH`, default `~/.ouroboros`
+- `OUROBOROS_TBENCH_MODEL`, default from `~/.ouroboros`
+- `OUROBOROS_TBENCH_REASONING`, default from `~/.ouroboros` or Ouroboros defaults
 - `OUROBOROS_TBENCH_MAX_STEPS`, default `50`
-- `OUROBOROS_TBENCH_N_CONCURRENT`, default `1`
+- `OUROBOROS_TBENCH_N_CONCURRENT`, default `4`
 - `OUROBOROS_TBENCH_TIMEOUT_SEC`, default `3600`
 - `OUROBOROS_TBENCH_JOBS_DIR`, default `/private/tmp/ouroboros-tbench/jobs`
 
@@ -45,9 +69,17 @@ Optional environment variables:
    docker info
    ```
 
-2. Export credentials:
+2. Confirm the host Ouroboros config/auth file exists:
 
    ```bash
+   test -f ~/.ouroboros
+   ```
+
+   For an API-key OpenAI run instead of ChatGPT subscription auth, explicitly
+   set a model override and export the key:
+
+   ```bash
+   export OUROBOROS_TBENCH_MODEL=openai/gpt-5.5
    export OPENAI_API_KEY=...
    ```
 
@@ -108,10 +140,16 @@ bun run verify
 If `docker info` fails, start Docker Desktop and wait until it reports that the
 engine is running.
 
+### `~/.ouroboros` is missing
+
+Run `ouroboros auth login --provider openai-chatgpt` and configure
+`model.provider=openai-chatgpt` with `model.name=gpt-5.5` in `~/.ouroboros`.
+
 ### `OPENAI_API_KEY` is missing
 
-`run-pilot.sh` exits early when `OPENAI_API_KEY` is empty because the default
-model is `openai/gpt-5.5`.
+`OPENAI_API_KEY` is only required when `OUROBOROS_TBENCH_MODEL` is explicitly
+set to an `openai/...` API-key provider model. It is not required for the
+default ChatGPT subscription flow backed by `~/.ouroboros`.
 
 ### Harbor is missing
 

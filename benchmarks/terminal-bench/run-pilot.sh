@@ -4,11 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 JOBS_DIR="${OUROBOROS_TBENCH_JOBS_DIR:-/private/tmp/ouroboros-tbench/jobs}"
-N_CONCURRENT="${OUROBOROS_TBENCH_N_CONCURRENT:-1}"
+N_CONCURRENT="${OUROBOROS_TBENCH_N_CONCURRENT:-4}"
+CONFIG_PATH="${OUROBOROS_TBENCH_CONFIG_PATH:-$HOME/.ouroboros}"
 
-export OUROBOROS_TBENCH_MODEL="${OUROBOROS_TBENCH_MODEL:-openai/gpt-5.5}"
-export OUROBOROS_TBENCH_REASONING="${OUROBOROS_TBENCH_REASONING:-medium}"
 export OUROBOROS_TBENCH_MAX_STEPS="${OUROBOROS_TBENCH_MAX_STEPS:-50}"
+export OUROBOROS_TBENCH_CONFIG_PATH="$CONFIG_PATH"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "error: uv is required. Install it from https://docs.astral.sh/uv/." >&2
@@ -25,8 +25,13 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-  echo "error: OPENAI_API_KEY is required for the default openai/gpt-5.5 run." >&2
+if [[ ! -f "$CONFIG_PATH" ]]; then
+  echo "error: $CONFIG_PATH is required. Run Ouroboros auth login and configure the default model first." >&2
+  exit 1
+fi
+
+if [[ -n "${OUROBOROS_TBENCH_MODEL:-}" && "${OUROBOROS_TBENCH_MODEL}" == openai/* && -z "${OPENAI_API_KEY:-}" ]]; then
+  echo "error: OPENAI_API_KEY is required when OUROBOROS_TBENCH_MODEL uses the openai provider." >&2
   exit 1
 fi
 
@@ -41,8 +46,9 @@ mkdir -p "$JOBS_DIR"
 echo "Running Ouroboros Terminal-Bench 2.0 pilot"
 echo "repo: $REPO_ROOT"
 echo "jobs: $JOBS_DIR"
-echo "model: $OUROBOROS_TBENCH_MODEL"
-echo "reasoning: $OUROBOROS_TBENCH_REASONING"
+echo "config: $CONFIG_PATH"
+echo "model: ${OUROBOROS_TBENCH_MODEL:-from ~/.ouroboros}"
+echo "reasoning: ${OUROBOROS_TBENCH_REASONING:-from ~/.ouroboros/default}"
 echo "max steps: $OUROBOROS_TBENCH_MAX_STEPS"
 echo "concurrency: $N_CONCURRENT"
 
