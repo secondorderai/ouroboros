@@ -12,6 +12,7 @@
 import { getAgentsMdInstructions } from '@src/agents-md'
 import {
   BUILT_IN_AGENT_DEFINITIONS,
+  DEFAULT_ARTIFACTS_CONFIG,
   loadConfig,
   type ContextWindowSource,
   type OuroborosConfig,
@@ -673,11 +674,7 @@ export class Agent {
                 crystallizeFromRepeatedPatternsOnly: true,
               },
               artifacts: {
-                cdnAllowlist: [
-                  'https://cdn.jsdelivr.net',
-                  'https://unpkg.com',
-                  'https://cdnjs.cloudflare.com',
-                ],
+                cdnAllowlist: DEFAULT_ARTIFACTS_CONFIG.cdnAllowlist,
                 maxBytes: 1_048_576,
               },
               mcp: { servers: [] },

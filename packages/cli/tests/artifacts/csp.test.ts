@@ -69,6 +69,24 @@ describe('hardenHtml', () => {
     expect(result.value.warnings).toEqual([])
   })
 
+  test('does not warn on Google Fonts stylesheet links', () => {
+    const html =
+      '<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"></head><body></body></html>'
+    const result = hardenHtml(html, DEFAULT_CDN_ALLOWLIST)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.warnings).toEqual([])
+  })
+
+  test('does not warn on additional popular CDN script hosts', () => {
+    const html =
+      '<html><head><script src="https://esm.sh/chart.js"></script><script src="https://cdn.skypack.dev/d3"></script></head><body></body></html>'
+    const result = hardenHtml(html, DEFAULT_CDN_ALLOWLIST)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.warnings).toEqual([])
+  })
+
   test('warns on dynamic-evaluation script type', () => {
     const html = '<html><head><script type="text/babel">return 1</script></head></html>'
     const result = hardenHtml(html, DEFAULT_CDN_ALLOWLIST)
@@ -86,12 +104,8 @@ describe('hardenHtml', () => {
 describe('buildCspContent', () => {
   test('includes all allowlisted hosts in script-src and style-src', () => {
     const csp = buildCspContent(DEFAULT_CDN_ALLOWLIST)
-    expect(csp).toContain(
-      "script-src 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com",
-    )
-    expect(csp).toContain(
-      "style-src 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com",
-    )
+    expect(csp).toContain(`script-src 'unsafe-inline' ${DEFAULT_CDN_ALLOWLIST.join(' ')}`)
+    expect(csp).toContain(`style-src 'unsafe-inline' ${DEFAULT_CDN_ALLOWLIST.join(' ')}`)
     expect(csp).toContain("connect-src 'none'")
     expect(csp).not.toContain('unsafe-eval')
   })

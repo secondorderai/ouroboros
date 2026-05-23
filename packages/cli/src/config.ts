@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'no
 import { dirname, resolve } from 'node:path'
 import { type AgentDefinition, type PermissionConfig, type Result, ok, err } from '@src/types'
 import { getContextWindowTokens } from '@src/llm/model-capabilities'
+import { DEFAULT_CDN_ALLOWLIST } from '@src/artifacts/csp'
 
 const CONFIG_FILE_NAME = '.ouroboros'
 
@@ -44,11 +45,7 @@ export const DEFAULT_AGENT_CONFIG = {
 }
 
 export const DEFAULT_ARTIFACTS_CONFIG = {
-  cdnAllowlist: [
-    'https://cdn.jsdelivr.net',
-    'https://unpkg.com',
-    'https://cdnjs.cloudflare.com',
-  ] as string[],
+  cdnAllowlist: [...DEFAULT_CDN_ALLOWLIST],
   maxBytes: 1_048_576,
 }
 

@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execute, schema } from '@src/tools/create-artifact'
+import { DEFAULT_CDN_ALLOWLIST } from '@src/artifacts/csp'
 import { resolveArtifactPath } from '@src/memory/paths'
 import type { ToolExecutionContext } from '@src/tools/types'
 import type { OuroborosConfig } from '@src/config'
@@ -14,7 +15,7 @@ function makeContext(
   configOverride?: Partial<OuroborosConfig['artifacts']>,
 ): ToolExecutionContext {
   const artifacts = {
-    cdnAllowlist: ['https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://cdnjs.cloudflare.com'],
+    cdnAllowlist: [...DEFAULT_CDN_ALLOWLIST],
     maxBytes: 1_048_576,
     ...configOverride,
   }
@@ -179,6 +180,19 @@ describe('create-artifact tool', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.warnings.some((w) => w.includes('https://evil.example'))).toBe(true)
+  })
+
+  test('allows Google Fonts stylesheet links without warnings', async () => {
+    const emitted: unknown[] = []
+    const html =
+      '<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"></head><body></body></html>'
+    const result = await execute(
+      schema.parse({ title: 't', html }),
+      makeContext(basePath, sessionId, emitted),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.warnings).toEqual([])
   })
 
   test('rejects forbidden tag (<base>)', async () => {

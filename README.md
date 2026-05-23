@@ -366,7 +366,16 @@ discovery rules, schema details, and MCP examples.
     "cdnAllowlist": [
       "https://cdn.jsdelivr.net",
       "https://unpkg.com",
-      "https://cdnjs.cloudflare.com"
+      "https://cdnjs.cloudflare.com",
+      "https://fonts.googleapis.com",
+      "https://fonts.gstatic.com",
+      "https://cdn.tailwindcss.com",
+      "https://code.jquery.com",
+      "https://ajax.googleapis.com",
+      "https://esm.sh",
+      "https://cdn.skypack.dev",
+      "https://jspm.dev",
+      "https://ga.jspm.io"
     ],
     "maxBytes": 1048576
   },

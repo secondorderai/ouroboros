@@ -96,7 +96,16 @@ missing values are filled from schema defaults.
     "cdnAllowlist": [
       "https://cdn.jsdelivr.net",
       "https://unpkg.com",
-      "https://cdnjs.cloudflare.com"
+      "https://cdnjs.cloudflare.com",
+      "https://fonts.googleapis.com",
+      "https://fonts.gstatic.com",
+      "https://cdn.tailwindcss.com",
+      "https://code.jquery.com",
+      "https://ajax.googleapis.com",
+      "https://esm.sh",
+      "https://cdn.skypack.dev",
+      "https://jspm.dev",
+      "https://ga.jspm.io"
     ],
     "maxBytes": 1048576
   },
@@ -190,8 +199,8 @@ memory promotion, and whether skill crystallization requires repeated evidence.
 ## Artifacts
 
 `artifacts.cdnAllowlist` lists allowed CDN origins for HTML artifact
-`<script>` and `<link>` sources. `artifacts.maxBytes` caps generated HTML
-artifact size in bytes.
+`<script>` and `<link>` sources, including Google Fonts stylesheet URLs.
+`artifacts.maxBytes` caps generated HTML artifact size in bytes.
 
 ## MCP Servers
 

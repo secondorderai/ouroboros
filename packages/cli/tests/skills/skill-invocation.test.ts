@@ -11,7 +11,7 @@ import {
   _resetSkillApprovalHandler,
   setSkillApprovalHandler,
 } from '@src/tools/skill-manager'
-import type { OuroborosConfig } from '@src/config'
+import { DEFAULT_ARTIFACTS_CONFIG, type OuroborosConfig } from '@src/config'
 
 const FIXTURES = resolve(import.meta.dir, '../fixtures/skill-invocation-test')
 
@@ -47,11 +47,7 @@ function makeConfig(): OuroborosConfig {
       crystallizeFromRepeatedPatternsOnly: true,
     },
     artifacts: {
-      cdnAllowlist: [
-        'https://cdn.jsdelivr.net',
-        'https://unpkg.com',
-        'https://cdnjs.cloudflare.com',
-      ],
+      cdnAllowlist: DEFAULT_ARTIFACTS_CONFIG.cdnAllowlist,
       maxBytes: 1_048_576,
     },
     mcp: { servers: [] },

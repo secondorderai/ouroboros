@@ -10,7 +10,7 @@ export const name = 'create-artifact'
 export const description =
   'Create a self-contained HTML5 artifact for the user. The HTML must be a single document; ' +
   'inline <style> and <script> are fine. External <script src> and <link href> may only reference ' +
-  'allowlisted CDNs (https://cdn.jsdelivr.net, https://unpkg.com, https://cdnjs.cloudflare.com); ' +
+  `allowlisted CDNs (${DEFAULT_CDN_ALLOWLIST.join(', ')}); ` +
   'all other network access is blocked. The artifact is sandboxed (no same-origin, no fetch, no eval). ' +
   'Do not use \'eval\', dynamic function constructors, or <script type="text/babel"> -- the CSP omits unsafe-eval. ' +
   'Omit `supersedes` for a brand-new artifact; set it only to an artifactId from a previous ' +

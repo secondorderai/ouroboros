@@ -7,6 +7,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { Agent } from '@src/agent'
+import { DEFAULT_ARTIFACTS_CONFIG } from '@src/config'
 import { ToolRegistry } from '@src/tools/registry'
 import {
   discoverSkills,
@@ -282,11 +283,7 @@ Apply the SecondOrder method.`,
             crystallizeFromRepeatedPatternsOnly: true,
           },
           artifacts: {
-            cdnAllowlist: [
-              'https://cdn.jsdelivr.net',
-              'https://unpkg.com',
-              'https://cdnjs.cloudflare.com',
-            ],
+            cdnAllowlist: DEFAULT_ARTIFACTS_CONFIG.cdnAllowlist,
             maxBytes: 1_048_576,
           },
           mcp: { servers: [] },
