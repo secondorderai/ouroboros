@@ -82,7 +82,13 @@ class MockClient implements PostgresClient {
   readonly queries: string[] = []
   released = false
 
-  constructor(private readonly failOnAnalyticsQuery = false) {}
+  constructor(
+    private readonly failOnAnalyticsQuery = false,
+    private readonly analyticsRows: Record<string, unknown>[] = [
+      { status: 'paid', total: 12 },
+      { status: 'refunded', total: 3 },
+    ],
+  ) {}
 
   async query(sql: string): Promise<QueryResult> {
     this.queries.push(sql)
@@ -112,12 +118,9 @@ class MockClient implements PostgresClient {
     if (sql.startsWith('SELECT * FROM (')) {
       if (this.failOnAnalyticsQuery) throw new Error('permission denied for table orders')
       return {
-        rows: [
-          { status: 'paid', total: 12 },
-          { status: 'refunded', total: 3 },
-        ],
-        fields: [{ name: 'status' }, { name: 'total' }],
-        rowCount: 2,
+        rows: this.analyticsRows,
+        fields: Object.keys(this.analyticsRows[0] ?? {}).map((name) => ({ name })),
+        rowCount: this.analyticsRows.length,
       }
     }
     return { rows: [] }
@@ -381,6 +384,119 @@ describe('postgres-analytics tool', () => {
       expect(html).toContain('<table>')
       setPostgresAnalyticsAdapter(null)
     }
+  })
+
+  test('creates a Leaflet map artifact for latitude and longitude result rows', async () => {
+    const client = new MockClient(false, [
+      { name: 'Sydney', latitude: -33.8688, longitude: 151.2093, total: 24 },
+      { name: 'Melbourne', latitude: -37.8136, longitude: 144.9631, total: 16 },
+    ])
+    setPostgresAnalyticsAdapter(makeAdapter(client))
+    const { context } = makeContext(
+      basePath,
+      'sess-postgres-map',
+      createMockModel({
+        sql: 'SELECT name, latitude, longitude, count(*)::int AS total FROM public.orders GROUP BY name, latitude, longitude LIMIT 10',
+        answer: 'Listings cluster around Sydney and Melbourne.',
+        title: 'Listing Locations',
+        visualization: 'map',
+        chartType: 'map',
+      }),
+    )
+
+    const result = await execute(
+      {
+        question: 'Show listings on a map.',
+        connectionId: 'default',
+        visualization: 'map',
+      },
+      context,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const html = readFileSync(result.value.artifact?.path ?? '', 'utf-8')
+    expect(html).toContain('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css')
+    expect(html).toContain('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js')
+    expect(html).toContain('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
+    expect(html).toContain('L.map')
+    expect(html).toContain('L.tileLayer')
+    expect(html).toContain('L.marker')
+    expect(html).toContain('Map summary')
+    expect(html).toContain('aria-label')
+    expect(html).toContain('<table>')
+    expect(result.value.artifact?.warnings).toEqual([])
+  })
+
+  test('map artifacts can use a model-provided Mapbox raster tile template', async () => {
+    const client = new MockClient(false, [
+      { name: 'Sydney', latitude: -33.8688, longitude: 151.2093 },
+    ])
+    setPostgresAnalyticsAdapter(makeAdapter(client))
+    const { context } = makeContext(
+      basePath,
+      'sess-postgres-mapbox',
+      createMockModel({
+        sql: 'SELECT name, latitude, longitude FROM public.orders LIMIT 10',
+        answer: 'Sydney location.',
+        title: 'Mapbox Location',
+        visualization: 'map',
+        chartType: 'map',
+        mapTileUrl:
+          'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=test-token',
+        mapTileAttribution: '&copy; Mapbox &copy; OpenStreetMap',
+      }),
+    )
+
+    const result = await execute(
+      {
+        question: 'Show listings on a Mapbox map.',
+        connectionId: 'default',
+        visualization: 'map',
+      },
+      context,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const html = readFileSync(result.value.artifact?.path ?? '', 'utf-8')
+    expect(html).toContain('https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}')
+    expect(html).toContain('&copy; Mapbox &copy; OpenStreetMap')
+    expect(html).toContain('L.tileLayer')
+    expect(result.value.artifact?.warnings).toEqual([])
+  })
+
+  test('map requests fall back to table with warnings when coordinates are missing', async () => {
+    const client = new MockClient()
+    setPostgresAnalyticsAdapter(makeAdapter(client))
+    const { context } = makeContext(
+      basePath,
+      'sess-postgres-map-fallback',
+      createMockModel({
+        sql: 'SELECT status, count(*)::int AS total FROM public.orders GROUP BY status LIMIT 10',
+        answer: 'Order status distribution.',
+        title: 'Order Status Map',
+        visualization: 'map',
+        chartType: 'map',
+      }),
+    )
+
+    const result = await execute(
+      {
+        question: 'Show order status on a map.',
+        connectionId: 'default',
+        visualization: 'map',
+      },
+      context,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.warnings.some((warning) => warning.includes('map requires'))).toBe(true)
+    const html = readFileSync(result.value.artifact?.path ?? '', 'utf-8')
+    expect(html).not.toContain('L.map')
+    expect(html).toContain('Map requires latitude and longitude columns.')
+    expect(html).toContain('<table>')
   })
 
   test('falls back to streaming plan generation when ChatGPT responses requires stream=true', async () => {

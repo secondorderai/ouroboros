@@ -33,7 +33,7 @@ export const schema = z.object({
     .default('default')
     .describe('Configured analytics.postgres connection id. Defaults to default.'),
   visualization: z
-    .enum(['auto', 'none', 'chart', 'diagram', 'infographic', 'dashboard'])
+    .enum(['auto', 'none', 'chart', 'diagram', 'infographic', 'dashboard', 'map'])
     .optional()
     .default('auto')
     .describe('Requested visual output. Use auto unless the user explicitly asks for a format.'),
@@ -51,12 +51,14 @@ const analysisPlanSchema = z.object({
   answer: z.string().min(1).optional(),
   title: z.string().min(1).max(120).optional(),
   visualization: z
-    .enum(['none', 'chart', 'diagram', 'infographic', 'dashboard'])
+    .enum(['none', 'chart', 'diagram', 'infographic', 'dashboard', 'map'])
     .optional()
     .default('none'),
   chartType: z
-    .enum(['bar', 'line', 'pie', 'scatter', 'table', 'histogram', 'boxplot', 'heatmap'])
+    .enum(['bar', 'line', 'pie', 'scatter', 'table', 'histogram', 'boxplot', 'heatmap', 'map'])
     .optional(),
+  mapTileUrl: z.string().url().optional(),
+  mapTileAttribution: z.string().optional(),
   rationale: z.string().optional(),
 })
 
@@ -281,6 +283,8 @@ export const execute: TypedToolExecute<typeof schema, PostgresAnalyticsResult> =
       columns,
       chartType: plan.chartType ?? inferChartType(rows, columns),
       visualization: plan.visualization,
+      mapTileUrl: plan.mapTileUrl,
+      mapTileAttribution: plan.mapTileAttribution,
       warnings,
     })
     if (!artifactResult.ok) return artifactResult
@@ -421,8 +425,11 @@ async function generateAnalysisPlan(input: {
           sql: 'SELECT ...',
           answer: 'brief plain-English interpretation',
           title: 'short artifact title',
-          visualization: 'none|chart|diagram|infographic|dashboard',
-          chartType: 'bar|line|pie|scatter|table|histogram|boxplot|heatmap',
+          visualization: 'none|chart|diagram|infographic|dashboard|map',
+          chartType: 'bar|line|pie|scatter|table|histogram|boxplot|heatmap|map',
+          mapTileUrl:
+            'optional https raster tile URL template for map visualizations, e.g. OpenStreetMap or Mapbox tiles',
+          mapTileAttribution: 'optional attribution string for map tile source',
           rationale: 'why this query answers the question',
         },
       }),
@@ -500,7 +507,9 @@ async function maybeCreateArtifact(input: {
   rows: Record<string, unknown>[]
   columns: string[]
   chartType: AnalyticsChartType
-  visualization: 'none' | 'chart' | 'diagram' | 'infographic' | 'dashboard'
+  visualization: 'none' | 'chart' | 'diagram' | 'infographic' | 'dashboard' | 'map'
+  mapTileUrl?: string
+  mapTileAttribution?: string
   warnings: string[]
 }): Promise<Result<CreateArtifactResult | undefined>> {
   const requested = input.args.visualization
@@ -532,9 +541,12 @@ function buildArtifactHtml(input: {
   rows: Record<string, unknown>[]
   columns: string[]
   chartType: AnalyticsChartType
+  visualization: 'none' | 'chart' | 'diagram' | 'infographic' | 'dashboard' | 'map'
+  mapTileUrl?: string
+  mapTileAttribution?: string
   warnings: string[]
 }): string {
-  const chartPlan = buildChartPlan(input)
+  const visualPlan = buildVisualPlan(input)
   const tableHead = input.columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')
   const tableRows = input.rows
     .map(
@@ -544,12 +556,35 @@ function buildArtifactHtml(input: {
           .join('')}</tr>`,
     )
     .join('')
-  const chartScript = chartPlan.option
-    ? `
+  const visualScript =
+    visualPlan.kind === 'echarts'
+      ? `
       const chart = echarts.init(document.getElementById('chart'));
-      chart.setOption(${safeJson(chartPlan.option)});
+      chart.setOption(${safeJson(visualPlan.option)});
       window.addEventListener('resize', () => chart.resize());`
-    : ''
+      : visualPlan.kind === 'map'
+        ? `
+      const rows = ${safeJson(input.rows)};
+      const map = L.map('map').setView(${safeJson(visualPlan.center)}, ${visualPlan.zoom});
+      L.tileLayer(${safeJson(visualPlan.tileUrl)}, {
+        maxZoom: 19,
+        attribution: ${safeJson(visualPlan.attribution)}
+      }).addTo(map);
+      for (const point of ${safeJson(visualPlan.points)}) {
+        const marker = L.marker([point.lat, point.lon]).addTo(map);
+        marker.bindPopup(point.label);
+      }
+      if (${safeJson(visualPlan.points.length > 1)}) {
+        map.fitBounds(${safeJson(visualPlan.points.map((point) => [point.lat, point.lon]))}, { padding: [24, 24] });
+      }
+      window.addEventListener('resize', () => map.invalidateSize());`
+        : ''
+  const assetTags =
+    visualPlan.kind === 'echarts'
+      ? '<script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>'
+      : visualPlan.kind === 'map'
+        ? '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"><script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>'
+        : ''
 
   return `<!DOCTYPE html>
 <html>
@@ -557,7 +592,7 @@ function buildArtifactHtml(input: {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${escapeHtml(input.title)}</title>
-    ${chartPlan.option ? '<script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>' : ''}
+    ${assetTags}
     <style>
       :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       body { margin: 0; background: #f7f7f4; color: #1f2428; }
@@ -565,9 +600,10 @@ function buildArtifactHtml(input: {
       h1 { font-size: 30px; line-height: 1.15; margin: 0 0 10px; }
       p { margin: 0 0 22px; color: #4b5359; }
       h2 { font-size: 15px; line-height: 1.2; margin: 0 0 8px; }
-      .grid { display: grid; grid-template-columns: ${chartPlan.option ? 'minmax(0, 1.1fr) minmax(320px, .9fr)' : '1fr'}; gap: 24px; align-items: start; }
+      .grid { display: grid; grid-template-columns: ${visualPlan.kind !== 'table' ? 'minmax(0, 1.1fr) minmax(320px, .9fr)' : '1fr'}; gap: 24px; align-items: start; }
       .panel { background: #ffffff; border: 1px solid #d9ddd8; border-radius: 8px; padding: 20px; }
       .chart-wrap { height: 360px; min-height: 360px; }
+      .map-wrap { height: 420px; min-height: 420px; border-radius: 8px; overflow: hidden; border: 1px solid #d9ddd8; }
       .fallback-note { color: #667078; font-size: 13px; margin: 0; }
       table { width: 100%; border-collapse: collapse; font-size: 13px; }
       th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #e6e8e4; vertical-align: top; }
@@ -582,15 +618,21 @@ function buildArtifactHtml(input: {
       <p>${escapeHtml(input.answer)}</p>
       <div class="grid">
         ${
-          chartPlan.option
-            ? `<section class="panel" aria-labelledby="chart-title" aria-describedby="chart-description">
-          <h2 id="chart-title">Visual summary</h2>
-          <p id="chart-description">${escapeHtml(chartPlan.description)}</p>
-          <div id="chart" class="chart-wrap" role="img" aria-label="${escapeHtml(chartPlan.description)}">Chart fallback: ${escapeHtml(chartPlan.description)}</div>
+          visualPlan.kind === 'echarts'
+            ? `<section class="panel" aria-labelledby="visual-title" aria-describedby="visual-description">
+          <h2 id="visual-title">Visual summary</h2>
+          <p id="visual-description">${escapeHtml(visualPlan.description)}</p>
+          <div id="chart" class="chart-wrap" role="img" aria-label="${escapeHtml(visualPlan.description)}">Chart fallback: ${escapeHtml(visualPlan.description)}</div>
         </section>`
-            : `<section class="panel" aria-labelledby="data-title">
+            : visualPlan.kind === 'map'
+              ? `<section class="panel" aria-labelledby="visual-title" aria-describedby="visual-description">
+          <h2 id="visual-title">Map summary</h2>
+          <p id="visual-description">${escapeHtml(visualPlan.description)}</p>
+          <div id="map" class="map-wrap" role="img" aria-label="${escapeHtml(visualPlan.description)}">Map fallback: ${escapeHtml(visualPlan.description)}</div>
+        </section>`
+              : `<section class="panel" aria-labelledby="data-title">
           <h2 id="data-title">Data table</h2>
-          <p class="fallback-note">${escapeHtml(chartPlan.description)}</p>
+          <p class="fallback-note">${escapeHtml(visualPlan.description)}</p>
         </section>`
         }
         <section class="panel">
@@ -605,26 +647,61 @@ function buildArtifactHtml(input: {
       </section>
     </main>
     <script>
-      ${chartScript}
+      ${visualScript}
     </script>
   </body>
 </html>`
 }
 
+type VisualPlan =
+  | { kind: 'echarts'; option: Record<string, unknown>; description: string }
+  | {
+      kind: 'map'
+      points: MapPoint[]
+      center: [number, number]
+      zoom: number
+      tileUrl: string
+      attribution: string
+      description: string
+    }
+  | { kind: 'table'; description: string }
+
+interface MapPoint {
+  lat: number
+  lon: number
+  label: string
+}
+
 interface ChartPlan {
-  option?: Record<string, unknown>
+  option: Record<string, unknown>
   description: string
 }
+
+type ChartPlanResult = ChartPlan | { option?: undefined; description: string }
 
 interface ChartInput {
   title: string
   rows: Record<string, unknown>[]
   columns: string[]
   chartType: AnalyticsChartType
+  visualization: 'none' | 'chart' | 'diagram' | 'infographic' | 'dashboard' | 'map'
+  mapTileUrl?: string
+  mapTileAttribution?: string
   warnings: string[]
 }
 
-function buildChartPlan(input: ChartInput): ChartPlan {
+function buildVisualPlan(input: ChartInput): VisualPlan {
+  if (input.visualization === 'map' || input.chartType === 'map') {
+    return buildMapPlan(input)
+  }
+
+  const chartPlan = buildChartPlan(input)
+  return chartPlan.option
+    ? { kind: 'echarts', ...chartPlan }
+    : { kind: 'table', description: chartPlan.description }
+}
+
+function buildChartPlan(input: ChartInput): ChartPlanResult {
   if (input.chartType === 'table') {
     return { description: 'Chart skipped because the selected visualization is a table.' }
   }
@@ -633,6 +710,8 @@ function buildChartPlan(input: ChartInput): ChartPlan {
   }
 
   switch (input.chartType) {
+    case 'map':
+      return { description: 'Map visualization requested; review the data table.' }
     case 'pie':
       return buildPieChartPlan(input)
     case 'scatter':
@@ -655,7 +734,7 @@ function buildAxisChartPlan(
   input: ChartInput,
   seriesType: 'bar' | 'line',
   label: string,
-): ChartPlan {
+): ChartPlanResult {
   const labelColumn = input.columns[0]
   const numericColumn = findNumericColumns(input.rows, input.columns)[0]
   if (!numericColumn)
@@ -675,7 +754,7 @@ function buildAxisChartPlan(
   }
 }
 
-function buildPieChartPlan(input: ChartInput): ChartPlan {
+function buildPieChartPlan(input: ChartInput): ChartPlanResult {
   const labelColumn = input.columns[0]
   const numericColumn = findNumericColumns(input.rows, input.columns)[0]
   if (!numericColumn)
@@ -696,7 +775,7 @@ function buildPieChartPlan(input: ChartInput): ChartPlan {
   }
 }
 
-function buildScatterChartPlan(input: ChartInput): ChartPlan {
+function buildScatterChartPlan(input: ChartInput): ChartPlanResult {
   const [xColumn, yColumn] = findNumericColumns(input.rows, input.columns)
   if (!xColumn || !yColumn) {
     return fallbackChartPlan(input, 'Scatter chart requires at least two numeric columns.')
@@ -715,7 +794,7 @@ function buildScatterChartPlan(input: ChartInput): ChartPlan {
   }
 }
 
-function buildBoxplotChartPlan(input: ChartInput): ChartPlan {
+function buildBoxplotChartPlan(input: ChartInput): ChartPlanResult {
   const quartiles = resolveBoxplotColumns(input.columns)
   if (!quartiles) {
     return fallbackChartPlan(input, 'Boxplot requires min, q1, median, q3, and max style columns.')
@@ -741,7 +820,7 @@ function buildBoxplotChartPlan(input: ChartInput): ChartPlan {
   }
 }
 
-function buildHeatmapChartPlan(input: ChartInput): ChartPlan {
+function buildHeatmapChartPlan(input: ChartInput): ChartPlanResult {
   const numericColumn = findNumericColumns(input.rows, input.columns)[0]
   const dimensionColumns = input.columns.filter((column) => column !== numericColumn)
   const [xColumn, yColumn] = dimensionColumns
@@ -797,9 +876,101 @@ function baseChartOption(
 function fallbackChartPlan(
   input: { chartType: AnalyticsChartType; warnings: string[] },
   reason: string,
-): ChartPlan {
+): ChartPlanResult {
   input.warnings.push(`Rendered data table instead of ${input.chartType} chart: ${reason}`)
   return { description: `${reason} Review the data table for results.` }
+}
+
+function buildMapPlan(input: ChartInput): VisualPlan {
+  const latColumn = findLatitudeColumn(input.columns)
+  const lonColumn = findLongitudeColumn(input.columns)
+  if (!latColumn || !lonColumn) {
+    input.warnings.push(
+      'Rendered data table instead of map: map requires latitude and longitude columns.',
+    )
+    return {
+      kind: 'table',
+      description:
+        'Map requires latitude and longitude columns. Review the data table for results.',
+    }
+  }
+
+  const labelColumn = findMapLabelColumn(input.columns, latColumn, lonColumn)
+  const points = input.rows
+    .map((row, index): MapPoint | undefined => {
+      const lat = Number(row[latColumn])
+      const lon = Number(row[lonColumn])
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined
+      const label = labelColumn
+        ? `${labelColumn}: ${formatCell(row[labelColumn])}`
+        : `Point ${index + 1}`
+      return { lat, lon, label: escapeHtml(label) }
+    })
+    .filter((point): point is MapPoint => point !== undefined)
+
+  if (points.length === 0) {
+    input.warnings.push(
+      'Rendered data table instead of map: no valid latitude/longitude values were returned.',
+    )
+    return {
+      kind: 'table',
+      description:
+        'No valid latitude/longitude values are available. Review the data table for results.',
+    }
+  }
+
+  const center: [number, number] = [
+    average(points.map((point) => point.lat)),
+    average(points.map((point) => point.lon)),
+  ]
+  const tile = resolveMapTile(input)
+  return {
+    kind: 'map',
+    points,
+    center,
+    zoom: points.length === 1 ? 11 : 5,
+    tileUrl: tile.url,
+    attribution: tile.attribution,
+    description: `Map showing ${points.length} point${points.length === 1 ? '' : 's'} from ${latColumn} and ${lonColumn}.`,
+  }
+}
+
+function resolveMapTile(input: ChartInput): { url: string; attribution: string } {
+  if (input.mapTileUrl) {
+    if (input.mapTileUrl.startsWith('https://')) {
+      return {
+        url: input.mapTileUrl,
+        attribution: input.mapTileAttribution ?? 'Map tiles by configured provider',
+      }
+    }
+    input.warnings.push('Ignored mapTileUrl because map tile URLs must use https.')
+  }
+  return {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors',
+  }
+}
+
+function findLatitudeColumn(columns: string[]): string | undefined {
+  return columns.find((column) => /^(lat|latitude|y|geo_lat|geo_latitude)$/i.test(column))
+}
+
+function findLongitudeColumn(columns: string[]): string | undefined {
+  return columns.find((column) =>
+    /^(lon|lng|long|longitude|x|geo_lon|geo_lng|geo_longitude)$/i.test(column),
+  )
+}
+
+function findMapLabelColumn(
+  columns: string[],
+  latColumn: string,
+  lonColumn: string,
+): string | undefined {
+  return columns.find((column) => column !== latColumn && column !== lonColumn)
+}
+
+function average(values: number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
 function findNumericColumns(rows: Record<string, unknown>[], columns: string[]): string[] {
