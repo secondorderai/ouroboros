@@ -787,9 +787,9 @@ export class TranscriptStore {
 
   /**
    * Remove transcript rows from the desktop-visible message at `messageIndex`
-   * onward. Desktop-visible messages are user/assistant rows; tool call/result
-   * rows are hidden behind the assistant message and are deleted when their
-   * owning assistant turn is truncated.
+   * onward. This mirrors `toDesktopSessionData`: user/assistant rows are
+   * visible, and a leading tool-call row becomes a synthetic assistant bubble
+   * when no assistant row owns it.
    */
   truncateSessionFromVisibleMessage(sessionId: string, messageIndex: number): Result<number> {
     try {
@@ -815,13 +815,36 @@ export class TranscriptStore {
 
       let visibleIndex = -1
       let cutoffRowid: number | null = null
+      let hasCurrentAssistant = false
       for (const row of rows) {
-        if (row.role !== 'user' && row.role !== 'assistant') continue
-        visibleIndex += 1
-        if (visibleIndex === messageIndex) {
-          cutoffRowid = row.rowid
-          break
+        let isVisible = false
+
+        if (row.role === 'user') {
+          hasCurrentAssistant = false
+          isVisible = true
+        } else if (row.role === 'assistant') {
+          hasCurrentAssistant = true
+          isVisible = true
+        } else if (row.role === 'tool-call' && !hasCurrentAssistant) {
+          hasCurrentAssistant = true
+          isVisible = true
         }
+
+        if (isVisible) {
+          visibleIndex += 1
+          if (visibleIndex === messageIndex) {
+            cutoffRowid = row.rowid
+            break
+          }
+        }
+      }
+
+      const visibleCount = visibleIndex + 1
+      if (cutoffRowid == null && messageIndex === visibleCount) {
+        const remaining = this.db
+          .prepare('SELECT COUNT(*) AS count FROM messages WHERE session_id = ?')
+          .get(sessionId) as { count: number }
+        return ok(remaining.count)
       }
 
       if (cutoffRowid == null) {

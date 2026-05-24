@@ -2713,6 +2713,78 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('session/truncate treats one-past-visible index as an idempotent no-op', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      ctx.transcriptStore.addMessage(newResult.sessionId, { role: 'user', content: 'First ask' })
+      ctx.transcriptStore.addMessage(newResult.sessionId, {
+        role: 'assistant',
+        content: 'First answer',
+      })
+
+      const truncateResult = (await handlers.get('session/truncate')!({
+        id: newResult.sessionId,
+        messageIndex: 2,
+      })) as { id: string; messageCount: number }
+      expect(truncateResult).toEqual({ id: newResult.sessionId, messageCount: 2 })
+
+      const loadResult = (await handlers.get('session/load')!({
+        id: newResult.sessionId,
+      })) as {
+        messages: Array<{ role: string; content: string }>
+      }
+      expect(loadResult.messages).toEqual([
+        expect.objectContaining({ role: 'user', content: 'First ask' }),
+        expect.objectContaining({ role: 'assistant', content: 'First answer' }),
+      ])
+
+      ctx.transcriptStore.close()
+    })
+
+    test('session/truncate counts standalone tool-call bubbles as desktop-visible messages', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      const newResult = (await handlers.get('session/new')!({})) as { sessionId: string }
+      ctx.transcriptStore.addMessage(newResult.sessionId, { role: 'user', content: 'First ask' })
+      ctx.transcriptStore.addMessage(newResult.sessionId, {
+        role: 'tool-call',
+        content: 'read_file: {"path":"src/App.tsx"}',
+        toolName: 'read_file',
+        toolArgs: { path: 'src/App.tsx' },
+      })
+      ctx.transcriptStore.addMessage(newResult.sessionId, {
+        role: 'tool-result',
+        content: '{"content":"source"}',
+        toolName: 'read_file',
+      })
+      ctx.transcriptStore.addMessage(newResult.sessionId, { role: 'user', content: 'Second ask' })
+      ctx.transcriptStore.addMessage(newResult.sessionId, {
+        role: 'assistant',
+        content: 'Second answer',
+      })
+
+      const truncateResult = (await handlers.get('session/truncate')!({
+        id: newResult.sessionId,
+        messageIndex: 2,
+      })) as { id: string; messageCount: number }
+      expect(truncateResult).toEqual({ id: newResult.sessionId, messageCount: 3 })
+
+      const loadResult = (await handlers.get('session/load')!({
+        id: newResult.sessionId,
+      })) as {
+        messages: Array<{ role: string; content: string; toolCalls?: unknown[] }>
+      }
+      expect(loadResult.messages).toEqual([
+        expect.objectContaining({ role: 'user', content: 'First ask' }),
+        expect.objectContaining({ role: 'assistant', toolCalls: [expect.any(Object)] }),
+      ])
+
+      ctx.transcriptStore.close()
+    })
+
     test('agent/run persists transcript messages to the active session', async () => {
       const ctx = createTestContext()
       const handlers = createHandlers(ctx)
