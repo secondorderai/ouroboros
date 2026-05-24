@@ -78,6 +78,15 @@ describe('hardenHtml', () => {
     expect(result.value.warnings).toEqual([])
   })
 
+  test('does not warn on Leaflet assets from jsDelivr', () => {
+    const html =
+      '<html><head><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"><script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script></head><body></body></html>'
+    const result = hardenHtml(html, DEFAULT_CDN_ALLOWLIST)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.warnings).toEqual([])
+  })
+
   test('does not warn on Google Fonts stylesheet links', () => {
     const html =
       '<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"></head><body></body></html>'
@@ -115,6 +124,7 @@ describe('buildCspContent', () => {
     const csp = buildCspContent(DEFAULT_CDN_ALLOWLIST)
     expect(csp).toContain(`script-src 'unsafe-inline' ${DEFAULT_CDN_ALLOWLIST.join(' ')}`)
     expect(csp).toContain(`style-src 'unsafe-inline' ${DEFAULT_CDN_ALLOWLIST.join(' ')}`)
+    expect(csp).toContain('img-src data: blob: https:')
     expect(csp).toContain("connect-src 'none'")
     expect(csp).not.toContain('unsafe-eval')
   })
