@@ -6,6 +6,7 @@
  * transcripts are stored in SQLite.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
 import { Agent, estimateContextUsage } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import { TranscriptStore } from '@src/memory/transcripts'
@@ -328,7 +329,7 @@ describe('Agent + Memory Integration', () => {
     )
   })
 
-  test('automatically retries once after a length stop using compacted checkpoint context', async () => {
+  test('automatically retries once after a non-context length stop without compacting', async () => {
     setupMemoryDir(tempDir, '# Durable Memory\n\n- Use checkpoint recovery')
     writeCheckpoint(
       {
@@ -350,7 +351,7 @@ describe('Agent + Memory Integration', () => {
 
     const config = configSchema.parse({
       memory: {
-        contextWindowTokens: 1000,
+        contextWindowTokens: 100_000,
         warnRatio: 0.8,
         flushRatio: 0.9,
         compactRatio: 0.95,
@@ -394,7 +395,7 @@ describe('Agent + Memory Integration', () => {
       }
 
       secondPrompt = systemText
-      return [...textBlock('Recovered after compacting the history.'), finishStop()]
+      return [...textBlock('Recovered after retrying the request.'), finishStop()]
     })
 
     const agent = new Agent(
@@ -416,20 +417,122 @@ describe('Agent + Memory Integration', () => {
 
     const result = await agent.run('Continue from the current migration checkpoint.')
 
-    expect(result.text).toContain('Recovered after compacting')
+    expect(result.text).toContain('Recovered after retrying the request')
     expect(secondPrompt).toContain('### Checkpoint Memory')
     expect(secondPrompt).toContain('Do not lose active task state')
     expect(secondPrompt).toContain('Retry with compacted context')
-    expect(agent.getConversationHistory().length).toBeLessThanOrEqual(
+    expect(agent.getConversationHistory().length).toBeGreaterThan(
       config.memory.tailMessageCount + 1,
     )
     expect(observedEvents).toContain('rsi-length-recovery-succeeded')
+    expect(observedEvents).not.toContain('rsi-context-flushed')
+    expect(observedEvents).not.toContain('rsi-history-compacted')
 
     const logEntries = getEntries({ limit: 20 }, tempDir)
     expect(logEntries.ok).toBe(true)
     if (logEntries.ok) {
-      expect(logEntries.value.map((entry) => entry.type)).toContain('length-recovery-succeeded')
+      const entryTypes = logEntries.value.map((entry) => entry.type)
+      expect(entryTypes).toContain('length-recovery-succeeded')
+      expect(entryTypes).not.toContain('context-flushed')
+      expect(entryTypes).not.toContain('history-compacted')
     }
+  })
+
+  test('automatically retries once after a provider context-window error', async () => {
+    setupMemoryDir(tempDir, '# Durable Memory\n\n- Use checkpoint recovery')
+    writeCheckpoint(
+      {
+        sessionId: 'context-error-session',
+        updatedAt: '2026-04-15T12:00:00.000Z',
+        goal: 'Complete the research answer',
+        currentPlan: ['Recover from oversized prompt', 'Continue with compacted context'],
+        constraints: ['Do not surface raw provider errors when recovery is possible'],
+        decisionsMade: ['Use checkpoint-backed compaction'],
+        filesInPlay: [],
+        completedWork: ['Collected many web-search results'],
+        openLoops: ['Synthesize final answer'],
+        nextBestStep: 'Retry with compacted context',
+        durableMemoryCandidates: [],
+        skillCandidates: [],
+      },
+      tempDir,
+    )
+
+    const config = configSchema.parse({
+      memory: {
+        contextWindowTokens: 1000,
+        warnRatio: 0.8,
+        flushRatio: 0.9,
+        compactRatio: 0.95,
+        tailMessageCount: 2,
+        durableMemoryBudgetTokens: 200,
+        checkpointBudgetTokens: 200,
+        workingMemoryBudgetTokens: 200,
+      },
+    })
+
+    let secondPrompt = ''
+    const observedEvents: string[] = []
+    const contextError = Object.assign(
+      new Error(
+        'Your input exceeds the context window of this model. Please adjust your input and try again.',
+      ),
+      { code: 'context_length_exceeded' },
+    )
+    const providerContextError = {
+      type: 'error',
+      error: contextError,
+    } as unknown as LanguageModelV3StreamPart
+
+    const model = createInspectingMockModel((prompt, callIndex) => {
+      const messages = prompt as Array<{ role: string; content: unknown }>
+      const systemMsg = messages.find((message) => message.role === 'system')
+      const systemText = String(
+        Array.isArray(systemMsg?.content)
+          ? (systemMsg?.content as Array<{ text?: string }>)
+              .map((chunk) => chunk.text ?? '')
+              .join('')
+          : (systemMsg?.content ?? ''),
+      )
+
+      if (callIndex === 0) {
+        return [providerContextError]
+      }
+
+      secondPrompt = systemText
+      return [...textBlock('Recovered after provider context error.'), finishStop()]
+    })
+
+    const agent = new Agent(
+      makeAgentOptions(model, registry, {
+        config,
+        basePath: tempDir,
+        sessionId: 'context-error-session',
+        systemPromptBuilder: buildSystemPrompt,
+        memoryProvider: undefined,
+        onEvent: (event) => observedEvents.push(event.type),
+      }),
+    )
+    agent.setConversationHistory([
+      { role: 'user', content: 'Earlier research result one.' },
+      { role: 'assistant', content: 'Acknowledged result one.' },
+      { role: 'user', content: 'Earlier research result two.' },
+      { role: 'assistant', content: 'Acknowledged result two.' },
+    ])
+
+    const result = await agent.run('Finish the research synthesis.')
+
+    expect(result.stopReason).toBe('completed')
+    expect(result.text).toContain('Recovered after provider context error')
+    expect(secondPrompt).toContain('### Checkpoint Memory')
+    expect(secondPrompt).toContain('Retry with compacted context')
+    expect(agent.getConversationHistory().length).toBeLessThanOrEqual(
+      config.memory.tailMessageCount + 1,
+    )
+    expect(observedEvents).toContain('rsi-context-flushed')
+    expect(observedEvents).toContain('rsi-history-compacted')
+    expect(observedEvents).toContain('rsi-length-recovery-succeeded')
+    expect(observedEvents).not.toContain('error')
   })
 
   test('preserves checkpoint state when compaction runs before the LLM call', async () => {

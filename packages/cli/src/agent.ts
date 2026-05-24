@@ -335,6 +335,20 @@ function isRecoverableLLMError(error: Error): boolean {
   )
 }
 
+function isContextWindowLLMError(error: Error): boolean {
+  const message = error.message.toLowerCase()
+
+  return (
+    message.includes('context_length_exceeded') ||
+    message.includes('context window') ||
+    message.includes('maximum context') ||
+    message.includes('max context') ||
+    message.includes('too many tokens') ||
+    message.includes('input exceeds') ||
+    message.includes('prompt is too long')
+  )
+}
+
 function estimateTextTokens(text: string): number {
   const normalized = text.trim()
   if (normalized.length === 0) {
@@ -778,8 +792,16 @@ export class Agent {
         })
 
         if (!streamResult.ok) {
-          // Setup error — retry only transient failures.
+          // Setup error — retry transient failures, and compact once for
+          // provider-side context-window rejections that occur before a stream
+          // can produce a normal `finishReason: "length"` event.
           const error = streamResult.error
+          if (isContextWindowLLMError(error) && !lengthRecoveryAttempted) {
+            lengthRecoveryAttempted = true
+            this.performEmergencyRecovery('')
+            continue
+          }
+
           const recoverable = isRecoverableLLMError(error)
           this.emitEvent({ type: 'error', error, recoverable })
 
@@ -803,7 +825,15 @@ export class Agent {
         const turnResult = await this.processStream(streamResult.value.stream)
 
         if (turnResult.error) {
-          // Stream error — retry only transient failures.
+          // Stream error — retry transient failures, and compact once for
+          // provider-side context-window rejections. Some providers surface
+          // this as an error event instead of a length finish reason.
+          if (isContextWindowLLMError(turnResult.error) && !lengthRecoveryAttempted) {
+            lengthRecoveryAttempted = true
+            this.performEmergencyRecovery(turnResult.text)
+            continue
+          }
+
           const recoverable = isRecoverableLLMError(turnResult.error)
           this.emitEvent({ type: 'error', error: turnResult.error, recoverable })
 
@@ -826,13 +856,14 @@ export class Agent {
         if (turnResult.finishReason === 'length') {
           if (!lengthRecoveryAttempted) {
             lengthRecoveryAttempted = true
-            this.performEmergencyRecovery(turnResult.text)
+            // A generic `length` finish usually means the model hit its output
+            // limit, not that the input context is oversized. Retry once
+            // without mutating history; explicit context-window provider
+            // errors above still use emergency compaction.
             continue
           }
 
-          const error = new Error(
-            'LLM output reached the context window limit after one recovery attempt',
-          )
+          const error = new Error('LLM output reached the length limit after one retry')
           if (this.sessionId) {
             this.logAndEmitRSIEvent(
               {
@@ -851,8 +882,7 @@ export class Agent {
                   partialResponseLength: turnResult.text.length,
                   repeatedWorkDetected: false,
                 },
-                motivation:
-                  'The model exhausted the context window again after one recovery attempt.',
+                motivation: 'The model exhausted the output length limit again after one retry.',
               },
             )
           }
