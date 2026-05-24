@@ -48,6 +48,8 @@ export interface BuildSystemPromptOptions {
   rsiEnabled?: boolean
   /** Optional response-style guidance for a specific client surface */
   responseStyle?: 'default' | 'desktop-readable'
+  /** Preferred output format for desktop responses. */
+  responseFormat?: 'html5' | 'markdown'
   /** Mode overlay — active mode section or auto-detection hints */
   modeOverlay?: { section?: string; autoDetectionHints: string[] }
   /** Optional team reputation/advisor guidance from prior orchestration outcomes. */
@@ -262,6 +264,22 @@ The current client is a desktop chat interface optimized for reading longer answ
 - Prefer short paragraphs and clear headings over bulleting every sentence.`
 }
 
+function formatResponseFormatSection(responseFormat: 'html5' | 'markdown'): string {
+  if (responseFormat === 'markdown') {
+    return ''
+  }
+
+  return `## Desktop HTML5 Response Format
+
+The current client is a desktop chat interface with a sandboxed HTML artifact panel. For substantive desktop responses, prefer creating a self-contained HTML5 artifact with the \`create-artifact\` tool and keep the chat message concise.
+
+- Use \`create-artifact\` for plans, specs, reports, research summaries, code explanations, reviews, comparisons, dashboards, prototypes, or any answer that benefits from layout, tables, diagrams, annotations, styling, or lightweight interaction.
+- The artifact must be a complete HTML5 document with semantic structure and responsive CSS.
+- Use the artifact as the primary rich response; in chat, summarize what you made and call out any important caveats or next steps.
+- If the user explicitly requests Markdown, plain text, code only, or another exact format, follow that request for the turn.
+- If no artifact tool is available or the answer is too small to benefit from a separate artifact, answer directly in chat.`
+}
+
 function formatModeSection(section: string): string {
   // The section already includes its own heading (e.g. "## Active Mode: Plan")
   return section
@@ -298,6 +316,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
     agentsInstructions,
     rsiEnabled,
     responseStyle,
+    responseFormat,
     modeOverlay,
     teamGuidance,
     activatedSkill,
@@ -309,7 +328,9 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
     memorySections ??
     (memory && memory.trim().length > 0 ? { durableMemory: memory.trim() } : undefined)
 
-  if (responseStyle === 'desktop-readable') {
+  if (responseFormat === 'html5') {
+    sections.push(formatResponseFormatSection(responseFormat))
+  } else if (responseStyle === 'desktop-readable') {
     sections.push(formatResponseStyleSection(responseStyle))
   }
 

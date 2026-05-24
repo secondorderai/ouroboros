@@ -10,7 +10,7 @@ import { SkillsSection } from '../components/settings/SkillsSection'
 import { UpdatesSection } from '../components/settings/UpdatesSection'
 import { AutomationBrowserSection } from '../components/settings/AutomationBrowserSection'
 import { useConversationStore } from '../stores/conversationStore'
-import type { Theme, OuroborosConfig } from '../../shared/protocol'
+import type { Theme, OuroborosConfig, AgentResponseFormat } from '../../shared/protocol'
 
 interface SettingsOverlayProps {
   isOpen: boolean
@@ -164,6 +164,7 @@ export function SettingsOverlay({
   }, [isOpen, handleClose])
 
   const setModelName = useConversationStore((s) => s.setModelName)
+  const setDefaultResponseFormat = useConversationStore((s) => s.setDefaultResponseFormat)
 
   const handleConfigChange = useCallback(
     async (path: string, value: unknown) => {
@@ -178,6 +179,8 @@ export function SettingsOverlay({
         setConfig(savedConfig)
         if (path === 'model.name') {
           setModelName(String(value))
+        } else if (path === 'desktop.defaultResponseFormat') {
+          setDefaultResponseFormat(value as AgentResponseFormat)
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to save settings'
@@ -185,7 +188,7 @@ export function SettingsOverlay({
         setSaveError(message)
       }
     },
-    [config, setModelName],
+    [config, setModelName, setDefaultResponseFormat],
   )
 
   if (!isOpen && !exiting) return null
@@ -235,7 +238,12 @@ export function SettingsOverlay({
             <ModelSection config={config} onConfigChange={handleConfigChange} />
           )}
           {activeSection === 'appearance' && (
-            <AppearanceSection theme={theme} onSetTheme={onSetTheme} />
+            <AppearanceSection
+              theme={theme}
+              onSetTheme={onSetTheme}
+              config={config}
+              onConfigChange={handleConfigChange}
+            />
           )}
           {activeSection === 'permissions' && (
             <PermissionsSection config={config} onConfigChange={handleConfigChange} />
@@ -297,6 +305,12 @@ function applyConfigChange(config: OuroborosConfig, path: string, value: unknown
     case 'memory.consolidationSchedule':
       next.memory.consolidationSchedule =
         value as OuroborosConfig['memory']['consolidationSchedule']
+      return next
+    case 'desktop.defaultResponseFormat':
+      next.desktop = {
+        ...(next.desktop ?? { defaultResponseFormat: 'html5' }),
+        defaultResponseFormat: value as AgentResponseFormat,
+      }
       return next
     default:
       return config

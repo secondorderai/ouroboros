@@ -459,6 +459,7 @@ export type AuthMethod = 'browser' | 'headless'
 
 export type AgentClient = 'desktop' | 'cli'
 export type AgentResponseStyle = 'default' | 'desktop-readable'
+export type AgentResponseFormat = 'html5' | 'markdown'
 export type AgentStopReason = 'completed' | 'max_steps' | 'error' | 'cancelled'
 export type WorkspaceMode = 'simple' | 'workspace'
 
@@ -469,6 +470,7 @@ export interface AgentRunParams {
   skillName?: string
   client?: AgentClient
   responseStyle?: AgentResponseStyle
+  responseFormat?: AgentResponseFormat
   maxSteps?: number
   /**
    * Session this run belongs to. Pinned at the start of the run so persistence
@@ -842,6 +844,7 @@ export interface OuroborosConfig {
   disabledSkills: string[]
   memory: { consolidationSchedule: 'session-end' | 'daily' | 'manual' }
   rsi: { noveltyThreshold: number; autoReflect: boolean }
+  desktop: { defaultResponseFormat: AgentResponseFormat }
 }
 export interface ConfigSetApiKeyResult {
   ok: boolean

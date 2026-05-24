@@ -373,4 +373,29 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Option: why it fits')
     expect(prompt).toContain('Prefer short paragraphs and clear headings')
   })
+
+  test('html5 response format injects artifact guidance', () => {
+    const prompt = buildSystemPrompt({
+      responseStyle: 'desktop-readable',
+      responseFormat: 'html5',
+    })
+
+    expect(prompt).toContain('Desktop HTML5 Response Format')
+    expect(prompt).toContain('create-artifact')
+    expect(prompt).toContain('complete HTML5 document')
+    expect(prompt).toContain('artifact as the primary rich response')
+    expect(prompt).not.toContain('desktop chat interface optimized for reading longer answers')
+  })
+
+  test('markdown response format preserves desktop-readable guidance', () => {
+    const prompt = buildSystemPrompt({
+      responseStyle: 'desktop-readable',
+      responseFormat: 'markdown',
+    })
+
+    expect(prompt).toContain('desktop chat interface optimized for reading longer answers')
+    expect(prompt).toContain('Start with a short framing paragraph before lists')
+    expect(prompt).not.toContain('Desktop HTML5 Response Format')
+    expect(prompt).not.toContain('artifact as the primary rich response')
+  })
 })

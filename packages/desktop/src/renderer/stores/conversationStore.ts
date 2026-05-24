@@ -25,6 +25,7 @@ import type {
   SessionMessage,
   SubagentEvidenceReference,
   SubagentRun,
+  AgentResponseFormat,
   PermissionLeaseDisplayDetails,
   WorkerDiffDisplayDetails,
   WorkspaceMode,
@@ -263,6 +264,12 @@ export interface ConversationState {
 
   /** Set the reasoning effort level. */
   setReasoningEffort: (effort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null) => void
+
+  /** Default response format for desktop agent runs. */
+  defaultResponseFormat: AgentResponseFormat
+
+  /** Set the default response format for desktop agent runs. */
+  setDefaultResponseFormat: (format: AgentResponseFormat) => void
 
   /** Respond to a submitted Plan Mode plan by sending the next chat turn. */
   respondToPlanDecision: (decision: 'approve' | 'reject' | 'custom', text?: string) => void
@@ -1171,6 +1178,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         ...(sessionId ? { sessionId } : {}),
         client: 'desktop',
         responseStyle: 'desktop-readable',
+        responseFormat: get().defaultResponseFormat,
       })
       if (isAgentRunResult(result)) {
         const settledParams: AgentRunSettledParams = {
@@ -1221,6 +1229,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
     workspaceModeError: null,
     modelName: null,
     reasoningEffort: null,
+    defaultResponseFormat: 'html5',
     contextUsage: null,
     responseStartedAt: null,
 
@@ -2403,6 +2412,10 @@ export const useConversationStore = create<ConversationState>((set, get) => {
 
     setReasoningEffort(effort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null) {
       set({ reasoningEffort: effort })
+    },
+
+    setDefaultResponseFormat(format: AgentResponseFormat) {
+      set({ defaultResponseFormat: format })
     },
   }
 })

@@ -681,6 +681,13 @@ test('desktop chat uses readable assistant layout and desktop-specific response 
       const log = await readFile(launched!.paths.mockLogPath, 'utf8').catch(() => '')
       return log
     })
+    .toContain('"responseFormat":"html5"')
+
+  await expect
+    .poll(async () => {
+      const log = await readFile(launched!.paths.mockLogPath, 'utf8').catch(() => '')
+      return log
+    })
     .toContain('"client":"desktop"')
 
   const assistantMessage = launched.page.locator('[data-testid="agent-message"]').last()
@@ -731,6 +738,39 @@ test('desktop chat uses readable assistant layout and desktop-specific response 
   expect(listSpacing.tagName).toBe('LI')
   expect(listSpacing.marginBottom).toBeGreaterThanOrEqual(8)
   expect(layoutMetrics.codeBlockCount).toBeGreaterThanOrEqual(1)
+})
+
+test('settings can switch default desktop response format to markdown', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+
+  await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Appearance' }).click()
+  await launched.page.getByRole('button', { name: 'Markdown' }).click()
+  await launched.page.getByLabel('Close settings').click()
+
+  await launched.page.getByLabel('Message input').fill('Respond in the configured format')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect
+    .poll(async () => {
+      const log = await readFile(launched!.paths.mockLogPath, 'utf8').catch(() => '')
+      return log
+    })
+    .toContain('"path":"desktop.defaultResponseFormat","value":"markdown"')
+
+  await expect
+    .poll(async () => {
+      const log = await readFile(launched!.paths.mockLogPath, 'utf8').catch(() => '')
+      return log
+    })
+    .toContain('"responseFormat":"markdown"')
 })
 
 test('streaming assistant text renders markdown before turn completion', async ({}, testInfo) => {

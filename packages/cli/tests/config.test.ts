@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import {
   BUILT_IN_AGENT_DEFINITIONS,
   DEFAULT_AGENT_CONFIG,
+  DEFAULT_DESKTOP_CONFIG,
   DEFAULT_MEMORY_CONFIG,
   DEFAULT_RSI_CONFIG,
   getSelectablePrimaryAgentDefinitions,
@@ -120,6 +121,41 @@ describe('loadConfig', () => {
     )
 
     expect(config.analytics.postgres.connections).toEqual([])
+    expect(config.desktop.defaultResponseFormat).toBe(DEFAULT_DESKTOP_CONFIG.defaultResponseFormat)
+  })
+
+  test('loads configured desktop response format', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        desktop: {
+          defaultResponseFormat: 'markdown',
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.desktop.defaultResponseFormat).toBe('markdown')
+  })
+
+  test('rejects invalid desktop response format', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        desktop: {
+          defaultResponseFormat: 'pdf',
+        },
+      }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('desktop.defaultResponseFormat')
   })
 
   test('loads configured PostgreSQL analytics connections without secrets', () => {

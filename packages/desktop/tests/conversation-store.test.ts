@@ -29,6 +29,7 @@ function resetStore(): void {
     contextUsage: null,
     responseStartedAt: null,
     reasoningEffort: null,
+    defaultResponseFormat: 'html5',
   })
 }
 
@@ -172,6 +173,7 @@ describe('conversation store sessions', () => {
     expect(calls.map((call) => call.method)).toEqual(['session/new', 'agent/run'])
     expect(calls[0].params).toEqual({ workspaceMode: 'simple' })
     expect(calls[1].params).toEqual(expect.objectContaining({ sessionId: 'session-first-message' }))
+    expect(calls[1].params).toEqual(expect.objectContaining({ responseFormat: 'html5' }))
     expect(useConversationStore.getState().currentSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().activeRunSessionId).toBe('session-first-message')
     expect(useConversationStore.getState().sessions[0]).toEqual(
@@ -225,6 +227,36 @@ describe('conversation store sessions', () => {
         title: 'Fix the login bug',
         titleSource: 'auto',
         runStatus: 'running',
+      }),
+    )
+  })
+
+  test('sendMessage uses configured markdown response format', async () => {
+    resetStore()
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    ;(globalThis as unknown as { window: unknown }).window = {
+      ouroboros: {
+        rpc: (method: string, params: Record<string, unknown>) => {
+          calls.push({ method, params })
+          if (method === 'session/new') {
+            return Promise.resolve({ sessionId: 'session-markdown' })
+          }
+          return Promise.resolve({ text: 'ok' })
+        },
+      },
+    }
+
+    useConversationStore.getState().setDefaultResponseFormat('markdown')
+    useConversationStore.getState().sendMessage('Use markdown please')
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls.find((call) => call.method === 'agent/run')?.params).toEqual(
+      expect.objectContaining({
+        client: 'desktop',
+        responseStyle: 'desktop-readable',
+        responseFormat: 'markdown',
       }),
     )
   })

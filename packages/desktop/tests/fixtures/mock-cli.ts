@@ -109,6 +109,9 @@ const defaultConfig = {
     noveltyThreshold: 0.5,
     autoReflect: true,
   },
+  desktop: {
+    defaultResponseFormat: 'html5',
+  },
 }
 
 const scenario = loadScenario()

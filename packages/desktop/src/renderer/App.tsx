@@ -22,7 +22,7 @@ import { useApprovals } from './stores/approvalStore'
 import { useArtifactsStore, selectCurrentArtifacts } from './stores/artifactsStore'
 import { ArtifactPanel } from './components/ArtifactPanel'
 import type { SettingsSectionId } from './views/SettingsOverlay'
-import type { TeamGraphNotification } from '../shared/protocol'
+import type { AgentResponseFormat, TeamGraphNotification } from '../shared/protocol'
 
 // Keys for persisting state
 const SIDEBAR_STATE_KEY = 'ouroboros:sidebar-open'
@@ -119,6 +119,7 @@ export function App(): React.ReactElement {
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
   const setModelName = useConversationStore((s) => s.setModelName)
   const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
+  const setDefaultResponseFormat = useConversationStore((s) => s.setDefaultResponseFormat)
   const workspaceMode = useConversationStore((s) => s.workspaceMode)
   const selectedWorkspacePath = useConversationStore((s) => s.selectedWorkspacePath)
   const workspaceModeError = useConversationStore((s) => s.workspaceModeError)
@@ -168,11 +169,17 @@ export function App(): React.ReactElement {
     window.ouroboros
       ?.rpc('config/get', {})
       .then((result) => {
-        const config = result as { model?: { name?: string } }
+        const config = result as {
+          model?: { name?: string }
+          desktop?: { defaultResponseFormat?: AgentResponseFormat }
+        }
         if (config?.model?.name) setModelName(config.model.name)
+        if (config?.desktop?.defaultResponseFormat) {
+          setDefaultResponseFormat(config.desktop.defaultResponseFormat)
+        }
       })
       .catch(() => {})
-  }, [setModelName])
+  }, [setModelName, setDefaultResponseFormat])
 
   // Persist sidebar state
   useEffect(() => {
@@ -304,9 +311,15 @@ export function App(): React.ReactElement {
     api
       .rpc('config/get', {})
       .then((result) => {
-        const config = result as { model?: { name?: string; reasoningEffort?: string } }
+        const config = result as {
+          model?: { name?: string; reasoningEffort?: string }
+          desktop?: { defaultResponseFormat?: AgentResponseFormat }
+        }
         if (config?.model?.name) {
           setModelName(config.model.name)
+        }
+        if (config?.desktop?.defaultResponseFormat) {
+          setDefaultResponseFormat(config.desktop.defaultResponseFormat)
         }
         if (config?.model) {
           setReasoningEffort(
@@ -322,7 +335,7 @@ export function App(): React.ReactElement {
       .catch((err) => {
         console.error('config/get failed:', err)
       })
-  }, [setModelName, setReasoningEffort])
+  }, [setModelName, setReasoningEffort, setDefaultResponseFormat])
 
   // ---- Command palette overlay callbacks ------------------------------------
 

@@ -1172,6 +1172,47 @@ describe('JSON-RPC', () => {
       ctx.transcriptStore.close()
     })
 
+    test('agent/run accepts desktop response-format hints', async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const ctx = createTestContext({
+        agentOptions: {
+          systemPromptBuilder: (options) => {
+            promptCalls.push(options as Record<string, unknown>)
+            return 'You are a test assistant.'
+          },
+        },
+      })
+      const handlers = createHandlers(ctx)
+
+      await handlers.get('agent/run')!({
+        message: 'Make a report',
+        client: 'desktop',
+        responseFormat: 'html5',
+      })
+
+      expect(promptCalls).toContainEqual(
+        expect.objectContaining({
+          responseFormat: 'html5',
+        }),
+      )
+
+      ctx.transcriptStore.close()
+    })
+
+    test('agent/run rejects invalid desktop response-format hints', async () => {
+      const ctx = createTestContext()
+      const handlers = createHandlers(ctx)
+
+      await expect(
+        handlers.get('agent/run')!({
+          message: 'Make a report',
+          responseFormat: 'pdf',
+        }),
+      ).rejects.toThrow('params.responseFormat must be "html5" or "markdown"')
+
+      ctx.transcriptStore.close()
+    })
+
     test('agent/run activates selected skill instructions', async () => {
       const baseDir = join(tmpdir(), `ouroboros-skill-run-${crypto.randomUUID()}`)
       const skillDir = join(baseDir, 'skills', 'core', 'code-review')
@@ -2088,6 +2129,46 @@ describe('JSON-RPC', () => {
       // Get should reflect the change
       const getResult = (await handlers.get('config/get')!({})) as OuroborosConfig
       expect(getResult.model.name).toBe('test-model')
+
+      ctx.transcriptStore.close()
+    })
+
+    test('config/set updates desktop default response format', async () => {
+      const config = makeTestConfig()
+      writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config, null, 2), 'utf-8')
+
+      const ctx = createTestContext({ config, configDir: tempDir })
+      const handlers = createHandlers(ctx)
+
+      const setResult = (await handlers.get('config/set')!({
+        path: 'desktop.defaultResponseFormat',
+        value: 'markdown',
+      })) as OuroborosConfig
+
+      expect(setResult.desktop.defaultResponseFormat).toBe('markdown')
+      expect(ctx.config.desktop.defaultResponseFormat).toBe('markdown')
+
+      const persisted = JSON.parse(readFileSync(join(tempDir, '.ouroboros'), 'utf-8')) as {
+        desktop?: { defaultResponseFormat?: string }
+      }
+      expect(persisted.desktop?.defaultResponseFormat).toBe('markdown')
+
+      ctx.transcriptStore.close()
+    })
+
+    test('config/set rejects invalid desktop default response format', async () => {
+      const config = makeTestConfig()
+      writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify(config, null, 2), 'utf-8')
+
+      const ctx = createTestContext({ config, configDir: tempDir })
+      const handlers = createHandlers(ctx)
+
+      await expect(
+        handlers.get('config/set')!({
+          path: 'desktop.defaultResponseFormat',
+          value: 'pdf',
+        }),
+      ).rejects.toThrow('desktop.defaultResponseFormat')
 
       ctx.transcriptStore.close()
     })

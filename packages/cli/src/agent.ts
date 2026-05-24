@@ -250,6 +250,7 @@ export type AgentStopReason = 'completed' | 'max_steps' | 'error' | 'cancelled'
 
 export interface AgentRunOptions {
   responseStyle?: 'default' | 'desktop-readable'
+  responseFormat?: 'html5' | 'markdown'
   maxSteps?: number
   runProfile?: AgentRunProfile
   images?: LLMFilePart[]
@@ -691,6 +692,9 @@ export class Agent {
               artifacts: {
                 cdnAllowlist: DEFAULT_ARTIFACTS_CONFIG.cdnAllowlist,
                 maxBytes: 1_048_576,
+              },
+              desktop: {
+                defaultResponseFormat: 'html5',
               },
               analytics: DEFAULT_ANALYTICS_CONFIG,
               mcp: { servers: [] },
@@ -1252,6 +1256,7 @@ export class Agent {
       memorySections,
       agentsInstructions,
       responseStyle: options.responseStyle,
+      responseFormat: options.responseFormat,
       modeOverlay,
       teamGuidance,
       activatedSkill: options.activatedSkill,

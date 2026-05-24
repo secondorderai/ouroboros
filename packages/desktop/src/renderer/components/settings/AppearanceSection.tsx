@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { Theme } from '../../../shared/protocol'
+import type { AgentResponseFormat, OuroborosConfig, Theme } from '../../../shared/protocol'
 
 interface AppearanceSectionProps {
   theme: Theme
   onSetTheme: (theme: Theme) => void
+  config: OuroborosConfig | null
+  onConfigChange: (path: string, value: unknown) => void
 }
 
 type FontSize = 'small' | 'medium' | 'large'
@@ -17,8 +19,11 @@ const FONT_SIZE_MAP: Record<FontSize, number> = {
 export function AppearanceSection({
   theme,
   onSetTheme,
+  config,
+  onConfigChange,
 }: AppearanceSectionProps): React.ReactElement {
   const [fontSize, setFontSizeState] = useState<FontSize>('medium')
+  const responseFormat = config?.desktop?.defaultResponseFormat ?? 'html5'
 
   // Initialize font size from current body style
   useEffect(() => {
@@ -42,6 +47,13 @@ export function AppearanceSection({
       })
     },
     []
+  )
+
+  const handleResponseFormatChange = useCallback(
+    (format: AgentResponseFormat) => {
+      onConfigChange('desktop.defaultResponseFormat', format)
+    },
+    [onConfigChange],
   )
 
   return (
@@ -103,6 +115,26 @@ export function AppearanceSection({
             onClick={() => handleFontSizeChange('large')}
           >
             Large
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.field}>
+        <label style={styles.label}>Default response format</label>
+        <div className="settings-segment-group">
+          <button
+            className="settings-segment-option"
+            data-active={responseFormat === 'html5'}
+            onClick={() => handleResponseFormatChange('html5')}
+          >
+            HTML5 artifact
+          </button>
+          <button
+            className="settings-segment-option"
+            data-active={responseFormat === 'markdown'}
+            onClick={() => handleResponseFormatChange('markdown')}
+          >
+            Markdown
           </button>
         </div>
       </div>

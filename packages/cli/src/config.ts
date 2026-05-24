@@ -49,6 +49,10 @@ export const DEFAULT_ARTIFACTS_CONFIG = {
   maxBytes: 1_048_576,
 }
 
+export const DEFAULT_DESKTOP_CONFIG = {
+  defaultResponseFormat: 'html5' as const,
+}
+
 export const DEFAULT_ANALYTICS_CONFIG = {
   postgres: {
     connections: [] as Array<{
@@ -481,6 +485,15 @@ export const configSchema = z.object({
         .describe('Maximum size in bytes for an HTML artifact'),
     })
     .default(DEFAULT_ARTIFACTS_CONFIG),
+
+  desktop: z
+    .object({
+      defaultResponseFormat: z
+        .enum(['html5', 'markdown'])
+        .default(DEFAULT_DESKTOP_CONFIG.defaultResponseFormat)
+        .describe('Default response format for desktop chat turns'),
+    })
+    .default(DEFAULT_DESKTOP_CONFIG),
 
   analytics: analyticsConfigSchema,
 

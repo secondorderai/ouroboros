@@ -489,6 +489,7 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   const handlers = new Map<string, MethodHandler>()
   const validClients = new Set(['desktop', 'cli'])
   const validResponseStyles = new Set(['default', 'desktop-readable'])
+  const validResponseFormats = new Set(['html5', 'markdown'])
   const validAuthMethods = new Set(OPENAI_CHATGPT_AUTH_METHODS)
   const taskGraphStore = ctx.taskGraphStore ?? new TaskGraphStore()
 
@@ -542,6 +543,16 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       throw new HandlerError(
         JSON_RPC_ERRORS.INVALID_PARAMS.code,
         'params.responseStyle must be "default" or "desktop-readable" when provided',
+      )
+    }
+    const responseFormat = params.responseFormat
+    if (
+      responseFormat !== undefined &&
+      (typeof responseFormat !== 'string' || !validResponseFormats.has(responseFormat))
+    ) {
+      throw new HandlerError(
+        JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        'params.responseFormat must be "html5" or "markdown" when provided',
       )
     }
     const maxSteps = params.maxSteps
@@ -625,6 +636,10 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
           responseStyle:
             typeof responseStyle === 'string'
               ? (responseStyle as 'default' | 'desktop-readable')
+              : undefined,
+          responseFormat:
+            typeof responseFormat === 'string'
+              ? (responseFormat as 'html5' | 'markdown')
               : undefined,
           runProfile: client === 'desktop' ? 'desktop' : 'automation',
           maxSteps: maxSteps ?? ctx.maxStepsOverride,
