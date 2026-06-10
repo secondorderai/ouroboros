@@ -138,6 +138,15 @@ describe('BashTool', () => {
     expect(classifyBashCommand('bun install')).toBe(4)
   })
 
+  test('classifies package runners (npx, bunx) as Tier 4 like npm', () => {
+    // npx/bunx download and execute arbitrary packages — same risk class as
+    // npm install, so they require the same tier-4 human approval.
+    expect(classifyBashCommand('npx skills add heredotnow/skill --skill here-now -g')).toBe(4)
+    expect(classifyBashCommand('npx cowsay hi')).toBe(4)
+    expect(classifyBashCommand('bunx prettier --check .')).toBe(4)
+    expect(classifyBashCommand('echo ok && npx something')).toBe(4)
+  })
+
   test('bypassSandbox: true escalates to Tier 4 regardless of the command', () => {
     expect(resolveTier({ command: 'echo hi', bypassSandbox: true })).toBe(4)
     expect(resolveTier({ command: 'ls', bypassSandbox: true })).toBe(4)
