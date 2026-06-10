@@ -38,7 +38,14 @@ export interface RSIOrchestratorOptions {
   config: OuroborosConfig
   llm: LanguageModel
   onEvent?: RSIEventHandler
+  /** Workspace-scoped base path (skill directories). */
   basePath?: string
+  /**
+   * Base path for durable memory (the dream cycle's MEMORY.md / observations /
+   * checkpoints / daily rollups / skill proposals, and the evolution log).
+   * Defaults to `basePath`. The desktop sets this to the global config dir.
+   */
+  memoryBasePath?: string
   /**
    * Optional transcript store. When provided, the dream cycle's transcript
    * analysis (`mode: 'full' | 'propose-only'`) reads recent sessions from it;
@@ -55,6 +62,7 @@ export class RSIOrchestrator {
   private llm: LanguageModel
   private onEvent: RSIEventHandler
   private basePath: string | undefined
+  private memoryBasePath: string | undefined
   private transcriptStore: TranscriptStore | undefined
 
   constructor(options: RSIOrchestratorOptions) {
@@ -62,6 +70,7 @@ export class RSIOrchestrator {
     this.llm = options.llm
     this.onEvent = options.onEvent ?? (() => {})
     this.basePath = options.basePath
+    this.memoryBasePath = options.memoryBasePath ?? options.basePath
     this.transcriptStore = options.transcriptStore
   }
 
@@ -141,7 +150,7 @@ export class RSIOrchestrator {
             },
             motivation: `Novelty: ${result.value.novelty}, Generalizability: ${result.value.generalizability}, shouldCrystallize: ${result.value.shouldCrystallize}`,
           },
-          this.basePath,
+          this.memoryBasePath,
         )
 
         this.emitEvent({
@@ -201,7 +210,7 @@ export class RSIOrchestrator {
             },
             motivation: `Pipeline outcome: ${crystalResult.outcome}`,
           },
-          this.basePath,
+          this.memoryBasePath,
         )
 
         const sourceSessionIds =
@@ -226,7 +235,7 @@ export class RSIOrchestrator {
               motivation:
                 'Repeated observation patterns can be audited independently from transcripts.',
             },
-            this.basePath,
+            this.memoryBasePath,
           )
 
           this.emitEvent({
@@ -284,7 +293,7 @@ export class RSIOrchestrator {
         getSession: transcriptStore
           ? (sessionId) => transcriptStore.getSession(sessionId)
           : () => err(new Error('No session store configured')),
-        basePath: this.basePath,
+        basePath: this.memoryBasePath,
       }
 
       const result = await dream(deps, dreamOpts)
@@ -301,7 +310,7 @@ export class RSIOrchestrator {
             },
             motivation: 'Memory consolidation via dream cycle',
           },
-          this.basePath,
+          this.memoryBasePath,
         )
 
         this.emitEvent({
@@ -324,7 +333,7 @@ export class RSIOrchestrator {
               motivation:
                 'Dream consolidation promoted validated structured memory into durable memory.',
             },
-            this.basePath,
+            this.memoryBasePath,
           )
 
           this.emitEvent({
@@ -350,7 +359,7 @@ export class RSIOrchestrator {
               },
               motivation: 'Dream consolidation removed stale or contradicted durable memory.',
             },
-            this.basePath,
+            this.memoryBasePath,
           )
 
           this.emitEvent({
@@ -387,7 +396,7 @@ export class RSIOrchestrator {
         details: {},
         motivation: `Error during RSI ${stage} stage`,
       },
-      this.basePath,
+      this.memoryBasePath,
     )
 
     this.emitEvent({

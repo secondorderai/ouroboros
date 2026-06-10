@@ -32,7 +32,12 @@ import { parseModelFlag } from '@src/cli/model-flag'
 import { startRepl } from '@src/cli/repl'
 import { createRSIEventHandler, writeRSIEvent } from '@src/cli/rsi-output'
 import { createSingleShotHandler } from '@src/cli/single-shot'
-import { loadConfig, resolveConfigDir, type OuroborosConfig } from '@src/config'
+import {
+  loadConfig,
+  migrateDesktopConfig,
+  resolveConfigDir,
+  type OuroborosConfig,
+} from '@src/config'
 import { startJsonRpcServer } from '@src/json-rpc/server'
 import { createProvider } from '@src/llm/provider'
 import { activateSkillForRun, resolveSlashSkillInvocation } from '@src/skills/skill-invocation'
@@ -220,7 +225,11 @@ async function runMain(): Promise<void> {
   // and manages its own Agent lifecycle.
   if (opts.jsonRpc === true) {
     const configDir = resolveConfigDir(opts.config, getConfigDiscoveryOptions())
-    await startJsonRpcServer({ config, configDir, maxStepsOverride })
+    // Desktop installs run via JSON-RPC. Apply the one-time config migration
+    // (e.g. enabling tier 3 so the memory tool is available) before the server
+    // builds its registry and agents.
+    const migratedConfig = migrateDesktopConfig(configDir, config)
+    await startJsonRpcServer({ config: migratedConfig, configDir, maxStepsOverride })
     // startJsonRpcServer runs indefinitely — this line is never reached.
     return
   }

@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { name, description, schema, createExecute } from '@src/tools/memory'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import type { ToolExecutionContext } from '@src/tools/types'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -117,4 +118,58 @@ describe('Memory Tool', () => {
 
   // NOTE: search-transcripts tests removed — action was removed from schema
   // (TranscriptStore not wired up at startup; can be re-enabled in Phase 2)
+})
+
+describe('Memory Tool — global memoryBasePath', () => {
+  let memDir: string
+  let wsDir: string
+
+  beforeEach(() => {
+    memDir = makeTempDir()
+    wsDir = makeTempDir()
+    mkdirSync(join(memDir, 'memory'), { recursive: true })
+    writeFileSync(join(memDir, 'memory', 'MEMORY.md'), '# Global Memory')
+    mkdirSync(join(wsDir, 'memory'), { recursive: true })
+    writeFileSync(join(wsDir, 'memory', 'MEMORY.md'), '# Workspace Memory')
+  })
+
+  afterEach(() => {
+    rmSync(memDir, { recursive: true, force: true })
+    rmSync(wsDir, { recursive: true, force: true })
+  })
+
+  // The tool only reads basePath fields off the context.
+  const ctx = (overrides: Partial<ToolExecutionContext>): ToolExecutionContext =>
+    overrides as ToolExecutionContext
+
+  test('reads from context.memoryBasePath when no dep is injected', async () => {
+    const execute = createExecute()
+    const result = await execute({ action: 'read-index' }, ctx({ memoryBasePath: memDir }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toBe('# Global Memory')
+  })
+
+  test('memoryBasePath takes precedence over the workspace basePath', async () => {
+    const execute = createExecute()
+    const result = await execute(
+      { action: 'read-index' },
+      ctx({ memoryBasePath: memDir, basePath: wsDir }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toBe('# Global Memory')
+  })
+
+  test('write-topic lands under memoryBasePath, not the workspace basePath', async () => {
+    const execute = createExecute()
+    const result = await execute(
+      { action: 'write-topic', name: 'prefs', content: 'remembered' },
+      ctx({ memoryBasePath: memDir, basePath: wsDir }),
+    )
+    expect(result.ok).toBe(true)
+
+    expect(readFileSync(join(memDir, 'memory', 'topics', 'prefs.md'), 'utf-8')).toBe('remembered')
+    expect(existsSync(join(wsDir, 'memory', 'topics', 'prefs.md'))).toBe(false)
+  })
 })

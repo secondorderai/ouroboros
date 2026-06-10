@@ -426,11 +426,17 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     if (!providerResult.ok) {
       throw new Error(providerResult.error.message)
     }
+    // Durable memory is global: every session reads/writes memory under the
+    // config dir, while `basePath` keeps files/artifacts per-session. This is
+    // why a Simple-mode session's per-session workspace no longer isolates
+    // (and empties) its memory.
+    const memoryBasePath = configDir
     const rsiOrchestrator = new RSIOrchestrator({
       config: agentConfig,
       llm: providerResult.value,
       onEvent: eventProxy,
       basePath,
+      memoryBasePath,
       transcriptStore,
     })
     return new Agent({
@@ -440,6 +446,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       config: agentConfig,
       transcriptStore,
       basePath,
+      memoryBasePath,
       rsiOrchestrator,
       modeManager,
       taskGraphStore,

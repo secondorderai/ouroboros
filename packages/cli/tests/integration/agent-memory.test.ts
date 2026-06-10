@@ -861,4 +861,73 @@ describe('Agent + Memory Integration', () => {
       store.close()
     }
   })
+
+  // -------------------------------------------------------------------
+  // Fix 2: short sessions capture observations + checkpoint at shutdown
+  // -------------------------------------------------------------------
+  test('shutdown() captures observations and a checkpoint for a short session', async () => {
+    const sessionId = 'short-session'
+    const model = createMockModel([[...textBlock('Noted — teal it is.'), finishStop()]])
+    const agent = new Agent(
+      makeAgentOptions(model, registry, {
+        basePath: tempDir,
+        memoryBasePath: tempDir,
+        sessionId,
+      }),
+    )
+
+    await agent.run('Remember that my favourite colour is teal.')
+
+    // The conversation is far below the flush/compact threshold, so nothing is
+    // captured during the run — this is exactly the desktop bug.
+    expect(existsSync(resolveObservationLogPath(sessionId, tempDir))).toBe(false)
+
+    await agent.shutdown()
+
+    // Session end forces a capture regardless of context size.
+    expect(existsSync(resolveObservationLogPath(sessionId, tempDir))).toBe(true)
+    const observations = readObservations(sessionId, tempDir)
+    expect(observations.ok).toBe(true)
+    if (observations.ok) expect(observations.value.length).toBeGreaterThan(0)
+
+    expect(existsSync(resolveCheckpointPath(sessionId, tempDir))).toBe(true)
+    expect(readCheckpoint(sessionId, tempDir).ok).toBe(true)
+  })
+
+  // -------------------------------------------------------------------
+  // Fix 3: memory is global — different workspaces share one memory dir
+  // -------------------------------------------------------------------
+  test('sessions in different workspaces share one global memory location', async () => {
+    const memDir = makeTempDir('ouroboros-shared-mem')
+    const ws1 = makeTempDir('ouroboros-ws1')
+    const ws2 = makeTempDir('ouroboros-ws2')
+    try {
+      const drive = async (sessionId: string, basePath: string, message: string) => {
+        const model = createMockModel([[...textBlock(`ack ${sessionId}`), finishStop()]])
+        const agent = new Agent(
+          makeAgentOptions(model, new ToolRegistry(), {
+            basePath,
+            memoryBasePath: memDir,
+            sessionId,
+          }),
+        )
+        await agent.run(message)
+        await agent.shutdown()
+      }
+
+      await drive('session-a', ws1, 'first task')
+      await drive('session-b', ws2, 'second task')
+
+      // Both sessions' memory lands under the shared memoryBasePath, keyed by
+      // sessionId — never under their isolated per-session workspaces.
+      expect(existsSync(resolveObservationLogPath('session-a', memDir))).toBe(true)
+      expect(existsSync(resolveObservationLogPath('session-b', memDir))).toBe(true)
+      expect(existsSync(resolveObservationLogPath('session-a', ws1))).toBe(false)
+      expect(existsSync(resolveObservationLogPath('session-b', ws2))).toBe(false)
+    } finally {
+      cleanupTempDir(memDir)
+      cleanupTempDir(ws1)
+      cleanupTempDir(ws2)
+    }
+  })
 })

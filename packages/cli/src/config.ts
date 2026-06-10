@@ -310,6 +310,10 @@ export const configSchema = z.object({
     .object(permissionSchema.shape)
     .default({ tier0: true, tier1: true, tier2: true, tier3: false, tier4: false }),
 
+  // Internal marker stamped by one-time desktop config migrations
+  // (see migrateDesktopConfig). Optional so older files load cleanly.
+  _ouroborosConfigVersion: z.number().int().nonnegative().optional(),
+
   skillDirectories: z
     .array(z.string())
     .default(['skills/core', 'skills/generated'])
@@ -776,4 +780,56 @@ export function saveConfig(cwd: string, config: OuroborosConfig): Result<void> {
     ...existingResult.value,
     ...config,
   })
+}
+
+/**
+ * Current desktop config schema version. Bump and add a step in
+ * `migrateDesktopConfig` whenever desktop installs need a one-time fix-up.
+ */
+export const DESKTOP_CONFIG_VERSION = 1
+
+/**
+ * One-time, idempotent migration applied at the JSON-RPC (desktop) entry point.
+ *
+ * Older desktop installs persisted `permissions.tier3: false`, which the tier
+ * filter uses to remove the `memory` tool (and the rest of tier 3) from the
+ * agent entirely — so durable memory could never be read or written. This lifts
+ * tier 3 once, stamps the file with a version marker, and persists the change so
+ * the fix reaches already-installed apps. It is intentionally scoped to the
+ * desktop entry point so the standalone CLI keeps its conservative
+ * `tier3: false` default ("CLI self-modification requires human approval").
+ *
+ * Returns the in-memory config patched to match, so the current process uses the
+ * migrated permissions without re-reading the file. After the version is stamped
+ * the migration is a no-op, so a user who later disables tier 3 keeps it off.
+ */
+export function migrateDesktopConfig(configDir: string, config: OuroborosConfig): OuroborosConfig {
+  const rawResult = readOuroborosFile(configDir)
+  const raw = rawResult.ok ? rawResult.value : {}
+  const version = typeof raw._ouroborosConfigVersion === 'number' ? raw._ouroborosConfigVersion : 0
+
+  if (version >= DESKTOP_CONFIG_VERSION) {
+    return config
+  }
+
+  const migratedPermissions = { ...config.permissions, tier3: true }
+  const existingPermissions =
+    typeof raw.permissions === 'object' && raw.permissions !== null
+      ? (raw.permissions as Record<string, unknown>)
+      : {}
+
+  // Persist the raw file (not saveConfig) so we only touch permissions + the
+  // version marker and leave every other on-disk field untouched. Best-effort:
+  // a write failure must not block startup — the in-memory patch still applies.
+  writeOuroborosFile(configDir, {
+    ...raw,
+    permissions: { ...existingPermissions, ...migratedPermissions },
+    _ouroborosConfigVersion: DESKTOP_CONFIG_VERSION,
+  })
+
+  return {
+    ...config,
+    permissions: migratedPermissions,
+    _ouroborosConfigVersion: DESKTOP_CONFIG_VERSION,
+  }
 }

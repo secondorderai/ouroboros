@@ -15,7 +15,14 @@ export interface ToolExecutionContext {
   toolRegistry: ToolRegistry
   config: OuroborosConfig
   transcriptStore?: TranscriptStore
+  /** Workspace-scoped base path (files, artifacts). */
   basePath?: string
+  /**
+   * Base path for durable memory (MEMORY.md, topics). Falls back to `basePath`.
+   * The desktop sets this to the global config dir so memory is shared across
+   * sessions while artifacts stay per-session.
+   */
+  memoryBasePath?: string
   sessionId?: string
   agentId: string
   permissionLease?: PermissionLease
