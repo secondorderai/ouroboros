@@ -81,6 +81,7 @@ export type RSIRuntimeReason =
   | 'flush'
   | 'compact'
   | 'length-recovery'
+  | 'session-end'
   | 'checkpoint-seed'
   | 'dream'
   | 'crystallization'

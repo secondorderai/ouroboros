@@ -214,8 +214,15 @@ export interface AgentOptions {
   config?: OuroborosConfig
   /** Optional transcript store exposed to tools that persist audit records. */
   transcriptStore?: TranscriptStore
-  /** Base path used for filesystem-backed memory loading */
+  /** Base path for workspace-scoped filesystem access (files, artifacts, AGENTS.md) */
   basePath?: string
+  /**
+   * Base path for durable memory (MEMORY.md, observations, checkpoints, daily
+   * rollups, evolution log, team reputation). Decoupled from `basePath` so the
+   * desktop can keep one global memory while artifacts stay per-session.
+   * Defaults to `basePath` when omitted (CLI behaviour is unchanged).
+   */
+  memoryBasePath?: string
   /** Active session whose checkpoint should be loaded into prompt memory */
   sessionId?: string
   /** RSI orchestrator instance (initialized lazily, only if RSI is enabled) */
@@ -598,6 +605,7 @@ export class Agent {
   private config: OuroborosConfig
   private transcriptStore: TranscriptStore | undefined
   private basePath: string | undefined
+  private memoryBasePath: string | undefined
   private sessionId: string | undefined
   private rsiOrchestrator: RSIOrchestrator | null
   private modeManager: ModeManager | null
@@ -636,6 +644,7 @@ export class Agent {
     this.skillCatalogProvider = options.skillCatalogProvider ?? getSkillCatalog
     this.transcriptStore = options.transcriptStore
     this.basePath = options.basePath
+    this.memoryBasePath = options.memoryBasePath ?? options.basePath
     this.sessionId = options.sessionId
     this.config =
       options.config ??
@@ -1188,6 +1197,19 @@ export class Agent {
    * Triggers session-end RSI hooks (dream cycle) if configured.
    */
   async shutdown(): Promise<void> {
+    // Capture observations + refresh the checkpoint once at session end,
+    // regardless of context usage. Short conversations never cross the
+    // flush/compact threshold that normally triggers capture, so without this
+    // the session-end dream cycle would have no observations to consolidate.
+    // This is synchronous and LLM-free, and must run BEFORE the dream below.
+    if (this.sessionId) {
+      try {
+        this.captureObservationsAndRefreshCheckpoint('session-end')
+      } catch {
+        // Never crash on exit — observation capture is best-effort.
+      }
+    }
+
     if (this.rsiOrchestrator) {
       try {
         await this.rsiOrchestrator.onSessionEnd()
@@ -1270,7 +1292,7 @@ export class Agent {
   }
 
   private buildTeamGuidance(): string | undefined {
-    const snapshotResult = readReputationSnapshot(this.basePath)
+    const snapshotResult = readReputationSnapshot(this.memoryBasePath)
     if (!snapshotResult.ok || snapshotResult.value.summaries.length === 0) {
       return [
         'Use `team_graph` for explicit team plans, workflow templates, or when the user asks to show the team graph.',
@@ -1305,6 +1327,7 @@ export class Agent {
       config: this.config,
       transcriptStore: this.transcriptStore,
       basePath: this.basePath,
+      memoryBasePath: this.memoryBasePath,
       sessionId: this.sessionId,
       agentId: this.agentId,
       permissionLease: this.permissionLease,
@@ -1449,7 +1472,7 @@ export class Agent {
     }
 
     const result = loadLayeredMemory({
-      basePath: this.basePath,
+      basePath: this.memoryBasePath,
       sessionId: this.sessionId,
       config: this.config.memory,
     })
@@ -1458,7 +1481,7 @@ export class Agent {
   }
 
   private captureObservationsAndRefreshCheckpoint(
-    reason: 'flush' | 'compact' | 'length-recovery' = 'flush',
+    reason: 'flush' | 'compact' | 'length-recovery' | 'session-end' = 'flush',
     partialAssistantText?: string,
   ): boolean {
     if (!this.sessionId) {
@@ -1468,7 +1491,7 @@ export class Agent {
     const unseenMessages = this.conversationHistory.slice(this.observedHistoryLength)
     if (unseenMessages.length === 0 && !partialAssistantText) {
       if (this.checkpointedHistoryLength !== this.conversationHistory.length) {
-        const refreshResult = reflectCheckpoint(this.sessionId, { basePath: this.basePath })
+        const refreshResult = reflectCheckpoint(this.sessionId, { basePath: this.memoryBasePath })
         if (!refreshResult.ok) {
           this.emitEvent({ type: 'error', error: refreshResult.error, recoverable: true })
           return false
@@ -1478,7 +1501,7 @@ export class Agent {
       return true
     }
 
-    const existingCheckpoint = readCheckpoint(this.sessionId, this.basePath)
+    const existingCheckpoint = readCheckpoint(this.sessionId, this.memoryBasePath)
     const inputs = this.buildObservationInputs(
       unseenMessages,
       existingCheckpoint.ok ? existingCheckpoint.value : null,
@@ -1486,7 +1509,7 @@ export class Agent {
     )
 
     if (inputs.length > 0) {
-      const appendResult = appendObservationBatch(this.sessionId, inputs, this.basePath)
+      const appendResult = appendObservationBatch(this.sessionId, inputs, this.memoryBasePath)
       if (!appendResult.ok) {
         this.emitEvent({ type: 'error', error: appendResult.error, recoverable: true })
         return false
@@ -1522,7 +1545,7 @@ export class Agent {
       }
     }
 
-    const reflectionResult = reflectCheckpoint(this.sessionId, { basePath: this.basePath })
+    const reflectionResult = reflectCheckpoint(this.sessionId, { basePath: this.memoryBasePath })
     if (!reflectionResult.ok) {
       this.emitEvent({ type: 'error', error: reflectionResult.error, recoverable: true })
       return false
@@ -1759,7 +1782,7 @@ export class Agent {
 
   private logAndEmitRSIEvent(event: RSIEvent, entry: NewEvolutionEntry | null = null): void {
     if (entry) {
-      const appendResult = appendEntry(entry, this.basePath)
+      const appendResult = appendEntry(entry, this.memoryBasePath)
       if (!appendResult.ok) {
         this.emitEvent({ type: 'error', error: appendResult.error, recoverable: true })
       }

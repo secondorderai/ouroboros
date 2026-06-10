@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { type Result, ok, err } from '@src/types'
 import { getMemoryIndex, updateMemoryIndex } from '@src/memory/index'
 import { listTopics, readTopic, writeTopic } from '@src/memory/topics'
+import type { ToolExecutionContext } from './types'
 // NOTE: TranscriptStore import can be restored when search-transcripts is re-enabled.
 
 // ── Tool interface ─────────────────────────────────────────────────
@@ -44,10 +45,17 @@ export interface MemoryToolDeps {
  * and transcript store at startup.
  */
 export function createExecute(deps: MemoryToolDeps = {}) {
-  return async (input: MemoryToolInput): Promise<Result<string>> => {
+  return async (
+    input: MemoryToolInput,
+    context?: ToolExecutionContext,
+  ): Promise<Result<string>> => {
+    // Durable memory is global: prefer the explicitly-injected dep (tests),
+    // then the agent's memoryBasePath (desktop → global config dir), then the
+    // workspace basePath. Falls back to process.cwd() inside the memory helpers.
+    const basePath = deps.basePath ?? context?.memoryBasePath ?? context?.basePath
     switch (input.action) {
       case 'read-index': {
-        const result = getMemoryIndex(deps.basePath)
+        const result = getMemoryIndex(basePath)
         if (!result.ok) return result
         return ok(result.value || '(empty)')
       }
@@ -56,13 +64,13 @@ export function createExecute(deps: MemoryToolDeps = {}) {
         if (!input.content) {
           return err(new Error('update-index requires "content" parameter'))
         }
-        const result = updateMemoryIndex(input.content, deps.basePath)
+        const result = updateMemoryIndex(input.content, basePath)
         if (!result.ok) return result
         return ok('MEMORY.md updated successfully')
       }
 
       case 'list-topics': {
-        const result = listTopics(deps.basePath)
+        const result = listTopics(basePath)
         if (!result.ok) return result
         if (result.value.length === 0) {
           return ok('No topics found')
@@ -74,7 +82,7 @@ export function createExecute(deps: MemoryToolDeps = {}) {
         if (!input.name) {
           return err(new Error('read-topic requires "name" parameter'))
         }
-        const result = readTopic(input.name, deps.basePath)
+        const result = readTopic(input.name, basePath)
         if (!result.ok) return result
         return ok(result.value)
       }
@@ -86,7 +94,7 @@ export function createExecute(deps: MemoryToolDeps = {}) {
         if (!input.content) {
           return err(new Error('write-topic requires "content" parameter'))
         }
-        const result = writeTopic(input.name, input.content, deps.basePath)
+        const result = writeTopic(input.name, input.content, basePath)
         if (!result.ok) return result
         return ok(`Topic "${input.name}" written successfully`)
       }
