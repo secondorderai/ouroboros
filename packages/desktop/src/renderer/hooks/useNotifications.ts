@@ -3,6 +3,10 @@ import { useConversationStore } from '../stores/conversationStore'
 import { addApproval, loadApprovals, toPendingApproval } from '../stores/approvalStore'
 import { addAskUserRequest, clearAskUserRequests } from '../stores/askUserStore'
 import { useArtifactsStore } from '../stores/artifactsStore'
+import {
+  addSandboxUnavailableNotice,
+  addSandboxViolationNotice,
+} from '../stores/sandboxNoticeStore'
 import type { ApprovalRequestNotification } from '../../shared/protocol'
 
 /**
@@ -103,6 +107,12 @@ export function useNotifications(): void {
       }),
       api.onNotification('agent/artifactCreated', (params) => {
         useArtifactsStore.getState().handleArtifactCreated(params)
+      }),
+      api.onNotification('sandbox/violation', (params) => {
+        addSandboxViolationNotice(params)
+      }),
+      api.onNotification('sandbox/unavailable', (params) => {
+        addSandboxUnavailableNotice(params)
       }),
       api.onCLIStatus((status) => {
         if (status === 'error' || status === 'restarting') {

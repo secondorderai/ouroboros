@@ -5,6 +5,7 @@ import {
   DEFAULT_DESKTOP_CONFIG,
   DEFAULT_MEMORY_CONFIG,
   DEFAULT_RSI_CONFIG,
+  DEFAULT_SANDBOX_CONFIG,
   getSelectablePrimaryAgentDefinitions,
   loadConfig,
   resolveConfigDir,
@@ -122,6 +123,102 @@ describe('loadConfig', () => {
 
     expect(config.analytics.postgres.connections).toEqual([])
     expect(config.desktop.defaultResponseFormat).toBe(DEFAULT_DESKTOP_CONFIG.defaultResponseFormat)
+
+    // Sandbox defaults: enabled, no extra domains/paths, local binding allowed
+    expect(config.sandbox).toEqual(DEFAULT_SANDBOX_CONFIG)
+    expect(config.sandbox.enabled).toBe(true)
+    expect(config.sandbox.escalateOnViolation).toBe(true)
+    expect(config.sandbox.network.allowedDomains).toEqual([])
+    expect(config.sandbox.network.deniedDomains).toEqual([])
+    expect(config.sandbox.network.allowLocalBinding).toBe(true)
+    expect(config.sandbox.filesystem.allowWrite).toEqual([])
+    expect(config.sandbox.filesystem.denyRead).toEqual([])
+    expect(config.sandbox.filesystem.denyWrite).toEqual([])
+  })
+
+  test('applies sandbox defaults when a partial sandbox section is present', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ sandbox: { network: { allowedDomains: ['internal.example'] } } }),
+    )
+
+    const result = loadConfig(tempDir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.sandbox.enabled).toBe(true)
+    expect(result.value.sandbox.escalateOnViolation).toBe(true)
+    expect(result.value.sandbox.network.allowedDomains).toEqual(['internal.example'])
+    expect(result.value.sandbox.network.allowLocalBinding).toBe(true)
+    expect(result.value.sandbox.filesystem.denyWrite).toEqual([])
+  })
+
+  test('sandbox.escalateOnViolation: false round-trips through load', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ sandbox: { escalateOnViolation: false } }),
+    )
+
+    const result = loadConfig(tempDir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.sandbox.enabled).toBe(true)
+    expect(result.value.sandbox.escalateOnViolation).toBe(false)
+  })
+
+  test('sandbox.enabled: false round-trips through save and reload', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({
+        sandbox: {
+          enabled: false,
+          network: { deniedDomains: ['evil.example'] },
+          filesystem: { denyWrite: ['protected'] },
+        },
+      }),
+    )
+
+    const loaded = loadConfig(tempDir)
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    expect(loaded.value.sandbox.enabled).toBe(false)
+    expect(loaded.value.sandbox.network.deniedDomains).toEqual(['evil.example'])
+    expect(loaded.value.sandbox.filesystem.denyWrite).toEqual(['protected'])
+
+    const saved = saveConfig(tempDir, loaded.value)
+    expect(saved.ok).toBe(true)
+
+    const reloaded = loadConfig(tempDir)
+    expect(reloaded.ok).toBe(true)
+    if (!reloaded.ok) return
+    expect(reloaded.value.sandbox.enabled).toBe(false)
+    expect(reloaded.value.sandbox.network.deniedDomains).toEqual(['evil.example'])
+    expect(reloaded.value.sandbox.filesystem.denyWrite).toEqual(['protected'])
+  })
+
+  test('rejects invalid sandbox shapes', () => {
+    writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify({ sandbox: { enabled: 'yes' } }))
+    const enabledResult = loadConfig(tempDir)
+    expect(enabledResult.ok).toBe(false)
+    if (enabledResult.ok) return
+    expect(enabledResult.error.message).toContain('sandbox.enabled')
+
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ sandbox: { network: { allowedDomains: 'github.com' } } }),
+    )
+    const domainsResult = loadConfig(tempDir)
+    expect(domainsResult.ok).toBe(false)
+    if (domainsResult.ok) return
+    expect(domainsResult.error.message).toContain('sandbox.network.allowedDomains')
+
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ sandbox: { filesystem: { denyWrite: [42] } } }),
+    )
+    const denyWriteResult = loadConfig(tempDir)
+    expect(denyWriteResult.ok).toBe(false)
+    if (denyWriteResult.ok) return
+    expect(denyWriteResult.error.message).toContain('sandbox.filesystem.denyWrite')
   })
 
   test('loads configured desktop response format', () => {

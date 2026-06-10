@@ -14,6 +14,7 @@ import {
   BUILT_IN_AGENT_DEFINITIONS,
   DEFAULT_ANALYTICS_CONFIG,
   DEFAULT_ARTIFACTS_CONFIG,
+  DEFAULT_SANDBOX_CONFIG,
   loadConfig,
   type ContextWindowSource,
   type OuroborosConfig,
@@ -183,6 +184,23 @@ export type AgentEvent =
       path: string
       bytes: number
       createdAt: string
+    }
+  | {
+      /** A sandboxed spawn failed with a denial-shaped error (OS sandbox violation). */
+      type: 'sandbox-violation'
+      toolName: string
+      /** Truncated command text — never includes environment values. */
+      commandSummary: string
+      /** Which classifier signature matched (e.g. '"Operation not permitted" filesystem denial'). */
+      indicator?: string
+      cwd: string
+      platform: NodeJS.Platform
+    }
+  | {
+      /** Fired once per process the first time a command falls back to running unsandboxed. */
+      type: 'sandbox-unavailable'
+      reason: string
+      platform: NodeJS.Platform
     }
   | RSIEvent
 
@@ -707,6 +725,7 @@ export class Agent {
               },
               analytics: DEFAULT_ANALYTICS_CONFIG,
               mcp: { servers: [] },
+              sandbox: DEFAULT_SANDBOX_CONFIG,
             } satisfies OuroborosConfig)
       })()
     this.rsiOrchestrator = options.rsiOrchestrator ?? null

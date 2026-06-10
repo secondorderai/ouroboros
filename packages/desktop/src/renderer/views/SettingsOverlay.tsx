@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { ModelSection } from '../components/settings/ModelSection'
 import { AppearanceSection } from '../components/settings/AppearanceSection'
 import { PermissionsSection } from '../components/settings/PermissionsSection'
+import { SandboxSection } from '../components/settings/SandboxSection'
 import { RsiSection } from '../components/settings/RsiSection'
 import { MemorySection } from '../components/settings/MemorySection'
 import { ModeSection } from '../components/settings/ModeSection'
@@ -24,6 +25,7 @@ export type SettingsSectionId =
   | 'model'
   | 'appearance'
   | 'permissions'
+  | 'sandbox'
   | 'skills'
   | 'rsi'
   | 'memory'
@@ -52,6 +54,11 @@ const SECTIONS: SectionDef[] = [
     id: 'permissions',
     label: 'Permissions',
     description: 'Safety tiers and execution boundaries.',
+  },
+  {
+    id: 'sandbox',
+    label: 'Sandbox',
+    description: 'OS-level isolation for agent commands.',
   },
   {
     id: 'skills',
@@ -101,6 +108,7 @@ export function SettingsOverlay({
         'model',
         'appearance',
         'permissions',
+        'sandbox',
         'skills',
         'rsi',
         'memory',
@@ -248,6 +256,9 @@ export function SettingsOverlay({
           {activeSection === 'permissions' && (
             <PermissionsSection config={config} onConfigChange={handleConfigChange} />
           )}
+          {activeSection === 'sandbox' && (
+            <SandboxSection config={config} onConfigChange={handleConfigChange} />
+          )}
           {activeSection === 'skills' && (
             <SkillsSection config={config} onConfigChange={handleConfigChange} />
           )}
@@ -273,6 +284,39 @@ function applyConfigChange(config: OuroborosConfig, path: string, value: unknown
   if (path.startsWith('permissions.')) {
     const permissionKey = path.slice('permissions.'.length) as keyof OuroborosConfig['permissions']
     next.permissions[permissionKey] = Boolean(value)
+    return next
+  }
+
+  if (path.startsWith('sandbox.')) {
+    // Fill defaults so optimistic updates work against configs from CLIs
+    // that predate the sandbox section.
+    const sandbox = {
+      enabled: next.sandbox?.enabled ?? true,
+      network: {
+        allowedDomains: next.sandbox?.network?.allowedDomains ?? [],
+        deniedDomains: next.sandbox?.network?.deniedDomains ?? [],
+        allowLocalBinding: next.sandbox?.network?.allowLocalBinding ?? true,
+      },
+      filesystem: {
+        allowWrite: next.sandbox?.filesystem?.allowWrite ?? [],
+        denyRead: next.sandbox?.filesystem?.denyRead ?? [],
+        denyWrite: next.sandbox?.filesystem?.denyWrite ?? [],
+      },
+    }
+    switch (path) {
+      case 'sandbox.enabled':
+        sandbox.enabled = Boolean(value)
+        break
+      case 'sandbox.network.allowedDomains':
+        if (Array.isArray(value)) sandbox.network.allowedDomains = value.map(String)
+        break
+      case 'sandbox.filesystem.allowWrite':
+        if (Array.isArray(value)) sandbox.filesystem.allowWrite = value.map(String)
+        break
+      default:
+        return config
+    }
+    next.sandbox = sandbox
     return next
   }
 

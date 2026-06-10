@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="ouroboros-rsi" name="Ouroboros RSI Loop">
-        <mxGraphModel dx="572" dy="751" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="1325" dy="695" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -79,13 +79,10 @@
                     <mxGeometry x="620" y="340" width="260" height="120" as="geometry"/>
                 </mxCell>
                 <mxCell id="stage-crystallize" value="&lt;b style=&quot;color:#92400e;&quot;&gt;3 · Crystallize&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Generate skill, write to generated,&lt;br/&gt;validate and self-test;&lt;br/&gt;available on green." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#b45309;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
-                    <mxGeometry x="620" y="620" width="260" height="120" as="geometry"/>
-                </mxCell>
-                <mxCell id="stage-dream" value="&lt;b style=&quot;color:#065f46;&quot;&gt;4 · Dream&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Consolidate sessions into durable&lt;br/&gt;MEMORY.md; promote / prune /&lt;br/&gt;resolve contradictions." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#047857;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
-                    <mxGeometry x="360" y="660" width="260" height="120" as="geometry"/>
+                    <mxGeometry x="672" y="550" width="260" height="120" as="geometry"/>
                 </mxCell>
                 <mxCell id="stage-evolve" value="&lt;b style=&quot;color:#9f1239;&quot;&gt;5 · Evolve&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Append every event to&lt;br/&gt;evolution.log.json so thresholds&lt;br/&gt;and defaults can be tuned." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#be123c;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
-                    <mxGeometry x="100" y="620" width="260" height="120" as="geometry"/>
+                    <mxGeometry x="100" y="540" width="260" height="120" as="geometry"/>
                 </mxCell>
                 <mxCell id="arc-1to2" style="endArrow=classic;html=1;strokeColor=#2563eb;strokeWidth=2;curved=1;" parent="1" source="stage-observe" target="stage-reflect" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
@@ -180,11 +177,20 @@
                 <mxCell id="link-mem" style="endArrow=classic;html=1;strokeColor=#047857;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-dream" target="store-mem" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="link-evo" style="endArrow=classic;html=1;strokeColor=#be123c;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-evolve" target="store-evo" edge="1">
+                <mxCell id="link-evo" style="endArrow=classic;html=1;strokeColor=#be123c;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="stage-dream" target="store-evo" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="legend" value="Solid arrows = orchestrated control flow.   Dashed = persistence (file-backed read/write)." style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#475569;" parent="1" vertex="1">
                     <mxGeometry x="60" y="1058" width="900" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="2" value="" style="endArrow=classic;html=1;strokeColor=#be123c;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="stage-evolve" target="stage-dream">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="230" y="740" as="sourcePoint"/>
+                        <mxPoint x="1392" y="890" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="stage-dream" value="&lt;b style=&quot;color:#065f46;&quot;&gt;4 · Dream&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Consolidate sessions into durable&lt;br/&gt;MEMORY.md; promote / prune /&lt;br/&gt;resolve contradictions." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#047857;strokeWidth=2;fontSize=11;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="376" y="680" width="260" height="120" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>

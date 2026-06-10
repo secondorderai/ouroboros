@@ -567,7 +567,7 @@ export function App(): React.ReactElement {
       </div>
 
       {/* Overlays & modals */}
-      <ApprovalToastContainer />
+      <ApprovalToastContainer onOpenSettings={() => openSettings('sandbox')} />
       <AskUserDialog />
       <PlanDecisionDialog />
       <CommandPalette

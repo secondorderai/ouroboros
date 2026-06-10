@@ -498,6 +498,8 @@ function registerNotificationForwarding(ctx: IpcHandlerContext): void {
     'mode/exited',
     'mode/planSubmitted',
     'agent/artifactCreated',
+    'sandbox/violation',
+    'sandbox/unavailable',
   ]
 
   for (const method of notificationMethods) {

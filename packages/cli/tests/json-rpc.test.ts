@@ -2081,6 +2081,75 @@ describe('JSON-RPC', () => {
   })
 
   // -------------------------------------------------------------------
+  // Test: Sandbox re-initialization hooks
+  // -------------------------------------------------------------------
+  describe('sandbox re-initialization hooks', () => {
+    test('workspace/set and workspace/clear re-anchor the sandbox', async () => {
+      const baseDir = realpathSync(
+        mkdtempSync(join(tmpdir(), `ouroboros-jsonrpc-sandbox-ws-${crypto.randomUUID()}-`)),
+      )
+      const workspaceDir = join(baseDir, 'workspace')
+      mkdirSync(workspaceDir, { recursive: true })
+
+      const originalCwd = process.cwd()
+      const ctx = createTestContext({ configDir: baseDir })
+      let reinitCalls = 0
+      ctx.reinitializeSandbox = async () => {
+        reinitCalls += 1
+      }
+      const handlers = createHandlers(ctx)
+
+      try {
+        // The sandbox allowWrite policy anchors at cwd: every workspace
+        // switch must re-initialize it or writes in the new workspace get
+        // kernel-denied (and the old workspace stays writable).
+        await handlers.get('workspace/set')!({ directory: workspaceDir })
+        expect(reinitCalls).toBe(1)
+
+        await handlers.get('workspace/clear')!({})
+        expect(reinitCalls).toBe(2)
+      } finally {
+        process.chdir(originalCwd)
+        rmSync(baseDir, { recursive: true, force: true })
+        ctx.transcriptStore.close()
+      }
+    })
+
+    test('config/set re-initializes the sandbox only when the sandbox subtree changes', async () => {
+      const configDir = mkdtempSync(
+        join(tmpdir(), `ouroboros-jsonrpc-sandbox-cfg-${crypto.randomUUID()}-`),
+      )
+      const config = makeTestConfig()
+      writeFileSync(join(configDir, '.ouroboros'), JSON.stringify(config, null, 2), 'utf-8')
+
+      const ctx = createTestContext({ config, configDir })
+      let reinitCalls = 0
+      ctx.reinitializeSandbox = async () => {
+        reinitCalls += 1
+      }
+      const handlers = createHandlers(ctx)
+
+      try {
+        // Unrelated config paths must NOT churn the sandbox (re-init tears
+        // down and restarts the backend's proxy servers).
+        await handlers.get('config/set')!({ path: 'model.name', value: 'other-model' })
+        expect(reinitCalls).toBe(0)
+
+        // Sandbox subtree changes apply live via the re-init hook.
+        await handlers.get('config/set')!({ path: 'sandbox.enabled', value: false })
+        expect(reinitCalls).toBe(1)
+
+        // Re-setting the same value is not a sandbox change.
+        await handlers.get('config/set')!({ path: 'sandbox.enabled', value: false })
+        expect(reinitCalls).toBe(1)
+      } finally {
+        rmSync(configDir, { recursive: true, force: true })
+        ctx.transcriptStore.close()
+      }
+    })
+  })
+
+  // -------------------------------------------------------------------
   // Test: Config get/set round-trip
   // -------------------------------------------------------------------
   describe('config get/set round-trip', () => {
@@ -3752,6 +3821,69 @@ description: A disabled skill
       expect(notif.method).toBe('agent/error')
       expect(notif.params.message).toBe('Something broke')
       expect(notif.params.recoverable).toBe(true)
+    })
+
+    test('sandbox-violation event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'sandbox-violation',
+            toolName: 'bash',
+            commandSummary: 'touch /denied/x',
+            indicator: 'file-write denial reported by the OS sandbox',
+            cwd: '/work',
+            platform: 'darwin',
+          },
+          'session-sbx',
+        )
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: {
+          sessionId: string
+          toolName: string
+          commandSummary: string
+          indicator: string
+          cwd: string
+          platform: string
+        }
+      }
+      expect(notif.method).toBe('sandbox/violation')
+      expect(notif.params.sessionId).toBe('session-sbx')
+      expect(notif.params.toolName).toBe('bash')
+      expect(notif.params.commandSummary).toBe('touch /denied/x')
+      expect(notif.params.indicator).toBe('file-write denial reported by the OS sandbox')
+      expect(notif.params.cwd).toBe('/work')
+      expect(notif.params.platform).toBe('darwin')
+    })
+
+    test('sandbox-unavailable event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'sandbox-unavailable',
+            reason: 'ripgrep missing',
+            platform: 'linux',
+          },
+          'session-sbx',
+        )
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: { sessionId: string; reason: string; platform: string }
+      }
+      expect(notif.method).toBe('sandbox/unavailable')
+      expect(notif.params.sessionId).toBe('session-sbx')
+      expect(notif.params.reason).toBe('ripgrep missing')
+      expect(notif.params.platform).toBe('linux')
     })
 
     test('subagent lifecycle events are bridged correctly', async () => {

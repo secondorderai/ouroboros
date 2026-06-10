@@ -7,7 +7,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { Agent } from '@src/agent'
-import { DEFAULT_ARTIFACTS_CONFIG } from '@src/config'
+import { DEFAULT_ARTIFACTS_CONFIG, DEFAULT_SANDBOX_CONFIG } from '@src/config'
 import { ToolRegistry } from '@src/tools/registry'
 import {
   discoverSkills,
@@ -291,6 +291,7 @@ Apply the SecondOrder method.`,
           },
           analytics: { postgres: { connections: [] } },
           mcp: { servers: [] },
+          sandbox: DEFAULT_SANDBOX_CONFIG,
         },
       })
 

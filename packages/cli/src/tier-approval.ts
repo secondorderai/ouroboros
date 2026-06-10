@@ -46,6 +46,16 @@ export function setTierApprovalHandler(
 }
 
 /**
+ * Whether a tier-approval handler is registered. Only the JSON-RPC server
+ * registers one (desktop mode); in REPL mode this is false and escalation
+ * paths (e.g. `bypassSandbox: true`) yield a clean denial, so model-facing
+ * guidance can say that approval requires the desktop app.
+ */
+export function hasTierApprovalHandler(): boolean {
+  return tierApprovalHandler !== null
+}
+
+/**
  * Request approval for a tool call whose tier is disabled in config.
  * Called by the ToolRegistry when a Tier 3/4 tool is blocked.
  * Returns `ok(undefined)` if approved, or an error if denied/no handler.
@@ -58,7 +68,8 @@ export async function requestTierApproval(
   if (!tierApprovalHandler) {
     return err(
       new Error(
-        `Tool "${toolName}" requires tier ${toolTier} approval, but no approval handler is active.`,
+        `Tool "${toolName}" requires tier ${toolTier} approval, but no approval handler is active. ` +
+          'Human approval requires the desktop app.',
       ),
     )
   }

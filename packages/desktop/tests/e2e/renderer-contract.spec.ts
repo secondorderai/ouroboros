@@ -836,6 +836,268 @@ test('approval notifications populate the UI and failed responses keep the appro
   await expect(launched.page.getByText('Approve this desktop patch')).toBeVisible()
 })
 
+test('sandbox violation notification shows a dismissible toast with settings shortcut', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await emitNotification(launched.page, 'sandbox/violation', {
+    sessionId: null,
+    toolName: 'bash',
+    commandSummary: 'touch /denied/canary',
+    indicator: 'file-write denial reported by the OS sandbox',
+    cwd: '/tmp',
+    platform: 'darwin',
+  })
+
+  await expect(launched.page.getByText('Command Blocked')).toBeVisible()
+  await expect(launched.page.getByText('Sandbox blocked', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('touch /denied/canary')).toBeVisible()
+  await expect(
+    launched.page.getByText(/file-write denial reported by the OS sandbox/),
+  ).toBeVisible()
+
+  // The settings shortcut opens the settings overlay directly at the
+  // sandbox section. Close via Escape: the toast stack floats above the
+  // overlay's close button by design.
+  await launched.page.getByRole('button', { name: 'Open sandbox settings' }).click()
+  await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+  await expect(launched.page.getByLabel('OS sandbox: enabled')).toBeVisible()
+  await launched.page.keyboard.press('Escape')
+  await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
+
+  // Dismiss removes the toast.
+  await launched.page.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(launched.page.getByText('Command Blocked')).toHaveCount(0)
+})
+
+test('sandbox unavailable notifications are deduped to a single toast', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await emitNotification(launched.page, 'sandbox/unavailable', {
+    sessionId: null,
+    reason: 'ripgrep missing',
+    platform: 'darwin',
+  })
+  await emitNotification(launched.page, 'sandbox/unavailable', {
+    sessionId: null,
+    reason: 'ripgrep missing',
+    platform: 'darwin',
+  })
+
+  await expect(launched.page.getByText('Sandbox Unavailable')).toHaveCount(1)
+  await expect(launched.page.getByText(/ripgrep missing/)).toBeVisible()
+  await expect(launched.page.getByText(/Commands run unsandboxed/)).toBeVisible()
+
+  // Warn-once: dismissing and re-emitting must not re-toast.
+  await launched.page.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(launched.page.getByText('Sandbox Unavailable')).toHaveCount(0)
+  await emitNotification(launched.page, 'sandbox/unavailable', {
+    sessionId: null,
+    reason: 'ripgrep missing',
+    platform: 'darwin',
+  })
+  await expect(launched.page.getByText('Sandbox Unavailable')).toHaveCount(0)
+})
+
+test('sandbox violation during an agent run surfaces the toast (mock-cli flow)', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'The command was blocked by the sandbox.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          {
+            delayMs: 10,
+            method: 'sandbox/violation',
+            params: {
+              sessionId: null,
+              toolName: 'bash',
+              commandSummary: 'touch /denied/in-run',
+              indicator: '"Operation not permitted" filesystem denial',
+              cwd: '/tmp',
+              platform: 'darwin',
+            },
+          },
+          {
+            delayMs: 20,
+            method: 'agent/turnComplete',
+            params: { text: 'The command was blocked by the sandbox.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByLabel('Message input').fill('Write outside the sandbox')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Command Blocked')).toBeVisible()
+  await expect(launched.page.getByText('touch /denied/in-run')).toBeVisible()
+  await expect(launched.page.getByText('The command was blocked by the sandbox.')).toBeVisible()
+})
+
+test('sandbox unavailable during an agent run surfaces the warn-once toast (mock-cli flow)', async ({}, testInfo) => {
+  // Real-path coverage for the 'sandbox/unavailable' entry in the main
+  // process's notification forwarding list: the mock CLI emits the
+  // notification over stdio, so it must traverse rpcClient.onNotification →
+  // registerNotificationForwarding → renderer. (The emitNotification test
+  // bridge used by the dedupe test above sends straight to the webContents,
+  // bypassing the forwarding list entirely — it cannot catch a reverted
+  // forwarding entry.)
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'Ran without the sandbox.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          {
+            delayMs: 10,
+            method: 'sandbox/unavailable',
+            params: {
+              sessionId: null,
+              reason: 'ripgrep missing',
+              platform: 'darwin',
+            },
+          },
+          {
+            delayMs: 20,
+            method: 'agent/turnComplete',
+            params: { text: 'Ran without the sandbox.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByLabel('Message input').fill('Run something unsandboxed')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Sandbox Unavailable')).toBeVisible()
+  await expect(launched.page.getByText(/ripgrep missing/)).toBeVisible()
+  await expect(launched.page.getByText('Ran without the sandbox.')).toBeVisible()
+})
+
+/** Open the settings overlay (Cmd/Ctrl+,) and switch to the Sandbox section. */
+async function openSandboxSettings(): Promise<void> {
+  if (!launched) throw new Error('App not launched')
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+  await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+  // The nav button's accessible name includes its description text, which
+  // uniquely identifies it among other "sandbox"-named controls.
+  await launched.page.getByRole('button', { name: 'OS-level isolation' }).click()
+}
+
+/** Parse mock-cli request-log entries for config/set calls on a path. */
+async function configSetValues(path: string): Promise<unknown[]> {
+  if (!launched) throw new Error('App not launched')
+  const log = await readFile(launched.paths.mockLogPath, 'utf8').catch(() => '')
+  return log
+    .split('\n')
+    .filter((line) => line.startsWith('[request] '))
+    .map((line) => {
+      try {
+        return JSON.parse(line.slice('[request] '.length)) as {
+          method?: string
+          params?: { path?: string; value?: unknown }
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter((req) => req?.method === 'config/set' && req.params?.path === path)
+    .map((req) => req!.params!.value)
+}
+
+test('sandbox settings section disables enforcement only after confirmation', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+  await openSandboxSettings()
+
+  // Read-only built-in protections are listed.
+  await expect(launched.page.getByText('skills/', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('memory/', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('.ouroboros', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('Always denied')).toHaveCount(3)
+
+  // Toggling off demands confirmation; Cancel keeps enforcement on.
+  await launched.page.getByLabel('OS sandbox: enabled').click()
+  await expect(launched.page.getByText(/Disabling the OS sandbox/)).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(launched.page.getByText(/Disabling the OS sandbox/)).toHaveCount(0)
+  await expect(launched.page.getByLabel('OS sandbox: enabled')).toBeVisible()
+  expect(await configSetValues('sandbox.enabled')).toEqual([])
+
+  // Confirming records config/set { path: 'sandbox.enabled', value: false }.
+  await launched.page.getByLabel('OS sandbox: enabled').click()
+  await launched.page.getByRole('button', { name: 'Disable sandbox' }).click()
+  await expect(launched.page.getByLabel('OS sandbox: disabled')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.enabled')).toEqual([false])
+
+  // Re-enabling flows straight through without a confirmation dialog.
+  await launched.page.getByLabel('OS sandbox: disabled').click()
+  await expect(launched.page.getByLabel('OS sandbox: enabled')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.enabled')).toEqual([false, true])
+})
+
+test('sandbox settings domain and writable-path edits persist across reopen', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+  await openSandboxSettings()
+
+  // Add an allowed domain and an extra writable path.
+  await launched.page.getByLabel('Add allowed domain').fill('internal.example.com')
+  await launched.page.getByRole('button', { name: 'Add domain' }).click()
+  await expect(launched.page.getByText('internal.example.com')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.network.allowedDomains')).toEqual([
+    ['internal.example.com'],
+  ])
+
+  await launched.page.getByLabel('Add writable path').fill('/tmp/sandbox-extra')
+  await launched.page.getByRole('button', { name: 'Add path' }).click()
+  await expect(launched.page.getByText('/tmp/sandbox-extra')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.filesystem.allowWrite')).toEqual([
+    ['/tmp/sandbox-extra'],
+  ])
+
+  // Reopen settings: the entries round-trip through config/get, proving the
+  // config/set calls persisted rather than only updating local state.
+  await launched.page.getByLabel('Close settings').click()
+  await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
+  await openSandboxSettings()
+  await expect(launched.page.getByText('internal.example.com')).toBeVisible()
+  await expect(launched.page.getByText('/tmp/sandbox-extra')).toBeVisible()
+
+  // Removal persists the emptied lists the same way.
+  await launched.page.getByLabel('Remove internal.example.com').click()
+  await expect(launched.page.getByText('internal.example.com')).toHaveCount(0)
+  await expect(launched.page.getByText('No extra domains configured.')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.network.allowedDomains')).toEqual([
+    ['internal.example.com'],
+    [],
+  ])
+
+  await launched.page.getByLabel('Close settings').click()
+  await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
+  await openSandboxSettings()
+  await expect(launched.page.getByText('internal.example.com')).toHaveCount(0)
+  await expect(launched.page.getByText('/tmp/sandbox-extra')).toBeVisible()
+})
+
 test('ask-user notification opens modal and submits selected option', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()

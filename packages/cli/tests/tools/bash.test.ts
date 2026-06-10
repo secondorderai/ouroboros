@@ -1,5 +1,25 @@
 import { afterEach, beforeEach, describe, test, expect } from 'bun:test'
 import { classifyBashCommand, execute, resolveTier, schema } from '@src/tools/bash'
+import { initializeSandbox, resetSandbox, setSandboxBackendForTesting } from '@src/safety/sandbox'
+import { setTierApprovalHandler } from '@src/tier-approval'
+import { configSchema } from '@src/config'
+import { err, ok } from '@src/types'
+import { makeFakeBackend } from '../safety/fake-sandbox-backend'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { AgentEvent } from '@src/agent'
+import type { ToolExecutionContext } from '@src/tools/types'
+
+function makeEventCapture(): { context: ToolExecutionContext; emitted: AgentEvent[] } {
+  const emitted: AgentEvent[] = []
+  const context = {
+    emitEvent: (event: AgentEvent) => {
+      emitted.push(event)
+    },
+  } as unknown as ToolExecutionContext
+  return { context, emitted }
+}
 
 const ENV_KEYS_UNDER_TEST = [
   'ANTHROPIC_API_KEY',
@@ -118,6 +138,23 @@ describe('BashTool', () => {
     expect(classifyBashCommand('bun install')).toBe(4)
   })
 
+  test('classifies package runners (npx, bunx) as Tier 4 like npm', () => {
+    // npx/bunx download and execute arbitrary packages — same risk class as
+    // npm install, so they require the same tier-4 human approval.
+    expect(classifyBashCommand('npx skills add heredotnow/skill --skill here-now -g')).toBe(4)
+    expect(classifyBashCommand('npx cowsay hi')).toBe(4)
+    expect(classifyBashCommand('bunx prettier --check .')).toBe(4)
+    expect(classifyBashCommand('echo ok && npx something')).toBe(4)
+  })
+
+  test('bypassSandbox: true escalates to Tier 4 regardless of the command', () => {
+    expect(resolveTier({ command: 'echo hi', bypassSandbox: true })).toBe(4)
+    expect(resolveTier({ command: 'ls', bypassSandbox: true })).toBe(4)
+    // Absent or false keeps the command classification.
+    expect(resolveTier({ command: 'echo hi' })).toBe(0)
+    expect(resolveTier({ command: 'echo hi', bypassSandbox: false })).toBe(0)
+  })
+
   test('strips known and future secret-like env vars from the child', async () => {
     process.env.ANTHROPIC_API_KEY = 'anthropic-secret'
     process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = 'compatible-secret'
@@ -139,5 +176,315 @@ describe('BashTool', () => {
     if (result.ok) {
       expect(result.value.stdout).toBe('undefined\nundefined\nundefined\nsafe-value\n')
     }
+  })
+})
+
+describe('BashTool — OS sandbox integration (fake backend)', () => {
+  let workDir: string
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), 'ouroboros-bash-sandbox-'))
+  })
+
+  afterEach(async () => {
+    setSandboxBackendForTesting(null)
+    await resetSandbox()
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  async function initWithFakeBackend(backend: ReturnType<typeof makeFakeBackend>) {
+    setSandboxBackendForTesting(backend)
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('enforcing')
+  }
+
+  test('appends the [sandbox] marker to denial-shaped sandboxed failures', async () => {
+    // The fake wrap simulates a kernel denial; the fake annotate appends the
+    // platform-independent seatbelt corroboration block the classifier reads.
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "denied" >&2; exit 1'] }),
+      annotate: (_command, stderr) =>
+        `${stderr}\n<sandbox_violations>\ntouch(1) deny(1) file-write-create /denied/x\n</sandbox_violations>`,
+    })
+    await initWithFakeBackend(backend)
+
+    const args = schema.parse({ command: 'touch /denied/x' })
+    const result = await execute(args)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(1)
+    expect(result.value.stderr).toContain('[sandbox]')
+    expect(result.value.stderr).toContain('blocked by the OS sandbox')
+    expect(result.value.stderr).toContain('bypassSandbox: true')
+    expect(backend.wrappedCommands).toEqual(['touch /denied/x'])
+  })
+
+  test('does not append the marker for ordinary sandboxed failures', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "plain failure" >&2; exit 3'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const result = await execute(schema.parse({ command: 'exit 3' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(3)
+    expect(result.value.stderr).not.toContain('[sandbox]')
+  })
+
+  test('bypassSandbox: true skips wrapping entirely', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo should-not-run; exit 9'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const result = await execute(schema.parse({ command: 'echo unwrapped', bypassSandbox: true }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.stdout).toBe('unwrapped\n')
+    expect(result.value.exitCode).toBe(0)
+    expect(backend.wrappedCommands).toEqual([])
+  })
+
+  test('tier-4 commands run unwrapped (human already approved at execute time)', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo should-not-run; exit 9'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    // `sudo` makes this tier 4; `-n true || true` keeps it harmless and exit 0.
+    const result = await execute(schema.parse({ command: 'sudo -n true || true' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(0)
+    expect(backend.wrappedCommands).toEqual([])
+  })
+
+  test('notifies the backend after each sandboxed command completes', async () => {
+    // srt's per-command cleanup contract: every sandboxed child exit must
+    // trigger exactly one completeCommand() on the backend.
+    const backend = makeFakeBackend()
+    await initWithFakeBackend(backend)
+
+    const first = await execute(schema.parse({ command: 'echo cleanup' }))
+    expect(first.ok).toBe(true)
+    expect(backend.completedCommands).toBe(1)
+
+    const second = await execute(schema.parse({ command: 'exit 3' }))
+    expect(second.ok).toBe(true)
+    expect(backend.completedCommands).toBe(2)
+
+    // Unsandboxed runs (bypass) must NOT notify.
+    const bypassed = await execute(schema.parse({ command: 'echo unwrapped', bypassSandbox: true }))
+    expect(bypassed.ok).toBe(true)
+    expect(backend.completedCommands).toBe(2)
+  })
+
+  test('emits a sandbox-violation event through the execution context on denial', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "denied" >&2; exit 1'] }),
+      annotate: (_command, stderr) =>
+        `${stderr}\n<sandbox_violations>\ntouch(1) deny(1) file-write-create /denied/x\n</sandbox_violations>`,
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const result = await execute(schema.parse({ command: 'touch /denied/x' }), context)
+
+    expect(result.ok).toBe(true)
+    const violations = emitted.filter((event) => event.type === 'sandbox-violation')
+    expect(violations).toHaveLength(1)
+    const event = violations[0]!
+    if (event.type !== 'sandbox-violation') return
+    expect(event.toolName).toBe('bash')
+    expect(event.commandSummary).toBe('touch /denied/x')
+    expect(event.indicator).toContain('file-write')
+    expect(event.cwd).toBe(process.cwd())
+    expect(event.platform).toBe(process.platform)
+  })
+
+  test('truncates long commands in the sandbox-violation event payload', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "denied" >&2; exit 1'] }),
+      annotate: (_command, stderr) =>
+        `${stderr}\n<sandbox_violations>\ntouch(1) deny(1) file-write-create /denied/x\n</sandbox_violations>`,
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const longCommand = `touch ${'/denied/very-long-path-segment'.repeat(20)}`
+    await execute(schema.parse({ command: longCommand }), context)
+
+    const violations = emitted.filter((event) => event.type === 'sandbox-violation')
+    expect(violations).toHaveLength(1)
+    const event = violations[0]!
+    if (event.type !== 'sandbox-violation') return
+    expect(event.commandSummary.length).toBeLessThanOrEqual(200)
+    expect(event.commandSummary.endsWith('…')).toBe(true)
+  })
+
+  test('does not emit a sandbox-violation event for ordinary sandboxed failures', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "plain failure" >&2; exit 3'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const result = await execute(schema.parse({ command: 'exit 3' }), context)
+
+    expect(result.ok).toBe(true)
+    expect(emitted.filter((event) => event.type === 'sandbox-violation')).toHaveLength(0)
+  })
+
+  test('emits sandbox-unavailable exactly once when falling back unsandboxed', async () => {
+    setSandboxBackendForTesting(makeFakeBackend({ dependencyErrors: ['ripgrep missing'] }))
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('unavailable')
+
+    const { context, emitted } = makeEventCapture()
+    await execute(schema.parse({ command: 'echo one' }), context)
+    await execute(schema.parse({ command: 'echo two' }), context)
+
+    const events = emitted.filter((event) => event.type === 'sandbox-unavailable')
+    expect(events).toHaveLength(1)
+    const event = events[0]!
+    if (event.type !== 'sandbox-unavailable') return
+    expect(event.reason).toContain('ripgrep missing')
+    expect(event.platform).toBe(process.platform)
+  })
+
+  test('warn-once fallback note appears in stderr when the sandbox is unavailable', async () => {
+    setSandboxBackendForTesting(makeFakeBackend({ dependencyErrors: ['ripgrep missing'] }))
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('unavailable')
+
+    const first = await execute(schema.parse({ command: 'echo one' }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    expect(first.value.stderr).toContain('[sandbox] OS sandbox unavailable')
+    expect(first.value.stderr).toContain('ripgrep missing')
+
+    const second = await execute(schema.parse({ command: 'echo two' }))
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    expect(second.value.stderr).not.toContain('[sandbox]')
+  })
+})
+
+describe('BashTool — sandbox violation escalation (fake backend + approval handler)', () => {
+  let workDir: string
+
+  // Fake wrap simulates a kernel denial for every sandboxed run; the original
+  // command only executes for real when bash re-runs it unsandboxed.
+  const denialBackend = () =>
+    makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "denied" >&2; exit 1'] }),
+      annotate: (_command, stderr) =>
+        `${stderr}\n<sandbox_violations>\ntouch(1) deny(1) file-write-create /denied/x\n</sandbox_violations>`,
+    })
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), 'ouroboros-bash-escalation-'))
+  })
+
+  afterEach(async () => {
+    setTierApprovalHandler(null)
+    setSandboxBackendForTesting(null)
+    await resetSandbox()
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  async function initSandbox(sandbox?: Record<string, unknown>) {
+    const status = await initializeSandbox(configSchema.parse(sandbox ? { sandbox } : {}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('enforcing')
+  }
+
+  test('approved escalation re-runs the command unsandboxed and notes the approval', async () => {
+    setSandboxBackendForTesting(denialBackend())
+    await initSandbox()
+    const approvals: Array<{ toolName: string; toolTier: number; args: unknown }> = []
+    setTierApprovalHandler(async (toolName, toolTier, args) => {
+      approvals.push({ toolName, toolTier, args })
+      return ok(undefined)
+    })
+
+    const result = await execute(schema.parse({ command: 'echo recovered' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(0)
+    expect(result.value.stdout).toBe('recovered\n')
+    expect(result.value.stderr).toContain('unsandboxed re-run')
+    expect(approvals).toHaveLength(1)
+    expect(approvals[0]!.toolName).toBe('bash')
+    expect(approvals[0]!.toolTier).toBe(4)
+    expect(approvals[0]!.args).toMatchObject({ command: 'echo recovered', bypassSandbox: true })
+  })
+
+  test('denied escalation keeps the failure and forbids a bypassSandbox retry', async () => {
+    setSandboxBackendForTesting(denialBackend())
+    await initSandbox()
+    setTierApprovalHandler(async () => err(new Error('denied by user')))
+
+    const result = await execute(schema.parse({ command: 'echo recovered' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(1)
+    expect(result.value.stdout).toBe('')
+    expect(result.value.stderr).toContain('denied approval')
+    expect(result.value.stderr).toContain('Do not retry with bypassSandbox: true')
+  })
+
+  test('escalateOnViolation: false skips the approval prompt and keeps the blocked guidance', async () => {
+    setSandboxBackendForTesting(denialBackend())
+    await initSandbox({ escalateOnViolation: false })
+    let handlerCalls = 0
+    setTierApprovalHandler(async () => {
+      handlerCalls++
+      return ok(undefined)
+    })
+
+    const result = await execute(schema.parse({ command: 'echo recovered' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(handlerCalls).toBe(0)
+    expect(result.value.exitCode).toBe(1)
+    expect(result.value.stderr).toContain('retry with bypassSandbox: true')
+  })
+
+  test('ordinary sandboxed failures do not trigger the approval prompt', async () => {
+    setSandboxBackendForTesting(
+      makeFakeBackend({
+        wrap: () => ({ command: 'sh', args: ['-c', 'echo "plain failure" >&2; exit 3'] }),
+      }),
+    )
+    await initSandbox()
+    let handlerCalls = 0
+    setTierApprovalHandler(async () => {
+      handlerCalls++
+      return ok(undefined)
+    })
+
+    const result = await execute(schema.parse({ command: 'exit 3' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(handlerCalls).toBe(0)
+    expect(result.value.exitCode).toBe(3)
   })
 })

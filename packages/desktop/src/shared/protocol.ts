@@ -845,6 +845,34 @@ export interface OuroborosConfig {
   memory: { consolidationSchedule: 'session-end' | 'daily' | 'manual' }
   rsi: { noveltyThreshold: number; autoReflect: boolean }
   desktop: { defaultResponseFormat: AgentResponseFormat }
+  /**
+   * OS sandbox policy extensions (mirrors the CLI's `sandboxConfigSchema`).
+   * The built-in allowWrite/denyWrite/denyRead defaults — including the
+   * kernel-enforced deny on skills/, memory/, and .ouroboros — live in the
+   * CLI policy builder and are not part of this config surface.
+   */
+  sandbox?: SandboxUserConfig
+}
+
+export interface SandboxUserConfig {
+  /** Run tier-0/1 bash and code-exec children under the OS sandbox. */
+  enabled: boolean
+  network: {
+    /** Extra domains allowed through the sandbox network proxy. */
+    allowedDomains: string[]
+    /** Domains explicitly denied by the sandbox network proxy. */
+    deniedDomains: string[]
+    /** Allow sandboxed children to bind local ports (dev servers). */
+    allowLocalBinding: boolean
+  }
+  filesystem: {
+    /** Extra writable paths merged into the sandbox policy. */
+    allowWrite: string[]
+    /** Extra unreadable paths merged into the sandbox policy. */
+    denyRead: string[]
+    /** Extra write-denied paths (deny overrides allow). */
+    denyWrite: string[]
+  }
 }
 export interface ConfigSetApiKeyResult {
   ok: boolean
@@ -1104,6 +1132,29 @@ export interface ArtifactsReadResult {
   artifact: Artifact
 }
 
+// ── Sandbox ─────────────────────────────────────────────────────────
+
+/**
+ * Live mode of the CLI's process-wide OS sandbox facade.
+ * - `enforcing`     — tier-0/1 bash/code-exec children run OS-sandboxed.
+ * - `disabled`      — turned off via `sandbox.enabled: false`.
+ * - `unavailable`   — platform/primitives missing; commands run unsandboxed
+ *                     with a warn-once note.
+ * - `uninitialized` — the facade has not been initialized (should never be
+ *                     observed on a healthy server after startup).
+ */
+export type SandboxMode = 'enforcing' | 'disabled' | 'unavailable' | 'uninitialized'
+
+export type SandboxStatusParams = Record<string, never>
+
+export interface SandboxStatusResult {
+  mode: SandboxMode
+  /** Populated when mode === 'unavailable'. */
+  reason?: string
+  /** Node `process.platform` value of the CLI process. */
+  platform: string
+}
+
 // ── Method Map (method name -> params & result types) ──────────────
 
 export interface RpcMethodMap {
@@ -1158,6 +1209,7 @@ export interface RpcMethodMap {
   'artifacts/read': { params: ArtifactsReadParams; result: ArtifactsReadResult }
   'mcp/list': { params: Record<string, never>; result: McpListResult }
   'mcp/restart': { params: McpRestartParams; result: McpRestartResult }
+  'sandbox/status': { params: SandboxStatusParams; result: SandboxStatusResult }
 }
 
 // ── MCP (Model Context Protocol) — desktop visibility types ────────
@@ -1244,6 +1296,7 @@ export const RPC_METHOD_NAMES = [
   'artifacts/read',
   'mcp/list',
   'mcp/restart',
+  'sandbox/status',
 ] as const satisfies readonly RpcMethod[]
 
 /** Compile-time check that `RPC_METHOD_NAMES` covers every key of `RpcMethodMap`. */
@@ -1327,6 +1380,7 @@ export const RPC_RISK_CLASSES: Record<RpcMethod, RpcRiskClass> = {
   'artifacts/list': 'read',
   'artifacts/read': 'read',
   'mcp/list': 'read',
+  'sandbox/status': 'read',
 }
 
 // ── Notification Types ─────────────────────────────────────────────
@@ -1493,6 +1547,23 @@ export interface McpServerErrorNotification {
   willRetry: boolean
 }
 
+/** A sandboxed spawn failed with a denial-shaped error (OS sandbox violation). */
+export interface SandboxViolationNotification extends AgentRunSessionScoped {
+  toolName: string
+  /** Truncated command text — never includes environment values. */
+  commandSummary: string
+  /** Which classifier signature matched (e.g. '"Operation not permitted" filesystem denial'). */
+  indicator?: string
+  cwd: string
+  platform: string
+}
+
+/** Fired once per CLI process the first time a command runs unsandboxed as a fallback. */
+export interface SandboxUnavailableNotification extends AgentRunSessionScoped {
+  reason: string
+  platform: string
+}
+
 export interface NotificationMap {
   'agent/contextUsage': AgentContextUsageNotification
   'agent/text': AgentTextNotification
@@ -1528,6 +1599,8 @@ export interface NotificationMap {
   'mcp/serverConnected': McpServerConnectedNotification
   'mcp/serverDisconnected': McpServerDisconnectedNotification
   'mcp/serverError': McpServerErrorNotification
+  'sandbox/violation': SandboxViolationNotification
+  'sandbox/unavailable': SandboxUnavailableNotification
 }
 
 export type NotificationMethod = keyof NotificationMap
@@ -1573,6 +1646,8 @@ export const NOTIFICATION_METHOD_NAMES = [
   'mcp/serverConnected',
   'mcp/serverDisconnected',
   'mcp/serverError',
+  'sandbox/violation',
+  'sandbox/unavailable',
 ] as const satisfies readonly NotificationMethod[]
 
 /** Compile-time check that `NOTIFICATION_METHOD_NAMES` covers every key of `NotificationMap`. */

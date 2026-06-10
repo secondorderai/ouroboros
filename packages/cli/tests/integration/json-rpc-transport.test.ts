@@ -191,6 +191,78 @@ describe('json-rpc transport', () => {
     expect(c.error).toBeUndefined()
   })
 
+  test('sandbox config round-trips and live re-init keeps the stream healthy', async () => {
+    await client.close()
+
+    // Use an isolated config dir that *contains* a `.ouroboros` file so the
+    // server anchors there (never the home-directory fallback) — config/set
+    // persists to disk and must not touch the developer's real config.
+    const sandboxConfigDir = mkdtempSync(join(tmpdir(), 'ouroboros-transport-sandbox-'))
+    writeFileSync(
+      join(sandboxConfigDir, '.ouroboros'),
+      JSON.stringify({
+        model: { provider: 'anthropic', name: 'claude-sonnet-4-20250514' },
+      }),
+    )
+
+    const sandboxClient = new RpcClient(sandboxConfigDir)
+    try {
+      await waitForReady(sandboxClient)
+
+      // Server startup already ran initializeSandbox; config/get must expose
+      // the sandbox section with defaults applied.
+      const got = await sandboxClient.sendRequest(10, 'config/get', {})
+      expect(got.error).toBeUndefined()
+      const config = got.result as { sandbox?: { enabled: boolean } }
+      expect(config.sandbox).toBeDefined()
+      expect(config.sandbox!.enabled).toBe(true)
+
+      // sandbox/status must prove startup initialized the singleton:
+      // 'uninitialized' here means the server's boot-time initializeSandbox
+      // call was removed — the whole JSON-RPC (desktop) session would then
+      // silently run every command unsandboxed with no warn-once note.
+      const statusBefore = await sandboxClient.sendRequest(20, 'sandbox/status', {})
+      expect(statusBefore.error).toBeUndefined()
+      const before = statusBefore.result as { mode: string; platform: string }
+      expect(['enforcing', 'unavailable']).toContain(before.mode)
+      expect(typeof before.platform).toBe('string')
+
+      // Changing the sandbox subtree triggers the reinitializeSandbox hook;
+      // the NDJSON stream must stay healthy across the live re-init.
+      const set = await sandboxClient.sendRequest(11, 'config/set', {
+        path: 'sandbox.enabled',
+        value: false,
+      })
+      expect(set.error).toBeUndefined()
+      const updated = set.result as { sandbox: { enabled: boolean } }
+      expect(updated.sandbox.enabled).toBe(false)
+
+      const after = await sandboxClient.sendRequest(12, 'config/get', {})
+      expect(after.error).toBeUndefined()
+      expect((after.result as { sandbox: { enabled: boolean } }).sandbox.enabled).toBe(false)
+
+      // The live re-init applied the disable: status now reports 'disabled'
+      // (observable proof the config/set hook actually re-initialized).
+      const statusAfter = await sandboxClient.sendRequest(21, 'sandbox/status', {})
+      expect(statusAfter.error).toBeUndefined()
+      expect((statusAfter.result as { mode: string }).mode).toBe('disabled')
+
+      // Invalid sandbox shapes are rejected through schema validation.
+      const invalid = await sandboxClient.sendRequest(13, 'config/set', {
+        path: 'sandbox.enabled',
+        value: 'yes',
+      })
+      const error = invalid.error as { code: number; message: string }
+      expect(error).toBeDefined()
+      expect(error.message).toContain('sandbox.enabled')
+    } finally {
+      await sandboxClient.close()
+      rmSync(sandboxConfigDir, { recursive: true, force: true })
+      client = new RpcClient(configDir)
+      await waitForReady(client)
+    }
+  }, 30_000)
+
   test('agent/run emits subagent started and completed notifications over NDJSON', async () => {
     await client.close()
 

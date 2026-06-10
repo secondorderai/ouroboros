@@ -6,6 +6,7 @@ import { Agent, type AgentRunResult } from '@src/agent'
 import { checkAgentInvocationPermission } from '@src/agent-invocation-permissions'
 import { permissionLeaseSchema, type PermissionLease } from '@src/permission-lease'
 import { type AgentDefinition, type PermissionConfig, type Result, err, ok } from '@src/types'
+import { addSandboxWriteRoot } from '@src/safety/sandbox'
 import { scrubToolEnv } from './env'
 import {
   createReadOnlyToolRegistry,
@@ -998,6 +999,10 @@ async function executeWorkerAgent(
   }
 
   const runtime = runtimeResult.value
+  // Worker worktrees live outside the write roots captured at sandbox init —
+  // widen the OS sandbox policy before the worker's bash/code-exec children
+  // run. Never throws; an unavailable sandbox is a no-op.
+  await addSandboxWriteRoot(runtime.worktreePath)
   const contextFileRequest = resolveContextFileRequest(args, runtime.worktreePath)
   const contextFileResult = readContextFiles(
     contextFileRequest.contextFiles,
