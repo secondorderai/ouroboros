@@ -16,7 +16,7 @@
 
 import { type Result, ok } from '@src/types'
 import type { OuroborosConfig } from '@src/config'
-import { hasTierApprovalHandler } from '@src/tier-approval'
+import { hasTierApprovalHandler, requestTierApproval } from '@src/tier-approval'
 import { buildSandboxPolicy, type SandboxPolicy } from './policy'
 
 /** Backend-agnostic spawn shape (library backend: `sh -c <wrapped>`). */
@@ -440,6 +440,54 @@ export function buildSandboxBlockedMessage(indicator: string | undefined): strin
     `note that the required tier-4 human approval is only available in the desktop app, ` +
     `so the retry will be denied in this session.`
   )
+}
+
+/**
+ * Stable, model-facing note appended to the output of an unsandboxed re-run
+ * that a human approved after a sandbox violation. Part of the escalation
+ * guidance contract (tests/safety/sandbox.test.ts).
+ */
+export const SANDBOX_ESCALATION_RETRY_NOTE =
+  '[sandbox] The OS sandbox blocked this command; a human approved re-running ' +
+  'it without the sandbox. This output is from the unsandboxed re-run.'
+
+/**
+ * Stable, model-facing guidance appended to stderr when the human DENIED the
+ * automatic escalation prompt. Explicitly forbids the bypassSandbox retry so
+ * the model does not re-prompt the user for the same command. Part of the
+ * escalation guidance contract (tests/safety/sandbox.test.ts).
+ */
+export function buildSandboxDeniedMessage(indicator: string | undefined): string {
+  return (
+    `[sandbox] This command was blocked by the OS sandbox` +
+    `${indicator ? ` (${indicator})` : ''} and the user denied approval to re-run it ` +
+    `without the sandbox. Do not retry with bypassSandbox: true — take a different ` +
+    `approach or ask the user how to proceed.`
+  )
+}
+
+export type SandboxEscalationOutcome = 'approved' | 'denied' | 'disabled' | 'unavailable'
+
+/**
+ * Request human approval to re-run a sandbox-blocked command without the
+ * sandbox, immediately and tool-initiated (the model-initiated path is a
+ * retry with `bypassSandbox: true`). Reuses the tier-approval flow at tier 4
+ * ('high' risk), so desktop mode renders its standard approval toast and the
+ * call blocks until the user responds.
+ *
+ * Gates: `sandbox.escalateOnViolation` (config, default true) → 'disabled';
+ * no registered approval handler (REPL mode) → 'unavailable'. 'denied'
+ * covers both an explicit user denial and a handler failure — callers treat
+ * them identically (do not re-prompt).
+ */
+export async function requestSandboxEscalation(
+  toolName: string,
+  toolArgs: unknown,
+): Promise<SandboxEscalationOutcome> {
+  if (!(lastConfig?.sandbox.escalateOnViolation ?? true)) return 'disabled'
+  if (!hasTierApprovalHandler()) return 'unavailable'
+  const approval = await requestTierApproval(toolName, 4, toolArgs)
+  return approval.ok ? 'approved' : 'denied'
 }
 
 /**

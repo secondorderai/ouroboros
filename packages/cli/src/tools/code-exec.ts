@@ -8,13 +8,17 @@ import type { ToolExecutionContext, ToolTier, TypedToolExecute } from './types'
 import { scrubToolEnv } from './env'
 import {
   buildSandboxBlockedMessage,
+  buildSandboxDeniedMessage,
   buildSandboxUnavailableMessage,
   classifySandboxFailure,
   consumeUnavailableWarning,
   getSandboxStatus,
   notifySandboxedCommandComplete,
+  requestSandboxEscalation,
+  SANDBOX_ESCALATION_RETRY_NOTE,
   summarizeSandboxCommand,
   wrapCommand,
+  type SandboxFailureClassification,
 } from '@src/safety/sandbox'
 
 export const name = 'code-exec'
@@ -155,21 +159,21 @@ async function resolveSpawn(
 }
 
 /**
- * Append the stable `[sandbox]` escalation marker when a sandboxed run
- * failed with a denial-shaped error, and emit a `sandbox-violation` event
+ * Classify a sandboxed run's failure and emit a `sandbox-violation` event
  * for the desktop notification bridge (truncated command, no env values).
+ * Guidance appending and escalation are handled at the call sites.
  */
-function withSandboxMarker(
+function detectSandboxViolation(
   stderr: string,
   exitCode: number,
   sandboxed: boolean,
   argv: string[],
   workDir: string,
   context?: ToolExecutionContext,
-): string {
-  if (!sandboxed || exitCode === 0) return stderr
+): SandboxFailureClassification {
+  if (!sandboxed || exitCode === 0) return { likelyViolation: false }
   const classification = classifySandboxFailure({ exitCode, stderr })
-  if (!classification.likelyViolation) return stderr
+  if (!classification.likelyViolation) return classification
   context?.emitEvent?.({
     type: 'sandbox-violation',
     toolName: name,
@@ -178,7 +182,55 @@ function withSandboxMarker(
     cwd: workDir,
     platform: process.platform,
   })
-  return `${stderr}\n${buildSandboxBlockedMessage(classification.indicator)}`
+  return classification
+}
+
+const CODE_PREVIEW_MAX_LENGTH = 300
+
+type EscalationAttempt =
+  | { kind: 'retried'; result: Result<CodeExecResult> }
+  | { kind: 'denied' }
+  | { kind: 'skipped' }
+
+/**
+ * Tool-initiated escalation after a sandbox violation: ask the human to
+ * approve an unsandboxed re-run (standard tier-4 approval toast; blocks
+ * until answered). On approval the WHOLE execution re-runs with
+ * `bypassSandbox: true` in a fresh temp workspace — install and run both
+ * unwrapped — since the sandboxed attempt may have partially executed and
+ * the approval covers a full repeat.
+ */
+async function escalateAndRetry(
+  args: z.infer<typeof schema>,
+  context: ToolExecutionContext | undefined,
+  indicator: string | undefined,
+): Promise<EscalationAttempt> {
+  const outcome = await requestSandboxEscalation(name, {
+    bypassSandbox: true,
+    packages: args.packages,
+    codePreview:
+      args.code.length > CODE_PREVIEW_MAX_LENGTH
+        ? `${args.code.slice(0, CODE_PREVIEW_MAX_LENGTH)}…`
+        : args.code,
+    reason:
+      `OS sandbox blocked this code execution` +
+      `${indicator ? ` (${indicator})` : ''}; approve to re-run it without the sandbox.`,
+  })
+  if (outcome === 'approved') {
+    if (context?.abortSignal?.aborted) {
+      return { kind: 'retried', result: err(new Error('Code execution cancelled by user')) }
+    }
+    const retry = await execute({ ...args, bypassSandbox: true }, context)
+    if (!retry.ok) return { kind: 'retried', result: retry }
+    return {
+      kind: 'retried',
+      result: ok({
+        ...retry.value,
+        stderr: `${retry.value.stderr}\n${SANDBOX_ESCALATION_RETRY_NOTE}`,
+      }),
+    }
+  }
+  return outcome === 'denied' ? { kind: 'denied' } : { kind: 'skipped' }
 }
 
 function runChild(
@@ -317,14 +369,23 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
         return installResult
       }
       if (installResult.value.exitCode !== 0) {
-        const installStderr = withSandboxMarker(
-          installResult.value.stderr,
+        let installStderr = installResult.value.stderr
+        const violation = detectSandboxViolation(
+          installStderr,
           installResult.value.exitCode,
           installSpawn.sandboxed,
           installArgv,
           workDir,
           context,
         )
+        if (violation.likelyViolation) {
+          const attempt = await escalateAndRetry(args, context, violation.indicator)
+          if (attempt.kind === 'retried') return attempt.result
+          installStderr =
+            attempt.kind === 'denied'
+              ? `${installStderr}\n${buildSandboxDeniedMessage(violation.indicator)}`
+              : `${installStderr}\n${buildSandboxBlockedMessage(violation.indicator)}`
+        }
         return ok({
           stdout: installResult.value.stdout,
           stderr: `bun install failed:\n${installStderr}${fallbackNote}`,
@@ -355,14 +416,23 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
       return runResult
     }
 
-    const runStderr = withSandboxMarker(
-      runResult.value.stderr,
+    let runStderr = runResult.value.stderr
+    const violation = detectSandboxViolation(
+      runStderr,
       runResult.value.exitCode,
       runSpawn.sandboxed,
       runArgv,
       workDir,
       context,
     )
+    if (violation.likelyViolation) {
+      const attempt = await escalateAndRetry(args, context, violation.indicator)
+      if (attempt.kind === 'retried') return attempt.result
+      runStderr =
+        attempt.kind === 'denied'
+          ? `${runStderr}\n${buildSandboxDeniedMessage(violation.indicator)}`
+          : `${runStderr}\n${buildSandboxBlockedMessage(violation.indicator)}`
+    }
 
     return ok({
       stdout: runResult.value.stdout,

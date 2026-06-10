@@ -74,6 +74,8 @@ function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
     },
     sandbox: {
       enabled: overrides?.sandbox?.enabled ?? base.sandbox.enabled,
+      escalateOnViolation:
+        overrides?.sandbox?.escalateOnViolation ?? base.sandbox.escalateOnViolation,
       network: { ...base.sandbox.network, ...overrides?.sandbox?.network },
       filesystem: { ...base.sandbox.filesystem, ...overrides?.sandbox?.filesystem },
     },

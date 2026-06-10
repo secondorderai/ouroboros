@@ -4,12 +4,13 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { configSchema, type OuroborosConfig } from '@src/config'
-import { ok } from '@src/types'
+import { err, ok } from '@src/types'
 import { hasTierApprovalHandler, setTierApprovalHandler } from '@src/tier-approval'
 import { buildSandboxPolicy, safeRealpath, DEFAULT_ALLOWED_DOMAINS } from '@src/safety/policy'
 import {
   addSandboxWriteRoot,
   buildSandboxBlockedMessage,
+  buildSandboxDeniedMessage,
   buildSandboxUnavailableMessage,
   classifySandboxFailure,
   consumeUnavailableWarning,
@@ -17,7 +18,9 @@ import {
   initializeSandbox,
   notifySandboxedCommandComplete,
   reinitializeSandbox,
+  requestSandboxEscalation,
   resetSandbox,
+  SANDBOX_ESCALATION_RETRY_NOTE,
   setSandboxBackendForTesting,
   summarizeSandboxCommand,
   wrapCommand,
@@ -378,6 +381,91 @@ describe('escalation guidance contract', () => {
     expect(buildSandboxUnavailableMessage(undefined)).toBe(
       '[sandbox] OS sandbox unavailable; commands run unsandboxed this session.',
     )
+  })
+
+  test('denied message keeps the [sandbox] prefix and forbids a bypassSandbox retry', () => {
+    const message = buildSandboxDeniedMessage('"Operation not permitted" filesystem denial')
+    expect(message.startsWith('[sandbox] ')).toBe(true)
+    expect(message).toContain('("Operation not permitted" filesystem denial)')
+    expect(message).toContain('denied approval')
+    expect(message).toContain('Do not retry with bypassSandbox: true')
+    expect(buildSandboxDeniedMessage(undefined).startsWith('[sandbox] ')).toBe(true)
+  })
+
+  test('retry note keeps the [sandbox] prefix and explains the unsandboxed re-run', () => {
+    expect(SANDBOX_ESCALATION_RETRY_NOTE.startsWith('[sandbox] ')).toBe(true)
+    expect(SANDBOX_ESCALATION_RETRY_NOTE).toContain('human approved')
+    expect(SANDBOX_ESCALATION_RETRY_NOTE).toContain('unsandboxed re-run')
+  })
+})
+
+describe('requestSandboxEscalation', () => {
+  let workDir: string
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), 'ouroboros-sandbox-escalation-'))
+  })
+
+  afterEach(async () => {
+    setTierApprovalHandler(null)
+    setSandboxBackendForTesting(null)
+    await resetSandbox()
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  async function initWith(sandbox?: Record<string, unknown>) {
+    setSandboxBackendForTesting(makeFakeBackend())
+    const status = await initializeSandbox(configSchema.parse(sandbox ? { sandbox } : {}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('enforcing')
+  }
+
+  test("returns 'disabled' without invoking the handler when escalateOnViolation is false", async () => {
+    await initWith({ escalateOnViolation: false })
+    let handlerCalls = 0
+    setTierApprovalHandler(async () => {
+      handlerCalls++
+      return ok(undefined)
+    })
+
+    expect(await requestSandboxEscalation('bash', { command: 'touch /denied' })).toBe('disabled')
+    expect(handlerCalls).toBe(0)
+  })
+
+  test("returns 'unavailable' when no approval handler is registered (REPL mode)", async () => {
+    await initWith()
+    expect(await requestSandboxEscalation('bash', { command: 'touch /denied' })).toBe('unavailable')
+  })
+
+  test("returns 'approved' and forwards tool name, tier 4, and args to the handler", async () => {
+    await initWith()
+    const seen: Array<{ toolName: string; toolTier: number; args: unknown }> = []
+    setTierApprovalHandler(async (toolName, toolTier, args) => {
+      seen.push({ toolName, toolTier, args })
+      return ok(undefined)
+    })
+
+    const outcome = await requestSandboxEscalation('bash', {
+      command: 'npx skills add x',
+      bypassSandbox: true,
+    })
+    expect(outcome).toBe('approved')
+    expect(seen).toEqual([
+      {
+        toolName: 'bash',
+        toolTier: 4,
+        args: { command: 'npx skills add x', bypassSandbox: true },
+      },
+    ])
+  })
+
+  test("returns 'denied' when the handler rejects", async () => {
+    await initWith()
+    setTierApprovalHandler(async () => err(new Error('denied by user')))
+
+    expect(await requestSandboxEscalation('bash', { command: 'touch /denied' })).toBe('denied')
   })
 })
 

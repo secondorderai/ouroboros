@@ -257,6 +257,7 @@ export type McpConfig = z.infer<typeof mcpConfigSchema>
 
 export const DEFAULT_SANDBOX_CONFIG = {
   enabled: true,
+  escalateOnViolation: true,
   network: {
     allowedDomains: [] as string[],
     deniedDomains: [] as string[],
@@ -274,6 +275,13 @@ export const sandboxConfigSchema = z.object({
     .boolean()
     .default(true)
     .describe('Run tier-0/1 bash and code-exec children under the OS sandbox'),
+  escalateOnViolation: z
+    .boolean()
+    .default(true)
+    .describe(
+      'When the sandbox blocks a command, immediately request human approval ' +
+        'to re-run it unsandboxed (desktop approval prompt)',
+    ),
   network: z
     .object({
       allowedDomains: z

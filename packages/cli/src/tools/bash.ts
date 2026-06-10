@@ -7,11 +7,14 @@ import { scrubToolEnv } from './env'
 import {
   annotateSandboxStderr,
   buildSandboxBlockedMessage,
+  buildSandboxDeniedMessage,
   buildSandboxUnavailableMessage,
   classifySandboxFailure,
   consumeUnavailableWarning,
   getSandboxStatus,
   notifySandboxedCommandComplete,
+  requestSandboxEscalation,
+  SANDBOX_ESCALATION_RETRY_NOTE,
   summarizeSandboxCommand,
   wrapCommand,
   type SpawnSpec,
@@ -330,6 +333,89 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
     }
   }
 
+  const runOpts: SpawnRunOptions = {
+    cwd: cwd ?? process.cwd(),
+    env: filteredEnv,
+    timeoutMs,
+    timeoutSeconds: timeout,
+  }
+  const first = await runSpawn(spec, sandboxed, runOpts, context)
+  if (!first.ok) return first
+
+  let { stdout, stderr, exitCode } = first.value
+
+  // Only annotate/classify when this command actually ran sandboxed — an
+  // ordinary "Permission denied" outside the sandbox is not a violation.
+  // Keep Result.ok: non-zero exits are normal tool output.
+  if (sandboxed && exitCode !== 0) {
+    stderr = annotateSandboxStderr(command, stderr)
+    const classification = classifySandboxFailure({ exitCode, stderr })
+    if (classification.likelyViolation) {
+      context?.emitEvent?.({
+        type: 'sandbox-violation',
+        toolName: name,
+        commandSummary: summarizeSandboxCommand(command),
+        indicator: classification.indicator,
+        cwd: runOpts.cwd,
+        platform: process.platform,
+      })
+      // Tool-initiated escalation: immediately ask the human to approve an
+      // unsandboxed re-run instead of only hinting the model toward a
+      // bypassSandbox retry. Blocks until the user responds (same UX as
+      // tier-4 approvals). The re-run repeats the WHOLE command — the user
+      // approves knowing the sandboxed attempt may have partially executed.
+      const outcome = await requestSandboxEscalation(name, {
+        command,
+        cwd: runOpts.cwd,
+        bypassSandbox: true,
+        reason:
+          `OS sandbox blocked this command` +
+          `${classification.indicator ? ` (${classification.indicator})` : ''}; ` +
+          `approve to re-run it without the sandbox.`,
+      })
+      if (outcome === 'approved') {
+        if (context?.abortSignal?.aborted) {
+          return err(new Error('Command cancelled by user'))
+        }
+        const retry = await runSpawn(
+          { command: 'sh', args: ['-c', command] },
+          false,
+          runOpts,
+          context,
+        )
+        if (!retry.ok) return retry
+        return ok({
+          stdout: retry.value.stdout,
+          stderr: `${retry.value.stderr}\n${SANDBOX_ESCALATION_RETRY_NOTE}`,
+          exitCode: retry.value.exitCode,
+        })
+      }
+      stderr =
+        outcome === 'denied'
+          ? `${stderr}\n${buildSandboxDeniedMessage(classification.indicator)}`
+          : `${stderr}\n${buildSandboxBlockedMessage(classification.indicator)}`
+    }
+  }
+  if (fallbackNote) {
+    stderr = `${stderr}${fallbackNote}`
+  }
+  return ok({ stdout, stderr, exitCode })
+}
+
+interface SpawnRunOptions {
+  cwd: string
+  env: NodeJS.ProcessEnv
+  timeoutMs: number
+  timeoutSeconds: number
+}
+
+/** Spawn the (possibly sandbox-wrapped) command and collect raw output. */
+function runSpawn(
+  spec: SpawnSpec,
+  sandboxed: boolean,
+  opts: SpawnRunOptions,
+  context?: ToolExecutionContext,
+): Promise<Result<BashResult>> {
   return new Promise((resolve) => {
     let stdout = ''
     let stderr = ''
@@ -338,8 +424,8 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
     let settled = false
 
     const child = spawn(spec.command, spec.args, {
-      cwd: cwd ?? process.cwd(),
-      env: filteredEnv,
+      cwd: opts.cwd,
+      env: opts.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
     })
@@ -366,7 +452,7 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
     const timer = setTimeout(() => {
       killed = true
       killGroup('SIGKILL')
-    }, timeoutMs)
+    }, opts.timeoutMs)
 
     const onAbort = () => {
       aborted = true
@@ -397,32 +483,9 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
         if (aborted) {
           resolve(err(new Error('Command cancelled by user')))
         } else if (killed) {
-          resolve(err(new Error(`Command timed out after ${timeout}s and was killed`)))
+          resolve(err(new Error(`Command timed out after ${opts.timeoutSeconds}s and was killed`)))
         } else {
-          const exitCode = code ?? 1
-          let finalStderr = stderr
-          // Only annotate/classify when this command actually ran sandboxed —
-          // an ordinary "Permission denied" outside the sandbox is not a
-          // violation. Keep Result.ok: non-zero exits are normal tool output.
-          if (sandboxed && exitCode !== 0) {
-            finalStderr = annotateSandboxStderr(command, finalStderr)
-            const classification = classifySandboxFailure({ exitCode, stderr: finalStderr })
-            if (classification.likelyViolation) {
-              finalStderr = `${finalStderr}\n${buildSandboxBlockedMessage(classification.indicator)}`
-              context?.emitEvent?.({
-                type: 'sandbox-violation',
-                toolName: name,
-                commandSummary: summarizeSandboxCommand(command),
-                indicator: classification.indicator,
-                cwd: cwd ?? process.cwd(),
-                platform: process.platform,
-              })
-            }
-          }
-          if (fallbackNote) {
-            finalStderr = `${finalStderr}${fallbackNote}`
-          }
-          resolve(ok({ stdout, stderr: finalStderr, exitCode }))
+          resolve(ok({ stdout, stderr, exitCode: code ?? 1 }))
         }
       }
     })

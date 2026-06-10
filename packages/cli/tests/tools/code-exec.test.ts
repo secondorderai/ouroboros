@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { schema, execute, resolveTier, shellQuoteCommand } from '@src/tools/code-exec'
 import { schema as bashSchema, execute as bashExecute } from '@src/tools/bash'
 import { initializeSandbox, resetSandbox, setSandboxBackendForTesting } from '@src/safety/sandbox'
+import { setTierApprovalHandler } from '@src/tier-approval'
 import { configSchema } from '@src/config'
+import { err, ok } from '@src/types'
 import { makeFakeBackend } from '../safety/fake-sandbox-backend'
 import type { AgentEvent } from '@src/agent'
 import type { ToolExecutionContext } from '@src/tools/types'
@@ -454,4 +456,98 @@ describe('CodeExecTool — packages (network-dependent)', () => {
     },
     90_000,
   )
+})
+
+describe('CodeExecTool — sandbox violation escalation (fake backend + approval handler)', () => {
+  let workDir: string
+
+  // Fake wrap simulates a kernel denial for every sandboxed spawn; the
+  // snippet only really executes when code-exec re-runs it unsandboxed
+  // (bypassSandbox skips wrapping entirely).
+  const denialBackend = () =>
+    makeFakeBackend({
+      wrap: () => ({
+        command: 'sh',
+        args: [
+          '-c',
+          'printf \'%s\\n%s\\n%s\\n\' "<sandbox_violations>" "bun(1) deny(1) file-write-create /denied/x" "</sandbox_violations>" >&2; exit 1',
+        ],
+      }),
+    })
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), 'ouroboros-code-exec-escalation-'))
+  })
+
+  afterEach(async () => {
+    setTierApprovalHandler(null)
+    setSandboxBackendForTesting(null)
+    await resetSandbox()
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  async function initSandbox(sandbox?: Record<string, unknown>) {
+    const status = await initializeSandbox(configSchema.parse(sandbox ? { sandbox } : {}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('enforcing')
+  }
+
+  test('approved escalation re-runs the snippet unsandboxed and notes the approval', async () => {
+    setSandboxBackendForTesting(denialBackend())
+    await initSandbox()
+    const approvals: Array<{ toolName: string; toolTier: number; args: unknown }> = []
+    setTierApprovalHandler(async (toolName, toolTier, args) => {
+      approvals.push({ toolName, toolTier, args })
+      return ok(undefined)
+    })
+
+    const result = await execute(schema.parse({ code: 'console.log("recovered")' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(0)
+    expect(result.value.stdout).toBe('recovered\n')
+    expect(result.value.stderr).toContain('unsandboxed re-run')
+    expect(approvals).toHaveLength(1)
+    expect(approvals[0]!.toolName).toBe('code-exec')
+    expect(approvals[0]!.toolTier).toBe(4)
+    expect(approvals[0]!.args).toMatchObject({
+      bypassSandbox: true,
+      codePreview: 'console.log("recovered")',
+    })
+  })
+
+  test('denied escalation keeps the failure and forbids a bypassSandbox retry', async () => {
+    setSandboxBackendForTesting(denialBackend())
+    await initSandbox()
+    setTierApprovalHandler(async () => err(new Error('denied by user')))
+
+    const result = await execute(schema.parse({ code: 'console.log("recovered")' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(1)
+    expect(result.value.stderr).toContain('denied approval')
+    expect(result.value.stderr).toContain('Do not retry with bypassSandbox: true')
+  })
+
+  test('escalateOnViolation: false skips the approval prompt and keeps the blocked guidance', async () => {
+    setSandboxBackendForTesting(denialBackend())
+    await initSandbox({ escalateOnViolation: false })
+    let handlerCalls = 0
+    setTierApprovalHandler(async () => {
+      handlerCalls++
+      return ok(undefined)
+    })
+
+    const result = await execute(schema.parse({ code: 'console.log("recovered")' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(handlerCalls).toBe(0)
+    expect(result.value.exitCode).toBe(1)
+    expect(result.value.stderr).toContain('retry with bypassSandbox: true')
+  })
 })

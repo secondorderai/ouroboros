@@ -127,6 +127,7 @@ describe('loadConfig', () => {
     // Sandbox defaults: enabled, no extra domains/paths, local binding allowed
     expect(config.sandbox).toEqual(DEFAULT_SANDBOX_CONFIG)
     expect(config.sandbox.enabled).toBe(true)
+    expect(config.sandbox.escalateOnViolation).toBe(true)
     expect(config.sandbox.network.allowedDomains).toEqual([])
     expect(config.sandbox.network.deniedDomains).toEqual([])
     expect(config.sandbox.network.allowLocalBinding).toBe(true)
@@ -145,9 +146,23 @@ describe('loadConfig', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.sandbox.enabled).toBe(true)
+    expect(result.value.sandbox.escalateOnViolation).toBe(true)
     expect(result.value.sandbox.network.allowedDomains).toEqual(['internal.example'])
     expect(result.value.sandbox.network.allowLocalBinding).toBe(true)
     expect(result.value.sandbox.filesystem.denyWrite).toEqual([])
+  })
+
+  test('sandbox.escalateOnViolation: false round-trips through load', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ sandbox: { escalateOnViolation: false } }),
+    )
+
+    const result = loadConfig(tempDir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.sandbox.enabled).toBe(true)
+    expect(result.value.sandbox.escalateOnViolation).toBe(false)
   })
 
   test('sandbox.enabled: false round-trips through save and reload', () => {

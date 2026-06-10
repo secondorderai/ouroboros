@@ -24,8 +24,10 @@ skills use the Agent Skills `SKILL.md` format.
   (Seatbelt on macOS, bubblewrap on Linux via `@anthropic-ai/sandbox-runtime`).
   The facade and policy live in `packages/cli/src/safety/`; `denyWrite` on
   `skills/`, `memory/`, and `.ouroboros` kernel-enforces the tier-3
-  self-modification gate. Sandbox-blocked commands escalate via
-  `bypassSandbox: true`, which resolves to tier 4 and requires human approval.
+  self-modification gate. Sandbox violations immediately request tier-4 human
+  approval for an unsandboxed re-run (`sandbox.escalateOnViolation`, default
+  true); the model can also escalate explicitly via `bypassSandbox: true`,
+  which resolves to tier 4.
 - JSON-RPC mode (`--json-rpc`) is a long-running NDJSON server over stdio.
 - Desktop is a presentation layer. It spawns the CLI with `--json-rpc`; renderer
   calls typed preload APIs and must not access Node directly.

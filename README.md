@@ -176,10 +176,11 @@ bun run release      # publish through electron-builder config
 - **OS sandbox:** tier-0/1 `bash` and `code-exec` commands run inside an
   OS-level sandbox by default (Seatbelt on macOS, bubblewrap on Linux) with
   network domain filtering; writes to `skills/`, `memory/`, and `.ouroboros`
-  are kernel-denied, blocked commands can escalate to tier-4 human approval
-  via `bypassSandbox`, violations surface as desktop toasts, and the desktop
-  Settings → Sandbox section manages enforcement, allowed domains, and extra
-  writable paths.
+  are kernel-denied, blocked commands immediately request tier-4 human
+  approval for an unsandboxed re-run (`sandbox.escalateOnViolation`, default
+  true; the model can also escalate via `bypassSandbox`), violations surface
+  as desktop toasts, and the desktop Settings → Sandbox section manages
+  enforcement, allowed domains, and extra writable paths.
 - **MCP:** local and remote MCP server config, runtime status methods,
   connection notifications, and approval policy for MCP tool calls.
 - **Auth:** API-key providers plus `openai-chatgpt` OAuth login stored outside
