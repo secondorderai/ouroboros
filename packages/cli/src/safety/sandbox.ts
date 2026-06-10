@@ -398,6 +398,19 @@ export function classifySandboxFailure(input: {
   return { likelyViolation: false }
 }
 
+const COMMAND_SUMMARY_MAX_LENGTH = 200
+
+/**
+ * Truncated, single-line command text for sandbox-violation events and
+ * notifications. Whitespace runs are collapsed; output is bounded so payloads
+ * stay small. Callers must pass the command text only — never env values.
+ */
+export function summarizeSandboxCommand(command: string): string {
+  const collapsed = command.replace(/\s+/g, ' ').trim()
+  if (collapsed.length <= COMMAND_SUMMARY_MAX_LENGTH) return collapsed
+  return `${collapsed.slice(0, COMMAND_SUMMARY_MAX_LENGTH - 1)}…`
+}
+
 /**
  * Stable, model-facing guidance appended to stderr when a sandboxed command
  * fails with a denial-shaped error. The `[sandbox]` prefix and the

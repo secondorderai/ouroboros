@@ -4,9 +4,22 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { schema, execute, resolveTier, shellQuoteCommand } from '@src/tools/code-exec'
+import { schema as bashSchema, execute as bashExecute } from '@src/tools/bash'
 import { initializeSandbox, resetSandbox, setSandboxBackendForTesting } from '@src/safety/sandbox'
 import { configSchema } from '@src/config'
 import { makeFakeBackend } from '../safety/fake-sandbox-backend'
+import type { AgentEvent } from '@src/agent'
+import type { ToolExecutionContext } from '@src/tools/types'
+
+function makeEventCapture(): { context: ToolExecutionContext; emitted: AgentEvent[] } {
+  const emitted: AgentEvent[] = []
+  const context = {
+    emitEvent: (event: AgentEvent) => {
+      emitted.push(event)
+    },
+  } as unknown as ToolExecutionContext
+  return { context, emitted }
+}
 
 const RUN_NETWORK = process.env.SKIP_NETWORK_TESTS !== '1'
 
@@ -113,6 +126,116 @@ describe('CodeExecTool — OS sandbox integration (fake backend)', () => {
     expect(result.value.exitCode).toBe(1)
     expect(result.value.stderr).toContain('[sandbox]')
     expect(result.value.stderr).toContain('bypassSandbox: true')
+  })
+
+  test('emits a sandbox-violation event through the execution context on denial', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({
+        command: 'sh',
+        args: [
+          '-c',
+          'printf \'%s\\n%s\\n%s\\n\' "<sandbox_violations>" "bun(1) deny(1) file-write-create /denied/x" "</sandbox_violations>" >&2; exit 1',
+        ],
+      }),
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const result = await execute(schema.parse({ code: 'console.log("never")' }), context)
+
+    expect(result.ok).toBe(true)
+    const violations = emitted.filter((event) => event.type === 'sandbox-violation')
+    expect(violations).toHaveLength(1)
+    const event = violations[0]!
+    if (event.type !== 'sandbox-violation') return
+    expect(event.toolName).toBe('code-exec')
+    expect(event.commandSummary).toStartWith('bun run ')
+    expect(event.commandSummary).not.toContain(' API_KEY')
+    expect(event.indicator).toContain('file-write')
+    expect(event.platform).toBe(process.platform)
+  })
+
+  test('does not emit a sandbox-violation event for ordinary sandboxed failures', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "plain failure" >&2; exit 3'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const result = await execute(schema.parse({ code: 'console.log("never")' }), context)
+
+    expect(result.ok).toBe(true)
+    expect(emitted.filter((event) => event.type === 'sandbox-violation')).toHaveLength(0)
+  })
+
+  test('emits sandbox-unavailable exactly once when falling back unsandboxed', async () => {
+    setSandboxBackendForTesting(makeFakeBackend({ dependencyErrors: ['bwrap missing'] }))
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('unavailable')
+
+    const { context, emitted } = makeEventCapture()
+    await execute(schema.parse({ code: 'console.log("one")' }), context)
+    await execute(schema.parse({ code: 'console.log("two")' }), context)
+
+    const events = emitted.filter((event) => event.type === 'sandbox-unavailable')
+    expect(events).toHaveLength(1)
+    const event = events[0]!
+    if (event.type !== 'sandbox-unavailable') return
+    expect(event.reason).toContain('bwrap missing')
+    expect(event.platform).toBe(process.platform)
+  })
+
+  test('warn-once fallback note appears in stderr when the sandbox is unavailable', async () => {
+    setSandboxBackendForTesting(makeFakeBackend({ dependencyErrors: ['bwrap missing'] }))
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('unavailable')
+
+    const first = await execute(schema.parse({ code: 'console.log("one")' }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    expect(first.value.exitCode).toBe(0)
+    expect(first.value.stderr).toContain('[sandbox] OS sandbox unavailable')
+    expect(first.value.stderr).toContain('bwrap missing')
+
+    const second = await execute(schema.parse({ code: 'console.log("two")' }))
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    expect(second.value.stderr).not.toContain('[sandbox]')
+  })
+
+  test('code-exec fallback consuming the warn-once token still surfaces the note (cross-tool)', async () => {
+    // Regression: code-exec once consumed the process-wide warn-once token
+    // (to gate the sandbox-unavailable event) WITHOUT appending the note to
+    // its own stderr — silently suppressing bash's model-facing
+    // "[sandbox] OS sandbox unavailable" note for the rest of the session.
+    // The warning must surface in tool output exactly once, in whichever
+    // tool falls back first.
+    setSandboxBackendForTesting(makeFakeBackend({ dependencyErrors: ['bwrap missing'] }))
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('unavailable')
+
+    const codeExecResult = await execute(schema.parse({ code: 'console.log("first")' }))
+    expect(codeExecResult.ok).toBe(true)
+    if (!codeExecResult.ok) return
+    expect(codeExecResult.value.stderr).toContain('[sandbox] OS sandbox unavailable')
+    expect(codeExecResult.value.stderr).toContain('bwrap missing')
+
+    // Token already consumed AND surfaced by code-exec — bash must not
+    // repeat the note (warn once per session).
+    const bashResult = await bashExecute(bashSchema.parse({ command: 'echo cross-tool' }))
+    expect(bashResult.ok).toBe(true)
+    if (!bashResult.ok) return
+    expect(bashResult.value.stdout).toBe('cross-tool\n')
+    expect(bashResult.value.stderr).not.toContain('[sandbox]')
   })
 
   test('notifies the backend after the sandboxed run completes', async () => {

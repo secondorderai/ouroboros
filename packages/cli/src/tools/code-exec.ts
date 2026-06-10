@@ -4,12 +4,16 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Result, ok, err } from '@src/types'
-import type { ToolTier, TypedToolExecute } from './types'
+import type { ToolExecutionContext, ToolTier, TypedToolExecute } from './types'
 import { scrubToolEnv } from './env'
 import {
   buildSandboxBlockedMessage,
+  buildSandboxUnavailableMessage,
   classifySandboxFailure,
+  consumeUnavailableWarning,
+  getSandboxStatus,
   notifySandboxedCommandComplete,
+  summarizeSandboxCommand,
   wrapCommand,
 } from '@src/safety/sandbox'
 
@@ -99,14 +103,30 @@ interface ResolvedSpawn {
   cmd: string
   cmdArgs: string[]
   sandboxed: boolean
+  /**
+   * Warn-once "sandbox unavailable" note, set on the process's first
+   * unsandboxed fallback. The caller MUST surface it in the tool's returned
+   * stderr: consuming the process-wide warn-once token without showing the
+   * note would silently suppress the model-facing warning for the rest of
+   * the session (bash gates its own note on the same token).
+   */
+  fallbackNote?: string
 }
 
 /**
  * Route a spawn through the OS sandbox. Falls back to the direct argv spawn
  * (today's behavior) when bypassed or when the sandbox is not enforcing —
  * preserving direct-child kill/ENOENT semantics in the passthrough path.
+ *
+ * The first unsandboxed fallback in the process (sandbox unavailable, not
+ * bypassed) emits a `sandbox-unavailable` event for the desktop notice and
+ * returns the warn-once `fallbackNote` for the tool's own stderr output.
  */
-async function resolveSpawn(argv: [string, ...string[]], bypass: boolean): Promise<ResolvedSpawn> {
+async function resolveSpawn(
+  argv: [string, ...string[]],
+  bypass: boolean,
+  context?: ToolExecutionContext,
+): Promise<ResolvedSpawn> {
   if (!bypass) {
     const wrapped = await wrapCommand(shellQuoteCommand(argv))
     if (wrapped.ok && wrapped.value.sandboxed) {
@@ -116,18 +136,48 @@ async function resolveSpawn(argv: [string, ...string[]], bypass: boolean): Promi
         sandboxed: true,
       }
     }
+    const status = getSandboxStatus()
+    if (status.mode === 'unavailable' && consumeUnavailableWarning()) {
+      context?.emitEvent?.({
+        type: 'sandbox-unavailable',
+        reason: status.reason ?? 'unknown reason',
+        platform: status.platform,
+      })
+      return {
+        cmd: argv[0],
+        cmdArgs: argv.slice(1),
+        sandboxed: false,
+        fallbackNote: buildSandboxUnavailableMessage(status.reason),
+      }
+    }
   }
   return { cmd: argv[0], cmdArgs: argv.slice(1), sandboxed: false }
 }
 
 /**
  * Append the stable `[sandbox]` escalation marker when a sandboxed run
- * failed with a denial-shaped error.
+ * failed with a denial-shaped error, and emit a `sandbox-violation` event
+ * for the desktop notification bridge (truncated command, no env values).
  */
-function withSandboxMarker(stderr: string, exitCode: number, sandboxed: boolean): string {
+function withSandboxMarker(
+  stderr: string,
+  exitCode: number,
+  sandboxed: boolean,
+  argv: string[],
+  workDir: string,
+  context?: ToolExecutionContext,
+): string {
   if (!sandboxed || exitCode === 0) return stderr
   const classification = classifySandboxFailure({ exitCode, stderr })
   if (!classification.likelyViolation) return stderr
+  context?.emitEvent?.({
+    type: 'sandbox-violation',
+    toolName: name,
+    commandSummary: summarizeSandboxCommand(shellQuoteCommand(argv)),
+    indicator: classification.indicator,
+    cwd: workDir,
+    platform: process.platform,
+  })
   return `${stderr}\n${buildSandboxBlockedMessage(classification.indicator)}`
 }
 
@@ -227,6 +277,7 @@ function runChild(
 
 export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
   args,
+  context?: ToolExecutionContext,
 ): Promise<Result<CodeExecResult>> => {
   const start = Date.now()
   const workDir = await mkdtemp(join(tmpdir(), 'ouroboros-code-exec-'))
@@ -234,15 +285,23 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
   // bypassSandbox only reaches execute() after tier-4 human approval
   // (resolveTier escalates it); honoring it here runs the spawns unwrapped.
   const bypass = args.bypassSandbox === true
+  // Warn-once unavailable note from whichever spawn consumed the token —
+  // appended to the returned stderr so the model still learns it is running
+  // unsandboxed (mirrors bash's fallback note).
+  let fallbackNote = ''
 
   try {
     if (args.packages && args.packages.length > 0) {
       await writeFile(join(workDir, 'package.json'), '{"private":true}')
       const installTimeoutMs = Math.min(args.timeout * 1000, 60_000)
-      const installSpawn = await resolveSpawn(
-        ['bun', 'install', '--no-summary', ...args.packages],
-        bypass,
-      )
+      const installArgv: [string, ...string[]] = [
+        'bun',
+        'install',
+        '--no-summary',
+        ...args.packages,
+      ]
+      const installSpawn = await resolveSpawn(installArgv, bypass, context)
+      if (installSpawn.fallbackNote) fallbackNote = `\n${installSpawn.fallbackNote}`
       const installResult = await runChild(
         installSpawn.cmd,
         installSpawn.cmdArgs,
@@ -262,10 +321,13 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
           installResult.value.stderr,
           installResult.value.exitCode,
           installSpawn.sandboxed,
+          installArgv,
+          workDir,
+          context,
         )
         return ok({
           stdout: installResult.value.stdout,
-          stderr: `bun install failed:\n${installStderr}`,
+          stderr: `bun install failed:\n${installStderr}${fallbackNote}`,
           exitCode: installResult.value.exitCode,
           durationMs: Date.now() - start,
           truncated: installResult.value.truncated || undefined,
@@ -277,7 +339,9 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
     const codeFile = join(workDir, 'main.ts')
     await writeFile(codeFile, args.code)
 
-    const runSpawn = await resolveSpawn(['bun', 'run', codeFile], bypass)
+    const runArgv: [string, ...string[]] = ['bun', 'run', codeFile]
+    const runSpawn = await resolveSpawn(runArgv, bypass, context)
+    if (runSpawn.fallbackNote) fallbackNote = `\n${runSpawn.fallbackNote}`
     const runResult = await runChild(
       runSpawn.cmd,
       runSpawn.cmdArgs,
@@ -291,13 +355,18 @@ export const execute: TypedToolExecute<typeof schema, CodeExecResult> = async (
       return runResult
     }
 
+    const runStderr = withSandboxMarker(
+      runResult.value.stderr,
+      runResult.value.exitCode,
+      runSpawn.sandboxed,
+      runArgv,
+      workDir,
+      context,
+    )
+
     return ok({
       stdout: runResult.value.stdout,
-      stderr: withSandboxMarker(
-        runResult.value.stderr,
-        runResult.value.exitCode,
-        runSpawn.sandboxed,
-      ),
+      stderr: `${runStderr}${fallbackNote}`,
       exitCode: runResult.value.exitCode,
       durationMs: Date.now() - start,
       truncated: runResult.value.truncated || undefined,

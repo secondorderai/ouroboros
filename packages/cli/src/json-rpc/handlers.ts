@@ -430,6 +430,27 @@ export function bridgeAgentEvent(event: AgentEvent, sessionId: string | null = n
         }),
       )
       break
+    case 'sandbox-violation':
+      writeMessage(
+        makeNotification('sandbox/violation', {
+          sessionId,
+          toolName: event.toolName,
+          commandSummary: event.commandSummary,
+          indicator: event.indicator,
+          cwd: event.cwd,
+          platform: event.platform,
+        }),
+      )
+      break
+    case 'sandbox-unavailable':
+      writeMessage(
+        makeNotification('sandbox/unavailable', {
+          sessionId,
+          reason: event.reason,
+          platform: event.platform,
+        }),
+      )
+      break
     case 'team-graph-open':
       writeMessage(makeNotification('team/graphOpen', { graph: event.graph, reason: event.reason }))
       break

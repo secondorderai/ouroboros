@@ -185,6 +185,23 @@ export type AgentEvent =
       bytes: number
       createdAt: string
     }
+  | {
+      /** A sandboxed spawn failed with a denial-shaped error (OS sandbox violation). */
+      type: 'sandbox-violation'
+      toolName: string
+      /** Truncated command text — never includes environment values. */
+      commandSummary: string
+      /** Which classifier signature matched (e.g. '"Operation not permitted" filesystem denial'). */
+      indicator?: string
+      cwd: string
+      platform: NodeJS.Platform
+    }
+  | {
+      /** Fired once per process the first time a command falls back to running unsandboxed. */
+      type: 'sandbox-unavailable'
+      reason: string
+      platform: NodeJS.Platform
+    }
   | RSIEvent
 
 /** Callback function for agent events. */

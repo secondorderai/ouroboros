@@ -12,6 +12,7 @@ import {
   consumeUnavailableWarning,
   getSandboxStatus,
   notifySandboxedCommandComplete,
+  summarizeSandboxCommand,
   wrapCommand,
   type SpawnSpec,
 } from '@src/safety/sandbox'
@@ -320,6 +321,11 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
       const status = getSandboxStatus()
       if (status.mode === 'unavailable' && consumeUnavailableWarning()) {
         fallbackNote = `\n${buildSandboxUnavailableMessage(status.reason)}`
+        context?.emitEvent?.({
+          type: 'sandbox-unavailable',
+          reason: status.reason ?? 'unknown reason',
+          platform: status.platform,
+        })
       }
     }
   }
@@ -403,6 +409,14 @@ export const execute: TypedToolExecute<typeof schema, BashResult> = async (
             const classification = classifySandboxFailure({ exitCode, stderr: finalStderr })
             if (classification.likelyViolation) {
               finalStderr = `${finalStderr}\n${buildSandboxBlockedMessage(classification.indicator)}`
+              context?.emitEvent?.({
+                type: 'sandbox-violation',
+                toolName: name,
+                commandSummary: summarizeSandboxCommand(command),
+                indicator: classification.indicator,
+                cwd: cwd ?? process.cwd(),
+                platform: process.platform,
+              })
             }
           }
           if (fallbackNote) {

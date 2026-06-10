@@ -6,6 +6,18 @@ import { makeFakeBackend } from '../safety/fake-sandbox-backend'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentEvent } from '@src/agent'
+import type { ToolExecutionContext } from '@src/tools/types'
+
+function makeEventCapture(): { context: ToolExecutionContext; emitted: AgentEvent[] } {
+  const emitted: AgentEvent[] = []
+  const context = {
+    emitEvent: (event: AgentEvent) => {
+      emitted.push(event)
+    },
+  } as unknown as ToolExecutionContext
+  return { context, emitted }
+}
 
 const ENV_KEYS_UNDER_TEST = [
   'ANTHROPIC_API_KEY',
@@ -259,6 +271,82 @@ describe('BashTool — OS sandbox integration (fake backend)', () => {
     const bypassed = await execute(schema.parse({ command: 'echo unwrapped', bypassSandbox: true }))
     expect(bypassed.ok).toBe(true)
     expect(backend.completedCommands).toBe(2)
+  })
+
+  test('emits a sandbox-violation event through the execution context on denial', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "denied" >&2; exit 1'] }),
+      annotate: (_command, stderr) =>
+        `${stderr}\n<sandbox_violations>\ntouch(1) deny(1) file-write-create /denied/x\n</sandbox_violations>`,
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const result = await execute(schema.parse({ command: 'touch /denied/x' }), context)
+
+    expect(result.ok).toBe(true)
+    const violations = emitted.filter((event) => event.type === 'sandbox-violation')
+    expect(violations).toHaveLength(1)
+    const event = violations[0]!
+    if (event.type !== 'sandbox-violation') return
+    expect(event.toolName).toBe('bash')
+    expect(event.commandSummary).toBe('touch /denied/x')
+    expect(event.indicator).toContain('file-write')
+    expect(event.cwd).toBe(process.cwd())
+    expect(event.platform).toBe(process.platform)
+  })
+
+  test('truncates long commands in the sandbox-violation event payload', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "denied" >&2; exit 1'] }),
+      annotate: (_command, stderr) =>
+        `${stderr}\n<sandbox_violations>\ntouch(1) deny(1) file-write-create /denied/x\n</sandbox_violations>`,
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const longCommand = `touch ${'/denied/very-long-path-segment'.repeat(20)}`
+    await execute(schema.parse({ command: longCommand }), context)
+
+    const violations = emitted.filter((event) => event.type === 'sandbox-violation')
+    expect(violations).toHaveLength(1)
+    const event = violations[0]!
+    if (event.type !== 'sandbox-violation') return
+    expect(event.commandSummary.length).toBeLessThanOrEqual(200)
+    expect(event.commandSummary.endsWith('…')).toBe(true)
+  })
+
+  test('does not emit a sandbox-violation event for ordinary sandboxed failures', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "plain failure" >&2; exit 3'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const { context, emitted } = makeEventCapture()
+    const result = await execute(schema.parse({ command: 'exit 3' }), context)
+
+    expect(result.ok).toBe(true)
+    expect(emitted.filter((event) => event.type === 'sandbox-violation')).toHaveLength(0)
+  })
+
+  test('emits sandbox-unavailable exactly once when falling back unsandboxed', async () => {
+    setSandboxBackendForTesting(makeFakeBackend({ dependencyErrors: ['ripgrep missing'] }))
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('unavailable')
+
+    const { context, emitted } = makeEventCapture()
+    await execute(schema.parse({ command: 'echo one' }), context)
+    await execute(schema.parse({ command: 'echo two' }), context)
+
+    const events = emitted.filter((event) => event.type === 'sandbox-unavailable')
+    expect(events).toHaveLength(1)
+    const event = events[0]!
+    if (event.type !== 'sandbox-unavailable') return
+    expect(event.reason).toContain('ripgrep missing')
+    expect(event.platform).toBe(process.platform)
   })
 
   test('warn-once fallback note appears in stderr when the sandbox is unavailable', async () => {

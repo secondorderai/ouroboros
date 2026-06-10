@@ -567,7 +567,9 @@ export function App(): React.ReactElement {
       </div>
 
       {/* Overlays & modals */}
-      <ApprovalToastContainer />
+      {/* PR3 adds a dedicated 'sandbox' settings section; until then the
+          sandbox toast's settings button opens the overlay at its default. */}
+      <ApprovalToastContainer onOpenSettings={() => openSettings()} />
       <AskUserDialog />
       <PlanDecisionDialog />
       <CommandPalette

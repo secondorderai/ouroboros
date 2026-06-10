@@ -836,6 +836,156 @@ test('approval notifications populate the UI and failed responses keep the appro
   await expect(launched.page.getByText('Approve this desktop patch')).toBeVisible()
 })
 
+test('sandbox violation notification shows a dismissible toast with settings shortcut', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await emitNotification(launched.page, 'sandbox/violation', {
+    sessionId: null,
+    toolName: 'bash',
+    commandSummary: 'touch /denied/canary',
+    indicator: 'file-write denial reported by the OS sandbox',
+    cwd: '/tmp',
+    platform: 'darwin',
+  })
+
+  await expect(launched.page.getByText('Command Blocked')).toBeVisible()
+  await expect(launched.page.getByText('Sandbox blocked', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('touch /denied/canary')).toBeVisible()
+  await expect(
+    launched.page.getByText(/file-write denial reported by the OS sandbox/),
+  ).toBeVisible()
+
+  // The settings shortcut opens the settings overlay. Close via Escape: the
+  // toast stack floats above the overlay's close button by design.
+  await launched.page.getByRole('button', { name: 'Open sandbox settings' }).click()
+  await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+  await launched.page.keyboard.press('Escape')
+  await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
+
+  // Dismiss removes the toast.
+  await launched.page.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(launched.page.getByText('Command Blocked')).toHaveCount(0)
+})
+
+test('sandbox unavailable notifications are deduped to a single toast', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  await emitNotification(launched.page, 'sandbox/unavailable', {
+    sessionId: null,
+    reason: 'ripgrep missing',
+    platform: 'darwin',
+  })
+  await emitNotification(launched.page, 'sandbox/unavailable', {
+    sessionId: null,
+    reason: 'ripgrep missing',
+    platform: 'darwin',
+  })
+
+  await expect(launched.page.getByText('Sandbox Unavailable')).toHaveCount(1)
+  await expect(launched.page.getByText(/ripgrep missing/)).toBeVisible()
+  await expect(launched.page.getByText(/Commands run unsandboxed/)).toBeVisible()
+
+  // Warn-once: dismissing and re-emitting must not re-toast.
+  await launched.page.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(launched.page.getByText('Sandbox Unavailable')).toHaveCount(0)
+  await emitNotification(launched.page, 'sandbox/unavailable', {
+    sessionId: null,
+    reason: 'ripgrep missing',
+    platform: 'darwin',
+  })
+  await expect(launched.page.getByText('Sandbox Unavailable')).toHaveCount(0)
+})
+
+test('sandbox violation during an agent run surfaces the toast (mock-cli flow)', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'The command was blocked by the sandbox.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          {
+            delayMs: 10,
+            method: 'sandbox/violation',
+            params: {
+              sessionId: null,
+              toolName: 'bash',
+              commandSummary: 'touch /denied/in-run',
+              indicator: '"Operation not permitted" filesystem denial',
+              cwd: '/tmp',
+              platform: 'darwin',
+            },
+          },
+          {
+            delayMs: 20,
+            method: 'agent/turnComplete',
+            params: { text: 'The command was blocked by the sandbox.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByLabel('Message input').fill('Write outside the sandbox')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Command Blocked')).toBeVisible()
+  await expect(launched.page.getByText('touch /denied/in-run')).toBeVisible()
+  await expect(launched.page.getByText('The command was blocked by the sandbox.')).toBeVisible()
+})
+
+test('sandbox unavailable during an agent run surfaces the warn-once toast (mock-cli flow)', async ({}, testInfo) => {
+  // Real-path coverage for the 'sandbox/unavailable' entry in the main
+  // process's notification forwarding list: the mock CLI emits the
+  // notification over stdio, so it must traverse rpcClient.onNotification →
+  // registerNotificationForwarding → renderer. (The emitNotification test
+  // bridge used by the dedupe test above sends straight to the webContents,
+  // bypassing the forwarding list entirely — it cannot catch a reverted
+  // forwarding entry.)
+  launched = await launchTestApp(testInfo, {
+    scenario: {
+      defaultAgentRun: {
+        response: {
+          text: 'Ran without the sandbox.',
+          iterations: 1,
+          stopReason: 'completed',
+          maxIterationsReached: false,
+        },
+        notifications: [
+          {
+            delayMs: 10,
+            method: 'sandbox/unavailable',
+            params: {
+              sessionId: null,
+              reason: 'ripgrep missing',
+              platform: 'darwin',
+            },
+          },
+          {
+            delayMs: 20,
+            method: 'agent/turnComplete',
+            params: { text: 'Ran without the sandbox.', iterations: 1 },
+          },
+        ],
+      },
+    },
+  })
+  await openMainApp()
+
+  await launched.page.getByLabel('Message input').fill('Run something unsandboxed')
+  await launched.page.getByLabel('Message input').press('Enter')
+
+  await expect(launched.page.getByText('Sandbox Unavailable')).toBeVisible()
+  await expect(launched.page.getByText(/ripgrep missing/)).toBeVisible()
+  await expect(launched.page.getByText('Ran without the sandbox.')).toBeVisible()
+})
+
 test('ask-user notification opens modal and submits selected option', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()

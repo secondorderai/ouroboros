@@ -15,6 +15,7 @@ import {
   reinitializeSandbox,
   resetSandbox,
   setSandboxBackendForTesting,
+  summarizeSandboxCommand,
   wrapCommand,
 } from '@src/safety/sandbox'
 import { makeFakeBackend } from './fake-sandbox-backend'
@@ -297,6 +298,21 @@ describe('sandbox facade', () => {
     notifySandboxedCommandComplete()
     notifySandboxedCommandComplete()
     expect(backend.completedCommands).toBe(2)
+  })
+})
+
+describe('summarizeSandboxCommand', () => {
+  test('passes short commands through with whitespace collapsed', () => {
+    expect(summarizeSandboxCommand('touch /denied/x')).toBe('touch /denied/x')
+    expect(summarizeSandboxCommand('  echo   a\n\tb  ')).toBe('echo a b')
+  })
+
+  test('truncates long commands to a bounded single line', () => {
+    const long = `touch ${'/denied/segment'.repeat(50)}`
+    const summary = summarizeSandboxCommand(long)
+    expect(summary.length).toBe(200)
+    expect(summary.endsWith('…')).toBe(true)
+    expect(summary.startsWith('touch /denied/segment')).toBe(true)
   })
 })
 

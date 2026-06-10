@@ -212,6 +212,19 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           renderer.writeInfo(`Exited ${event.modeId} mode`)
           break
 
+        case 'sandbox-violation':
+          renderer.writeInfo(
+            `[sandbox] Blocked ${event.toolName}: ${event.commandSummary}` +
+              `${event.indicator ? ` (${event.indicator})` : ''}`,
+          )
+          break
+
+        case 'sandbox-unavailable':
+          renderer.writeInfo(
+            `[sandbox] OS sandbox unavailable (${event.reason}); commands run unsandboxed this session`,
+          )
+          break
+
         case 'error':
           renderer.writeError(event.error)
           break

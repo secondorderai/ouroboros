@@ -3823,6 +3823,69 @@ description: A disabled skill
       expect(notif.params.recoverable).toBe(true)
     })
 
+    test('sandbox-violation event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'sandbox-violation',
+            toolName: 'bash',
+            commandSummary: 'touch /denied/x',
+            indicator: 'file-write denial reported by the OS sandbox',
+            cwd: '/work',
+            platform: 'darwin',
+          },
+          'session-sbx',
+        )
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: {
+          sessionId: string
+          toolName: string
+          commandSummary: string
+          indicator: string
+          cwd: string
+          platform: string
+        }
+      }
+      expect(notif.method).toBe('sandbox/violation')
+      expect(notif.params.sessionId).toBe('session-sbx')
+      expect(notif.params.toolName).toBe('bash')
+      expect(notif.params.commandSummary).toBe('touch /denied/x')
+      expect(notif.params.indicator).toBe('file-write denial reported by the OS sandbox')
+      expect(notif.params.cwd).toBe('/work')
+      expect(notif.params.platform).toBe('darwin')
+    })
+
+    test('sandbox-unavailable event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'sandbox-unavailable',
+            reason: 'ripgrep missing',
+            platform: 'linux',
+          },
+          'session-sbx',
+        )
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: { sessionId: string; reason: string; platform: string }
+      }
+      expect(notif.method).toBe('sandbox/unavailable')
+      expect(notif.params.sessionId).toBe('session-sbx')
+      expect(notif.params.reason).toBe('ripgrep missing')
+      expect(notif.params.platform).toBe('linux')
+    })
+
     test('subagent lifecycle events are bridged correctly', async () => {
       const output = await captureStdout(async () => {
         bridgeAgentEvent({
