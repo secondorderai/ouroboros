@@ -46,9 +46,16 @@ import { McpManager } from '@src/mcp/manager'
 import { RSIOrchestrator } from '@src/rsi/orchestrator'
 import type { RSIEvent } from '@src/rsi/types'
 import { TranscriptStore } from '@src/memory/transcripts'
+import {
+  getSandboxStatus,
+  initializeSandbox,
+  resetSandbox,
+  wrapCommand as wrapSandboxCommand,
+} from '@src/safety/sandbox'
+import { spawnSync } from 'node:child_process'
 import { resolve as resolvePath } from 'node:path'
 import { homedir } from 'node:os'
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 
 // ── CLI program definition ──────────────────────────────────────────
 
@@ -76,6 +83,12 @@ program
   .option('--no-rsi', 'Disable all RSI (self-improvement) hooks')
   .option('--json-rpc', 'Start in JSON-RPC 2.0 server mode (stdin/stdout)')
   .option('--plan', 'Enter plan mode for the first message')
+  .addOption(
+    new Option(
+      '--sandbox-check',
+      'Initialize the OS sandbox, run one sandboxed echo, print JSON status, and exit',
+    ).hideHelp(),
+  )
   .action(runMain)
 
 const authCommand = program.command('auth').description('Manage provider authentication')
@@ -171,6 +184,7 @@ async function runMain(): Promise<void> {
     rsi: boolean
     jsonRpc?: boolean
     plan?: boolean
+    sandboxCheck?: boolean
   }>()
 
   // Load config
@@ -239,6 +253,19 @@ async function runMain(): Promise<void> {
   const prompt = await detectPrompt(opts.message)
   const configDir = resolveConfigDir(opts.config, getConfigDiscoveryOptions())
 
+  // OS sandbox for tier-0/1 bash/code-exec children. Never throws —
+  // unavailability degrades to unsandboxed execution with a warn-once note.
+  await initializeSandbox(config, { configDir, cwd: process.cwd() })
+
+  // Diagnostic mode for packaging/compat verification: run one sandboxed
+  // echo through the wrap path and report status as JSON. Used by the
+  // dist-cli test suite to guard `bun build --compile` bundling of the
+  // sandbox runtime.
+  if (opts.sandboxCheck === true) {
+    await runSandboxCheck()
+    return
+  }
+
   // Create LLM provider
   const providerResult = createProvider(config.model)
   if (!providerResult.ok) {
@@ -261,9 +288,13 @@ async function runMain(): Promise<void> {
   const stopMcp = (): void => {
     void mcpManager.stop()
   }
-  process.once('SIGTERM', stopMcp)
-  process.once('SIGINT', stopMcp)
-  process.once('beforeExit', stopMcp)
+  const shutdownRuntime = (): void => {
+    stopMcp()
+    void resetSandbox()
+  }
+  process.once('SIGTERM', shutdownRuntime)
+  process.once('SIGINT', shutdownRuntime)
+  process.once('beforeExit', shutdownRuntime)
 
   if (opts.debugTools === true) {
     const toolNames = registry
@@ -385,6 +416,46 @@ async function runMain(): Promise<void> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * `--sandbox-check`: run one echo through the sandbox wrap path and print a
+ * single JSON status line. Exercised by the dist-cli tests against the
+ * compiled binary to catch `bun build --compile` bundling regressions in the
+ * sandbox runtime. Exits 0 when the echo ran, 1 otherwise.
+ */
+async function runSandboxCheck(): Promise<void> {
+  const status = getSandboxStatus()
+  const marker = 'ouroboros-sandbox-ok'
+  let sandboxed = false
+  let exitCode = 1
+  let stdout = ''
+  let stderr = ''
+
+  const wrapped = await wrapSandboxCommand(`echo ${marker}`)
+  if (wrapped.ok) {
+    sandboxed = wrapped.value.sandboxed
+    const spawned = spawnSync(wrapped.value.spec.command, wrapped.value.spec.args, {
+      encoding: 'utf-8',
+      timeout: 30_000,
+    })
+    exitCode = spawned.status ?? 1
+    stdout = spawned.stdout ?? ''
+    stderr = spawned.stderr ?? ''
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      mode: status.mode,
+      reason: status.reason ?? null,
+      sandboxed,
+      exitCode,
+      stdout,
+      stderr,
+    }) + '\n',
+  )
+  await resetSandbox()
+  process.exit(exitCode === 0 && stdout.includes(marker) ? 0 : 1)
+}
 
 function parseMaxStepsFlag(value: string | undefined): number | undefined | Error {
   if (value === undefined) {

@@ -251,6 +251,65 @@ export type McpLocalServerConfig = z.infer<typeof mcpLocalServerSchema>
 export type McpRemoteServerConfig = z.infer<typeof mcpRemoteServerSchema>
 export type McpConfig = z.infer<typeof mcpConfigSchema>
 
+// ---------------------------------------------------------------------------
+// OS sandbox — kernel-enforced isolation for spawned tool children
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_SANDBOX_CONFIG = {
+  enabled: true,
+  network: {
+    allowedDomains: [] as string[],
+    deniedDomains: [] as string[],
+    allowLocalBinding: true,
+  },
+  filesystem: {
+    allowWrite: [] as string[],
+    denyRead: [] as string[],
+    denyWrite: [] as string[],
+  },
+}
+
+export const sandboxConfigSchema = z.object({
+  enabled: z
+    .boolean()
+    .default(true)
+    .describe('Run tier-0/1 bash and code-exec children under the OS sandbox'),
+  network: z
+    .object({
+      allowedDomains: z
+        .array(z.string().min(1))
+        .default([])
+        .describe('Extra domains allowed through the sandbox network proxy'),
+      deniedDomains: z
+        .array(z.string().min(1))
+        .default([])
+        .describe('Domains explicitly denied by the sandbox network proxy'),
+      allowLocalBinding: z
+        .boolean()
+        .default(true)
+        .describe('Allow sandboxed children to bind local ports (dev servers)'),
+    })
+    .default(DEFAULT_SANDBOX_CONFIG.network),
+  filesystem: z
+    .object({
+      allowWrite: z
+        .array(z.string().min(1))
+        .default([])
+        .describe('Extra writable paths merged into the sandbox policy'),
+      denyRead: z
+        .array(z.string().min(1))
+        .default([])
+        .describe('Extra unreadable paths merged into the sandbox policy'),
+      denyWrite: z
+        .array(z.string().min(1))
+        .default([])
+        .describe('Extra write-denied paths (deny overrides allow)'),
+    })
+    .default(DEFAULT_SANDBOX_CONFIG.filesystem),
+})
+
+export type SandboxConfig = z.infer<typeof sandboxConfigSchema>
+
 const postgresConnectionSchema = z.object({
   id: z
     .string()
@@ -502,6 +561,8 @@ export const configSchema = z.object({
   analytics: analyticsConfigSchema,
 
   mcp: mcpConfigSchema.default({ servers: [] }),
+
+  sandbox: sandboxConfigSchema.default(DEFAULT_SANDBOX_CONFIG),
 })
 
 export type OuroborosConfig = z.infer<typeof configSchema>

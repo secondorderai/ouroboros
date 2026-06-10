@@ -188,4 +188,42 @@ describe('dist/ouroboros binary', () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toContain('unknown option')
   })
+
+  test('--sandbox-check runs one sandboxed echo through the compiled binary', async () => {
+    // Guards `bun build --compile` bundling of the sandbox runtime: the
+    // compiled binary must initialize srt and execute a wrapped command.
+    const proc = Bun.spawn([BINARY, '--sandbox-check'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      stdin: 'pipe',
+    })
+    proc.stdin.end()
+    const timer = setTimeout(() => proc.kill(), 45_000)
+    const exitCode = await proc.exited
+    clearTimeout(timer)
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+
+    expect(stdout + stderr).not.toContain('Usage:')
+    const parsed = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as {
+      mode: string
+      sandboxed: boolean
+      exitCode: number
+      stdout: string
+    }
+    // The echo must run regardless of sandbox availability (fallback path).
+    expect(parsed.stdout).toContain('ouroboros-sandbox-ok')
+    expect(parsed.exitCode).toBe(0)
+    expect(exitCode).toBe(0)
+
+    const sandboxAvailable =
+      process.platform === 'darwin' &&
+      Bun.which('sandbox-exec') !== null &&
+      Bun.which('rg') !== null
+    if (sandboxAvailable) {
+      // On a sandbox-capable host the wrap path must actually enforce.
+      expect(parsed.mode).toBe('enforcing')
+      expect(parsed.sandboxed).toBe(true)
+    }
+  }, 60_000)
 })

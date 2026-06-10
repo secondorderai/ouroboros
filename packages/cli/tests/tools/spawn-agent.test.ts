@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import { Agent } from '@src/agent'
@@ -16,6 +16,8 @@ import * as fileWriteTool from '@src/tools/file-write'
 import * as spawnAgentTool from '@src/tools/spawn-agent'
 import * as workerDiffApprovalTool from '@src/tools/worker-diff-approval'
 import { collectWorkerDiff, createWorkerRuntime } from '@src/tools/worker-runtime'
+import { initializeSandbox, resetSandbox, setSandboxBackendForTesting } from '@src/safety/sandbox'
+import { makeFakeBackend } from '../safety/fake-sandbox-backend'
 import { normalizeSubAgentOutput, validateSubAgentResult } from '@src/tools/subagent-result'
 import { setWorkerDiffApprovalHandler } from '@src/tools/worker-diff-approval'
 import type { SpawnAgentResult } from '@src/tools/spawn-agent'
@@ -1004,6 +1006,89 @@ describe('spawn_agent tool', () => {
       reviewStatus: 'awaiting-review',
       changedFiles: ['packages/cli/src/worker-target.txt'],
     })
+  })
+
+  test('worker spawn widens the OS sandbox write policy with its worktree', async () => {
+    registerWorkerTools(registry)
+    initGitRepo(tempDir)
+    writeRepoFile(tempDir, 'packages/cli/src/sandbox-target.txt', 'old\n')
+    commitAll(tempDir, 'initial')
+
+    const config = makeConfig([primaryAgent(['worker'])])
+    const backend = makeFakeBackend()
+    setSandboxBackendForTesting(backend)
+    try {
+      const sandboxStatus = await initializeSandbox(config, {
+        configDir: tempDir,
+        cwd: tempDir,
+      })
+      expect(sandboxStatus.mode).toBe('enforcing')
+      expect(backend.initializedPolicies).toHaveLength(1)
+
+      const worktreePath = join(dirname(tempDir), `worker-sandbox-${crypto.randomUUID()}`)
+      const branchName = `worker/${crypto.randomUUID()}`
+      const command = "printf 'verify-ok\\n'"
+      const model = createMockModel([
+        [
+          ...toolCallBlock('worker_write', 'file-write', {
+            path: 'packages/cli/src/sandbox-target.txt',
+            content: 'new\n',
+          }),
+          finishToolCalls(),
+        ],
+        [
+          ...textBlock(
+            validSubagentResultText({
+              summary: 'Worker changed the target file.',
+              uncertainty: [],
+              suggestedNextSteps: [],
+            }),
+          ),
+          finishStop(),
+        ],
+      ])
+
+      const result = await registry.executeTool(
+        'spawn_agent',
+        {
+          agentId: 'worker',
+          taskId: 'ticket-sandbox',
+          task: 'Edit the target file.',
+          branchName,
+          worktreePath,
+          writeScope: ['packages/cli/src/**'],
+          permissionLease: workerLease({
+            allowedPaths: ['packages/cli/src/**'],
+            allowedBash: [command],
+          }),
+          verificationCommand: command,
+          outputFormat: 'json',
+        },
+        {
+          model,
+          toolRegistry: registry,
+          config,
+          basePath: tempDir,
+          agentId: 'planner',
+          systemPromptBuilder: () => 'Base child prompt.',
+          memoryProvider: () => '',
+          skillCatalogProvider: () => [],
+        },
+      )
+
+      expect(result.ok).toBe(true)
+
+      // executeWorkerAgent must call addSandboxWriteRoot(worktreePath) before
+      // the worker runs: with an enforcing sandbox, a policy that lacks the
+      // worktree would kernel-deny every bash/code-exec write inside it for
+      // the worker's whole run.
+      expect(backend.initializedPolicies.length).toBeGreaterThanOrEqual(2)
+      const latest = backend.initializedPolicies.at(-1)!
+      expect(latest.filesystem.allowWrite).toContain(realpathSync(worktreePath))
+    } finally {
+      setSandboxBackendForTesting(null)
+      await resetSandbox()
+    }
   })
 
   test('review agent receives worker diff context and returns findings', async () => {

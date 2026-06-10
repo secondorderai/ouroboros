@@ -72,6 +72,11 @@ function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
     mcp: {
       servers: overrides?.mcp?.servers ?? base.mcp.servers,
     },
+    sandbox: {
+      enabled: overrides?.sandbox?.enabled ?? base.sandbox.enabled,
+      network: { ...base.sandbox.network, ...overrides?.sandbox?.network },
+      filesystem: { ...base.sandbox.filesystem, ...overrides?.sandbox?.filesystem },
+    },
   }
 }
 

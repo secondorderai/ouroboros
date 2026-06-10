@@ -24,6 +24,7 @@
     "@ai-sdk/anthropic": "3.0.66",
     "@ai-sdk/openai": "3.0.50",
     "@ai-sdk/provider": "3.0.8",
+    "@anthropic-ai/sandbox-runtime": "0.0.54",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "@ouroboros/shared": "workspace:*",
     "@types/pg": "^8.20.0",

@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, test, expect } from 'bun:test'
 import { classifyBashCommand, execute, resolveTier, schema } from '@src/tools/bash'
+import { initializeSandbox, resetSandbox, setSandboxBackendForTesting } from '@src/safety/sandbox'
+import { configSchema } from '@src/config'
+import { makeFakeBackend } from '../safety/fake-sandbox-backend'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const ENV_KEYS_UNDER_TEST = [
   'ANTHROPIC_API_KEY',
@@ -118,6 +124,14 @@ describe('BashTool', () => {
     expect(classifyBashCommand('bun install')).toBe(4)
   })
 
+  test('bypassSandbox: true escalates to Tier 4 regardless of the command', () => {
+    expect(resolveTier({ command: 'echo hi', bypassSandbox: true })).toBe(4)
+    expect(resolveTier({ command: 'ls', bypassSandbox: true })).toBe(4)
+    // Absent or false keeps the command classification.
+    expect(resolveTier({ command: 'echo hi' })).toBe(0)
+    expect(resolveTier({ command: 'echo hi', bypassSandbox: false })).toBe(0)
+  })
+
   test('strips known and future secret-like env vars from the child', async () => {
     process.env.ANTHROPIC_API_KEY = 'anthropic-secret'
     process.env.OUROBOROS_OPENAI_COMPATIBLE_API_KEY = 'compatible-secret'
@@ -139,5 +153,131 @@ describe('BashTool', () => {
     if (result.ok) {
       expect(result.value.stdout).toBe('undefined\nundefined\nundefined\nsafe-value\n')
     }
+  })
+})
+
+describe('BashTool — OS sandbox integration (fake backend)', () => {
+  let workDir: string
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), 'ouroboros-bash-sandbox-'))
+  })
+
+  afterEach(async () => {
+    setSandboxBackendForTesting(null)
+    await resetSandbox()
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  async function initWithFakeBackend(backend: ReturnType<typeof makeFakeBackend>) {
+    setSandboxBackendForTesting(backend)
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('enforcing')
+  }
+
+  test('appends the [sandbox] marker to denial-shaped sandboxed failures', async () => {
+    // The fake wrap simulates a kernel denial; the fake annotate appends the
+    // platform-independent seatbelt corroboration block the classifier reads.
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "denied" >&2; exit 1'] }),
+      annotate: (_command, stderr) =>
+        `${stderr}\n<sandbox_violations>\ntouch(1) deny(1) file-write-create /denied/x\n</sandbox_violations>`,
+    })
+    await initWithFakeBackend(backend)
+
+    const args = schema.parse({ command: 'touch /denied/x' })
+    const result = await execute(args)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(1)
+    expect(result.value.stderr).toContain('[sandbox]')
+    expect(result.value.stderr).toContain('blocked by the OS sandbox')
+    expect(result.value.stderr).toContain('bypassSandbox: true')
+    expect(backend.wrappedCommands).toEqual(['touch /denied/x'])
+  })
+
+  test('does not append the marker for ordinary sandboxed failures', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo "plain failure" >&2; exit 3'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const result = await execute(schema.parse({ command: 'exit 3' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(3)
+    expect(result.value.stderr).not.toContain('[sandbox]')
+  })
+
+  test('bypassSandbox: true skips wrapping entirely', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo should-not-run; exit 9'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const result = await execute(schema.parse({ command: 'echo unwrapped', bypassSandbox: true }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.stdout).toBe('unwrapped\n')
+    expect(result.value.exitCode).toBe(0)
+    expect(backend.wrappedCommands).toEqual([])
+  })
+
+  test('tier-4 commands run unwrapped (human already approved at execute time)', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo should-not-run; exit 9'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    // `sudo` makes this tier 4; `-n true || true` keeps it harmless and exit 0.
+    const result = await execute(schema.parse({ command: 'sudo -n true || true' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(0)
+    expect(backend.wrappedCommands).toEqual([])
+  })
+
+  test('notifies the backend after each sandboxed command completes', async () => {
+    // srt's per-command cleanup contract: every sandboxed child exit must
+    // trigger exactly one completeCommand() on the backend.
+    const backend = makeFakeBackend()
+    await initWithFakeBackend(backend)
+
+    const first = await execute(schema.parse({ command: 'echo cleanup' }))
+    expect(first.ok).toBe(true)
+    expect(backend.completedCommands).toBe(1)
+
+    const second = await execute(schema.parse({ command: 'exit 3' }))
+    expect(second.ok).toBe(true)
+    expect(backend.completedCommands).toBe(2)
+
+    // Unsandboxed runs (bypass) must NOT notify.
+    const bypassed = await execute(schema.parse({ command: 'echo unwrapped', bypassSandbox: true }))
+    expect(bypassed.ok).toBe(true)
+    expect(backend.completedCommands).toBe(2)
+  })
+
+  test('warn-once fallback note appears in stderr when the sandbox is unavailable', async () => {
+    setSandboxBackendForTesting(makeFakeBackend({ dependencyErrors: ['ripgrep missing'] }))
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('unavailable')
+
+    const first = await execute(schema.parse({ command: 'echo one' }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    expect(first.value.stderr).toContain('[sandbox] OS sandbox unavailable')
+    expect(first.value.stderr).toContain('ripgrep missing')
+
+    const second = await execute(schema.parse({ command: 'echo two' }))
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    expect(second.value.stderr).not.toContain('[sandbox]')
   })
 })

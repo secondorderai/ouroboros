@@ -1,8 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { readdirSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { schema, execute } from '@src/tools/code-exec'
+import { schema, execute, resolveTier, shellQuoteCommand } from '@src/tools/code-exec'
+import { initializeSandbox, resetSandbox, setSandboxBackendForTesting } from '@src/safety/sandbox'
+import { configSchema } from '@src/config'
+import { makeFakeBackend } from '../safety/fake-sandbox-backend'
 
 const RUN_NETWORK = process.env.SKIP_NETWORK_TESTS !== '1'
 
@@ -24,6 +28,119 @@ describe('CodeExecTool — schema', () => {
 
   test('rejects timeout above 300s', () => {
     expect(() => schema.parse({ code: 'x', timeout: 301 })).toThrow()
+  })
+})
+
+describe('CodeExecTool — resolveTier', () => {
+  test('defaults to Tier 1', () => {
+    expect(resolveTier({ code: 'console.log(1)' })).toBe(1)
+    expect(resolveTier({ code: 'console.log(1)', bypassSandbox: false })).toBe(1)
+    expect(resolveTier(undefined)).toBe(1)
+  })
+
+  test('bypassSandbox: true escalates to Tier 4', () => {
+    expect(resolveTier({ code: 'console.log(1)', bypassSandbox: true })).toBe(4)
+  })
+})
+
+describe('CodeExecTool — shellQuoteCommand', () => {
+  test('passes plain argv through unquoted', () => {
+    expect(shellQuoteCommand(['bun', 'run', '/tmp/x/main.ts'])).toBe('bun run /tmp/x/main.ts')
+  })
+
+  test('quotes arguments containing shell metacharacters', () => {
+    expect(shellQuoteCommand(['bun', 'add', 'left pad; rm -rf /'])).toBe(
+      "bun add 'left pad; rm -rf /'",
+    )
+    expect(shellQuoteCommand(['echo', "it's"])).toBe("echo 'it'\\''s'")
+  })
+})
+
+describe('CodeExecTool — OS sandbox integration (fake backend)', () => {
+  let workDir: string
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), 'ouroboros-code-exec-sandbox-'))
+  })
+
+  afterEach(async () => {
+    setSandboxBackendForTesting(null)
+    await resetSandbox()
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  async function initWithFakeBackend(backend: ReturnType<typeof makeFakeBackend>) {
+    setSandboxBackendForTesting(backend)
+    const status = await initializeSandbox(configSchema.parse({}), {
+      configDir: workDir,
+      cwd: workDir,
+    })
+    expect(status.mode).toBe('enforcing')
+  }
+
+  test('routes the run spawn through wrapCommand when enforcing', async () => {
+    // Identity wrap: the quoted command must execute correctly via `sh -c`,
+    // which also validates shellQuoteCommand end to end.
+    const backend = makeFakeBackend()
+    await initWithFakeBackend(backend)
+
+    const result = await execute(schema.parse({ code: 'console.log("sandbox-route")' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(0)
+    expect(result.value.stdout).toBe('sandbox-route\n')
+
+    expect(backend.wrappedCommands).toHaveLength(1)
+    expect(backend.wrappedCommands[0]).toStartWith('bun run ')
+    expect(backend.wrappedCommands[0]).toContain('main.ts')
+  })
+
+  test('appends the [sandbox] marker to denial-shaped sandboxed failures', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({
+        command: 'sh',
+        args: [
+          '-c',
+          'printf \'%s\\n%s\\n%s\\n\' "<sandbox_violations>" "bun(1) deny(1) file-write-create /denied/x" "</sandbox_violations>" >&2; exit 1',
+        ],
+      }),
+    })
+    await initWithFakeBackend(backend)
+
+    const result = await execute(schema.parse({ code: 'console.log("never")' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(1)
+    expect(result.value.stderr).toContain('[sandbox]')
+    expect(result.value.stderr).toContain('bypassSandbox: true')
+  })
+
+  test('notifies the backend after the sandboxed run completes', async () => {
+    // srt's per-command cleanup contract: the sandboxed `bun run` child exit
+    // must trigger completeCommand() on the backend.
+    const backend = makeFakeBackend()
+    await initWithFakeBackend(backend)
+
+    const result = await execute(schema.parse({ code: 'console.log("done")' }))
+    expect(result.ok).toBe(true)
+    expect(backend.completedCommands).toBe(1)
+  })
+
+  test('bypassSandbox: true skips wrapping for both spawns', async () => {
+    const backend = makeFakeBackend({
+      wrap: () => ({ command: 'sh', args: ['-c', 'echo should-not-run; exit 9'] }),
+    })
+    await initWithFakeBackend(backend)
+
+    const result = await execute(
+      schema.parse({ code: 'console.log("direct")', bypassSandbox: true }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.exitCode).toBe(0)
+    expect(result.value.stdout).toBe('direct\n')
+    expect(backend.wrappedCommands).toEqual([])
+    expect(backend.completedCommands).toBe(0)
   })
 })
 

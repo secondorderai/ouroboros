@@ -14,6 +14,7 @@ import {
   BUILT_IN_AGENT_DEFINITIONS,
   DEFAULT_ANALYTICS_CONFIG,
   DEFAULT_ARTIFACTS_CONFIG,
+  DEFAULT_SANDBOX_CONFIG,
   loadConfig,
   type ContextWindowSource,
   type OuroborosConfig,
@@ -707,6 +708,7 @@ export class Agent {
               },
               analytics: DEFAULT_ANALYTICS_CONFIG,
               mcp: { servers: [] },
+              sandbox: DEFAULT_SANDBOX_CONFIG,
             } satisfies OuroborosConfig)
       })()
     this.rsiOrchestrator = options.rsiOrchestrator ?? null

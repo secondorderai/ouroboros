@@ -43,6 +43,7 @@ import {
   tierApprovalRisk,
   type TierApprovalDetails,
 } from '@src/tier-approval'
+import { initializeSandbox, reinitializeSandbox, resetSandbox } from '@src/safety/sandbox'
 import { resolve } from 'node:path'
 import {
   createHandlers,
@@ -161,6 +162,10 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     void mcpManager.stop()
   }
 
+  // OS sandbox for tier-0/1 bash/code-exec children. Never throws —
+  // unavailability degrades to unsandboxed execution with a warn-once note.
+  await initializeSandbox(config, { configDir, cwd: process.cwd() })
+
   // On process teardown, give every cached agent a chance to run its
   // session-end RSI hook (the dream cycle, when configured). Fire-and-forget
   // and bounded by Node's normal exit semantics — the LLM call may be cut
@@ -175,6 +180,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
   const onExit = (): void => {
     shutdownAllAgents()
     stopMcp()
+    void resetSandbox()
   }
   process.once('SIGTERM', onExit)
   process.once('SIGINT', onExit)
@@ -559,6 +565,12 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     modeManager,
     taskGraphStore,
     mcpManager,
+    // Re-anchor the sandbox policy at the *current* config/configDir/cwd.
+    // Closure reads the mutable bindings so config/set and workspace/set
+    // changes are reflected without re-plumbing.
+    reinitializeSandbox: async () => {
+      await reinitializeSandbox(config, { configDir, cwd: process.cwd() })
+    },
     takeSkillActivations: (sessionId) => {
       const list = skillActivationsBySession.get(sessionId)
       if (!list || list.length === 0) return []

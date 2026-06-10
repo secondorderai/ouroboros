@@ -47,6 +47,7 @@ import {
   getSkillInfo,
   activateSkill,
 } from '@src/tools/skill-manager'
+import { getSandboxStatus } from '@src/safety/sandbox'
 import { JSON_RPC_ERRORS, makeNotification } from './types'
 import { writeMessage } from './transport'
 import { verifyImageFileMagicBytes } from '@src/utils/image-magic-bytes'
@@ -146,6 +147,13 @@ export interface HandlerContext {
    * error when this is undefined.
    */
   mcpManager?: McpManager
+  /**
+   * Re-anchor the OS sandbox policy at the current config and cwd. Called
+   * after `workspace/set` / `workspace/clear` chdir and after `config/set`
+   * when the sandbox config subtree changes. Optional so unit tests that
+   * don't exercise sandboxing can omit it.
+   */
+  reinitializeSandbox?: () => Promise<void>
 }
 
 export interface ApprovalItem {
@@ -949,8 +957,30 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, saveResult.error.message)
     }
 
+    const sandboxChanged =
+      JSON.stringify(ctx.config.sandbox) !== JSON.stringify(hydratedConfig.sandbox)
     ctx.setConfig(hydratedConfig)
+    if (sandboxChanged) {
+      // srt policy is fixed at initialize time — apply sandbox config
+      // changes live by re-initializing the singleton.
+      await ctx.reinitializeSandbox?.()
+    }
     return hydratedConfig
+  })
+
+  // ── sandbox/* ────────────────────────────────────────────────────
+
+  handlers.set('sandbox/status', async () => {
+    // Live status of the process-wide OS sandbox facade. Lets the desktop
+    // (and the transport tests) verify the server actually initialized the
+    // sandbox at startup — 'uninitialized' here means the boot-time
+    // initializeSandbox call is missing or failed to run.
+    const status = getSandboxStatus()
+    return {
+      mode: status.mode,
+      ...(status.reason !== undefined ? { reason: status.reason } : {}),
+      platform: status.platform,
+    }
   })
 
   handlers.set('config/testConnection', async (params) => {
@@ -1410,6 +1440,8 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     try {
       process.chdir(dir)
       refreshSkills()
+      // The sandbox allowWrite policy anchors at cwd — re-anchor it now.
+      await ctx.reinitializeSandbox?.()
 
       if (ctx.currentSessionId) {
         const updateResult = ctx.transcriptStore.updateSessionWorkspace(
@@ -1513,6 +1545,8 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     try {
       process.chdir(ctx.initialCwd)
       refreshSkills()
+      // The sandbox allowWrite policy anchors at cwd — re-anchor it now.
+      await ctx.reinitializeSandbox?.()
 
       if (ctx.currentSessionId) {
         const updateResult = ctx.transcriptStore.updateSessionWorkspace(

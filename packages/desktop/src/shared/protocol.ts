@@ -1104,6 +1104,29 @@ export interface ArtifactsReadResult {
   artifact: Artifact
 }
 
+// ── Sandbox ─────────────────────────────────────────────────────────
+
+/**
+ * Live mode of the CLI's process-wide OS sandbox facade.
+ * - `enforcing`     — tier-0/1 bash/code-exec children run OS-sandboxed.
+ * - `disabled`      — turned off via `sandbox.enabled: false`.
+ * - `unavailable`   — platform/primitives missing; commands run unsandboxed
+ *                     with a warn-once note.
+ * - `uninitialized` — the facade has not been initialized (should never be
+ *                     observed on a healthy server after startup).
+ */
+export type SandboxMode = 'enforcing' | 'disabled' | 'unavailable' | 'uninitialized'
+
+export type SandboxStatusParams = Record<string, never>
+
+export interface SandboxStatusResult {
+  mode: SandboxMode
+  /** Populated when mode === 'unavailable'. */
+  reason?: string
+  /** Node `process.platform` value of the CLI process. */
+  platform: string
+}
+
 // ── Method Map (method name -> params & result types) ──────────────
 
 export interface RpcMethodMap {
@@ -1158,6 +1181,7 @@ export interface RpcMethodMap {
   'artifacts/read': { params: ArtifactsReadParams; result: ArtifactsReadResult }
   'mcp/list': { params: Record<string, never>; result: McpListResult }
   'mcp/restart': { params: McpRestartParams; result: McpRestartResult }
+  'sandbox/status': { params: SandboxStatusParams; result: SandboxStatusResult }
 }
 
 // ── MCP (Model Context Protocol) — desktop visibility types ────────
@@ -1244,6 +1268,7 @@ export const RPC_METHOD_NAMES = [
   'artifacts/read',
   'mcp/list',
   'mcp/restart',
+  'sandbox/status',
 ] as const satisfies readonly RpcMethod[]
 
 /** Compile-time check that `RPC_METHOD_NAMES` covers every key of `RpcMethodMap`. */
@@ -1327,6 +1352,7 @@ export const RPC_RISK_CLASSES: Record<RpcMethod, RpcRiskClass> = {
   'artifacts/list': 'read',
   'artifacts/read': 'read',
   'mcp/list': 'read',
+  'sandbox/status': 'read',
 }
 
 // ── Notification Types ─────────────────────────────────────────────
