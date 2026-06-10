@@ -16,6 +16,7 @@
 
 import { type Result, ok } from '@src/types'
 import type { OuroborosConfig } from '@src/config'
+import { hasTierApprovalHandler } from '@src/tier-approval'
 import { buildSandboxPolicy, type SandboxPolicy } from './policy'
 
 /** Backend-agnostic spawn shape (library backend: `sh -c <wrapped>`). */
@@ -414,14 +415,30 @@ export function summarizeSandboxCommand(command: string): string {
 /**
  * Stable, model-facing guidance appended to stderr when a sandboxed command
  * fails with a denial-shaped error. The `[sandbox]` prefix and the
- * `bypassSandbox: true` escalation hint are a tested contract.
+ * `bypassSandbox: true` escalation hint are a tested contract
+ * (see tests/safety/sandbox.test.ts "escalation guidance contract").
+ *
+ * The escalation hint branches on whether a tier-approval handler is
+ * registered: only the JSON-RPC server registers one (desktop mode), so in
+ * REPL mode the guidance says approval requires the desktop app instead of
+ * promising an approval prompt that can never appear.
  */
 export function buildSandboxBlockedMessage(indicator: string | undefined): string {
-  return (
+  const blocked =
     `[sandbox] This command appears to have been blocked by the OS sandbox` +
-    `${indicator ? ` (${indicator})` : ''}. ` +
-    `If this operation is legitimately needed, retry with bypassSandbox: true ` +
-    `to request human approval for an unsandboxed run.`
+    `${indicator ? ` (${indicator})` : ''}. `
+  if (hasTierApprovalHandler()) {
+    return (
+      blocked +
+      `If this operation is legitimately needed, retry with bypassSandbox: true ` +
+      `to request human approval for an unsandboxed run.`
+    )
+  }
+  return (
+    blocked +
+    `If this operation is legitimately needed, retry with bypassSandbox: true — ` +
+    `note that the required tier-4 human approval is only available in the desktop app, ` +
+    `so the retry will be denied in this session.`
   )
 }
 

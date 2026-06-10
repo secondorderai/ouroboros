@@ -6,7 +6,7 @@ import { useApprovals, useApprovalActions } from '../stores/approvalStore'
 import { useSandboxNotices, dismissSandboxNotice } from '../stores/sandboxNoticeStore'
 
 interface ApprovalToastContainerProps {
-  /** Opens the settings overlay (sandbox section once it exists). */
+  /** Opens the settings overlay at the sandbox section. */
   onOpenSettings?: () => void
 }
 

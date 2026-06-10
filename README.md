@@ -173,6 +173,13 @@ bun run release      # publish through electron-builder config
   surfaces, and team advisor/reputation tools.
 - **Approvals:** permission-tier model, approval requests, approval queue,
   permission lease updates, and worker diff approval flow.
+- **OS sandbox:** tier-0/1 `bash` and `code-exec` commands run inside an
+  OS-level sandbox by default (Seatbelt on macOS, bubblewrap on Linux) with
+  network domain filtering; writes to `skills/`, `memory/`, and `.ouroboros`
+  are kernel-denied, blocked commands can escalate to tier-4 human approval
+  via `bypassSandbox`, violations surface as desktop toasts, and the desktop
+  Settings → Sandbox section manages enforcement, allowed domains, and extra
+  writable paths.
 - **MCP:** local and remote MCP server config, runtime status methods,
   connection notifications, and approval policy for MCP tool calls.
 - **Auth:** API-key providers plus `openai-chatgpt` OAuth login stored outside
@@ -263,9 +270,13 @@ Review these boundaries before using it with sensitive work:
   `openai-chatgpt` auth is stored outside project config in
   `~/.ouroboros/auth.json`. Treat these credentials like any other developer
   secret and do not commit them.
-- **Shell access:** Shell commands run locally through the permission model.
-  Read approval prompts carefully, especially commands that install packages,
-  edit files, delete files, access credentials, or contact external services.
+- **Shell access:** Shell commands run locally through the permission model,
+  and tier-0/1 commands additionally run inside an OS-level sandbox by default
+  (filesystem and network isolation; unavailable platforms fall back to
+  unsandboxed execution with a one-time warning). Read approval prompts
+  carefully, especially commands that install packages, edit files, delete
+  files, access credentials, or contact external services — and treat
+  `bypassSandbox` approval requests as unsandboxed system access.
 - **MCP servers:** MCP servers extend the agent with additional tools and may
   have their own filesystem, account, or network access. Only configure MCP
   servers you trust, and review their permissions separately from Ouroboros.
@@ -381,6 +392,19 @@ discovery rules, schema details, and MCP examples.
   },
   "mcp": {
     "servers": []
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [],
+      "deniedDomains": [],
+      "allowLocalBinding": true
+    },
+    "filesystem": {
+      "allowWrite": [],
+      "denyRead": [],
+      "denyWrite": []
+    }
   }
 }
 ```

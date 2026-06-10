@@ -856,10 +856,12 @@ test('sandbox violation notification shows a dismissible toast with settings sho
     launched.page.getByText(/file-write denial reported by the OS sandbox/),
   ).toBeVisible()
 
-  // The settings shortcut opens the settings overlay. Close via Escape: the
-  // toast stack floats above the overlay's close button by design.
+  // The settings shortcut opens the settings overlay directly at the
+  // sandbox section. Close via Escape: the toast stack floats above the
+  // overlay's close button by design.
   await launched.page.getByRole('button', { name: 'Open sandbox settings' }).click()
   await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+  await expect(launched.page.getByLabel('OS sandbox: enabled')).toBeVisible()
   await launched.page.keyboard.press('Escape')
   await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
 
@@ -984,6 +986,116 @@ test('sandbox unavailable during an agent run surfaces the warn-once toast (mock
   await expect(launched.page.getByText('Sandbox Unavailable')).toBeVisible()
   await expect(launched.page.getByText(/ripgrep missing/)).toBeVisible()
   await expect(launched.page.getByText('Ran without the sandbox.')).toBeVisible()
+})
+
+/** Open the settings overlay (Cmd/Ctrl+,) and switch to the Sandbox section. */
+async function openSandboxSettings(): Promise<void> {
+  if (!launched) throw new Error('App not launched')
+  await launched.page.evaluate((currentModKey) => {
+    const init =
+      currentModKey === 'metaKey' ? { key: ',', metaKey: true } : { key: ',', ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', init))
+  }, modKey)
+  await expect(launched.page.getByLabel('Close settings')).toBeVisible()
+  // The nav button's accessible name includes its description text, which
+  // uniquely identifies it among other "sandbox"-named controls.
+  await launched.page.getByRole('button', { name: 'OS-level isolation' }).click()
+}
+
+/** Parse mock-cli request-log entries for config/set calls on a path. */
+async function configSetValues(path: string): Promise<unknown[]> {
+  if (!launched) throw new Error('App not launched')
+  const log = await readFile(launched.paths.mockLogPath, 'utf8').catch(() => '')
+  return log
+    .split('\n')
+    .filter((line) => line.startsWith('[request] '))
+    .map((line) => {
+      try {
+        return JSON.parse(line.slice('[request] '.length)) as {
+          method?: string
+          params?: { path?: string; value?: unknown }
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter((req) => req?.method === 'config/set' && req.params?.path === path)
+    .map((req) => req!.params!.value)
+}
+
+test('sandbox settings section disables enforcement only after confirmation', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+  await openSandboxSettings()
+
+  // Read-only built-in protections are listed.
+  await expect(launched.page.getByText('skills/', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('memory/', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('.ouroboros', { exact: true })).toBeVisible()
+  await expect(launched.page.getByText('Always denied')).toHaveCount(3)
+
+  // Toggling off demands confirmation; Cancel keeps enforcement on.
+  await launched.page.getByLabel('OS sandbox: enabled').click()
+  await expect(launched.page.getByText(/Disabling the OS sandbox/)).toBeVisible()
+  await launched.page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(launched.page.getByText(/Disabling the OS sandbox/)).toHaveCount(0)
+  await expect(launched.page.getByLabel('OS sandbox: enabled')).toBeVisible()
+  expect(await configSetValues('sandbox.enabled')).toEqual([])
+
+  // Confirming records config/set { path: 'sandbox.enabled', value: false }.
+  await launched.page.getByLabel('OS sandbox: enabled').click()
+  await launched.page.getByRole('button', { name: 'Disable sandbox' }).click()
+  await expect(launched.page.getByLabel('OS sandbox: disabled')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.enabled')).toEqual([false])
+
+  // Re-enabling flows straight through without a confirmation dialog.
+  await launched.page.getByLabel('OS sandbox: disabled').click()
+  await expect(launched.page.getByLabel('OS sandbox: enabled')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.enabled')).toEqual([false, true])
+})
+
+test('sandbox settings domain and writable-path edits persist across reopen', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+  await openSandboxSettings()
+
+  // Add an allowed domain and an extra writable path.
+  await launched.page.getByLabel('Add allowed domain').fill('internal.example.com')
+  await launched.page.getByRole('button', { name: 'Add domain' }).click()
+  await expect(launched.page.getByText('internal.example.com')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.network.allowedDomains')).toEqual([
+    ['internal.example.com'],
+  ])
+
+  await launched.page.getByLabel('Add writable path').fill('/tmp/sandbox-extra')
+  await launched.page.getByRole('button', { name: 'Add path' }).click()
+  await expect(launched.page.getByText('/tmp/sandbox-extra')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.filesystem.allowWrite')).toEqual([
+    ['/tmp/sandbox-extra'],
+  ])
+
+  // Reopen settings: the entries round-trip through config/get, proving the
+  // config/set calls persisted rather than only updating local state.
+  await launched.page.getByLabel('Close settings').click()
+  await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
+  await openSandboxSettings()
+  await expect(launched.page.getByText('internal.example.com')).toBeVisible()
+  await expect(launched.page.getByText('/tmp/sandbox-extra')).toBeVisible()
+
+  // Removal persists the emptied lists the same way.
+  await launched.page.getByLabel('Remove internal.example.com').click()
+  await expect(launched.page.getByText('internal.example.com')).toHaveCount(0)
+  await expect(launched.page.getByText('No extra domains configured.')).toBeVisible()
+  await expect.poll(() => configSetValues('sandbox.network.allowedDomains')).toEqual([
+    ['internal.example.com'],
+    [],
+  ])
+
+  await launched.page.getByLabel('Close settings').click()
+  await expect(launched.page.getByLabel('Close settings')).toHaveCount(0)
+  await openSandboxSettings()
+  await expect(launched.page.getByText('internal.example.com')).toHaveCount(0)
+  await expect(launched.page.getByText('/tmp/sandbox-extra')).toBeVisible()
 })
 
 test('ask-user notification opens modal and submits selected option', async ({}, testInfo) => {

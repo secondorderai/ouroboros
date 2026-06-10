@@ -4,9 +4,13 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { configSchema, type OuroborosConfig } from '@src/config'
+import { ok } from '@src/types'
+import { hasTierApprovalHandler, setTierApprovalHandler } from '@src/tier-approval'
 import { buildSandboxPolicy, safeRealpath, DEFAULT_ALLOWED_DOMAINS } from '@src/safety/policy'
 import {
   addSandboxWriteRoot,
+  buildSandboxBlockedMessage,
+  buildSandboxUnavailableMessage,
   classifySandboxFailure,
   consumeUnavailableWarning,
   getSandboxStatus,
@@ -313,6 +317,67 @@ describe('summarizeSandboxCommand', () => {
     expect(summary.length).toBe(200)
     expect(summary.endsWith('…')).toBe(true)
     expect(summary.startsWith('touch /denied/segment')).toBe(true)
+  })
+})
+
+describe('escalation guidance contract', () => {
+  // These strings are model-facing prompt text. The `[sandbox]` prefix, the
+  // `bypassSandbox: true` hint, and the desktop-app caveat in REPL mode are
+  // a stable contract — update these assertions only with intent.
+  afterEach(() => {
+    setTierApprovalHandler(null)
+  })
+
+  test('hasTierApprovalHandler reflects handler registration', () => {
+    expect(hasTierApprovalHandler()).toBe(false)
+    setTierApprovalHandler(async () => ok(undefined))
+    expect(hasTierApprovalHandler()).toBe(true)
+    setTierApprovalHandler(null)
+    expect(hasTierApprovalHandler()).toBe(false)
+  })
+
+  test('blocked message offers the approval retry when a handler is registered (desktop mode)', () => {
+    setTierApprovalHandler(async () => ok(undefined))
+
+    expect(buildSandboxBlockedMessage('"Operation not permitted" filesystem denial')).toBe(
+      '[sandbox] This command appears to have been blocked by the OS sandbox ' +
+        '("Operation not permitted" filesystem denial). ' +
+        'If this operation is legitimately needed, retry with bypassSandbox: true ' +
+        'to request human approval for an unsandboxed run.',
+    )
+  })
+
+  test('blocked message says approval requires the desktop app when no handler is registered (REPL mode)', () => {
+    expect(hasTierApprovalHandler()).toBe(false)
+
+    expect(buildSandboxBlockedMessage('"Operation not permitted" filesystem denial')).toBe(
+      '[sandbox] This command appears to have been blocked by the OS sandbox ' +
+        '("Operation not permitted" filesystem denial). ' +
+        'If this operation is legitimately needed, retry with bypassSandbox: true — ' +
+        'note that the required tier-4 human approval is only available in the desktop app, ' +
+        'so the retry will be denied in this session.',
+    )
+  })
+
+  test('both branches keep the stable [sandbox] prefix and bypassSandbox hint, with or without an indicator', () => {
+    for (const registerHandler of [false, true]) {
+      setTierApprovalHandler(registerHandler ? async () => ok(undefined) : null)
+      for (const indicator of [undefined, 'HTTPS CONNECT rejected by the sandbox proxy']) {
+        const message = buildSandboxBlockedMessage(indicator)
+        expect(message.startsWith('[sandbox] ')).toBe(true)
+        expect(message).toContain('bypassSandbox: true')
+        if (indicator) expect(message).toContain(`(${indicator})`)
+      }
+    }
+  })
+
+  test('unavailable message is the stable warn-once contract', () => {
+    expect(buildSandboxUnavailableMessage('ripgrep not found')).toBe(
+      '[sandbox] OS sandbox unavailable (ripgrep not found); commands run unsandboxed this session.',
+    )
+    expect(buildSandboxUnavailableMessage(undefined)).toBe(
+      '[sandbox] OS sandbox unavailable; commands run unsandboxed this session.',
+    )
   })
 })
 

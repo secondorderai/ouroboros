@@ -845,6 +845,34 @@ export interface OuroborosConfig {
   memory: { consolidationSchedule: 'session-end' | 'daily' | 'manual' }
   rsi: { noveltyThreshold: number; autoReflect: boolean }
   desktop: { defaultResponseFormat: AgentResponseFormat }
+  /**
+   * OS sandbox policy extensions (mirrors the CLI's `sandboxConfigSchema`).
+   * The built-in allowWrite/denyWrite/denyRead defaults — including the
+   * kernel-enforced deny on skills/, memory/, and .ouroboros — live in the
+   * CLI policy builder and are not part of this config surface.
+   */
+  sandbox?: SandboxUserConfig
+}
+
+export interface SandboxUserConfig {
+  /** Run tier-0/1 bash and code-exec children under the OS sandbox. */
+  enabled: boolean
+  network: {
+    /** Extra domains allowed through the sandbox network proxy. */
+    allowedDomains: string[]
+    /** Domains explicitly denied by the sandbox network proxy. */
+    deniedDomains: string[]
+    /** Allow sandboxed children to bind local ports (dev servers). */
+    allowLocalBinding: boolean
+  }
+  filesystem: {
+    /** Extra writable paths merged into the sandbox policy. */
+    allowWrite: string[]
+    /** Extra unreadable paths merged into the sandbox policy. */
+    denyRead: string[]
+    /** Extra write-denied paths (deny overrides allow). */
+    denyWrite: string[]
+  }
 }
 export interface ConfigSetApiKeyResult {
   ok: boolean

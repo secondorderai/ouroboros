@@ -112,6 +112,19 @@ const defaultConfig = {
   desktop: {
     defaultResponseFormat: 'html5',
   },
+  sandbox: {
+    enabled: true,
+    network: {
+      allowedDomains: [],
+      deniedDomains: [],
+      allowLocalBinding: true,
+    },
+    filesystem: {
+      allowWrite: [],
+      denyRead: [],
+      denyWrite: [],
+    },
+  },
 }
 
 const scenario = loadScenario()

@@ -20,6 +20,12 @@ skills use the Agent Skills `SKILL.md` format.
   `description`, Zod `schema`, and async `execute`. Tool execution returns
   `Result<T, Error>` and should not throw.
 - Memory has durable, checkpoint, working, transcript, and evolution-log state.
+- Tier-0/1 `bash` and `code-exec` children run under an OS sandbox by default
+  (Seatbelt on macOS, bubblewrap on Linux via `@anthropic-ai/sandbox-runtime`).
+  The facade and policy live in `packages/cli/src/safety/`; `denyWrite` on
+  `skills/`, `memory/`, and `.ouroboros` kernel-enforces the tier-3
+  self-modification gate. Sandbox-blocked commands escalate via
+  `bypassSandbox: true`, which resolves to tier 4 and requires human approval.
 - JSON-RPC mode (`--json-rpc`) is a long-running NDJSON server over stdio.
 - Desktop is a presentation layer. It spawns the CLI with `--json-rpc`; renderer
   calls typed preload APIs and must not access Node directly.
@@ -35,6 +41,10 @@ skills use the Agent Skills `SKILL.md` format.
 - Use Zod for runtime validation and composition over inheritance.
 - CLI self-modification requires human approval. Keep the 5-tier permission
   model intact.
+- Keep the OS sandbox enabled by default and never remove `skills/`,
+  `memory/`, or `.ouroboros` from the built-in `denyWrite` policy; sandbox
+  wrapping happens inside tool `execute()` after registry tier enforcement so
+  it adds no new approval prompts.
 - Desktop renderer: context isolation enabled, Node integration disabled, all
   IPC through typed preload APIs.
 - Desktop styling: use CSS variables from `packages/desktop/DESIGN.md`; avoid

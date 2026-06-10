@@ -645,6 +645,9 @@ describe('ToolRegistry', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.error.message).toContain('requires tier 2 approval')
+      // REPL-mode guidance: with no handler registered, the denial must tell
+      // the model that human approval is only available via the desktop app.
+      expect(result.error.message).toContain('Human approval requires the desktop app.')
     }
   })
 })
