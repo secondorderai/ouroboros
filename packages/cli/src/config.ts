@@ -326,7 +326,10 @@ export const DEFAULT_VERIFIER_CONFIG = {
   trigger: 'long-tasks' as const,
   minToolCalls: 5,
   maxRetries: 2,
-  standingCriteria: [] as string[],
+  standingCriteria: [
+    'Matching automated tests exist and pass for any behavior change.',
+    'No existing test was deleted, skipped, or weakened.',
+  ] as string[],
 }
 
 export const verifierConfigSchema = z.object({
@@ -359,7 +362,7 @@ export const verifierConfigSchema = z.object({
   standingCriteria: z
     .array(z.string())
     .default(DEFAULT_VERIFIER_CONFIG.standingCriteria)
-    .describe('Criteria appended verbatim to every done contract (used from Phase 2)'),
+    .describe('Criteria appended verbatim to every done contract (never sent for rewriting)'),
 })
 
 export type VerifierConfig = z.infer<typeof verifierConfigSchema>

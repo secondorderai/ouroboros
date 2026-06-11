@@ -15,3 +15,10 @@ export {
   type VerifierVerdict,
 } from './types'
 export { buildVerifierPrompt, verify, type VerifyInput } from './verify'
+export {
+  buildDoneContractPrompt,
+  doneContractSchema,
+  extractDoneContract,
+  type DoneContract,
+  type ExtractDoneContractInput,
+} from './contract'

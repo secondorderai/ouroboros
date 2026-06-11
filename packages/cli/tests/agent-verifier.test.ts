@@ -5,12 +5,18 @@
  * a non-streaming verifier model (`doGenerate`, sequenced responses) passed as
  * `AgentOptions.verifierModel`. Kept separate from agent.test.ts on purpose.
  */
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, afterEach } from 'bun:test'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Agent, type AgentEvent, type AgentOptions, type EnqueueSteerResult } from '@src/agent'
 import { ToolRegistry } from '@src/tools/registry'
 import { configSchema, type OuroborosConfig } from '@src/config'
+import { resolveCheckpointPath } from '@src/memory/paths'
+import { setTierApprovalHandler, type TierApprovalExtras } from '@src/tier-approval'
 import { z } from 'zod'
-import { ok } from '@src/types'
+import { ok, err } from '@src/types'
+import type { ToolTier } from '@src/tools/types'
 import type { ToolDefinition } from '@src/tools/types'
 import type { AgentDefinition } from '@src/types'
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider'
@@ -83,42 +89,79 @@ function textTurn(text: string): LanguageModelV3StreamPart[] {
 
 type VerifierResponse = string | Error | (() => Promise<string>)
 
-function createVerifierModel(responses: VerifierResponse[]): {
+/** Default done-contract extraction response (Phase 2: the gate extracts a contract first). */
+const DEFAULT_CONTRACT_JSON = JSON.stringify({
+  criteria: ['The requested task outcome is delivered.'],
+})
+
+/**
+ * Dual-purpose non-streaming mock. The completion gate makes two kinds of
+ * `doGenerate` calls against the verifier model: done-contract extraction
+ * (first gate hit of a run) and verification. They are told apart by the
+ * verify prompt's distinctive role line; `responses` sequences ONLY the
+ * verification calls so `callCount()`/`prompts` keep their Phase 1 meaning,
+ * while extraction is answered from `options.contract` (default: a one-item
+ * contract).
+ */
+function createVerifierModel(
+  responses: VerifierResponse[],
+  options?: { contract?: VerifierResponse },
+): {
   model: LanguageModel
   prompts: string[]
   callCount: () => number
+  contractPrompts: string[]
+  contractCallCount: () => number
 } {
   const prompts: string[] = []
+  const contractPrompts: string[] = []
+  const contractResponse = options?.contract ?? DEFAULT_CONTRACT_JSON
   let index = 0
   const model = {
     specificationVersion: 'v3',
     provider: 'mock',
     modelId: 'mock-verifier',
     supportedUrls: {},
-    doGenerate: async (options: {
+    doGenerate: async (callOptions: {
       prompt: Array<{ role: string; content: Array<{ type: string; text?: string }> }>
     }) => {
-      const userMessage = options.prompt.find((message) => message.role === 'user')
-      prompts.push(
-        userMessage?.content.map((part) => ('text' in part ? (part.text ?? '') : '')).join('') ??
-          '',
-      )
+      const userMessage = callOptions.prompt.find((message) => message.role === 'user')
+      const promptText =
+        userMessage?.content.map((part) => ('text' in part ? (part.text ?? '') : '')).join('') ?? ''
+
+      const respond = async (response: VerifierResponse) => {
+        if (response instanceof Error) throw response
+        const text = typeof response === 'function' ? await response() : response
+        return {
+          content: [{ type: 'text' as const, text }],
+          finishReason: { unified: 'stop' as const, raw: undefined },
+          usage: { inputTokens: 10, outputTokens: 20 },
+          warnings: [],
+        }
+      }
+
+      if (!promptText.includes('strict completion verifier')) {
+        // Done-contract extraction call.
+        contractPrompts.push(promptText)
+        return respond(contractResponse)
+      }
+
+      prompts.push(promptText)
       const response = responses[Math.min(index, responses.length - 1)]
       index++
-      if (response instanceof Error) throw response
-      const text = typeof response === 'function' ? await response() : response
-      return {
-        content: [{ type: 'text' as const, text }],
-        finishReason: { unified: 'stop' as const, raw: undefined },
-        usage: { inputTokens: 10, outputTokens: 20 },
-        warnings: [],
-      }
+      return respond(response)
     },
     doStream: async () => {
       throw new Error('Streaming not used by the verifier')
     },
   } as unknown as LanguageModel
-  return { model, prompts, callCount: () => prompts.length }
+  return {
+    model,
+    prompts,
+    callCount: () => prompts.length,
+    contractPrompts,
+    contractCallCount: () => contractPrompts.length,
+  }
 }
 
 /** Verifier model that fails the test if it is ever invoked. */
@@ -422,8 +465,11 @@ describe('completion gate — verdict handling', () => {
     expect(draftIndex).toBeGreaterThanOrEqual(0)
   })
 
-  test('retries exhausted: accepts with a warning', async () => {
+  test('retries exhausted with no approval handler: accepts with a warning', async () => {
     const events: AgentEvent[] = []
+    // No tier-approval handler is registered here, so this also covers the
+    // escalation "no handler" branch: exhaustion must accept with a warning
+    // instead of attempting (and failing) a tier-4 approval request.
     // Different criteria each time so oscillation detection does not kick in.
     const verifier = createVerifierModel([failJson(['criterion A']), failJson(['criterion B'])])
     const agent = makeAgent({
@@ -705,5 +751,342 @@ describe('completion gate — verdict handling', () => {
 
     expect(result.stopReason).toBe('max_steps')
     expect(result.maxIterationsReached).toBe(true)
+  })
+})
+
+describe('completion gate — done contract', () => {
+  test('contract is extracted exactly once per run, including across retries, and re-extracted per run', async () => {
+    const verifier = createVerifierModel([failJson(['criterion A']), PASS_JSON])
+    const agent = makeAgent({
+      actorTurns: [
+        // Run 1: tool call, failing draft, passing retry.
+        toolCallTurn(1),
+        textTurn('draft answer'),
+        textTurn('fixed answer'),
+        // Run 2: tool call, accepted answer (responses clamp to PASS_JSON).
+        toolCallTurn(1, 2),
+        textTurn('second answer'),
+      ],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' },
+    })
+
+    const first = await agent.run('do it')
+
+    expect(first.stopReason).toBe('completed')
+    expect(first.verification).toEqual({ verdict: 'pass', attempts: 2 })
+    // Two verification calls (fail, then pass) but a single extraction: the
+    // contract is cached for the retry instead of re-extracted.
+    expect(verifier.callCount()).toBe(2)
+    expect(verifier.contractCallCount()).toBe(1)
+
+    const second = await agent.run('next task')
+
+    expect(second.stopReason).toBe('completed')
+    // The per-run cache resets: a new run extracts a fresh contract.
+    expect(verifier.contractCallCount()).toBe(2)
+    expect(verifier.contractPrompts[1]).toContain('next task')
+    expect(verifier.contractPrompts[1]).not.toContain('do it')
+  })
+
+  test('extracted contract and standing criteria appear in the verifier prompt', async () => {
+    const verifier = createVerifierModel([PASS_JSON], {
+      contract: JSON.stringify({
+        criteria: ['Custom criterion one', 'Custom criterion two'],
+      }),
+    })
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('answer')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' }, // default standingCriteria apply
+    })
+
+    const result = await agent.run('build the widget')
+
+    expect(result.stopReason).toBe('completed')
+    // The extraction prompt carries the task but never the standing criteria
+    // (they are appended verbatim, not sent for rewriting).
+    expect(verifier.contractPrompts[0]).toContain('build the widget')
+    expect(verifier.contractPrompts[0]).not.toContain(
+      'No existing test was deleted, skipped, or weakened.',
+    )
+    // The verifier judges against the extracted criteria plus the standing
+    // criteria from config.
+    const prompt = verifier.prompts[0]
+    expect(prompt).toContain('## Done Criteria')
+    expect(prompt).toContain('Custom criterion one')
+    expect(prompt).toContain('Custom criterion two')
+    expect(prompt).toContain('Matching automated tests exist and pass for any behavior change.')
+    expect(prompt).toContain('No existing test was deleted, skipped, or weakened.')
+    expect(prompt).not.toContain('No explicit criteria were provided')
+  })
+
+  test('extraction failure degrades to criteria-free verification with a warning, without re-extracting', async () => {
+    const events: AgentEvent[] = []
+    const verifier = createVerifierModel([failJson(['criterion A']), PASS_JSON], {
+      contract: new Error('extractor down'),
+    })
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('draft answer'), textTurn('fixed answer')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' },
+      events,
+    })
+
+    const result = await agent.run('do it')
+
+    // The gate still ran to a verdict — extraction failure never bricks it.
+    expect(result.stopReason).toBe('completed')
+    expect(result.verification?.verdict).toBe('pass')
+    expect(result.verification?.warning).toContain('Done-contract extraction failed')
+    // The failed extraction is cached as "no criteria" — the retry must not
+    // trigger a second extraction attempt.
+    expect(verifier.contractCallCount()).toBe(1)
+    expect(verifier.callCount()).toBe(2)
+    // Both verification prompts fell back to deriving criteria from the task.
+    expect(verifier.prompts[0]).toContain('No explicit criteria were provided')
+    expect(verifier.prompts[1]).toContain('No explicit criteria were provided')
+  })
+
+  test('extraction-failure warning does not leak into a later run on the same agent', async () => {
+    // Run 1's extraction fails; run 2's succeeds. The stale warning must be
+    // reset at run entry or it would surface on run 2's clean verification.
+    let extractionCalls = 0
+    const verifier = createVerifierModel([PASS_JSON, PASS_JSON], {
+      contract: async () => {
+        extractionCalls++
+        if (extractionCalls === 1) throw new Error('extractor down')
+        return DEFAULT_CONTRACT_JSON
+      },
+    })
+    const agent = makeAgent({
+      actorTurns: [
+        toolCallTurn(1),
+        textTurn('first answer'),
+        toolCallTurn(1, 2),
+        textTurn('second answer'),
+      ],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' },
+    })
+
+    const first = await agent.run('first task')
+
+    expect(first.stopReason).toBe('completed')
+    expect(first.verification?.verdict).toBe('pass')
+    expect(first.verification?.warning).toContain('Done-contract extraction failed')
+
+    const second = await agent.run('second task')
+
+    expect(second.stopReason).toBe('completed')
+    expect(extractionCalls).toBe(2)
+    // A clean pass with a fresh contract: no stale warning from run 1.
+    expect(second.verification).toEqual({ verdict: 'pass', attempts: 1 })
+    expect(second.verification?.warning).toBeUndefined()
+  })
+
+  test('extracted done contract is persisted into the session checkpoint', async () => {
+    const tempDir = join(
+      tmpdir(),
+      `ouroboros-agent-verifier-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    )
+    mkdirSync(tempDir, { recursive: true })
+    try {
+      const sessionId = 'verifier-checkpoint-session'
+      const verifier = createVerifierModel([PASS_JSON], {
+        contract: JSON.stringify({ criteria: ['Custom checkpoint criterion'] }),
+      })
+      const agent = makeAgent({
+        actorTurns: [toolCallTurn(1), textTurn('answer')],
+        verifierModel: verifier.model,
+        verifier: { trigger: 'always' },
+        overrides: { memoryBasePath: tempDir, sessionId },
+      })
+
+      const result = await agent.run('persist my contract')
+
+      expect(result.stopReason).toBe('completed')
+      expect(verifier.contractCallCount()).toBe(1)
+
+      // shutdown() runs the same captureObservationsAndRefreshCheckpoint path
+      // that mid-run flush/compact uses; it must thread lastDoneContract into
+      // reflectCheckpoint so completion criteria survive compaction.
+      await agent.shutdown()
+
+      const checkpointPath = resolveCheckpointPath(sessionId, tempDir)
+      expect(existsSync(checkpointPath)).toBe(true)
+      const markdown = readFileSync(checkpointPath, 'utf-8')
+      expect(markdown).toContain('## Done Contract')
+      expect(markdown).toContain('Custom checkpoint criterion')
+      // Standing criteria ride along — they are part of the extracted contract.
+      expect(markdown).toContain('Matching automated tests exist and pass for any behavior change.')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('completion gate — tier-4 escalation', () => {
+  afterEach(() => {
+    // The tier-approval handler is module-global state — always reset.
+    setTierApprovalHandler(null)
+  })
+
+  test('retries exhausted: approval accepts the failing answer and the report reaches the handler', async () => {
+    const events: AgentEvent[] = []
+    const received: Array<{
+      toolName: string
+      toolTier: ToolTier
+      args: unknown
+      extras?: TierApprovalExtras
+    }> = []
+    setTierApprovalHandler(async (toolName, toolTier, args, extras) => {
+      received.push({ toolName, toolTier, args, extras })
+      return ok(undefined)
+    })
+
+    const verifier = createVerifierModel([failJson(['criterion A'])])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('the answer')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always', maxRetries: 0 },
+      events,
+    })
+
+    const result = await agent.run('do it')
+
+    expect(result.stopReason).toBe('completed')
+    expect(result.text).toBe('the answer')
+    expect(result.verification?.verdict).toBe('fail')
+    expect(result.verification?.attempts).toBe(1)
+    expect(result.verification?.warning).toContain('human reviewer approved')
+
+    // Exactly one escalation, addressed to the completion-override pseudo-tool
+    // at tier 4, carrying the task, an answer preview, and the verifier report.
+    expect(received).toHaveLength(1)
+    expect(received[0].toolName).toBe('verifier-completion-override')
+    expect(received[0].toolTier).toBe(4)
+    expect(received[0].args).toMatchObject({ task: 'do it', answerPreview: 'the answer' })
+    expect(received[0].extras?.verifierReport).toMatchObject({
+      verdict: 'fail',
+      attempt: 1,
+      toolCallCount: 1,
+    })
+    expect(typeof received[0].extras?.verifierReport?.checkedAt).toBe('string')
+
+    // The final verdict event reports the escalation.
+    const verdicts = events.filter((event) => event.type === 'verifier-verdict')
+    expect(verdicts).toHaveLength(1)
+    expect(verdicts[0]).toMatchObject({
+      verdict: 'fail',
+      attempt: 1,
+      willRetry: false,
+      escalated: true,
+    })
+  })
+
+  test('denial grants exactly one extra retry batch; second exhaustion accepts without re-prompting', async () => {
+    const events: AgentEvent[] = []
+    let handlerCalls = 0
+    setTierApprovalHandler(async () => {
+      handlerCalls++
+      return err(new Error('Reviewer says: docs missing'))
+    })
+
+    // Different criteria so the second batch is a fresh failure, not oscillation.
+    const verifier = createVerifierModel([failJson(['criterion A']), failJson(['criterion B'])])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('draft 1'), textTurn('draft 2')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always', maxRetries: 0 },
+      events,
+    })
+
+    const result = await agent.run('do it')
+
+    expect(result.stopReason).toBe('completed')
+    expect(result.text).toBe('draft 2')
+    // The second exhaustion accepted with a warning instead of re-prompting.
+    expect(handlerCalls).toBe(1)
+    expect(result.verification?.verdict).toBe('fail')
+    expect(result.verification?.warning).toContain('retries exhausted')
+
+    // The denial reason was injected into the retry feedback.
+    const feedback = agent
+      .getConversationHistory()
+      .find(
+        (message) =>
+          message.role === 'user' &&
+          typeof message.content === 'string' &&
+          message.content.includes('A human reviewer declined to accept the current answer'),
+      )
+    expect(feedback).toBeDefined()
+    expect(feedback && (feedback.content as string)).toContain('Reviewer says: docs missing')
+
+    // First verdict: escalated denial → retry. Second: fresh batch (attempt
+    // counter reset) exhausting again → plain accept, no escalation.
+    const verdicts = events.filter((event) => event.type === 'verifier-verdict')
+    expect(verdicts).toHaveLength(2)
+    expect(verdicts[0]).toMatchObject({ attempt: 1, willRetry: true, escalated: true })
+    expect(verdicts[1]).toMatchObject({ attempt: 1, willRetry: false, escalated: false })
+  })
+
+  test('escalation availability resets per run: a second run on the same agent can escalate again', async () => {
+    // Run 1 escalates and is approved, marking verifierEscalationUsed. Without
+    // the per-run reset at run() entry, run 2's exhaustion could never reach
+    // the handler and would degrade to a plain "retries exhausted" accept.
+    let handlerCalls = 0
+    setTierApprovalHandler(async () => {
+      handlerCalls++
+      return ok(undefined)
+    })
+
+    const verifier = createVerifierModel([failJson(['criterion A']), failJson(['criterion B'])])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('answer 1'), toolCallTurn(1, 2), textTurn('answer 2')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always', maxRetries: 0 },
+    })
+
+    const first = await agent.run('first task')
+
+    expect(first.stopReason).toBe('completed')
+    expect(handlerCalls).toBe(1)
+    expect(first.verification?.warning).toContain('human reviewer approved')
+
+    const second = await agent.run('second task')
+
+    expect(second.stopReason).toBe('completed')
+    expect(second.text).toBe('answer 2')
+    // The once-per-run guard reset: run 2's exhaustion escalates again.
+    expect(handlerCalls).toBe(2)
+    expect(second.verification?.verdict).toBe('fail')
+    expect(second.verification?.warning).toContain('human reviewer approved')
+    expect(second.verification?.warning).not.toContain('retries exhausted')
+  })
+
+  test('abort while waiting for the escalation approval returns cancelled', async () => {
+    const events: AgentEvent[] = []
+    const abort = new AbortController()
+    setTierApprovalHandler(() => {
+      // Simulate a human who never answers; the cancel must win the race.
+      abort.abort()
+      return new Promise(() => {})
+    })
+
+    const verifier = createVerifierModel([failJson(['criterion A'])])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('the answer')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always', maxRetries: 0 },
+      events,
+    })
+
+    const result = await agent.run('do it', { abortSignal: abort.signal })
+
+    expect(result.stopReason).toBe('cancelled')
+    expect(result.verification).toBeUndefined()
+    expect(events.find((event) => event.type === 'turn-aborted')).toBeDefined()
+    expect(events.find((event) => event.type === 'turn-complete')).toBeUndefined()
   })
 })

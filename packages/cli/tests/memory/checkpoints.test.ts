@@ -268,6 +268,117 @@ describe('Reflection checkpoints', () => {
     expect(checkpointResult.value.completedWork).toEqual(['Checkpoint rendering logic implemented'])
   })
 
+  test('done contract round-trips through render and parse', () => {
+    const sessionId = 'session-reflect-contract'
+    const checkpointResult = buildCheckpointFromObservations(
+      makeCheckpointObservations(sessionId),
+      { updatedAt: '2026-04-15T00:30:00.000Z' },
+    )
+    expect(checkpointResult.ok).toBe(true)
+    if (!checkpointResult.ok) return
+
+    const checkpoint = {
+      ...checkpointResult.value,
+      doneContract: ['Tests pass for the new module', 'No existing test was weakened'],
+    }
+
+    const markdownResult = renderCheckpointMarkdown(checkpoint)
+    expect(markdownResult.ok).toBe(true)
+    if (!markdownResult.ok) return
+    expect(markdownResult.value).toContain('## Done Contract')
+    expect(markdownResult.value).toContain('- Tests pass for the new module')
+    expect(markdownResult.value).toContain('- No existing test was weakened')
+
+    const parsedResult = parseCheckpointMarkdown(markdownResult.value)
+    expect(parsedResult.ok).toBe(true)
+    if (!parsedResult.ok) return
+    expect(parsedResult.value).toEqual(checkpoint)
+    expect(parsedResult.value.doneContract).toEqual([
+      'Tests pass for the new module',
+      'No existing test was weakened',
+    ])
+  })
+
+  test('legacy checkpoint markdown without a Done Contract section still parses', () => {
+    const sessionId = 'session-reflect-legacy'
+    const checkpointResult = buildCheckpointFromObservations(
+      makeCheckpointObservations(sessionId),
+      { updatedAt: '2026-04-15T00:30:00.000Z' },
+    )
+    expect(checkpointResult.ok).toBe(true)
+    if (!checkpointResult.ok) return
+
+    const markdownResult = renderCheckpointMarkdown(checkpointResult.value)
+    expect(markdownResult.ok).toBe(true)
+    if (!markdownResult.ok) return
+
+    // Reconstruct the pre-Phase-2 format by removing the Done Contract section
+    // entirely — files written before the section existed look exactly like this.
+    const legacyMarkdown = markdownResult.value.replace('## Done Contract\n_None_\n', '')
+    expect(legacyMarkdown).not.toContain('## Done Contract')
+
+    const parsedResult = parseCheckpointMarkdown(legacyMarkdown)
+    expect(parsedResult.ok).toBe(true)
+    if (!parsedResult.ok) return
+    expect(parsedResult.value.doneContract).toBeUndefined()
+    expect(parsedResult.value).toEqual(checkpointResult.value)
+  })
+
+  test('reflectCheckpoint persists the done contract option to disk', () => {
+    const sessionId = 'session-reflect-contract-disk'
+    const appendResult = appendObservationBatch(
+      sessionId,
+      makeCheckpointObservations(sessionId).map(({ sessionId: _sessionId, ...input }) => input),
+      tempDir,
+    )
+    expect(appendResult.ok).toBe(true)
+    if (!appendResult.ok) return
+
+    const reflectionResult = reflectCheckpoint(sessionId, {
+      updatedAt: '2026-04-15T01:00:00.000Z',
+      basePath: tempDir,
+      doneContract: ['Verifier passes the run', '  ', ''],
+    })
+    expect(reflectionResult.ok).toBe(true)
+    if (!reflectionResult.ok) return
+    // Blank criteria are dropped before persisting.
+    expect(reflectionResult.value.doneContract).toEqual(['Verifier passes the run'])
+
+    const parsedResult = parseCheckpointMarkdown(
+      readFileSync(resolveCheckpointPath(sessionId, tempDir), 'utf-8'),
+    )
+    expect(parsedResult.ok).toBe(true)
+    if (!parsedResult.ok) return
+    expect(parsedResult.value.doneContract).toEqual(['Verifier passes the run'])
+    expect(parsedResult.value).toEqual(reflectionResult.value)
+  })
+
+  test('reflectCheckpoint without a done contract writes a checkpoint that parses back without one', () => {
+    const sessionId = 'session-reflect-no-contract'
+    const appendResult = appendObservationBatch(
+      sessionId,
+      makeCheckpointObservations(sessionId).map(({ sessionId: _sessionId, ...input }) => input),
+      tempDir,
+    )
+    expect(appendResult.ok).toBe(true)
+    if (!appendResult.ok) return
+
+    const reflectionResult = reflectCheckpoint(sessionId, {
+      updatedAt: '2026-04-15T01:00:00.000Z',
+      basePath: tempDir,
+    })
+    expect(reflectionResult.ok).toBe(true)
+    if (!reflectionResult.ok) return
+    expect(reflectionResult.value.doneContract).toBeUndefined()
+
+    const parsedResult = parseCheckpointMarkdown(
+      readFileSync(resolveCheckpointPath(sessionId, tempDir), 'utf-8'),
+    )
+    expect(parsedResult.ok).toBe(true)
+    if (!parsedResult.ok) return
+    expect(parsedResult.value.doneContract).toBeUndefined()
+  })
+
   test('reflection can build a checkpoint from stored observations and write it to disk', () => {
     const sessionId = 'session-reflect-3'
     const appendResult = appendObservationBatch(

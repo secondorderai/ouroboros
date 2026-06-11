@@ -20,8 +20,9 @@ export interface VerifyInput {
   /** Steer texts the user injected mid-run, in arrival order. */
   steerTexts: string[]
   /**
-   * Numbered done criteria. Empty in Phase 1 — the prompt then instructs the
-   * verifier to derive the criteria from the task itself.
+   * Numbered done criteria from `extractDoneContract`. Empty when extraction
+   * failed (degraded gate) — the prompt then instructs the verifier to derive
+   * the criteria from the task itself.
    */
   doneCriteria: string[]
   /** Evidence ledger: the last ~60 tool results recorded during the run. */

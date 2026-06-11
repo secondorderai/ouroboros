@@ -21,12 +21,15 @@ import {
   type OuroborosConfig,
 } from '@src/config'
 import {
+  extractDoneContract,
   failureSignature,
   verify,
   type VerifierEvidenceItem,
   type VerifierFailure,
+  type VerifierReport,
   type VerifierVerdict,
 } from '@src/verifier'
+import { hasTierApprovalHandler, requestTierApproval } from '@src/tier-approval'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
 import { streamResponse } from '@src/llm/streaming'
 import {
@@ -463,9 +466,11 @@ function summarizeText(text: string, maxLength = 160): string {
 
 /**
  * Render a failing verifier verdict as the system-style feedback message
- * injected into the conversation before a retry batch.
+ * injected into the conversation before a retry batch. When a human reviewer
+ * denied the completion-override escalation, their denial reason is appended
+ * so the retry addresses it too.
  */
-function buildVerifierFeedback(verdict: VerifierVerdict): string {
+function buildVerifierFeedback(verdict: VerifierVerdict, denialReason?: string): string {
   const failureLines =
     verdict.failures.length > 0
       ? verdict.failures
@@ -478,12 +483,56 @@ function buildVerifierFeedback(verdict: VerifierVerdict): string {
           .join('\n')
       : '1. The verifier judged the task incomplete.'
   const reasonLine = verdict.reason ? `\nVerifier reasoning: ${verdict.reason}` : ''
+  const denialLine = denialReason
+    ? `\nA human reviewer declined to accept the current answer: ${denialReason}`
+    : ''
 
   return (
     '[System: A completion verifier reviewed your answer against the original task and found it incomplete. ' +
     'Do not repeat your previous answer. Address each unmet criterion below with tool-backed work, ' +
-    `then provide an updated final answer.\n${failureLines}${reasonLine}]`
+    `then provide an updated final answer.\n${failureLines}${reasonLine}${denialLine}]`
   )
+}
+
+/** Join warning fragments into a single `verification.warning` string. */
+function composeWarning(...parts: Array<string | null | undefined>): string | undefined {
+  const filtered = parts.filter((part): part is string => !!part && part.length > 0)
+  return filtered.length > 0 ? filtered.join(' ') : undefined
+}
+
+/**
+ * Race a promise against an abort signal. Used for the verifier escalation
+ * approval wait, which can hang on a human indefinitely — a cancel must win
+ * immediately. The losing promise is left to settle in the background.
+ */
+async function raceWithAbort<T>(
+  promise: Promise<T>,
+  abortSignal?: AbortSignal,
+): Promise<{ aborted: true } | { aborted: false; value: T }> {
+  if (!abortSignal) {
+    return { aborted: false, value: await promise }
+  }
+  if (abortSignal.aborted) {
+    return { aborted: true }
+  }
+
+  let onAbort: (() => void) | null = null
+  const abortPromise = new Promise<'aborted'>((resolve) => {
+    onAbort = () => resolve('aborted')
+    abortSignal.addEventListener('abort', onAbort, { once: true })
+  })
+
+  try {
+    const winner = await Promise.race([promise.then((value) => ({ value })), abortPromise])
+    if (winner === 'aborted') {
+      return { aborted: true }
+    }
+    return { aborted: false, value: winner.value }
+  } finally {
+    if (onAbort) {
+      abortSignal.removeEventListener('abort', onAbort)
+    }
+  }
 }
 
 function createUserContent(text: string, images?: LLMFilePart[]): LLMUserContent {
@@ -737,6 +786,25 @@ export class Agent {
   private verifierAttempt = 0
   /** Failure signature from the previous failing verdict (oscillation detection). */
   private lastVerifierFailureSignature: string | null = null
+  /**
+   * Done contract extracted lazily at the first gate hit and cached for the
+   * rest of the run (including retries). `null` means not yet extracted.
+   */
+  private currentRunDoneContract: string[] | null = null
+  /** Warning recorded when done-contract extraction failed (degraded gate). */
+  private currentRunDoneContractWarning: string | null = null
+  /**
+   * Whether the tier-4 completion-override escalation has been used this run.
+   * A denial grants exactly one extra retry batch; a second exhaustion accepts
+   * with a warning and never re-prompts.
+   */
+  private verifierEscalationUsed = false
+  /**
+   * Most recent successfully extracted done contract. Unlike the per-run
+   * cache this survives run() exit so checkpoint refreshes (which can happen
+   * between runs) keep persisting the criteria.
+   */
+  private lastDoneContract: string[] | null = null
 
   /** Steer messages typed by the user mid-run; drained at the top of each ReAct iteration. */
   private pendingSteer: PendingSteerInput[] = []
@@ -872,6 +940,9 @@ export class Agent {
     this.runEvidence = []
     this.verifierAttempt = 0
     this.lastVerifierFailureSignature = null
+    this.currentRunDoneContract = null
+    this.currentRunDoneContractWarning = null
+    this.verifierEscalationUsed = false
 
     // Append user message to conversation history
     this.conversationHistory.push({
@@ -1435,6 +1506,125 @@ export class Agent {
   }
 
   /**
+   * Resolve the done contract for the current run. Extraction is lazy — it
+   * happens at the first gate hit — and the result is cached for the rest of
+   * the run, including verifier retries. A failed extraction degrades to an
+   * empty contract (the verifier derives criteria from the task) plus a
+   * warning on the run result; it never bricks the gate.
+   */
+  private async resolveDoneContract(abortSignal?: AbortSignal): Promise<string[]> {
+    if (this.currentRunDoneContract !== null) {
+      return this.currentRunDoneContract
+    }
+
+    const contractResult = await extractDoneContract({
+      model: this.verifierModel ?? this.model,
+      task: this.currentRunTaskSnapshot,
+      steerTexts: this.currentRunSteerTexts,
+      standingCriteria: this.config.verifier.standingCriteria,
+      abortSignal,
+    })
+
+    if (contractResult.ok) {
+      this.currentRunDoneContract = contractResult.value
+      if (contractResult.value.length > 0) {
+        this.lastDoneContract = contractResult.value
+      }
+    } else {
+      this.currentRunDoneContract = []
+      this.currentRunDoneContractWarning = `Done-contract extraction failed (${contractResult.error.message}); the verifier derived criteria from the task.`
+    }
+
+    return this.currentRunDoneContract
+  }
+
+  /**
+   * Escalate an exhausted failing verdict to a tier-4 human approval
+   * (`verifier-completion-override`). Approval accepts the answer as-is;
+   * denial grants exactly one extra retry batch with the denial reason
+   * injected into the feedback. Used at most once per run.
+   */
+  private async escalateVerifierFailure(
+    verdict: VerifierVerdict,
+    attempt: number,
+    candidateAnswer: string,
+    abortSignal?: AbortSignal,
+  ): Promise<
+    | { action: 'accept'; verification: NonNullable<AgentRunResult['verification']> }
+    | { action: 'retry'; feedback: string }
+    | { action: 'aborted' }
+  > {
+    this.verifierEscalationUsed = true
+    const verifierReport: VerifierReport = {
+      verdict: 'fail',
+      attempt,
+      toolCallCount: this.runToolCallCount,
+      checkedAt: new Date().toISOString(),
+    }
+
+    // Race the approval promise against the abort signal so a cancel during
+    // the (potentially long) human wait returns 'cancelled' immediately.
+    const approval = await raceWithAbort(
+      requestTierApproval(
+        'verifier-completion-override',
+        4,
+        {
+          task: this.currentRunTaskSnapshot,
+          answerPreview: summarizeText(candidateAnswer, 400),
+        },
+        { verifierReport },
+      ),
+      abortSignal,
+    )
+
+    if (approval.aborted) {
+      return { action: 'aborted' }
+    }
+
+    if (approval.value.ok) {
+      this.emitEvent({
+        type: 'verifier-verdict',
+        verdict: 'fail',
+        failures: verdict.failures,
+        reason: verdict.reason,
+        attempt,
+        willRetry: false,
+        escalated: true,
+      })
+      return {
+        action: 'accept',
+        verification: {
+          verdict: 'fail',
+          attempts: attempt,
+          warning: composeWarning(
+            this.currentRunDoneContractWarning,
+            'Verifier found unmet criteria; a human reviewer approved completion.',
+          ),
+        },
+      }
+    }
+
+    // Denied — grant exactly one extra retry batch. The attempt counter and
+    // oscillation signature reset so the new batch is judged fresh; the
+    // escalationUsed flag guarantees a second exhaustion never re-prompts.
+    this.verifierAttempt = 0
+    this.lastVerifierFailureSignature = null
+    this.emitEvent({
+      type: 'verifier-verdict',
+      verdict: 'fail',
+      failures: verdict.failures,
+      reason: verdict.reason,
+      attempt,
+      willRetry: true,
+      escalated: true,
+    })
+    return {
+      action: 'retry',
+      feedback: buildVerifierFeedback(verdict, approval.value.error.message),
+    }
+  }
+
+  /**
    * Run the completion gate for a candidate final answer.
    *
    * Outcomes:
@@ -1469,13 +1659,17 @@ export class Agent {
         trigger,
       })
 
+      // Lazy contract extraction at the first gate hit, cached for retries.
+      const doneCriteria = await this.resolveDoneContract(abortSignal)
+      if (abortSignal?.aborted) {
+        return { action: 'aborted' }
+      }
+
       const verdictResult = await verify({
         model: this.verifierModel ?? this.model,
         task: this.currentRunTaskSnapshot,
         steerTexts: this.currentRunSteerTexts,
-        // Phase 1: no done-contract extraction yet — the verifier prompt
-        // falls back to deriving criteria from the task itself.
-        doneCriteria: [],
+        doneCriteria,
         evidence: this.runEvidence,
         toolCallCount: this.runToolCallCount,
         candidateAnswer,
@@ -1499,7 +1693,10 @@ export class Agent {
           verification: {
             verdict: 'unknown',
             attempts: attempt,
-            warning: `Verifier error — answer accepted unverified: ${verdictResult.error.message}`,
+            warning: composeWarning(
+              this.currentRunDoneContractWarning,
+              `Verifier error — answer accepted unverified: ${verdictResult.error.message}`,
+            ),
           },
         }
       }
@@ -1512,6 +1709,12 @@ export class Agent {
           signature === this.lastVerifierFailureSignature
         this.lastVerifierFailureSignature = signature
         const willRetry = attempt <= this.config.verifier.maxRetries && !oscillating
+
+        // Exhausted retry budget (or oscillation): escalate to a tier-4 human
+        // completion override, at most once per run.
+        if (!willRetry && !this.verifierEscalationUsed && hasTierApprovalHandler()) {
+          return this.escalateVerifierFailure(verdict, attempt, candidateAnswer, abortSignal)
+        }
 
         this.emitEvent({
           type: 'verifier-verdict',
@@ -1532,9 +1735,12 @@ export class Agent {
           verification: {
             verdict: 'fail',
             attempts: attempt,
-            warning: oscillating
-              ? 'Verifier reported identical failures on consecutive attempts; answer accepted with unmet criteria.'
-              : 'Verifier retries exhausted; answer accepted with unmet criteria.',
+            warning: composeWarning(
+              this.currentRunDoneContractWarning,
+              oscillating
+                ? 'Verifier reported identical failures on consecutive attempts; answer accepted with unmet criteria.'
+                : 'Verifier retries exhausted; answer accepted with unmet criteria.',
+            ),
           },
         }
       }
@@ -1549,14 +1755,18 @@ export class Agent {
         willRetry: false,
         escalated: false,
       })
+      const acceptWarning = composeWarning(
+        this.currentRunDoneContractWarning,
+        verdict.verdict === 'unknown'
+          ? 'Verifier could not determine completion; answer accepted unverified.'
+          : undefined,
+      )
       return {
         action: 'accept',
         verification: {
           verdict: verdict.verdict,
           attempts: attempt,
-          ...(verdict.verdict === 'unknown'
-            ? { warning: 'Verifier could not determine completion; answer accepted unverified.' }
-            : {}),
+          ...(acceptWarning ? { warning: acceptWarning } : {}),
         },
       }
     } catch (e) {
@@ -1830,7 +2040,10 @@ export class Agent {
     const unseenMessages = this.conversationHistory.slice(this.observedHistoryLength)
     if (unseenMessages.length === 0 && !partialAssistantText) {
       if (this.checkpointedHistoryLength !== this.conversationHistory.length) {
-        const refreshResult = reflectCheckpoint(this.sessionId, { basePath: this.memoryBasePath })
+        const refreshResult = reflectCheckpoint(this.sessionId, {
+          basePath: this.memoryBasePath,
+          ...(this.lastDoneContract ? { doneContract: this.lastDoneContract } : {}),
+        })
         if (!refreshResult.ok) {
           this.emitEvent({ type: 'error', error: refreshResult.error, recoverable: true })
           return false
@@ -1884,7 +2097,10 @@ export class Agent {
       }
     }
 
-    const reflectionResult = reflectCheckpoint(this.sessionId, { basePath: this.memoryBasePath })
+    const reflectionResult = reflectCheckpoint(this.sessionId, {
+      basePath: this.memoryBasePath,
+      ...(this.lastDoneContract ? { doneContract: this.lastDoneContract } : {}),
+    })
     if (!reflectionResult.ok) {
       this.emitEvent({ type: 'error', error: reflectionResult.error, recoverable: true })
       return false

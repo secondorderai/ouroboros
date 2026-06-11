@@ -305,6 +305,18 @@ export interface WorkerDiffDisplayDetails {
   denialReason?: string
 }
 
+/**
+ * Final completion-gate verifier report attached to approvals that were
+ * triggered by (or are relevant to) a verifier outcome — e.g. the
+ * `verifier-completion-override` escalation when retries are exhausted.
+ */
+export interface VerifierReportDisplayDetails {
+  verdict: 'pass' | 'fail' | 'unknown'
+  attempt: number
+  toolCallCount: number
+  checkedAt: string
+}
+
 export interface TierApprovalDisplayDetails {
   approvalId: string
   toolName: string
@@ -312,6 +324,7 @@ export interface TierApprovalDisplayDetails {
   toolArgs: unknown
   tierLabel: string
   createdAt: string
+  verifierReport?: VerifierReportDisplayDetails
 }
 
 export interface SubagentRun {

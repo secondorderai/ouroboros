@@ -442,6 +442,110 @@ describe('json-rpc transport', () => {
     }
   }, 20_000)
 
+  test('verifier escalation enriches approval/request with the verifier report over NDJSON', async () => {
+    await client.close()
+
+    // Non-streaming responses, in call order: done-contract extraction, then
+    // a failing verdict. With maxRetries 0 the first fail exhausts the retry
+    // budget and escalates to a tier-4 completion-override approval.
+    const contractJson = JSON.stringify({ criteria: ['The config file was read.'] })
+    const failVerdictJson = JSON.stringify({
+      verdict: 'fail',
+      failures: [
+        {
+          criterion: 'The config file was read.',
+          evidence: 'No evidence of a successful read.',
+          suggestion: 'Read the file.',
+        },
+      ],
+      reason: 'Incomplete.',
+    })
+    const verifierConfigDir = mkdtempSync(join(tmpdir(), 'ouroboros-transport-verifier-'))
+    const configPath = join(verifierConfigDir, '.ouroboros')
+    const mockServer = createMockOpenAICompatibleServer(
+      [
+        [{ toolCallId: 'read_1', toolName: 'file-read', args: { path: configPath } }],
+        [{ text: 'I read the config file.' }],
+      ],
+      [contractJson, failVerdictJson],
+    )
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        model: {
+          provider: 'openai-compatible',
+          name: 'mock-chat',
+          baseUrl: `http://127.0.0.1:${mockServer.port}/v1`,
+          apiMode: 'chat',
+          apiKey: 'test-key',
+        },
+        permissions: { tier0: true, tier1: true, tier2: true, tier3: true, tier4: false },
+        verifier: { trigger: 'always', minToolCalls: 1, maxRetries: 0 },
+      }),
+    )
+
+    const verifierClient = new RpcClient(verifierConfigDir)
+    try {
+      await waitForReady(verifierClient)
+      const runPromise = verifierClient.sendRequest(12, 'agent/run', {
+        message: 'Read the config file.',
+        maxSteps: 4,
+      })
+
+      // The run blocks on the human approval — find the enriched notification.
+      let approval: Record<string, unknown> | undefined
+      for (let i = 0; i < 100 && !approval; i++) {
+        approval = verifierClient.unsolicited.find(
+          (message) =>
+            message.method === 'approval/request' &&
+            (message.params as { type?: string } | undefined)?.type === 'tier-operation',
+        )
+        if (!approval) await sleep(100)
+      }
+      expect(approval).toBeDefined()
+      const params = approval!.params as {
+        id: string
+        risk: string
+        tier: {
+          toolName: string
+          toolTier: number
+          verifierReport?: Record<string, unknown>
+        }
+      }
+      expect(params.tier.toolName).toBe('verifier-completion-override')
+      expect(params.tier.toolTier).toBe(4)
+      // The verifier report rides along in the tier details.
+      expect(params.tier.verifierReport).toMatchObject({
+        verdict: 'fail',
+        attempt: 1,
+        toolCallCount: 1,
+      })
+      expect(typeof params.tier.verifierReport?.checkedAt).toBe('string')
+
+      // Approving unblocks the run: the answer is accepted as-is.
+      const respond = await verifierClient.sendRequest(13, 'approval/respond', {
+        id: params.id,
+        approved: true,
+      })
+      expect(respond.error).toBeUndefined()
+
+      const runResp = await runPromise
+      expect(runResp.error).toBeUndefined()
+
+      const verdict = verifierClient.unsolicited.find(
+        (message) => message.method === 'agent/verifierVerdict',
+      )
+      expect(verdict).toBeDefined()
+      expect(verdict?.params).toMatchObject({ verdict: 'fail', escalated: true, willRetry: false })
+    } finally {
+      await verifierClient.close()
+      mockServer.stop()
+      rmSync(verifierConfigDir, { recursive: true, force: true })
+      client = new RpcClient(configDir)
+      await waitForReady(client)
+    }
+  }, 30_000)
+
   afterAll(async () => {
     if (client) await client.close()
   })
@@ -472,14 +576,46 @@ type MockChatTurn =
   | { toolCallId: string; toolName: string; args: Record<string, unknown> }
   | { errorStatus: number; errorMessage: string }
 
-function createMockOpenAICompatibleServer(turns: MockChatTurn[][]): {
+function createMockOpenAICompatibleServer(
+  turns: MockChatTurn[][],
+  /**
+   * Scripted plain-text bodies for NON-streaming chat completions, consumed in
+   * order (clamped to the last entry). The verifier's done-contract extraction
+   * and verification passes use non-streaming `doGenerate` calls, while the
+   * actor streams — the `stream` flag in the request body tells them apart.
+   */
+  jsonResponses: string[] = [],
+): {
   port: number
   stop: () => void
 } {
   let requestCount = 0
+  let jsonResponseCount = 0
   const server = Bun.serve({
     port: 0,
-    fetch() {
+    async fetch(req) {
+      const body = (await req.json().catch(() => ({}))) as { stream?: boolean }
+      if (body.stream !== true) {
+        const text =
+          jsonResponses[Math.min(jsonResponseCount, jsonResponses.length - 1)] ??
+          '[No scripted non-streaming turn]'
+        jsonResponseCount++
+        return Response.json({
+          id: crypto.randomUUID(),
+          object: 'chat.completion',
+          created: 0,
+          model: 'mock-chat',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: text },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })
+      }
+
       const turn = turns[requestCount++] ?? [{ text: '[No scripted turn]' }]
       const error = turn.find(
         (part): part is Extract<MockChatTurn, { errorStatus: number }> => 'errorStatus' in part,

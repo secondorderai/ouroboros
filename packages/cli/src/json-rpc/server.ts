@@ -330,7 +330,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     })
   })
 
-  setTierApprovalHandler(async (toolName: string, toolTier: number, toolArgs: unknown) => {
+  setTierApprovalHandler(async (toolName, toolTier, toolArgs, extras) => {
     const approvalId = `tier-approval-${crypto.randomUUID()}`
     const createdAt = new Date().toISOString()
     const tierLabel = tierApprovalLabel(toolTier)
@@ -342,6 +342,10 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       toolArgs,
       tierLabel,
       createdAt,
+      // The verifier report rides along in the details so both the
+      // `approval/request` notification (`tier: details`) and `approval/list`
+      // surface it to the desktop.
+      ...(extras?.verifierReport ? { verifierReport: extras.verifierReport } : {}),
     }
 
     writeMessage(

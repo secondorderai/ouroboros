@@ -233,7 +233,12 @@ describe('loadConfig', () => {
     expect(result.value.verifier.trigger).toBe('long-tasks')
     expect(result.value.verifier.minToolCalls).toBe(5)
     expect(result.value.verifier.maxRetries).toBe(2)
-    expect(result.value.verifier.standingCriteria).toEqual([])
+    // Standing criteria default to the testing-policy contract lines, appended
+    // verbatim to every extracted done contract.
+    expect(result.value.verifier.standingCriteria).toEqual([
+      'Matching automated tests exist and pass for any behavior change.',
+      'No existing test was deleted, skipped, or weakened.',
+    ])
     expect(result.value.verifier.model).toBeUndefined()
   })
 
