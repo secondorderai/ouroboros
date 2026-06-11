@@ -1564,6 +1564,40 @@ export interface SandboxUnavailableNotification extends AgentRunSessionScoped {
   platform: string
 }
 
+// ── Completion-gate verifier notifications ─────────────────────────
+
+export type VerifierVerdictValue = 'pass' | 'fail' | 'unknown'
+
+/** A single unmet criterion reported by the completion-gate verifier. */
+export interface VerifierFailureDisplayDetails {
+  criterion: string
+  evidence: string
+  suggestion: string
+}
+
+/** The completion-gate verifier started judging a candidate answer. */
+export interface AgentVerifierStartedNotification extends AgentRunSessionScoped {
+  attempt: number
+  toolCallCount: number
+  trigger: 'always' | 'long-tasks'
+}
+
+/** The verifier produced a verdict for the current attempt. */
+export interface AgentVerifierVerdictNotification extends AgentRunSessionScoped {
+  verdict: VerifierVerdictValue
+  failures: VerifierFailureDisplayDetails[]
+  reason: string
+  attempt: number
+  willRetry: boolean
+  escalated: boolean
+}
+
+/** The verifier call failed; the answer was accepted unverified. */
+export interface AgentVerifierErrorNotification extends AgentRunSessionScoped {
+  message: string
+  attempt: number
+}
+
 export interface NotificationMap {
   'agent/contextUsage': AgentContextUsageNotification
   'agent/text': AgentTextNotification
@@ -1601,6 +1635,9 @@ export interface NotificationMap {
   'mcp/serverError': McpServerErrorNotification
   'sandbox/violation': SandboxViolationNotification
   'sandbox/unavailable': SandboxUnavailableNotification
+  'agent/verifierStarted': AgentVerifierStartedNotification
+  'agent/verifierVerdict': AgentVerifierVerdictNotification
+  'agent/verifierError': AgentVerifierErrorNotification
 }
 
 export type NotificationMethod = keyof NotificationMap
@@ -1648,6 +1685,9 @@ export const NOTIFICATION_METHOD_NAMES = [
   'mcp/serverError',
   'sandbox/violation',
   'sandbox/unavailable',
+  'agent/verifierStarted',
+  'agent/verifierVerdict',
+  'agent/verifierError',
 ] as const satisfies readonly NotificationMethod[]
 
 /** Compile-time check that `NOTIFICATION_METHOD_NAMES` covers every key of `NotificationMap`. */

@@ -3886,6 +3886,111 @@ description: A disabled skill
       expect(notif.params.platform).toBe('linux')
     })
 
+    test('verifier-started event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'verifier-started',
+            attempt: 1,
+            toolCallCount: 7,
+            trigger: 'long-tasks',
+          },
+          'session-vrf',
+        )
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: { sessionId: string; attempt: number; toolCallCount: number; trigger: string }
+      }
+      expect(notif.method).toBe('agent/verifierStarted')
+      expect(notif.params.sessionId).toBe('session-vrf')
+      expect(notif.params.attempt).toBe(1)
+      expect(notif.params.toolCallCount).toBe(7)
+      expect(notif.params.trigger).toBe('long-tasks')
+    })
+
+    test('verifier-verdict event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'verifier-verdict',
+            verdict: 'fail',
+            failures: [
+              {
+                criterion: 'Tests pass',
+                evidence: 'no test run recorded',
+                suggestion: 'run bun test',
+              },
+            ],
+            reason: 'Unmet criteria remain.',
+            attempt: 2,
+            willRetry: true,
+            escalated: false,
+          },
+          'session-vrf',
+        )
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: {
+          sessionId: string
+          verdict: string
+          failures: Array<{ criterion: string; evidence: string; suggestion: string }>
+          reason: string
+          attempt: number
+          willRetry: boolean
+          escalated: boolean
+        }
+      }
+      expect(notif.method).toBe('agent/verifierVerdict')
+      expect(notif.params.sessionId).toBe('session-vrf')
+      expect(notif.params.verdict).toBe('fail')
+      expect(notif.params.failures).toEqual([
+        {
+          criterion: 'Tests pass',
+          evidence: 'no test run recorded',
+          suggestion: 'run bun test',
+        },
+      ])
+      expect(notif.params.reason).toBe('Unmet criteria remain.')
+      expect(notif.params.attempt).toBe(2)
+      expect(notif.params.willRetry).toBe(true)
+      expect(notif.params.escalated).toBe(false)
+    })
+
+    test('verifier-error event is bridged correctly', async () => {
+      const output = await captureStdout(async () => {
+        bridgeAgentEvent(
+          {
+            type: 'verifier-error',
+            message: 'verifier call failed',
+            attempt: 1,
+          },
+          'session-vrf',
+        )
+      })
+
+      const messages = parseNdjson(output)
+      expect(messages).toHaveLength(1)
+
+      const notif = messages[0] as {
+        method: string
+        params: { sessionId: string; message: string; attempt: number }
+      }
+      expect(notif.method).toBe('agent/verifierError')
+      expect(notif.params.sessionId).toBe('session-vrf')
+      expect(notif.params.message).toBe('verifier call failed')
+      expect(notif.params.attempt).toBe(1)
+    })
+
     test('subagent lifecycle events are bridged correctly', async () => {
       const output = await captureStdout(async () => {
         bridgeAgentEvent({

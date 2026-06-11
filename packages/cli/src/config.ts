@@ -318,6 +318,52 @@ export const sandboxConfigSchema = z.object({
 
 export type SandboxConfig = z.infer<typeof sandboxConfigSchema>
 
+// ---------------------------------------------------------------------------
+// Verifier — completion gate for the ReAct loop
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_VERIFIER_CONFIG = {
+  trigger: 'long-tasks' as const,
+  minToolCalls: 5,
+  maxRetries: 2,
+  standingCriteria: [] as string[],
+}
+
+export const verifierConfigSchema = z.object({
+  trigger: z
+    .enum(['always', 'long-tasks', 'off'])
+    .default('long-tasks')
+    .describe(
+      'When the completion-gate verifier runs: on every completed run, on long runs only (by tool-call count), or never',
+    ),
+  minToolCalls: z
+    .number()
+    .int()
+    .min(1)
+    .default(DEFAULT_VERIFIER_CONFIG.minToolCalls)
+    .describe('Minimum tool calls in a run before "long-tasks" gating applies'),
+  maxRetries: z
+    .number()
+    .int()
+    .min(0)
+    .default(DEFAULT_VERIFIER_CONFIG.maxRetries)
+    .describe('Maximum verifier-driven retry batches before accepting the answer with a warning'),
+  model: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Verifier model override. Not yet provider-resolved — reserved for a future phase; ' +
+        'AgentOptions.verifierModel is the current runtime seam.',
+    ),
+  standingCriteria: z
+    .array(z.string())
+    .default(DEFAULT_VERIFIER_CONFIG.standingCriteria)
+    .describe('Criteria appended verbatim to every done contract (used from Phase 2)'),
+})
+
+export type VerifierConfig = z.infer<typeof verifierConfigSchema>
+
 const postgresConnectionSchema = z.object({
   id: z
     .string()
@@ -571,6 +617,8 @@ export const configSchema = z.object({
   mcp: mcpConfigSchema.default({ servers: [] }),
 
   sandbox: sandboxConfigSchema.default(DEFAULT_SANDBOX_CONFIG),
+
+  verifier: verifierConfigSchema.default(DEFAULT_VERIFIER_CONFIG),
 })
 
 export type OuroborosConfig = z.infer<typeof configSchema>

@@ -15,10 +15,18 @@ import {
   DEFAULT_ANALYTICS_CONFIG,
   DEFAULT_ARTIFACTS_CONFIG,
   DEFAULT_SANDBOX_CONFIG,
+  DEFAULT_VERIFIER_CONFIG,
   loadConfig,
   type ContextWindowSource,
   type OuroborosConfig,
 } from '@src/config'
+import {
+  failureSignature,
+  verify,
+  type VerifierEvidenceItem,
+  type VerifierFailure,
+  type VerifierVerdict,
+} from '@src/verifier'
 import { buildSystemPrompt, type BuildSystemPromptOptions } from '@src/llm/prompt'
 import { streamResponse } from '@src/llm/streaming'
 import {
@@ -202,6 +210,29 @@ export type AgentEvent =
       reason: string
       platform: NodeJS.Platform
     }
+  | {
+      /** The completion-gate verifier started judging a candidate answer. */
+      type: 'verifier-started'
+      attempt: number
+      toolCallCount: number
+      trigger: 'always' | 'long-tasks'
+    }
+  | {
+      /** The verifier produced a verdict for the current attempt. */
+      type: 'verifier-verdict'
+      verdict: 'pass' | 'fail' | 'unknown'
+      failures: VerifierFailure[]
+      reason: string
+      attempt: number
+      willRetry: boolean
+      escalated: boolean
+    }
+  | {
+      /** The verifier call failed; the answer is accepted unverified. */
+      type: 'verifier-error'
+      message: string
+      attempt: number
+    }
   | RSIEvent
 
 /** Callback function for agent events. */
@@ -212,6 +243,12 @@ export type AgentEventHandler = (event: AgentEvent) => void
 export interface AgentOptions {
   /** LLM model instance (from createProvider) */
   model: LanguageModel
+  /**
+   * Optional model used by the completion-gate verifier. Defaults to the
+   * actor model. Primarily a test seam until `verifier.model` config is
+   * provider-resolved.
+   */
+  verifierModel?: LanguageModel
   /** Tool registry with discovered tools */
   toolRegistry: ToolRegistry
   /** Maximum autonomous steps before stopping. */
@@ -268,6 +305,16 @@ export interface AgentRunResult {
   stopReason: AgentStopReason
   /** Whether the max step limit was hit */
   maxIterationsReached: boolean
+  /**
+   * Completion-gate verifier outcome. Present only when the run was gated;
+   * `warning` is set when the answer was accepted without a clean pass
+   * (verifier error, unknown verdict, retries exhausted, or oscillation).
+   */
+  verification?: {
+    verdict: 'pass' | 'fail' | 'unknown'
+    attempts: number
+    warning?: string
+  }
 }
 
 export type AgentRunProfile = 'interactive' | 'desktop' | 'singleShot' | 'automation'
@@ -412,6 +459,31 @@ function summarizeText(text: string, maxLength = 160): string {
   }
 
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+/**
+ * Render a failing verifier verdict as the system-style feedback message
+ * injected into the conversation before a retry batch.
+ */
+function buildVerifierFeedback(verdict: VerifierVerdict): string {
+  const failureLines =
+    verdict.failures.length > 0
+      ? verdict.failures
+          .map((failure, index) => {
+            const lines = [`${index + 1}. ${failure.criterion || 'Unmet completion criterion'}`]
+            if (failure.evidence) lines.push(`   Evidence: ${failure.evidence}`)
+            if (failure.suggestion) lines.push(`   Suggestion: ${failure.suggestion}`)
+            return lines.join('\n')
+          })
+          .join('\n')
+      : '1. The verifier judged the task incomplete.'
+  const reasonLine = verdict.reason ? `\nVerifier reasoning: ${verdict.reason}` : ''
+
+  return (
+    '[System: A completion verifier reviewed your answer against the original task and found it incomplete. ' +
+    'Do not repeat your previous answer. Address each unmet criterion below with tool-backed work, ' +
+    `then provide an updated final answer.\n${failureLines}${reasonLine}]`
+  )
 }
 
 function createUserContent(text: string, images?: LLMFilePart[]): LLMUserContent {
@@ -612,7 +684,11 @@ export function estimateContextUsage(options: {
 // ── Agent class ──────────────────────────────────────────────────────
 
 export class Agent {
+  /** Cap for the verifier evidence ledger; older entries are elided. */
+  private static readonly VERIFIER_EVIDENCE_CAP = 60
+
   private model: LanguageModel
+  private verifierModel: LanguageModel | null
   private toolRegistry: ToolRegistry
   private maxStepsOverride: number | undefined
   private onEvent: AgentEventHandler
@@ -644,6 +720,24 @@ export class Agent {
   /** History length at which the checkpoint was last refreshed by the context manager. */
   private checkpointedHistoryLength = 0
 
+  // ── Per-run verifier state (reset at run() entry) ──────────────────
+  // The task snapshot and evidence ledger are kept as run-scoped locals
+  // instead of being derived from conversationHistory, which can be
+  // compacted mid-run.
+
+  /** Verbatim task snapshot from the run-start user message. */
+  private currentRunTaskSnapshot = ''
+  /** Steer texts injected mid-run, in arrival order (appended in drainPendingSteers). */
+  private currentRunSteerTexts: string[] = []
+  /** Number of tool calls executed during the current run. */
+  private runToolCallCount = 0
+  /** Evidence ledger for the verifier: the last ~60 tool results. */
+  private runEvidence: VerifierEvidenceItem[] = []
+  /** Verifier attempts consumed during the current run. */
+  private verifierAttempt = 0
+  /** Failure signature from the previous failing verdict (oscillation detection). */
+  private lastVerifierFailureSignature: string | null = null
+
   /** Steer messages typed by the user mid-run; drained at the top of each ReAct iteration. */
   private pendingSteer: PendingSteerInput[] = []
   /** Idempotency set so repeated `enqueueSteer` calls with the same id are no-ops. */
@@ -653,6 +747,7 @@ export class Agent {
 
   constructor(options: AgentOptions) {
     this.model = options.model
+    this.verifierModel = options.verifierModel ?? null
     this.toolRegistry = options.toolRegistry
     this.maxStepsOverride = options.maxSteps ?? options.maxIterations
     this.onEvent = options.onEvent ?? (() => {})
@@ -726,6 +821,7 @@ export class Agent {
               analytics: DEFAULT_ANALYTICS_CONFIG,
               mcp: { servers: [] },
               sandbox: DEFAULT_SANDBOX_CONFIG,
+              verifier: DEFAULT_VERIFIER_CONFIG,
             } satisfies OuroborosConfig)
       })()
     this.rsiOrchestrator = options.rsiOrchestrator ?? null
@@ -766,6 +862,16 @@ export class Agent {
     if (options.activatedSkill) {
       this.activeSkills.add(options.activatedSkill.name)
     }
+
+    // Reset per-run verifier state. The task snapshot is captured verbatim at
+    // run start so the completion gate stays immune to mid-run history
+    // compaction; the evidence ledger fills as tool results are recorded.
+    this.currentRunTaskSnapshot = userMessage
+    this.currentRunSteerTexts = []
+    this.runToolCallCount = 0
+    this.runEvidence = []
+    this.verifierAttempt = 0
+    this.lastVerifierFailureSignature = null
 
     // Append user message to conversation history
     this.conversationHistory.push({
@@ -995,6 +1101,41 @@ export class Agent {
           })
         }
 
+        // Completion gate: a fresh-context verifier pass judges the candidate
+        // answer against the task and tool-call evidence before the loop
+        // returns. Max-steps exits are intentionally NOT gated — that path is
+        // an incomplete handoff by definition. The gate never throws.
+        const gate = await this.runCompletionGate(assistantText, options.abortSignal)
+
+        if (gate.action === 'aborted') {
+          // Cancellation fired while the verifier was in flight — mirror the
+          // top-of-loop cancel handling.
+          this.emitEvent({
+            type: 'turn-aborted',
+            iterations,
+            partialText: assistantText,
+          })
+          this.flushPendingSteersAsOrphans('cancelled')
+          return {
+            text: assistantText,
+            iterations,
+            stopReason: 'cancelled',
+            maxIterationsReached: false,
+          }
+        }
+
+        if (gate.action === 'retry') {
+          // The candidate answer stays in history as the assistant turn; the
+          // verifier's numbered failures are injected as a user-role feedback
+          // message and the loop continues. Retries intentionally consume the
+          // maxSteps budget.
+          this.conversationHistory.push({
+            role: 'user',
+            content: gate.feedback,
+          })
+          continue
+        }
+
         finalText = assistantText
         this.emitContextUsage(this.appendAssistantTextToUsage(context.usage, assistantText))
 
@@ -1021,6 +1162,7 @@ export class Agent {
           iterations,
           stopReason: 'completed',
           maxIterationsReached: false,
+          ...(gate.verification ? { verification: gate.verification } : {}),
         }
       }
 
@@ -1099,6 +1241,8 @@ export class Agent {
     if (this.pendingSteer.length === 0) return
     const drained = this.pendingSteer.splice(0)
     for (const steer of drained) {
+      // Steers refine the task, so the verifier judges against them too.
+      this.currentRunSteerTexts.push(steer.text)
       this.conversationHistory.push({
         role: 'user',
         content: createUserContent(steer.text, steer.images),
@@ -1251,6 +1395,182 @@ export class Agent {
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e))
       this.emitEvent({ type: 'rsi-error', stage: 'post-task', error })
+    }
+  }
+
+  /**
+   * Record one tool result into the per-run evidence ledger consumed by the
+   * completion-gate verifier. The ledger is capped; the total tool-call count
+   * keeps growing so the verifier prompt can note how many entries were
+   * elided. Deliberately independent of `conversationHistory`, which can be
+   * compacted mid-run.
+   */
+  private recordVerifierEvidence(toolName: string, isError: boolean, result: unknown): void {
+    this.runToolCallCount++
+    this.runEvidence.push({
+      toolName,
+      isError,
+      summary: summarizeText(serializeUnknown(result), 400),
+    })
+    if (this.runEvidence.length > Agent.VERIFIER_EVIDENCE_CAP) {
+      this.runEvidence.splice(0, this.runEvidence.length - Agent.VERIFIER_EVIDENCE_CAP)
+    }
+  }
+
+  /**
+   * Decide whether the completion gate should run, returning the active
+   * trigger or `false`. Never gates: trigger "off", subagent runs (the
+   * primary agent already reviews their results), zero-tool runs, and
+   * long-tasks runs under the tool-call threshold.
+   */
+  private shouldVerifyCompletion(toolCallCount: number): 'always' | 'long-tasks' | false {
+    const verifierConfig = this.config.verifier
+    if (verifierConfig.trigger === 'off') return false
+    if (this.agentDefinition?.mode === 'subagent') return false
+    if (toolCallCount === 0) return false
+    if (verifierConfig.trigger === 'long-tasks' && toolCallCount < verifierConfig.minToolCalls) {
+      return false
+    }
+    return verifierConfig.trigger
+  }
+
+  /**
+   * Run the completion gate for a candidate final answer.
+   *
+   * Outcomes:
+   * - `accept` — return the answer (with optional verification metadata).
+   * - `retry`  — inject verifier feedback and continue the ReAct loop.
+   * - `aborted` — cancellation fired during verification.
+   *
+   * The whole gate is wrapped so no verifier failure can ever brick the loop
+   * (mirrors the RSI post-task swallow): any error degrades to an
+   * unknown-verdict accept with a warning.
+   */
+  private async runCompletionGate(
+    candidateAnswer: string,
+    abortSignal?: AbortSignal,
+  ): Promise<
+    | { action: 'accept'; verification?: NonNullable<AgentRunResult['verification']> }
+    | { action: 'retry'; feedback: string }
+    | { action: 'aborted' }
+  > {
+    try {
+      const trigger = this.shouldVerifyCompletion(this.runToolCallCount)
+      if (!trigger) {
+        return { action: 'accept' }
+      }
+
+      this.verifierAttempt++
+      const attempt = this.verifierAttempt
+      this.emitEvent({
+        type: 'verifier-started',
+        attempt,
+        toolCallCount: this.runToolCallCount,
+        trigger,
+      })
+
+      const verdictResult = await verify({
+        model: this.verifierModel ?? this.model,
+        task: this.currentRunTaskSnapshot,
+        steerTexts: this.currentRunSteerTexts,
+        // Phase 1: no done-contract extraction yet — the verifier prompt
+        // falls back to deriving criteria from the task itself.
+        doneCriteria: [],
+        evidence: this.runEvidence,
+        toolCallCount: this.runToolCallCount,
+        candidateAnswer,
+        abortSignal,
+      })
+
+      // Honor cancellation as soon as the verify call returns, before any
+      // verdict handling (mirrors the top-of-loop cancel handling).
+      if (abortSignal?.aborted) {
+        return { action: 'aborted' }
+      }
+
+      if (!verdictResult.ok) {
+        this.emitEvent({
+          type: 'verifier-error',
+          message: verdictResult.error.message,
+          attempt,
+        })
+        return {
+          action: 'accept',
+          verification: {
+            verdict: 'unknown',
+            attempts: attempt,
+            warning: `Verifier error — answer accepted unverified: ${verdictResult.error.message}`,
+          },
+        }
+      }
+
+      const verdict = verdictResult.value
+      if (verdict.verdict === 'fail') {
+        const signature = failureSignature(verdict.failures)
+        const oscillating =
+          this.lastVerifierFailureSignature !== null &&
+          signature === this.lastVerifierFailureSignature
+        this.lastVerifierFailureSignature = signature
+        const willRetry = attempt <= this.config.verifier.maxRetries && !oscillating
+
+        this.emitEvent({
+          type: 'verifier-verdict',
+          verdict: 'fail',
+          failures: verdict.failures,
+          reason: verdict.reason,
+          attempt,
+          willRetry,
+          escalated: false,
+        })
+
+        if (willRetry) {
+          return { action: 'retry', feedback: buildVerifierFeedback(verdict) }
+        }
+
+        return {
+          action: 'accept',
+          verification: {
+            verdict: 'fail',
+            attempts: attempt,
+            warning: oscillating
+              ? 'Verifier reported identical failures on consecutive attempts; answer accepted with unmet criteria.'
+              : 'Verifier retries exhausted; answer accepted with unmet criteria.',
+          },
+        }
+      }
+
+      // pass or unknown — accept.
+      this.emitEvent({
+        type: 'verifier-verdict',
+        verdict: verdict.verdict,
+        failures: verdict.failures,
+        reason: verdict.reason,
+        attempt,
+        willRetry: false,
+        escalated: false,
+      })
+      return {
+        action: 'accept',
+        verification: {
+          verdict: verdict.verdict,
+          attempts: attempt,
+          ...(verdict.verdict === 'unknown'
+            ? { warning: 'Verifier could not determine completion; answer accepted unverified.' }
+            : {}),
+        },
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      const attempt = Math.max(1, this.verifierAttempt)
+      this.emitEvent({ type: 'verifier-error', message, attempt })
+      return {
+        action: 'accept',
+        verification: {
+          verdict: 'unknown',
+          attempts: attempt,
+          warning: `Verifier error — answer accepted unverified: ${message}`,
+        },
+      }
     }
   }
 
@@ -1921,6 +2241,7 @@ export class Agent {
           if (typeof command === 'string') {
             const blocked = this.modeManager.interceptBash(command)
             if (blocked) {
+              this.recordVerifierEvidence(tc.toolName, true, blocked)
               this.emitEvent({
                 type: 'tool-call-end',
                 toolCallId: tc.toolCallId,
@@ -1950,6 +2271,7 @@ export class Agent {
               alreadyActive: true,
               message: `Skill "${skillName}" is already active for this run.`,
             }
+            this.recordVerifierEvidence(tc.toolName, false, noop)
             this.emitEvent({
               type: 'tool-call-end',
               toolCallId: tc.toolCallId,
@@ -1981,6 +2303,7 @@ export class Agent {
           }
         }
 
+        this.recordVerifierEvidence(tc.toolName, isError, resultValue)
         this.emitEvent({
           type: 'tool-call-end',
           toolCallId: tc.toolCallId,
