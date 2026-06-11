@@ -139,8 +139,34 @@ function createCapturingLLM(options?: {
       }
     },
 
-    doStream: async () => {
-      throw new Error('doStream not used by generateText')
+    // chatgpt-responses models generate through a consumed stream (the
+    // backend rejects non-streaming calls), so capture those calls too.
+    doStream: async (callOptions: LanguageModelV3CallOptions) => {
+      doGenerateCalls.push(callOptions)
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'text-start', id: 'tx1' })
+            controller.enqueue({ type: 'text-delta', id: 'tx1', delta: responseText })
+            controller.enqueue({ type: 'text-end', id: 'tx1' })
+            controller.enqueue({
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: {
+                inputTokens: {
+                  total: 10,
+                  noCache: undefined,
+                  cacheRead: undefined,
+                  cacheWrite: undefined,
+                },
+                outputTokens: { total: 50, text: undefined, reasoning: undefined },
+              },
+            })
+            controller.close()
+          },
+        }),
+        warnings: [],
+      }
     },
   } as unknown as LanguageModel
 
