@@ -315,6 +315,8 @@ export interface VerifierReportDisplayDetails {
   attempt: number
   toolCallCount: number
   checkedAt: string
+  /** Number of unmet criteria in the final verdict (0 for pass/unknown). */
+  failureCount?: number
 }
 
 export interface TierApprovalDisplayDetails {

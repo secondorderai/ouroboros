@@ -15,6 +15,7 @@ function resetStore(): void {
     pendingActivatedSkills: [],
     pendingSubmittedPlan: null,
     activePlanDecision: null,
+    verifierVerdict: null,
     isAgentRunning: false,
     activeRunSessionId: null,
     nextId: 1,
@@ -1853,5 +1854,113 @@ describe('mid-flight steering', () => {
     expect(state.isAgentRunning).toBe(false)
     expect(state.streamingText).toBeNull()
     expect(state.sessions[0]!.runStatus).toBe('idle')
+  })
+})
+
+describe('verifier verdict chip state', () => {
+  function makeVerdict(
+    overrides?: Partial<import('../src/shared/protocol').AgentVerifierVerdictNotification>,
+  ): import('../src/shared/protocol').AgentVerifierVerdictNotification {
+    return {
+      sessionId: 'session-v',
+      verdict: 'fail',
+      failures: [
+        { criterion: 'Tests exist', evidence: 'No test run found', suggestion: 'Add tests' },
+      ],
+      reason: 'Unmet criteria remain.',
+      attempt: 3,
+      willRetry: false,
+      escalated: false,
+      ...overrides,
+    }
+  }
+
+  test('ignores intermediate verdicts (willRetry === true)', () => {
+    resetStore()
+    useConversationStore.setState({ currentSessionId: 'session-v' })
+
+    useConversationStore.getState().handleVerifierVerdict(makeVerdict({ willRetry: true }))
+
+    expect(useConversationStore.getState().verifierVerdict).toBeNull()
+  })
+
+  test('stores the final verdict for the current session in flat state and snapshot', () => {
+    resetStore()
+    useConversationStore.setState({ currentSessionId: 'session-v' })
+
+    const verdict = makeVerdict()
+    useConversationStore.getState().handleVerifierVerdict(verdict)
+
+    const state = useConversationStore.getState()
+    expect(state.verifierVerdict).toEqual(verdict)
+    expect(state.sessionRunSnapshots.get('session-v')?.verifierVerdict).toEqual(verdict)
+  })
+
+  test('routes a non-current session verdict to its snapshot without touching flat state', () => {
+    resetStore()
+    useConversationStore.setState({ currentSessionId: 'session-current' })
+
+    const verdict = makeVerdict({ sessionId: 'session-other' })
+    useConversationStore.getState().handleVerifierVerdict(verdict)
+
+    const state = useConversationStore.getState()
+    expect(state.verifierVerdict).toBeNull()
+    expect(state.sessionRunSnapshots.get('session-other')?.verifierVerdict).toEqual(verdict)
+  })
+
+  test('tolerates sessionId: null by applying to flat state', () => {
+    resetStore()
+
+    const verdict = makeVerdict({ sessionId: null })
+    useConversationStore.getState().handleVerifierVerdict(verdict)
+
+    expect(useConversationStore.getState().verifierVerdict).toEqual(verdict)
+  })
+
+  test('sendMessage clears the previous verdict chip', () => {
+    resetStore()
+    useConversationStore.setState({ currentSessionId: 'session-v' })
+    useConversationStore.getState().handleVerifierVerdict(makeVerdict())
+    expect(useConversationStore.getState().verifierVerdict).not.toBeNull()
+
+    useConversationStore.getState().sendMessage('next task')
+
+    expect(useConversationStore.getState().verifierVerdict).toBeNull()
+  })
+
+  test('dismissVerifierVerdict clears flat state and the session snapshot', () => {
+    resetStore()
+    useConversationStore.setState({ currentSessionId: 'session-v' })
+    useConversationStore.getState().handleVerifierVerdict(makeVerdict())
+
+    useConversationStore.getState().dismissVerifierVerdict()
+
+    const state = useConversationStore.getState()
+    expect(state.verifierVerdict).toBeNull()
+    expect(state.sessionRunSnapshots.get('session-v')?.verifierVerdict).toBeNull()
+  })
+
+  test('dismissVerifierVerdict works without a current session', () => {
+    resetStore()
+    useConversationStore.getState().handleVerifierVerdict(makeVerdict({ sessionId: null }))
+    expect(useConversationStore.getState().verifierVerdict).not.toBeNull()
+
+    useConversationStore.getState().dismissVerifierVerdict()
+
+    expect(useConversationStore.getState().verifierVerdict).toBeNull()
+  })
+
+  test('switching sessions clears the verdict chip', () => {
+    resetStore()
+    useConversationStore.setState({ currentSessionId: 'session-v' })
+    useConversationStore.getState().handleVerifierVerdict(makeVerdict())
+    expect(useConversationStore.getState().verifierVerdict).not.toBeNull()
+
+    useConversationStore.getState().setCurrentSessionId('session-w')
+    expect(useConversationStore.getState().verifierVerdict).toBeNull()
+
+    // Switching back does not resurrect the chip either.
+    useConversationStore.getState().setCurrentSessionId('session-v')
+    expect(useConversationStore.getState().verifierVerdict).toBeNull()
   })
 })

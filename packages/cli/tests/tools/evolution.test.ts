@@ -75,6 +75,38 @@ describe('EvolutionTool', () => {
     expect(result.value).toContain('Skills failed: 1')
   })
 
+  test('search action filters by the verifier-verdict type', async () => {
+    expect(schema.safeParse({ action: 'search', type: 'verifier-verdict' }).success).toBe(true)
+
+    appendEntry(
+      {
+        type: 'verifier-verdict',
+        summary: 'Completion verifier verdict: fail (attempt 1, 2 unmet criteria)',
+        details: { verdict: 'fail', failureCount: 2 },
+        motivation: 'Track completion-gate outcomes as an RSI training signal.',
+      },
+      tempDir,
+    )
+    appendEntry(
+      {
+        type: 'skill-created',
+        summary: 'Created unrelated skill',
+        details: { skillName: 'other-skill' },
+        motivation: 'Regression test setup',
+      },
+      tempDir,
+    )
+    const runEvolution = createExecute({ basePath: tempDir })
+
+    const result = await runEvolution({ action: 'search', type: 'verifier-verdict', limit: 10 })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toContain('verifier-verdict')
+    expect(result.value).toContain('Completion verifier verdict: fail')
+    expect(result.value).not.toContain('Created unrelated skill')
+  })
+
   test('search action returns a friendly empty state', async () => {
     const runEvolution = createExecute({ basePath: tempDir })
 

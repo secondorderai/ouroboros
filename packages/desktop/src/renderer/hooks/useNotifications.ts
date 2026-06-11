@@ -38,6 +38,7 @@ export function useNotifications(): void {
       handlePermissionLeaseUpdated,
       handleSkillActivated,
       handlePlanSubmitted,
+      handleVerifierVerdict,
     } = useConversationStore.getState()
 
     loadApprovals().catch((error) => {
@@ -86,6 +87,9 @@ export function useNotifications(): void {
       }),
       api.onNotification('agent/permissionLeaseUpdated', (params) => {
         handlePermissionLeaseUpdated(params)
+      }),
+      api.onNotification('agent/verifierVerdict', (params) => {
+        handleVerifierVerdict(params)
       }),
       api.onNotification('skill/activated', (params) => {
         handleSkillActivated(params)

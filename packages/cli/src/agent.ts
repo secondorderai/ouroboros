@@ -805,6 +805,12 @@ export class Agent {
    * between runs) keep persisting the criteria.
    */
   private lastDoneContract: string[] | null = null
+  /**
+   * Final verdict from the most recent gated run. Survives run() exit so a
+   * later tier-3 self-modification approval can show the human reviewer how
+   * the last completion gate resolved.
+   */
+  private lastVerifierReport: VerifierReport | null = null
 
   /** Steer messages typed by the user mid-run; drained at the top of each ReAct iteration. */
   private pendingSteer: PendingSteerInput[] = []
@@ -1539,6 +1545,43 @@ export class Agent {
   }
 
   /**
+   * Final verdict from the most recent gated run, or null when no completion
+   * gate has resolved yet. The JSON-RPC server uses this to enrich tier-3
+   * self-modification approvals with verification context.
+   */
+  getLastVerifierReport(): VerifierReport | null {
+    return this.lastVerifierReport
+  }
+
+  /**
+   * Record a final completion-gate verdict: cache it for tier-3 approval
+   * enrichment and append a `verifier-verdict` entry to the evolution log.
+   * Best-effort — log failures are swallowed so the gate can never brick the
+   * loop (the appendEntry Result is intentionally not surfaced).
+   */
+  private recordFinalVerifierVerdict(report: VerifierReport): void {
+    this.lastVerifierReport = report
+    try {
+      const failureCount = report.failureCount ?? 0
+      appendEntry(
+        {
+          type: 'verifier-verdict',
+          summary: `Completion verifier verdict: ${report.verdict} (attempt ${report.attempt}, ${failureCount} unmet ${failureCount === 1 ? 'criterion' : 'criteria'})`,
+          details: {
+            ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+            verdict: report.verdict,
+            failureCount,
+          },
+          motivation: 'Track completion-gate outcomes as an RSI training signal.',
+        },
+        this.memoryBasePath,
+      )
+    } catch {
+      // Best-effort: evolution-log writes must never affect the run result.
+    }
+  }
+
+  /**
    * Escalate an exhausted failing verdict to a tier-4 human approval
    * (`verifier-completion-override`). Approval accepts the answer as-is;
    * denial grants exactly one extra retry batch with the denial reason
@@ -1560,6 +1603,7 @@ export class Agent {
       attempt,
       toolCallCount: this.runToolCallCount,
       checkedAt: new Date().toISOString(),
+      failureCount: verdict.failures.length,
     }
 
     // Race the approval promise against the abort signal so a cancel during
@@ -1582,6 +1626,7 @@ export class Agent {
     }
 
     if (approval.value.ok) {
+      this.recordFinalVerifierVerdict(verifierReport)
       this.emitEvent({
         type: 'verifier-verdict',
         verdict: 'fail',
@@ -1716,6 +1761,16 @@ export class Agent {
           return this.escalateVerifierFailure(verdict, attempt, candidateAnswer, abortSignal)
         }
 
+        if (!willRetry) {
+          this.recordFinalVerifierVerdict({
+            verdict: 'fail',
+            attempt,
+            toolCallCount: this.runToolCallCount,
+            checkedAt: new Date().toISOString(),
+            failureCount: verdict.failures.length,
+          })
+        }
+
         this.emitEvent({
           type: 'verifier-verdict',
           verdict: 'fail',
@@ -1746,6 +1801,13 @@ export class Agent {
       }
 
       // pass or unknown — accept.
+      this.recordFinalVerifierVerdict({
+        verdict: verdict.verdict,
+        attempt,
+        toolCallCount: this.runToolCallCount,
+        checkedAt: new Date().toISOString(),
+        failureCount: verdict.failures.length,
+      })
       this.emitEvent({
         type: 'verifier-verdict',
         verdict: verdict.verdict,

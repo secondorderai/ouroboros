@@ -13,6 +13,7 @@ import { Agent, type AgentEvent, type AgentOptions, type EnqueueSteerResult } fr
 import { ToolRegistry } from '@src/tools/registry'
 import { configSchema, type OuroborosConfig } from '@src/config'
 import { resolveCheckpointPath } from '@src/memory/paths'
+import { readLog } from '@src/rsi/evolution-log'
 import { setTierApprovalHandler, type TierApprovalExtras } from '@src/tier-approval'
 import { z } from 'zod'
 import { ok, err } from '@src/types'
@@ -1088,5 +1089,172 @@ describe('completion gate — tier-4 escalation', () => {
     expect(result.verification).toBeUndefined()
     expect(events.find((event) => event.type === 'turn-aborted')).toBeDefined()
     expect(events.find((event) => event.type === 'turn-complete')).toBeUndefined()
+  })
+})
+
+describe('completion gate — RSI integration', () => {
+  const tempDirs: string[] = []
+
+  function makeMemoryDir(): string {
+    const dir = join(
+      tmpdir(),
+      `ouroboros-verifier-rsi-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    )
+    mkdirSync(dir, { recursive: true })
+    tempDirs.push(dir)
+    return dir
+  }
+
+  afterEach(() => {
+    setTierApprovalHandler(null)
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a final pass verdict writes a verifier-verdict evolution entry to the memory base path', async () => {
+    const memoryDir = makeMemoryDir()
+    const verifier = createVerifierModel([PASS_JSON])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('done')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' },
+      overrides: { memoryBasePath: memoryDir, sessionId: 'sess-rsi' },
+    })
+
+    const result = await agent.run('do the task')
+
+    expect(result.verification?.verdict).toBe('pass')
+    const log = readLog(memoryDir)
+    expect(log.ok).toBe(true)
+    if (!log.ok) return
+    expect(log.value).toHaveLength(1)
+    expect(log.value[0].type).toBe('verifier-verdict')
+    expect(log.value[0].summary).toContain('pass')
+    expect(log.value[0].details).toMatchObject({
+      sessionId: 'sess-rsi',
+      verdict: 'pass',
+      failureCount: 0,
+    })
+  })
+
+  test('retried runs log only the final verdict, not intermediate failures', async () => {
+    const memoryDir = makeMemoryDir()
+    const verifier = createVerifierModel([failJson(['criterion A']), PASS_JSON])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('draft'), textTurn('final')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' },
+      overrides: { memoryBasePath: memoryDir },
+    })
+
+    const result = await agent.run('do the task')
+
+    expect(result.verification).toEqual({ verdict: 'pass', attempts: 2 })
+    const log = readLog(memoryDir)
+    expect(log.ok).toBe(true)
+    if (!log.ok) return
+    expect(log.value).toHaveLength(1)
+    expect(log.value[0].details.verdict).toBe('pass')
+  })
+
+  test('an exhausted fail without an approval handler logs the failure count', async () => {
+    const memoryDir = makeMemoryDir()
+    const verifier = createVerifierModel([failJson(['criterion A', 'criterion B'])])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('the answer')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always', maxRetries: 0 },
+      overrides: { memoryBasePath: memoryDir },
+    })
+
+    const result = await agent.run('do the task')
+
+    expect(result.verification?.verdict).toBe('fail')
+    const log = readLog(memoryDir)
+    expect(log.ok).toBe(true)
+    if (!log.ok) return
+    expect(log.value).toHaveLength(1)
+    expect(log.value[0].details).toMatchObject({ verdict: 'fail', failureCount: 2 })
+  })
+
+  test('an escalated human-approved completion logs a fail verdict', async () => {
+    const memoryDir = makeMemoryDir()
+    setTierApprovalHandler(async () => ok(undefined))
+    const verifier = createVerifierModel([failJson(['criterion A'])])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('the answer')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always', maxRetries: 0 },
+      overrides: { memoryBasePath: memoryDir },
+    })
+
+    const result = await agent.run('do the task')
+
+    expect(result.verification?.warning).toContain('human reviewer approved')
+    const log = readLog(memoryDir)
+    expect(log.ok).toBe(true)
+    if (!log.ok) return
+    expect(log.value).toHaveLength(1)
+    expect(log.value[0].details).toMatchObject({ verdict: 'fail', failureCount: 1 })
+  })
+
+  test('ungated runs write no evolution entry and leave getLastVerifierReport null', async () => {
+    const memoryDir = makeMemoryDir()
+    const forbidden = createForbiddenVerifierModel()
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(6), textTurn('done')],
+      verifierModel: forbidden.model,
+      verifier: { trigger: 'off' },
+      overrides: { memoryBasePath: memoryDir },
+    })
+
+    const result = await agent.run('do the long task')
+
+    expect(result.stopReason).toBe('completed')
+    expect(agent.getLastVerifierReport()).toBeNull()
+    expect(existsSync(join(memoryDir, 'evolution.log.json'))).toBe(false)
+  })
+
+  test('getLastVerifierReport returns the final verdict and survives run() exit', async () => {
+    const verifier = createVerifierModel([failJson(['criterion A']), PASS_JSON])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(2), textTurn('draft'), textTurn('final')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' },
+      overrides: { memoryBasePath: makeMemoryDir() },
+    })
+
+    expect(agent.getLastVerifierReport()).toBeNull()
+
+    await agent.run('do the task')
+
+    const report = agent.getLastVerifierReport()
+    expect(report).toMatchObject({
+      verdict: 'pass',
+      attempt: 2,
+      toolCallCount: 2,
+      failureCount: 0,
+    })
+    expect(typeof report?.checkedAt).toBe('string')
+  })
+
+  test('a verifier error records no final verdict', async () => {
+    const memoryDir = makeMemoryDir()
+    const verifier = createVerifierModel([new Error('verifier transport down')])
+    const agent = makeAgent({
+      actorTurns: [toolCallTurn(1), textTurn('done')],
+      verifierModel: verifier.model,
+      verifier: { trigger: 'always' },
+      overrides: { memoryBasePath: memoryDir },
+    })
+
+    const result = await agent.run('do the task')
+
+    expect(result.verification?.verdict).toBe('unknown')
+    expect(result.verification?.warning).toContain('Verifier error')
+    // Errors are not verdicts: nothing cached, nothing logged.
+    expect(agent.getLastVerifierReport()).toBeNull()
+    expect(existsSync(join(memoryDir, 'evolution.log.json'))).toBe(false)
   })
 })

@@ -14,6 +14,25 @@ describe('RSI history helpers', () => {
     expect(categorizeEvolutionEntry('dream')).toBe('dream')
     expect(categorizeEvolutionEntry('history-compacted')).toBe('memory')
     expect(categorizeEvolutionEntry('error')).toBe('errors')
+    expect(categorizeEvolutionEntry('verifier-verdict')).toBe('reflections')
+  })
+
+  test('historyEntryFromEvolution describes verifier-verdict entries', () => {
+    const entry: EvolutionEntry = {
+      id: 'evo-verifier-1',
+      timestamp: '2026-04-18T10:00:00.000Z',
+      type: 'verifier-verdict',
+      description: 'Completion verifier verdict: pass (attempt 1, 0 unmet criteria)',
+      sessionId: 'session-3',
+      details: { verdict: 'pass', failureCount: 0 },
+    }
+
+    const view = historyEntryFromEvolution(entry)
+    expect(view.category).toBe('reflections')
+    expect(view.title).toBe(
+      'Completion verifier -- Completion verifier verdict: pass (attempt 1, 0 unmet criteria)',
+    )
+    expect(view.details).toEqual({ verdict: 'pass', failureCount: 0 })
   })
 
   test('historyEntryFromCheckpoint builds checkpoint browser cards', () => {

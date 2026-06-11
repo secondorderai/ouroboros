@@ -48,6 +48,8 @@ export interface VerifierReport {
   toolCallCount: number
   /** ISO-8601 timestamp of when the verdict was produced. */
   checkedAt: string
+  /** Number of unmet criteria in the final verdict (0 for pass/unknown). */
+  failureCount?: number
 }
 
 /**

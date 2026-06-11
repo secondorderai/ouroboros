@@ -6,6 +6,7 @@ import { UserMessage } from '../components/UserMessage'
 import { AgentMessage, StreamingAgentMessage } from '../components/AgentMessage'
 import { SystemMessage } from '../components/SystemMessage'
 import { JumpToBottom } from '../components/JumpToBottom'
+import { VerifierVerdictChip } from '../components/VerifierVerdictChip'
 import type { Message } from '../../shared/protocol'
 import type { RSICrystallizationEvent } from '../hooks/useRSI'
 
@@ -139,6 +140,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const pendingSubagentRuns = useConversationStore((s) => s.pendingSubagentRuns)
   const pendingActivatedSkills = useConversationStore((s) => s.pendingActivatedSkills)
   const responseStartedAt = useConversationStore((s) => s.responseStartedAt)
+  const verifierVerdict = useConversationStore((s) => s.verifierVerdict)
+  const dismissVerifierVerdict = useConversationStore((s) => s.dismissVerifierVerdict)
   const bufferedText = useStreamingBuffer()
   const currentSessionId = useConversationStore((s) => s.currentSessionId)
 
@@ -266,6 +269,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
           }}
         />
       </div>
+
+      {/* Completion-gate verifier verdict chip */}
+      {verifierVerdict && (
+        <VerifierVerdictChip verdict={verifierVerdict} onDismiss={dismissVerifierVerdict} />
+      )}
 
       {/* Inline RSI crystallization cards */}
       {crystallizations &&
