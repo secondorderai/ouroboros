@@ -95,6 +95,28 @@ export function createArcServer(options: ArcServerOptions = {}): McpServer {
     return client;
   }
 
+  // Affinity keep-alive: the API holds scorecard/game state behind AWS ALB
+  // cookie affinity, and long gaps without requests (LLM thinking time, slow
+  // CLI startup) can let it lapse — after which every command fails with a
+  // misleading "game not found". Once a session is established, ping the
+  // scorecard periodically; each response also refreshes the cookie jar.
+  const keepAliveMs = Number(process.env.ARC_KEEPALIVE_MS ?? 45_000);
+  let keepAlive: ReturnType<typeof setInterval> | undefined;
+  function ensureKeepAlive(): void {
+    if (keepAlive || !(keepAliveMs > 0)) return;
+    const cardId = process.env.ARC_CARD_ID?.trim();
+    if (!cardId) return;
+    keepAlive = setInterval(() => {
+      getClient()
+        .getScorecard(cardId)
+        .catch(() => {
+          // Best-effort: a failed ping must never crash the server.
+        });
+    }, keepAliveMs);
+    // Never keep the process alive just for pings.
+    keepAlive.unref?.();
+  }
+
   // Single FIFO queue: the Ouroboros agent can emit parallel tool calls in
   // one step; game commands must never interleave.
   let queueTail: Promise<unknown> = Promise.resolve();
@@ -204,6 +226,7 @@ export function createArcServer(options: ArcServerOptions = {}): McpServer {
         };
         updateSession(session, frame);
         sessions.set(args.game_id, session);
+        ensureKeepAlive();
         return textResult(
           `RESET ${args.game_id} (guid ${frame.guid})\n` +
             `${renderFrame(frame.frame)}\n` +
