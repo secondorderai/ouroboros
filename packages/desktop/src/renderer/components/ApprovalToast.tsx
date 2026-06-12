@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import type { PendingApproval } from '../stores/approvalStore'
+import type { VerifierReportDisplayDetails } from '../../shared/protocol'
 
 interface ApprovalToastProps {
   approval: PendingApproval
@@ -103,6 +104,11 @@ export function ApprovalToast({ approval, onRespond }: ApprovalToastProps): Reac
           <div style={styles.leaseLine}>
             Args: {formatToolArgs(approval.tier.toolArgs)}
           </div>
+          {approval.tier.verifierReport && (
+            <div style={styles.leaseLine}>
+              {formatVerifierReport(approval.tier.verifierReport)}
+            </div>
+          )}
         </div>
       )}
 
@@ -131,6 +137,16 @@ export function ApprovalToast({ approval, onRespond }: ApprovalToastProps): Reac
 
 function formatList(values: string[]): string {
   return values.length > 0 ? values.join(', ') : 'None'
+}
+
+function formatVerifierReport(report: VerifierReportDisplayDetails): string {
+  if (report.verdict === 'fail') {
+    const count = report.failureCount
+    return count != null
+      ? `Verifier: fail — ${count} unmet ${count === 1 ? 'criterion' : 'criteria'}`
+      : `Verifier: fail (attempt ${report.attempt})`
+  }
+  return `Verifier: ${report.verdict}`
 }
 
 function formatToolArgs(args: unknown): string {

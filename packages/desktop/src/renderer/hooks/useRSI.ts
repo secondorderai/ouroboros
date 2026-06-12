@@ -123,6 +123,8 @@ function describeRSIEvent(entry: EvolutionEntry): string {
       return `Pruned durable memory -- ${entry.description}`
     case 'skill-proposed-from-observations':
       return `Queued skill proposal -- ${entry.description}`
+    case 'verifier-verdict':
+      return `Completion verifier -- ${entry.description}`
     case 'error':
       return `RSI error: ${entry.description}`
     default:
@@ -176,6 +178,7 @@ function toTone(value: RSIHistoryFilter): RSIHistoryChip['tone'] {
 export function categorizeEvolutionEntry(type: string): RSIHistoryFilter {
   switch (type) {
     case 'reflection':
+    case 'verifier-verdict':
       return 'reflections'
     case 'crystallization':
     case 'skill-created':

@@ -31,6 +31,7 @@ export const evolutionEntryTypeSchema = z.enum([
   'durable-memory-promoted',
   'durable-memory-pruned',
   'skill-proposed-from-observations',
+  'verifier-verdict',
 ])
 
 export type EvolutionEntryType = z.infer<typeof evolutionEntryTypeSchema>
@@ -74,6 +75,10 @@ export const evolutionEntryDetailsSchema = z.object({
   item: z.string().optional(),
   kind: z.string().optional(),
   repeatCount: z.number().int().nonnegative().optional(),
+  /** Final completion-gate verdict for `verifier-verdict` entries. */
+  verdict: z.string().optional(),
+  /** Number of unmet criteria reported with a final verifier verdict. */
+  failureCount: z.number().int().nonnegative().optional(),
   metadata: z.record(z.string(), jsonValueSchema).optional(),
 })
 
@@ -296,6 +301,7 @@ export function getStats(basePath?: string): Result<EvolutionStats> {
       'durable-memory-promoted',
       'durable-memory-pruned',
       'skill-proposed-from-observations',
+      'verifier-verdict',
     ]
 
     const byType: Record<EvolutionEntryType, number> = {} as Record<EvolutionEntryType, number>

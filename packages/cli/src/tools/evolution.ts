@@ -50,6 +50,7 @@ export const schema = z.object({
       'durable-memory-promoted',
       'durable-memory-pruned',
       'skill-proposed-from-observations',
+      'verifier-verdict',
     ])
     .optional()
     .describe('Filter entries by type (for search action)'),
@@ -79,6 +80,7 @@ export interface EvolutionToolInput {
     | 'durable-memory-promoted'
     | 'durable-memory-pruned'
     | 'skill-proposed-from-observations'
+    | 'verifier-verdict'
   since?: string
 }
 

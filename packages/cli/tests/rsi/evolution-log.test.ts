@@ -299,6 +299,64 @@ describe('Evolution Log — Track All Self-Modifications', () => {
     expect(result.value.durableMemoryReuseRate).toBe(0)
   })
 
+  // ── Test: verifier-verdict entries (completion-gate outcomes) ───
+
+  test('verifier-verdict entries validate and round-trip verdict/failureCount details', () => {
+    const result = appendEntry(
+      makeEntry('verifier-verdict', 'Completion verifier verdict: fail (attempt 2)', {
+        details: {
+          sessionId: 'session-v',
+          verdict: 'fail',
+          failureCount: 3,
+        },
+      }),
+      tempDir,
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.type).toBe('verifier-verdict')
+
+    const read = readLog(tempDir)
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.value[0].type).toBe('verifier-verdict')
+    expect(read.value[0].details.verdict).toBe('fail')
+    expect(read.value[0].details.failureCount).toBe(3)
+    expect(read.value[0].details.sessionId).toBe('session-v')
+  })
+
+  test('verifier-verdict entries with a negative failureCount are rejected', () => {
+    const result = appendEntry(
+      makeEntry('verifier-verdict', 'bad', { details: { failureCount: -1 } }),
+      tempDir,
+    )
+    expect(result.ok).toBe(false)
+  })
+
+  test('getStats counts verifier-verdict entries and defaults to zero', () => {
+    const empty = getStats(tempDir)
+    expect(empty.ok).toBe(true)
+    if (!empty.ok) return
+    expect(empty.value.byType['verifier-verdict']).toBe(0)
+
+    appendEntry(
+      makeEntry('verifier-verdict', 'pass verdict', { details: { verdict: 'pass' } }),
+      tempDir,
+    )
+    appendEntry(
+      makeEntry('verifier-verdict', 'fail verdict', {
+        details: { verdict: 'fail', failureCount: 1 },
+      }),
+      tempDir,
+    )
+
+    const result = getStats(tempDir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.byType['verifier-verdict']).toBe(2)
+    expect(result.value.totalEntries).toBe(2)
+  })
+
   test('getStats summarizes compaction and structured memory metrics', () => {
     const entries: EvolutionEntry[] = [
       {

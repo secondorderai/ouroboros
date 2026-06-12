@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { type Result, err } from '@src/types'
 import type { ToolTier } from '@src/tools/types'
+import type { VerifierReport } from '@src/verifier/types'
 
 export const tierApprovalSchema = z.object({
   id: z.string().min(1),
@@ -21,6 +22,12 @@ export interface TierApprovalDetails {
   toolArgs: unknown
   tierLabel: string
   createdAt: string
+  /**
+   * Completion-gate verifier report attached when the approval was triggered
+   * by (or is relevant to) a verifier outcome — e.g. the
+   * `verifier-completion-override` escalation.
+   */
+  verifierReport?: VerifierReport
 }
 
 export interface TierApprovalRequest {
@@ -29,19 +36,26 @@ export interface TierApprovalRequest {
   details: TierApprovalDetails
 }
 
-/** Handler signature: receives tool name, tier, and args. Returns Result<void>. */
+/**
+ * Optional context attached to a tier-approval request beyond the tool call
+ * itself. Existing callsites that pass no extras are unchanged.
+ */
+export interface TierApprovalExtras {
+  verifierReport?: VerifierReport
+}
+
+/** Handler signature: receives tool name, tier, args, and optional extras. Returns Result<void>. */
 type TierApprovalHandler = (
   toolName: string,
   toolTier: ToolTier,
   args: unknown,
+  extras?: TierApprovalExtras,
 ) => Promise<Result<void>>
 
 let tierApprovalHandler: TierApprovalHandler | null = null
 
 /** Register a handler that triggers the desktop approval popup for Tier 3/4 tools. */
-export function setTierApprovalHandler(
-  handler: ((toolName: string, toolTier: ToolTier, args: unknown) => Promise<Result<void>>) | null,
-): void {
+export function setTierApprovalHandler(handler: TierApprovalHandler | null): void {
   tierApprovalHandler = handler
 }
 
@@ -64,6 +78,7 @@ export async function requestTierApproval(
   toolName: string,
   toolTier: 1 | 2 | 3 | 4,
   toolArgs: unknown,
+  extras?: TierApprovalExtras,
 ): Promise<Result<void>> {
   if (!tierApprovalHandler) {
     return err(
@@ -74,7 +89,7 @@ export async function requestTierApproval(
     )
   }
 
-  return tierApprovalHandler(toolName, toolTier, toolArgs)
+  return tierApprovalHandler(toolName, toolTier, toolArgs, extras)
 }
 
 export function tierApprovalRisk(toolTier: 1 | 2 | 3 | 4): TierApprovalRisk {

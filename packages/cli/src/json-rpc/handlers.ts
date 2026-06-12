@@ -451,6 +451,38 @@ export function bridgeAgentEvent(event: AgentEvent, sessionId: string | null = n
         }),
       )
       break
+    case 'verifier-started':
+      writeMessage(
+        makeNotification('agent/verifierStarted', {
+          sessionId,
+          attempt: event.attempt,
+          toolCallCount: event.toolCallCount,
+          trigger: event.trigger,
+        }),
+      )
+      break
+    case 'verifier-verdict':
+      writeMessage(
+        makeNotification('agent/verifierVerdict', {
+          sessionId,
+          verdict: event.verdict,
+          failures: event.failures,
+          reason: event.reason,
+          attempt: event.attempt,
+          willRetry: event.willRetry,
+          escalated: event.escalated,
+        }),
+      )
+      break
+    case 'verifier-error':
+      writeMessage(
+        makeNotification('agent/verifierError', {
+          sessionId,
+          message: event.message,
+          attempt: event.attempt,
+        }),
+      )
+      break
     case 'team-graph-open':
       writeMessage(makeNotification('team/graphOpen', { graph: event.graph, reason: event.reason }))
       break

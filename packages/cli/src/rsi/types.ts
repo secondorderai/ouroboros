@@ -63,6 +63,12 @@ export interface ReflectionCheckpoint {
   sessionId: string
   updatedAt: string
   goal: string
+  /**
+   * Done contract extracted by the completion-gate verifier: the concrete,
+   * independently checkable outcomes the current task must satisfy. Optional —
+   * legacy checkpoints (and runs that never hit the gate) have none.
+   */
+  doneContract?: string[]
   currentPlan: string[]
   constraints: string[]
   decisionsMade: string[]

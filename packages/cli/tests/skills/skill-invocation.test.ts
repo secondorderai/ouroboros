@@ -11,7 +11,12 @@ import {
   _resetSkillApprovalHandler,
   setSkillApprovalHandler,
 } from '@src/tools/skill-manager'
-import { DEFAULT_ARTIFACTS_CONFIG, DEFAULT_SANDBOX_CONFIG, type OuroborosConfig } from '@src/config'
+import {
+  DEFAULT_ARTIFACTS_CONFIG,
+  DEFAULT_SANDBOX_CONFIG,
+  DEFAULT_VERIFIER_CONFIG,
+  type OuroborosConfig,
+} from '@src/config'
 
 const FIXTURES = resolve(import.meta.dir, '../fixtures/skill-invocation-test')
 
@@ -56,6 +61,7 @@ function makeConfig(): OuroborosConfig {
     analytics: { postgres: { connections: [] } },
     mcp: { servers: [] },
     sandbox: DEFAULT_SANDBOX_CONFIG,
+    verifier: DEFAULT_VERIFIER_CONFIG,
   }
 }
 

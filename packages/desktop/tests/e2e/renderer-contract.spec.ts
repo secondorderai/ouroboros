@@ -836,6 +836,77 @@ test('approval notifications populate the UI and failed responses keep the appro
   await expect(launched.page.getByText('Approve this desktop patch')).toBeVisible()
 })
 
+test('tier approvals render the verifier report line with pluralized unmet criteria', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+
+  const tierDetails = (id: string) => ({
+    approvalId: id,
+    toolName: 'evolve_skill',
+    toolTier: 3,
+    toolArgs: { skillName: 'demo' },
+    tierLabel: 'Tier 3 (self-modification)',
+    createdAt: new Date().toISOString(),
+  })
+
+  // Plural: failureCount 2 → "criteria".
+  await emitNotification(launched.page, 'approval/request', {
+    id: 'approval-verifier-plural',
+    type: 'tool-tier',
+    description: 'Verifier-escalated tier approval (plural)',
+    createdAt: new Date().toISOString(),
+    risk: 'high',
+    tier: {
+      ...tierDetails('approval-verifier-plural'),
+      verifierReport: {
+        verdict: 'fail',
+        attempt: 1,
+        toolCallCount: 5,
+        checkedAt: new Date().toISOString(),
+        failureCount: 2,
+      },
+    },
+  })
+
+  await expect(launched.page.getByText('Verifier-escalated tier approval (plural)')).toBeVisible()
+  await expect(launched.page.getByText('Tier 3 (self-modification)')).toBeVisible()
+  await expect(launched.page.getByText('Verifier: fail — 2 unmet criteria')).toBeVisible()
+
+  // Singular: failureCount 1 → "criterion".
+  await emitNotification(launched.page, 'approval/request', {
+    id: 'approval-verifier-singular',
+    type: 'tool-tier',
+    description: 'Verifier-escalated tier approval (singular)',
+    createdAt: new Date().toISOString(),
+    risk: 'high',
+    tier: {
+      ...tierDetails('approval-verifier-singular'),
+      verifierReport: {
+        verdict: 'fail',
+        attempt: 2,
+        toolCallCount: 7,
+        checkedAt: new Date().toISOString(),
+        failureCount: 1,
+      },
+    },
+  })
+
+  await expect(launched.page.getByText('Verifier: fail — 1 unmet criterion')).toBeVisible()
+
+  // Tier approvals without a verifier report render no verifier line.
+  await emitNotification(launched.page, 'approval/request', {
+    id: 'approval-no-verifier',
+    type: 'tool-tier',
+    description: 'Tier approval without verifier report',
+    createdAt: new Date().toISOString(),
+    risk: 'high',
+    tier: tierDetails('approval-no-verifier'),
+  })
+
+  await expect(launched.page.getByText('Tier approval without verifier report')).toBeVisible()
+  await expect(launched.page.getByText(/Verifier:/)).toHaveCount(2)
+})
+
 test('sandbox violation notification shows a dismissible toast with settings shortcut', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()

@@ -465,44 +465,54 @@ function mediaTypeForPath(path: string): SupportedImageMediaType | null {
   return IMAGE_MEDIA_TYPES[extname(path).toLowerCase()] ?? null
 }
 
-function registerNotificationForwarding(ctx: IpcHandlerContext): void {
-  const notificationMethods: NotificationMethod[] = [
-    'agent/contextUsage',
-    'agent/text',
-    'agent/toolCallStart',
-    'agent/toolCallEnd',
-    'agent/turnComplete',
-    'agent/error',
-    'agent/steerInjected',
-    'agent/steerOrphaned',
-    'agent/turnAborted',
-    'agent/thinking',
-    'agent/status',
-    'agent/subagentStarted',
-    'agent/subagentUpdated',
-    'agent/subagentCompleted',
-    'agent/subagentFailed',
-    'agent/permissionLeaseUpdated',
-    'team/graphOpen',
-    'team/graphUpdated',
-    'memory/updated',
-    'skill/activated',
-    'approval/request',
-    'askUser/request',
-    'rsi/reflection',
-    'rsi/crystallization',
-    'rsi/dream',
-    'rsi/error',
-    'rsi/runtime',
-    'mode/entered',
-    'mode/exited',
-    'mode/planSubmitted',
-    'agent/artifactCreated',
-    'sandbox/violation',
-    'sandbox/unavailable',
-  ]
+/**
+ * CLI notifications forwarded verbatim to the renderer over the
+ * CLI_NOTIFICATION channel. Exported so tests can assert coverage: the
+ * test-only EMIT_NOTIFICATION bridge bypasses this list, so a method
+ * missing here would silently never reach the real renderer even though
+ * E2E specs driven by emitNotification stay green.
+ */
+export const FORWARDED_NOTIFICATION_METHODS: readonly NotificationMethod[] = [
+  'agent/contextUsage',
+  'agent/text',
+  'agent/toolCallStart',
+  'agent/toolCallEnd',
+  'agent/turnComplete',
+  'agent/error',
+  'agent/steerInjected',
+  'agent/steerOrphaned',
+  'agent/turnAborted',
+  'agent/thinking',
+  'agent/status',
+  'agent/subagentStarted',
+  'agent/subagentUpdated',
+  'agent/subagentCompleted',
+  'agent/subagentFailed',
+  'agent/permissionLeaseUpdated',
+  'team/graphOpen',
+  'team/graphUpdated',
+  'memory/updated',
+  'skill/activated',
+  'approval/request',
+  'askUser/request',
+  'rsi/reflection',
+  'rsi/crystallization',
+  'rsi/dream',
+  'rsi/error',
+  'rsi/runtime',
+  'mode/entered',
+  'mode/exited',
+  'mode/planSubmitted',
+  'agent/artifactCreated',
+  'sandbox/violation',
+  'sandbox/unavailable',
+  'agent/verifierStarted',
+  'agent/verifierVerdict',
+  'agent/verifierError',
+]
 
-  for (const method of notificationMethods) {
+function registerNotificationForwarding(ctx: IpcHandlerContext): void {
+  for (const method of FORWARDED_NOTIFICATION_METHODS) {
     ctx.rpcClient.onNotification(method, (params) => {
       const win = ctx.getMainWindow()
       if (win && !win.isDestroyed()) {

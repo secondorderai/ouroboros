@@ -79,6 +79,7 @@ function makeConfig(overrides?: DeepPartial<OuroborosConfig>): OuroborosConfig {
       network: { ...base.sandbox.network, ...overrides?.sandbox?.network },
       filesystem: { ...base.sandbox.filesystem, ...overrides?.sandbox?.filesystem },
     },
+    verifier: { ...base.verifier, ...overrides?.verifier },
   }
 }
 

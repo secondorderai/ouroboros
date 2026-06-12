@@ -17,6 +17,7 @@ const CHECKPOINT_TITLE = '# Reflection Checkpoint'
 const NONE_PLACEHOLDER = '_None_'
 const checkpointSectionTitles = [
   'Goal',
+  'Done Contract',
   'Current Plan',
   'Constraints',
   'Decisions Made',
@@ -28,7 +29,15 @@ const checkpointSectionTitles = [
   'Skill Candidates',
 ] as const
 
+/**
+ * Sections that may be absent from checkpoint markdown. "Done Contract" was
+ * added after the original format shipped, so legacy checkpoint files without
+ * it must keep parsing.
+ */
+const optionalSectionTitles = new Set<(typeof checkpointSectionTitles)[number]>(['Done Contract'])
+
 const listSectionTitles = new Set([
+  'Done Contract',
   'Current Plan',
   'Constraints',
   'Decisions Made',
@@ -72,6 +81,7 @@ const reflectionCheckpointSchema = z.object({
   sessionId: nonEmptyStringSchema,
   updatedAt: timestampSchema,
   goal: z.string(),
+  doneContract: z.array(nonEmptyStringSchema).optional(),
   currentPlan: z.array(nonEmptyStringSchema),
   constraints: z.array(nonEmptyStringSchema),
   decisionsMade: z.array(nonEmptyStringSchema),
@@ -323,7 +333,9 @@ function extractSections(
     sections.set(title, content)
   }
 
-  const missingSection = checkpointSectionTitles.find((title) => !sections.has(title))
+  const missingSection = checkpointSectionTitles.find(
+    (title) => !optionalSectionTitles.has(title) && !sections.has(title),
+  )
   if (missingSection) {
     return err(new Error(`Checkpoint markdown is missing required section "${missingSection}"`))
   }
@@ -434,6 +446,7 @@ export function renderCheckpointMarkdown(checkpoint: ReflectionCheckpoint): Resu
 
   const sections = [
     `## Goal\n${renderScalar(parsed.data.goal)}`,
+    `## Done Contract\n${renderList(parsed.data.doneContract ?? [])}`,
     `## Current Plan\n${renderList(parsed.data.currentPlan)}`,
     `## Constraints\n${renderList(parsed.data.constraints)}`,
     `## Decisions Made\n${renderList(parsed.data.decisionsMade)}`,
@@ -469,10 +482,15 @@ export function parseCheckpointMarkdown(markdown: string): Result<ReflectionChec
     return skillResult
   }
 
+  // "Done Contract" is optional: legacy checkpoints predate the section, and
+  // an empty list renders as the none-placeholder, so both parse to undefined.
+  const doneContract = parseListSection(sections.get('Done Contract') ?? '')
+
   const parsed = reflectionCheckpointSchema.safeParse({
     sessionId: frontmatterResult.value.meta.sessionId,
     updatedAt: frontmatterResult.value.meta.updatedAt,
     goal: parseScalarSection(sections.get('Goal') ?? ''),
+    ...(doneContract.length > 0 ? { doneContract } : {}),
     currentPlan: parseListSection(sections.get('Current Plan') ?? ''),
     constraints: parseListSection(sections.get('Constraints') ?? ''),
     decisionsMade: parseListSection(sections.get('Decisions Made') ?? ''),
@@ -530,7 +548,16 @@ export function readCheckpoint(
 
 export function reflectCheckpoint(
   sessionId: string,
-  options?: { observations?: ObservationRecord[]; updatedAt?: string; basePath?: string },
+  options?: {
+    observations?: ObservationRecord[]
+    updatedAt?: string
+    basePath?: string
+    /**
+     * Done contract from the completion-gate verifier, threaded through so the
+     * checkpoint preserves the task's completion criteria across compaction.
+     */
+    doneContract?: string[]
+  },
 ): Result<ReflectionCheckpoint> {
   const observationsResult = options?.observations
     ? ok(options.observations)
@@ -547,12 +574,18 @@ export function reflectCheckpoint(
     return checkpointResult
   }
 
-  const writeResult = writeCheckpoint(checkpointResult.value, options?.basePath)
+  const doneContract = options?.doneContract?.filter((criterion) => criterion.trim().length > 0)
+  const checkpoint: ReflectionCheckpoint =
+    doneContract && doneContract.length > 0
+      ? { ...checkpointResult.value, doneContract }
+      : checkpointResult.value
+
+  const writeResult = writeCheckpoint(checkpoint, options?.basePath)
   if (!writeResult.ok) {
     return writeResult
   }
 
-  return checkpointResult
+  return ok(checkpoint)
 }
 
 export const CHECKPOINT_SECTION_ORDER = [...checkpointSectionTitles]

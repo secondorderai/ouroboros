@@ -330,11 +330,22 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     })
   })
 
-  setTierApprovalHandler(async (toolName: string, toolTier: number, toolArgs: unknown) => {
+  setTierApprovalHandler(async (toolName, toolTier, toolArgs, extras) => {
     const approvalId = `tier-approval-${crypto.randomUUID()}`
     const createdAt = new Date().toISOString()
     const tierLabel = tierApprovalLabel(toolTier)
     const description = `Approve one ${tierLabel} operation: ${toolName}`
+    // Tier-3 (self-modification) approvals are enriched with the requesting
+    // agent's most recent completion-gate verdict so the human reviewer sees
+    // how the last gated run resolved before approving a self-change. The
+    // agent is resolved through the per-run AsyncLocalStorage scope — tier
+    // approvals fire during tool execution inside `agent.run(...)`, which the
+    // agent/run handler wraps via `runWithSessionScope`.
+    const approvalSessionId = sessionRunStorage.getStore()?.sessionId
+    const approvalAgent = approvalSessionId ? agentsBySession.get(approvalSessionId) : undefined
+    const verifierReport =
+      extras?.verifierReport ??
+      (toolTier === 3 ? (approvalAgent?.getLastVerifierReport() ?? undefined) : undefined)
     const details: TierApprovalDetails = {
       approvalId,
       toolName,
@@ -342,6 +353,10 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       toolArgs,
       tierLabel,
       createdAt,
+      // The verifier report rides along in the details so both the
+      // `approval/request` notification (`tier: details`) and `approval/list`
+      // surface it to the desktop.
+      ...(verifierReport ? { verifierReport } : {}),
     }
 
     writeMessage(

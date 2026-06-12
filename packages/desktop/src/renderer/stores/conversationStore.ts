@@ -21,6 +21,7 @@ import type {
   AgentSubagentCompletedNotification,
   AgentSubagentFailedNotification,
   AgentPermissionLeaseUpdatedNotification,
+  AgentVerifierVerdictNotification,
   SessionInfo,
   SessionMessage,
   SubagentEvidenceReference,
@@ -54,6 +55,8 @@ export interface SessionRunSnapshot {
   pendingSubagentRuns: SubagentRun[]
   pendingActivatedSkills: string[]
   pendingSubmittedPlan: Plan | null
+  /** Final completion-gate verdict for this session's last run (chip state). */
+  verifierVerdict: AgentVerifierVerdictNotification | null
   isAgentRunning: boolean
   contextUsage: AgentContextUsageParams | null
   responseStartedAt: string | null
@@ -83,6 +86,14 @@ export interface ConversationState {
   pendingActivatedSkills: string[]
   pendingSubmittedPlan: Plan | null
   activePlanDecision: { sessionId: string | null; plan: Plan } | null
+
+  /**
+   * Final completion-gate verdict for the currently-viewed session's last
+   * run. Only final verdicts (`willRetry === false`) are stored; cleared when
+   * a new message is sent, on session switch, or when the user dismisses the
+   * chip.
+   */
+  verifierVerdict: AgentVerifierVerdictNotification | null
 
   /** Whether the agent is currently executing a turn. */
   isAgentRunning: boolean
@@ -214,6 +225,16 @@ export interface ConversationState {
   /** Handle worker diff approval status updates. */
   handleWorkerDiffUpdated: (params: WorkerDiffDisplayDetails) => void
 
+  /**
+   * Handle an incoming `agent/verifierVerdict` notification. Intermediate
+   * verdicts (`willRetry === true`) are ignored — only the final verdict of a
+   * run is surfaced as a chip.
+   */
+  handleVerifierVerdict: (params: AgentVerifierVerdictNotification) => void
+
+  /** Dismiss the verifier verdict chip for the currently-viewed session. */
+  dismissVerifierVerdict: () => void
+
   /** Reset the conversation (e.g., when switching sessions). */
   resetConversation: () => void
 
@@ -315,6 +336,7 @@ function emptySnapshot(): SessionRunSnapshot {
     pendingSubagentRuns: [],
     pendingActivatedSkills: [],
     pendingSubmittedPlan: null,
+    verifierVerdict: null,
     isAgentRunning: false,
     contextUsage: null,
     responseStartedAt: null,
@@ -332,6 +354,7 @@ function snapshotFromFlat(state: ConversationState): SessionRunSnapshot {
     pendingSubagentRuns: state.pendingSubagentRuns,
     pendingActivatedSkills: state.pendingActivatedSkills,
     pendingSubmittedPlan: state.pendingSubmittedPlan,
+    verifierVerdict: state.verifierVerdict,
     isAgentRunning: state.isAgentRunning,
     contextUsage: state.contextUsage,
     responseStartedAt: state.responseStartedAt,
@@ -348,6 +371,7 @@ function flatFromSnapshot(snap: SessionRunSnapshot): {
   pendingSubagentRuns: SubagentRun[]
   pendingActivatedSkills: string[]
   pendingSubmittedPlan: Plan | null
+  verifierVerdict: AgentVerifierVerdictNotification | null
   isAgentRunning: boolean
   contextUsage: AgentContextUsageParams | null
   responseStartedAt: string | null
@@ -361,6 +385,7 @@ function flatFromSnapshot(snap: SessionRunSnapshot): {
     pendingSubagentRuns: snap.pendingSubagentRuns,
     pendingActivatedSkills: snap.pendingActivatedSkills,
     pendingSubmittedPlan: snap.pendingSubmittedPlan,
+    verifierVerdict: snap.verifierVerdict,
     isAgentRunning: snap.isAgentRunning,
     contextUsage: snap.contextUsage,
     responseStartedAt: snap.responseStartedAt,
@@ -1217,6 +1242,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
     pendingActivatedSkills: [],
     pendingSubmittedPlan: null,
     activePlanDecision: null,
+    verifierVerdict: null,
     isAgentRunning: false,
     activeRunSessionId: null,
     nextId: 1,
@@ -1269,6 +1295,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         pendingActivatedSkills: skillName ? [skillName] : [],
         pendingSubmittedPlan: null,
         activePlanDecision: null,
+        verifierVerdict: null,
         responseStartedAt,
         nextId: state.nextId + 1,
         contextUsage: null,
@@ -1452,6 +1479,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         pendingActivatedSkills: message.retrySkillName ? [message.retrySkillName] : [],
         pendingSubmittedPlan: null,
         activePlanDecision: null,
+        verifierVerdict: null,
         responseStartedAt,
         contextUsage: null,
         sessions: runSessionId
@@ -2155,6 +2183,41 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       set((state) => applyAcrossAllSessions(state, undefined, updater))
     },
 
+    handleVerifierVerdict(params: AgentVerifierVerdictNotification) {
+      // Intermediate verdicts precede a retry — the chip only shows how the
+      // run finally resolved.
+      if (params.willRetry) return
+
+      const state = get()
+      const runSessionId = resolveRunSessionId(params, state)
+      if (!runSessionId) {
+        // No session attribution — apply to flat state directly (legacy
+        // single-session callers and notification-before-session tests).
+        set({ verifierVerdict: params })
+        return
+      }
+      set(
+        updateRunState(state, runSessionId, (snap) => ({
+          ...snap,
+          verifierVerdict: params,
+        })),
+      )
+    },
+
+    dismissVerifierVerdict() {
+      const state = get()
+      if (!state.currentSessionId) {
+        set({ verifierVerdict: null })
+        return
+      }
+      set(
+        updateRunState(state, state.currentSessionId, (snap) => ({
+          ...snap,
+          verifierVerdict: null,
+        })),
+      )
+    },
+
     resetConversation() {
       set({
         ...flatFromSnapshot(emptySnapshot()),
@@ -2213,8 +2276,12 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       }
       // Restore incoming session's snapshot (or start fresh if we've never
       // seen it). The flat fields mirror the snapshot so component code that
-      // reads `state.messages` etc. keeps working unchanged.
-      const incoming = id ? (snapshots.get(id) ?? emptySnapshot()) : emptySnapshot()
+      // reads `state.messages` etc. keeps working unchanged. Verifier verdict
+      // chips do not survive a view switch — they describe the moment a run
+      // finished, so switching away dismisses them.
+      const restored = id ? (snapshots.get(id) ?? emptySnapshot()) : emptySnapshot()
+      const incoming: SessionRunSnapshot = { ...restored, verifierVerdict: null }
+      if (id) snapshots.set(id, incoming)
       set({
         currentSessionId: id,
         sessionRunSnapshots: snapshots,
@@ -2265,7 +2332,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       // be dropped, otherwise the streaming row keeps rendering after the
       // completed assistant message has already been finalized.
       const cliRunCompleted = !!existing && messages.length > existing.messages.length
-      const incoming: SessionRunSnapshot =
+      const restored: SessionRunSnapshot =
         existing && existing.messages.length >= messages.length
           ? existing
           : {
@@ -2282,11 +2349,14 @@ export const useConversationStore = create<ConversationState>((set, get) => {
               pendingSubmittedPlan: cliRunCompleted
                 ? null
                 : (existing?.pendingSubmittedPlan ?? null),
+              verifierVerdict: null,
               isAgentRunning: cliRunCompleted ? false : state.activeRunSessionId === id,
               contextUsage: existing?.contextUsage ?? null,
               responseStartedAt: cliRunCompleted ? null : (existing?.responseStartedAt ?? null),
               nextId: messages.length + 1,
             }
+      // Session loads are view switches — verdict chips never survive them.
+      const incoming: SessionRunSnapshot = { ...restored, verifierVerdict: null }
       snapshots.set(id, incoming)
 
       set({

@@ -545,6 +545,43 @@ export async function generateResponse(
     const tools = toToolSet(options?.tools)
     const { effectiveTemperature, ...promptOptions } = getProviderPromptOptions(model, options)
 
+    // The ChatGPT subscription Responses backend rejects non-streaming
+    // completions as 400 {"detail":"Stream must be set to true"}, so this
+    // provider generates through a fully-consumed stream instead.
+    if (isChatgptResponsesModel(model)) {
+      const streamed = streamText({
+        model,
+        ...promptOptions,
+        messages: modelMessages,
+        temperature: effectiveTemperature ?? options?.temperature,
+        maxOutputTokens: getMaxOutputTokens(model, options),
+        stopSequences: options?.stopSequences,
+        tools,
+        abortSignal: options?.abortSignal,
+      })
+      const [text, toolCalls, finishReason, usage] = await Promise.all([
+        streamed.text,
+        streamed.toolCalls,
+        streamed.finishReason,
+        streamed.usage,
+      ])
+
+      return ok({
+        text,
+        toolCalls: toolCalls.map((tc) => ({
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.input as Record<string, unknown>,
+        })),
+        finishReason,
+        usage: {
+          promptTokens: usage.inputTokens ?? 0,
+          completionTokens: usage.outputTokens ?? 0,
+          totalTokens: usage.totalTokens ?? 0,
+        },
+      })
+    }
+
     const result = await generateText({
       model,
       ...promptOptions,

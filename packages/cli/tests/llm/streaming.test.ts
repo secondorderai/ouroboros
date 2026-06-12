@@ -752,6 +752,49 @@ describe('generateResponse', () => {
     expect(result.value.toolCalls[0].input).toEqual({ city: 'London' })
   })
 
+  test('generates through a consumed stream for the chatgpt responses provider', async () => {
+    // Regression: the ChatGPT subscription Responses backend rejects
+    // non-streaming completions as 400 {"detail":"Stream must be set to true"},
+    // which silently broke every generateResponse caller (verifier gate, RSI
+    // reflection) on the openai-chatgpt provider.
+    let doGenerateCalled = false
+
+    const model = {
+      specificationVersion: 'v3',
+      provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
+      modelId: 'gpt-5.4',
+      supportedUrls: {},
+      doGenerate: async () => {
+        doGenerateCalled = true
+        throw new Error('Bad Request (status 400; {"detail":"Stream must be set to true"})')
+      },
+      doStream: async () => ({
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
+          start(controller) {
+            controller.enqueue({ type: 'text-start', id: 'tx1' })
+            controller.enqueue({ type: 'text-delta', id: 'tx1', delta: '{"verdict":"pass"' })
+            controller.enqueue({ type: 'text-delta', id: 'tx1', delta: '}' })
+            controller.enqueue({ type: 'text-end', id: 'tx1' })
+            controller.enqueue(v3Finish('stop', 7, 3))
+            controller.close()
+          },
+        }),
+        warnings: [],
+      }),
+    } as unknown as LanguageModel
+
+    const result = await generateResponse(model, testMessages)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(doGenerateCalled).toBe(false)
+    expect(result.value.text).toBe('{"verdict":"pass"}')
+    expect(result.value.finishReason).toBe('stop')
+    expect(result.value.usage.promptTokens).toBe(7)
+    expect(result.value.usage.completionTokens).toBe(3)
+  })
+
   test('auth error returns Result error', async () => {
     const model = createMockModel({
       error: new Error('401 Unauthorized: Invalid API key provided'),
@@ -853,27 +896,27 @@ describe('generateResponse', () => {
       provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
       modelId: 'gpt-5.4',
       supportedUrls: {},
-      doGenerate: async (options: Record<string, unknown>) => {
+      doGenerate: async () => {
+        // The real backend rejects non-streaming calls; generateResponse must
+        // route chatgpt-responses models through doStream.
+        throw new Error('Bad Request (status 400; {"detail":"Stream must be set to true"})')
+      },
+      doStream: async (options: Record<string, unknown>) => {
         capturedSystem = options.prompt
         capturedProviderOptions = options.providerOptions
 
         return {
-          content: [{ type: 'text', id: 'gen', text: 'ok' }],
-          finishReason: { unified: 'stop', raw: 'stop' },
-          usage: {
-            inputTokens: {
-              total: 1,
-              noCache: undefined,
-              cacheRead: undefined,
-              cacheWrite: undefined,
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'text-start', id: 'tx1' })
+              controller.enqueue({ type: 'text-delta', id: 'tx1', delta: 'ok' })
+              controller.enqueue({ type: 'text-end', id: 'tx1' })
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
             },
-            outputTokens: { total: 1, text: undefined, reasoning: undefined },
-          },
+          }),
           warnings: [],
         }
-      },
-      doStream: async () => {
-        throw new Error('Not implemented')
       },
     } as unknown as LanguageModel
 
@@ -902,26 +945,24 @@ describe('generateResponse', () => {
       provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
       modelId: 'gpt-5.4',
       supportedUrls: {},
-      doGenerate: async (options: Record<string, unknown>) => {
+      doGenerate: async () => {
+        throw new Error('Bad Request (status 400; {"detail":"Stream must be set to true"})')
+      },
+      doStream: async (options: Record<string, unknown>) => {
         capturedProviderOptions = options.providerOptions
 
         return {
-          content: [{ type: 'text', id: 'gen', text: 'ok' }],
-          finishReason: { unified: 'stop', raw: 'stop' },
-          usage: {
-            inputTokens: {
-              total: 1,
-              noCache: undefined,
-              cacheRead: undefined,
-              cacheWrite: undefined,
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'text-start', id: 'tx1' })
+              controller.enqueue({ type: 'text-delta', id: 'tx1', delta: 'ok' })
+              controller.enqueue({ type: 'text-end', id: 'tx1' })
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
             },
-            outputTokens: { total: 1, text: undefined, reasoning: undefined },
-          },
+          }),
           warnings: [],
         }
-      },
-      doStream: async () => {
-        throw new Error('Not implemented')
       },
     } as unknown as LanguageModel
 
@@ -1023,23 +1064,21 @@ describe('generateResponse', () => {
       provider: `${OPENAI_CHATGPT_PROVIDER}.responses`,
       modelId: 'gpt-5.5',
       supportedUrls: {},
-      doStream: async () => {
-        throw new Error('Not implemented')
+      doGenerate: async () => {
+        throw new Error('Bad Request (status 400; {"detail":"Stream must be set to true"})')
       },
-      doGenerate: async (options: Record<string, unknown>) => {
+      doStream: async (options: Record<string, unknown>) => {
         capturedOptions = options
         return {
-          content: [{ type: 'text', id: 'gen', text: 'ok' }],
-          finishReason: { unified: 'stop', raw: 'stop' },
-          usage: {
-            inputTokens: {
-              total: 1,
-              noCache: undefined,
-              cacheRead: undefined,
-              cacheWrite: undefined,
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'text-start', id: 'tx1' })
+              controller.enqueue({ type: 'text-delta', id: 'tx1', delta: 'ok' })
+              controller.enqueue({ type: 'text-end', id: 'tx1' })
+              controller.enqueue(v3Finish('stop', 1, 1))
+              controller.close()
             },
-            outputTokens: { total: 1, text: undefined, reasoning: undefined },
-          },
+          }),
           warnings: [],
         }
       },

@@ -6,6 +6,7 @@ import {
   DEFAULT_MEMORY_CONFIG,
   DEFAULT_RSI_CONFIG,
   DEFAULT_SANDBOX_CONFIG,
+  DEFAULT_VERIFIER_CONFIG,
   getSelectablePrimaryAgentDefinitions,
   loadConfig,
   resolveConfigDir,
@@ -219,6 +220,64 @@ describe('loadConfig', () => {
     expect(denyWriteResult.ok).toBe(false)
     if (denyWriteResult.ok) return
     expect(denyWriteResult.error.message).toContain('sandbox.filesystem.denyWrite')
+  })
+
+  test('applies verifier defaults when section is missing', () => {
+    writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify({}))
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.verifier).toEqual(DEFAULT_VERIFIER_CONFIG)
+    expect(result.value.verifier.trigger).toBe('long-tasks')
+    expect(result.value.verifier.minToolCalls).toBe(5)
+    expect(result.value.verifier.maxRetries).toBe(2)
+    // Standing criteria default to the testing-policy contract lines, appended
+    // verbatim to every extracted done contract.
+    expect(result.value.verifier.standingCriteria).toEqual([
+      'Matching automated tests exist and pass for any behavior change.',
+      'No existing test was deleted, skipped, or weakened.',
+    ])
+    expect(result.value.verifier.model).toBeUndefined()
+  })
+
+  test('loads a custom verifier section with partial defaults applied', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ verifier: { trigger: 'always', maxRetries: 0 } }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.verifier.trigger).toBe('always')
+    expect(result.value.verifier.maxRetries).toBe(0)
+    expect(result.value.verifier.minToolCalls).toBe(5)
+  })
+
+  test('rejects an invalid verifier trigger', () => {
+    writeFileSync(
+      join(tempDir, '.ouroboros'),
+      JSON.stringify({ verifier: { trigger: 'sometimes' } }),
+    )
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('verifier.trigger')
+  })
+
+  test('rejects verifier.minToolCalls below 1', () => {
+    writeFileSync(join(tempDir, '.ouroboros'), JSON.stringify({ verifier: { minToolCalls: 0 } }))
+
+    const result = loadConfig(tempDir)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('verifier.minToolCalls')
   })
 
   test('loads configured desktop response format', () => {
