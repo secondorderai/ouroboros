@@ -48,7 +48,9 @@ Rules:
 - The agent's claims are NOT evidence. Only tool results are evidence.
 - If the evidence is insufficient to decide, prefer the verdict "unknown" over guessing.
 - Do not invent requirements that the task does not state or imply.
-- A criterion counts as met only when the tool-call evidence supports it.`,
+- A criterion counts as met only when the tool-call evidence supports it.
+- Some criteria are conditional (e.g. "for any behavior change", "if X"). First decide whether the condition applies to this task. A criterion whose condition does not apply is satisfied by definition — do not mark it failed or unknown for lack of evidence.
+- A criterion phrased as a prohibition (e.g. "No existing test was deleted") is satisfied when the evidence shows no sign of the prohibited action; it does not require positive proof.`,
   )
 
   sections.push(`## Original Task\n\n${input.task}`)
@@ -65,7 +67,7 @@ Rules:
       .map((criterion, index) => `${index + 1}. ${criterion}`)
       .join('\n')
     sections.push(
-      `## Done Criteria\n\nThe task is complete only when every criterion holds:\n\n${criteria}`,
+      `## Done Criteria\n\nThe task is complete only when every applicable criterion holds. A conditional criterion whose condition this task does not trigger counts as satisfied:\n\n${criteria}`,
     )
   } else {
     sections.push(
@@ -107,7 +109,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) matching thi
   "reason": "string — brief justification for the verdict"
 }
 
-Use "pass" only when the evidence supports every criterion. Use "fail" with one failure entry per unmet criterion. Use "unknown" when the evidence cannot establish completion either way.`)
+Use "pass" only when the evidence supports every applicable criterion. Use "fail" with one failure entry per unmet criterion. Use "unknown" when the evidence cannot establish completion either way.`)
 
   return sections.join('\n\n')
 }

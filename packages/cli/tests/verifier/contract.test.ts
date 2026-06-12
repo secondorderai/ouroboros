@@ -67,6 +67,14 @@ describe('buildDoneContractPrompt', () => {
     expect(prompt).toContain('ONLY a JSON object')
   })
 
+  test('instructs the extractor to keep conditional requirements explicit', () => {
+    const prompt = buildDoneContractPrompt({ task: 'do it', steerTexts: [] })
+
+    expect(prompt).toContain('Include a criterion only when it applies to this task')
+    expect(prompt).toContain('state the condition explicitly')
+    expect(prompt).toContain('satisfied when the condition does not apply')
+  })
+
   test('includes mid-run steering section only when steers exist', () => {
     const withSteers = buildDoneContractPrompt({
       task: 'do it',

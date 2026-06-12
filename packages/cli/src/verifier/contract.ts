@@ -50,7 +50,8 @@ export function buildDoneContractPrompt(
 Rules:
 - Each criterion must be a concrete outcome that can be checked independently.
 - Extract only what the task states or directly implies. Do not invent requirements.
-- Prefer few precise criteria over many vague ones.`,
+- Prefer few precise criteria over many vague ones.
+- Include a criterion only when it applies to this task. If a requirement is conditional (e.g. it applies only when code behavior changes), state the condition explicitly in the criterion so a verifier can treat it as satisfied when the condition does not apply.`,
   )
 
   sections.push(`## Task\n\n${input.task}`)

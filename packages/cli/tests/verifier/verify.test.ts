@@ -59,6 +59,26 @@ describe('buildVerifierPrompt', () => {
     expect(prompt).toContain('ONLY a JSON object')
   })
 
+  test('instructs that non-applicable conditional criteria count as satisfied', () => {
+    const prompt = buildVerifierPrompt(makeInput())
+
+    expect(prompt).toContain('Some criteria are conditional')
+    expect(prompt).toContain(
+      'A criterion whose condition does not apply is satisfied by definition',
+    )
+    expect(prompt).toContain('do not mark it failed or unknown')
+    expect(prompt).toContain(
+      'Use "pass" only when the evidence supports every applicable criterion',
+    )
+  })
+
+  test('instructs that prohibition criteria need no positive proof', () => {
+    const prompt = buildVerifierPrompt(makeInput())
+
+    expect(prompt).toContain('phrased as a prohibition')
+    expect(prompt).toContain('it does not require positive proof')
+  })
+
   test('falls back to derive-criteria instruction when doneCriteria is empty', () => {
     const prompt = buildVerifierPrompt(makeInput({ doneCriteria: [] }))
 
@@ -73,6 +93,10 @@ describe('buildVerifierPrompt', () => {
 
     expect(prompt).toContain('1. Tests pass')
     expect(prompt).toContain('2. No lint errors')
+    expect(prompt).toContain('every applicable criterion holds')
+    expect(prompt).toContain(
+      'A conditional criterion whose condition this task does not trigger counts as satisfied',
+    )
     expect(prompt).not.toContain('Derive the concrete completion criteria')
   })
 

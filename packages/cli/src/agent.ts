@@ -23,6 +23,7 @@ import {
 import {
   extractDoneContract,
   failureSignature,
+  summarizeEvidence,
   verify,
   type VerifierEvidenceItem,
   type VerifierFailure,
@@ -1487,7 +1488,7 @@ export class Agent {
     this.runEvidence.push({
       toolName,
       isError,
-      summary: summarizeText(serializeUnknown(result), 400),
+      summary: summarizeEvidence(toolName, result),
     })
     if (this.runEvidence.length > Agent.VERIFIER_EVIDENCE_CAP) {
       this.runEvidence.splice(0, this.runEvidence.length - Agent.VERIFIER_EVIDENCE_CAP)

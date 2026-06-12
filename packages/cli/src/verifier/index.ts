@@ -15,6 +15,7 @@ export {
   type VerifierVerdict,
 } from './types'
 export { buildVerifierPrompt, verify, type VerifyInput } from './verify'
+export { summarizeEvidence, EVIDENCE_SUMMARY_MAX_LENGTH } from './evidence'
 export {
   buildDoneContractPrompt,
   doneContractSchema,
