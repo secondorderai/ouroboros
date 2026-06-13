@@ -1,4 +1,4 @@
-pilot*.log
-pilot*.json
-smoke*.log
-smoke*.json
+# Per-run artifacts (scorecard ground truth lives at arcprize.org)
+*-results.json
+*-run.log
+*.log
