@@ -144,6 +144,38 @@ describe("reset", () => {
     expect(mock.getScorecard(card_id)?.cards[GAME1]?.total_plays).toBe(1);
   });
 
+  test("after reset, a keep-alive ping refreshes scorecard affinity", async () => {
+    // Regression: ALB affinity can lapse during long LLM-thinking gaps with
+    // no requests, after which every command fails with "game not found".
+    const open = await fetch(`${mock.url}/api/scorecard/open`, {
+      method: "POST",
+      headers: { "X-API-Key": mock.apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ tags: ["test"] }),
+    });
+    const { card_id } = (await open.json()) as { card_id: string };
+    process.env.ARC_CARD_ID = card_id;
+    const alb = open.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0]!)
+      .find((pair) => pair.startsWith("AWSALB="));
+    process.env.ARC_COOKIES = alb!;
+    process.env.ARC_KEEPALIVE_MS = "40";
+    // Reconnect so the server reads the env knobs fresh.
+    await client.close();
+    await server.close();
+    await connectServer();
+
+    const res = await call("reset", { game_id: GAME1 });
+    expect(res.isError).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const pings = mock.requests.filter(
+      (r) => r.path === `/api/scorecard/${card_id}`,
+    );
+    expect(pings.length).toBeGreaterThanOrEqual(1);
+    expect(pings[0]!.cookie).toContain("AWSALB=");
+    delete process.env.ARC_KEEPALIVE_MS;
+  });
+
   test('card_id: "" from the model is treated as absent (env wins)', async () => {
     // Regression: live models pass card_id: "" for "I don't know it"; with a
     // nullish-only fallback the empty string reached the API and every RESET
@@ -200,6 +232,20 @@ describe("act", () => {
       (r) => (r.body as { reasoning?: string }).reasoning,
     );
     expect(reasonings).toEqual([undefined, "probing down", undefined]);
+  });
+
+  test("accepts a 25-move batch (level-replay macros need >20)", async () => {
+    // Regression for the 20→40 cap raise: a replay of a learned level must
+    // fit in one act call so a death costs steps, not the whole budget.
+    await call("reset", { game_id: GAME1 });
+    // Alternate down/up so the player oscillates without scoring or dying.
+    const moves = Array.from({ length: 25 }, (_, i) => ({
+      action: i % 2 === 0 ? 2 : 1,
+    }));
+    const res = await call("act", { game_id: GAME1, moves });
+    expect(res.isError).toBe(false);
+    expect(res.text).toContain("#25 ACTION");
+    expect(actionRequests()).toHaveLength(25);
   });
 
   test("render: 'full' forces a full frame render", async () => {
