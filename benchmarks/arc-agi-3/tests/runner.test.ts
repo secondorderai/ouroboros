@@ -12,7 +12,7 @@ import {
   buildBenchConfig,
   buildGoal,
   buildContinueMessage,
-  MAX_CONTINUATIONS,
+  MAX_NO_PROGRESS_CONTINUATIONS,
   formatSummaryTable,
   extractGameStats,
   describeNotification,
@@ -680,14 +680,16 @@ describe("runArcBenchmark", () => {
     expect(mock.getScorecard(cardId!)!.closed).toBe(true);
   });
 
-  test("early stop without WIN triggers continuation prompts with shrinking budget", async () => {
+  test("a model that quits early every turn is driven to the full step budget", async () => {
+    // Regression: smaller models quit after 1-2 steps every turn. A fixed
+    // continuation cap left most of the budget unused; the driver should keep
+    // re-prompting (progress is being made) until the step budget is spent.
     process.env.ARC_API_KEY = MOCK_API_KEY;
     let sessionCounter = 0;
     const harness = makeFakeAgent((method) => {
       if (method === "session/new") return { sessionId: `sess-${++sessionCounter}` };
       if (method === "agent/run") {
-        // Always stop after 1 step without playing: the game never reaches
-        // WIN, so the driver should re-prompt until the continuation cap.
+        // One step of progress each turn, then stops — never reaches WIN.
         return { text: "I'm done", iterations: 1, stopReason: "completed" };
       }
       throw new Error(`unexpected method ${method}`);
@@ -702,21 +704,49 @@ describe("runArcBenchmark", () => {
 
     expect(exitCode).toBe(0);
     const runs = harness.calls.filter((c) => c.method === "agent/run");
-    expect(runs).toHaveLength(1 + MAX_CONTINUATIONS);
-    // Same session throughout; skill stays attached; budget shrinks.
+    // baseOptions maxSteps is 12; one step per run drives all 12.
+    expect(runs).toHaveLength(12);
+    // Same session throughout; skill stays attached; budget shrinks each turn.
     for (const run of runs) {
       expect(run.params.sessionId).toBe("sess-1");
       expect(run.params.skillName).toBe(SKILL_NAME);
     }
-    expect(runs.map((r) => r.params.maxSteps)).toEqual([12, 11, 10, 9, 8]);
+    expect(runs.map((r) => r.params.maxSteps)).toEqual([
+      12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+    ]);
     const followUp = runs[1]!.params.message as string;
     expect(followUp).toContain("You stopped early");
     expect(followUp).toContain("about 11 agent steps");
   });
 
+  test("stops re-prompting after consecutive no-progress continuations", async () => {
+    // A genuinely stuck model (zero new steps) must not be re-prompted forever.
+    process.env.ARC_API_KEY = MOCK_API_KEY;
+    let sessionCounter = 0;
+    const harness = makeFakeAgent((method) => {
+      if (method === "session/new") return { sessionId: `sess-${++sessionCounter}` };
+      if (method === "agent/run") {
+        // No progress: zero steps every turn.
+        return { text: "stuck", iterations: 0, stopReason: "completed" };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const { exitCode } = await runArcBenchmark(baseOptions(), {
+      client: makeClient(),
+      spawnAgent: harness.spawnAgent,
+      log: () => {},
+      print: () => {},
+    });
+
+    expect(exitCode).toBe(0);
+    const runs = harness.calls.filter((c) => c.method === "agent/run");
+    expect(runs).toHaveLength(MAX_NO_PROGRESS_CONTINUATIONS);
+  });
+
   test("an errored run gets no continuation prompts", async () => {
     // Regression: a quota-exhausted model errored every continuation; the
-    // driver burned all 4 prompts against a dead LLM before giving up.
+    // driver burned all its prompts against a dead LLM before giving up.
     process.env.ARC_API_KEY = MOCK_API_KEY;
     let sessionCounter = 0;
     const harness = makeFakeAgent((method) => {

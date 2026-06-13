@@ -87,9 +87,11 @@ Flags:
    per game, issues `agent/run` with `skillName: 'arc-agi-3'` and your
    `--max-steps` budget. The agent plays through the `mcp__arc__*` tools.
    If the agent stops early (models love to wrap up and summarize), the
-   runner checks the scorecard and sends up to 4 continuation prompts in the
-   same session until the budget is spent, the game is won, or the wall
-   clock runs out.
+   runner checks the scorecard and re-prompts the same session, repeating
+   until the step budget is spent, the game is won, the wall clock runs out,
+   or the model makes no progress for several consecutive prompts. This keeps
+   models that quit after 1-2 steps every turn (common with smaller local
+   models) playing to the full budget.
 4. Ground truth comes from `GET /api/scorecard/{card_id}` (not from agent
    self-reports). The runner closes the scorecard, prints a summary table
    (game, state, levels won, API actions, agent steps, stop reason), and the

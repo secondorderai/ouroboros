@@ -54,8 +54,13 @@ const DEFAULT_CANCEL_GRACE_MS = 15_000;
 const READY_ATTEMPTS = 120;
 const READY_POLL_TIMEOUT_MS = 1_000;
 const READY_POLL_INTERVAL_MS = 250;
-/** Max continuation prompts per game after the agent stops early. */
-export const MAX_CONTINUATIONS = 4;
+/**
+ * Stop re-prompting after this many consecutive continuations that produced no
+ * new steps — the model is genuinely stuck, not just quitting early. Models
+ * that quit after 1-2 steps every turn (common with smaller local models) are
+ * driven to the full step budget instead of being capped at a fixed count.
+ */
+export const MAX_NO_PROGRESS_CONTINUATIONS = 3;
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -668,13 +673,15 @@ export async function runArcBenchmark(
         log(
           `[${game}] running (maxSteps=${opts.maxSteps}, timeout=${opts.timeoutMin}min)`,
         );
-        // Driver loop: models love to stop early and summarize. While step
-        // budget and wall clock remain and the game is not won, send the
-        // session back in with a continuation message.
+        // Driver loop: models love to stop early and summarize. Keep
+        // re-prompting until the step budget is spent, the wall clock runs
+        // out, the game is won, the run errors, or the model makes no progress
+        // for several consecutive prompts (genuinely stuck).
         const deadline = Date.now() + opts.timeoutMin * 60_000;
         let stepsUsed = 0;
         let message = buildGoal(game, opts.maxSteps);
-        for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
+        let noProgressStreak = 0;
+        while (true) {
           const remainingMs = deadline - Date.now();
           if (remainingMs <= 0) {
             row.stopReason = "timeout";
@@ -701,7 +708,8 @@ export async function runArcBenchmark(
             break;
           }
           const result = (outcome.value ?? {}) as AgentRunResult;
-          stepsUsed += typeof result.iterations === "number" ? result.iterations : 0;
+          const delta = typeof result.iterations === "number" ? result.iterations : 0;
+          stepsUsed += delta;
           row.steps = stepsUsed;
           row.stopReason =
             typeof result.stopReason === "string" ? result.stopReason : "completed";
@@ -709,7 +717,17 @@ export async function runArcBenchmark(
           // An errored run (LLM failure, quota exhaustion) won't get better by
           // re-prompting — don't burn continuations on it.
           if (row.stopReason === "error") break;
-          if (stepsUsed >= opts.maxSteps || attempt === MAX_CONTINUATIONS) break;
+          if (stepsUsed >= opts.maxSteps) break;
+
+          // Bail out if the model is stuck (no new steps) several turns running.
+          noProgressStreak = delta > 0 ? 0 : noProgressStreak + 1;
+          if (noProgressStreak >= MAX_NO_PROGRESS_CONTINUATIONS) {
+            log(
+              `[${game}] no progress after ${noProgressStreak} continuations — stopping`,
+            );
+            break;
+          }
+
           let stats: GameStats;
           try {
             stats = extractGameStats(await client.getScorecard(cardId), game);
