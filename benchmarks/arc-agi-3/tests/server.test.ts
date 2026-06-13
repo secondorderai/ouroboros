@@ -234,6 +234,20 @@ describe("act", () => {
     expect(reasonings).toEqual([undefined, "probing down", undefined]);
   });
 
+  test("accepts a 25-move batch (level-replay macros need >20)", async () => {
+    // Regression for the 20→40 cap raise: a replay of a learned level must
+    // fit in one act call so a death costs steps, not the whole budget.
+    await call("reset", { game_id: GAME1 });
+    // Alternate down/up so the player oscillates without scoring or dying.
+    const moves = Array.from({ length: 25 }, (_, i) => ({
+      action: i % 2 === 0 ? 2 : 1,
+    }));
+    const res = await call("act", { game_id: GAME1, moves });
+    expect(res.isError).toBe(false);
+    expect(res.text).toContain("#25 ACTION");
+    expect(actionRequests()).toHaveLength(25);
+  });
+
   test("render: 'full' forces a full frame render", async () => {
     await call("reset", { game_id: GAME1 });
     const res = await call("act", {

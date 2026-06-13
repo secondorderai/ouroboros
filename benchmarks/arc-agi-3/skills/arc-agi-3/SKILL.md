@@ -20,7 +20,7 @@ and win.
   scorecard is preconfigured by the harness; passing anything (even an empty
   string) overrides it and breaks the run.
 - `mcp__arc__act {game_id, moves: [{action, x?, y?, note?}], render?}` —
-  execute up to 20 moves in one call. Each move is `{action: 1-6, x?, y?,
+  execute up to 40 moves in one call. Each move is `{action: 1-6, x?, y?,
   note?}`. `render` is `'full'` or `'diff'` (default `'diff'`). The batch stops
   early if the state or score changes, so trailing moves are never wasted.
 - `mcp__arc__status {game_id?}` — re-read cached state (frame, score,
@@ -76,13 +76,37 @@ and win.
 You have a fixed LLM-step budget stated in your goal. Every reply you produce
 costs one step, so:
 
-- **Batch confident sequences** — up to 20 moves per `act` call. One call with
-  12 moves costs the same step budget as one call with 1 move.
+- **Batch confident sequences** — up to 40 moves per `act` call. One call with
+  30 moves costs the same step budget as one call with 1 move.
 - Keep `render: 'diff'` (the default). Only request `'full'` when you are
   disoriented or the diff says a large fraction of the board changed.
 - Use `status` to re-inspect state instead of issuing extra actions.
 - Never call `list_games` mid-run.
 - Do not spend steps narrating; spend them acting. Short replies, big batches.
+
+## Level macros (required)
+
+Dying is cheap **only if recovery is cheap**. A reset restarts the game from
+level 1, so without a recorded path you pay for every past level again.
+
+- **The moment you complete a level, write down the exact move sequence that
+  cleared it** (every action, in order, with coordinates for action 6) in your
+  mechanics notes as a numbered macro, e.g.
+  `L1 macro (9 moves): A2 A2 A2 A4 A4 A6(30,30) A4 A4 A2`.
+- **After every GAME_OVER: reset, then replay your macro chain immediately** —
+  one `act` call per level (macros fit in a single 40-move batch). Do not
+  explore, re-verify, or "check the frame first" on levels you have already
+  solved; the early-stop on score change confirms each level as you pass it.
+- If a macro desyncs (the score does not advance where it should), the level
+  layout may be randomized — fall back to exploration for that level only, and
+  update the macro when you re-clear it.
+- **Never re-explore a solved level.** All fresh thinking belongs to the
+  frontier level. A death should cost you 1-2 steps per solved level, not a
+  re-discovery.
+- **No blind coordinate sweeps.** Clicking a grid row cell-by-cell hoping
+  something happens burns the budget fastest of all. Aim action 6 only at
+  visible objects from the inventory; if you have no hypothesis, re-read your
+  notes and the object list instead of sweeping.
 
 ## Mechanics notes (required)
 
@@ -97,6 +121,7 @@ Mechanics notes:
 - I control: blue 2x2 block; A1=up A2=down A3=left A4=right
 - Goal: reach the red cell; walls are gray (color 5)
 - A5: no effect so far; A6: untested this level
+- L1 macro (9 moves): A2 A2 A2 A4 A4 A6(30,30) A4 A4 A2
 - Current plan: go right 6, down 3
 ```
 

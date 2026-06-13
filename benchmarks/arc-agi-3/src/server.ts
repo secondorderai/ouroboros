@@ -46,7 +46,10 @@ import {
   shouldRenderFull,
 } from "./render";
 
-export const MAX_MOVES_PER_ACT = 20;
+// Sized so a full replay of a learned level fits in one call (one LLM step):
+// pilot logs showed deaths cost the whole level because re-clears were spread
+// across many small batches.
+export const MAX_MOVES_PER_ACT = 40;
 
 interface GameSession {
   gameId: string;
@@ -241,7 +244,7 @@ export function createArcServer(options: ArcServerOptions = {}): McpServer {
     "act",
     {
       description:
-        "Execute a batch of 1-20 moves sequentially. Each move is " +
+        "Execute a batch of 1-40 moves sequentially. Each move is " +
         "{action: 1-6, x?, y?, note?}; ACTION6 requires x and y (0-63, " +
         "origin top-left). note is forwarded as the API reasoning field. " +
         "The batch early-stops when the state changes (WIN/GAME_OVER) or " +
