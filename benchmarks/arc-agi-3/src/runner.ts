@@ -81,6 +81,12 @@ export interface BenchConfigInputs {
   cookies?: string;
   /** When set, overrides reasoningEffort on the model block (bench default: high). */
   reasoningEffort?: string;
+  /**
+   * Directory where the MCP server writes per-game frame-history JSONL. Set to
+   * the agent's workdir so its code-exec tool reads the same files (see
+   * history.ts / the code-assisted reasoning skill section).
+   */
+  frameLogDir?: string;
 }
 
 /**
@@ -97,6 +103,8 @@ export function buildBenchConfig(
   };
   if (inputs.baseUrl) env.ARC_BASE_URL = inputs.baseUrl;
   if (inputs.cookies) env.ARC_COOKIES = inputs.cookies;
+  // Frame history lands in the agent's workdir so its code-exec can read it.
+  if (inputs.frameLogDir) env.ARC_FRAME_LOG_DIR = inputs.frameLogDir;
   // Debug knob: forward request tracing into the MCP server process.
   if (process.env.ARC_DEBUG_FILE) env.ARC_DEBUG_FILE = process.env.ARC_DEBUG_FILE;
   // ~/.ouroboros often holds only auth + permissions (model selection lives in
@@ -646,6 +654,7 @@ export async function runArcBenchmark(
       baseUrl: process.env.ARC_BASE_URL,
       cookies: client.cookieHeaderValue(),
       reasoningEffort: opts.reasoningEffort,
+      frameLogDir: workdir,
     });
     await writeFile(
       join(workdir, ".ouroboros"),

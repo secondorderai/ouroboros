@@ -27,6 +27,10 @@ and win.
   available actions) with **no API call**. Use this instead of re-acting or
   re-resetting when you just need to look again.
 
+You also have your **general tools** — `code-exec` (run TypeScript/JS), `bash`,
+`file-write`/`file-read`. Use them. You are weak at spatial bookkeeping in your
+head; code is not. See "Code-assisted reasoning" below.
+
 ## Protocol
 
 1. **Always `reset` first.** A game must be reset before it accepts actions.
@@ -61,11 +65,15 @@ and win.
 - **Probe before you plan.** After reset, try each available action once (one
   small batch per probe) and study the frame diff each produced. Which cells
   changed? Did something move, appear, disappear, change color?
-- **Form a hypothesis** about the mechanics: what do you control, what is the
-  goal object, what do the actions do, what ends the level. State it
-  explicitly in your reply.
-- **Test the hypothesis cheaply**, then **exploit**: once confident, batch a
-  full move sequence toward the goal in a single `act` call.
+- **Hold competing hypotheses.** Maintain 2-3 explicit candidate theories about
+  any unknown mechanic (e.g. "A5 toggles a switch" vs "A5 picks up the item
+  under me" vs "A5 is a no-op"). State them in your reply.
+- **Choose the discriminating action.** When unsure, pick the move whose outcome
+  differs most between your live hypotheses — the one that *eliminates* the most
+  theories — not a random probe. After the result, cross off every hypothesis it
+  contradicts and say which survive.
+- **Test the surviving hypothesis cheaply**, then **exploit**: once confident,
+  batch a full move sequence toward the goal in a single `act` call.
 - **After every score increase, re-explore.** Levels often introduce new
   mechanics; do a quick probe pass before committing to long sequences.
 - If a probe produces no visible change, note that too — walls, disabled
@@ -108,6 +116,50 @@ level 1, so without a recorded path you pay for every past level again.
   visible objects from the inventory; if you have no hypothesis, re-read your
   notes and the object list instead of sweeping.
 
+## Death attribution (required)
+
+Repeated identical deaths are the fastest way to waste a budget. Before you
+`reset` after any **GAME_OVER**:
+
+- **Write down what killed you.** Record the last 1-3 actions, the object
+  positions just before death, and your single best guess at the cause ("died
+  moving onto the red cell at (12,7)"). Append it to a `Deaths:` list in your
+  mechanics notes.
+- **Maintain a danger model.** Keep a running list of moves/contexts that caused
+  death. **Never repeat a move that killed you in the same context.** If unsure
+  what killed you, use `code-exec` on the frame history (below) to find the exact
+  pre-death transition: the last `act` record before `state=GAME_OVER`.
+- Treat a death you cannot explain as the top priority to investigate, not to
+  retry blindly.
+
+## Code-assisted reasoning (your strongest tool)
+
+Do not solve grids in your head. Every `reset`/`act` appends the raw grid to a
+JSONL file whose absolute path is printed in the `reset` output as
+`frame_history=...` (also `./arc-history-<game_id>.jsonl`). Each line is
+`{seq, t, action, x, y, score, state, available_actions, frame}` where `frame`
+is the exact 64x64 integer grid. This file persists even after your chat context
+is compacted — it is your durable memory of the whole run.
+
+Use `code-exec` to do the reasoning code is good at and you are not:
+
+1. **Exact analysis.** Load the history, compute precise cell diffs, segment
+   connected components, and track each object's position over time.
+2. **Infer the transition model.** Test a hypothesized rule against every
+   recorded `(state, action, next_state)` triple — "does A2 always move my
+   object down by 1 unless blocked?" Code confirms or refutes instantly across
+   all observations.
+3. **Simulate and search.** Build a forward model of the level in code and
+   search (BFS/greedy) for an action sequence that reaches the goal, then execute
+   that sequence via `act`. The game has **no undo** — death restarts at level 1
+   — so simulate paths in code *before* committing them.
+4. **Find the killer.** Diff the frames straddling a GAME_OVER to see exactly
+   what changed when you died.
+
+Write a reusable analysis script once and rerun it as history grows; do not
+regenerate huge analyses every step. Your code must be **general** — it operates
+on the observed history, never hardcoded game-specific answers (see Hard rules).
+
 ## Mechanics notes (required)
 
 Long runs get their context compacted: raw frames and old tool results will be
@@ -122,6 +174,7 @@ Mechanics notes:
 - Goal: reach the red cell; walls are gray (color 5)
 - A5: no effect so far; A6: untested this level
 - L1 macro (9 moves): A2 A2 A2 A4 A4 A6(30,30) A4 A4 A2
+- Deaths: died moving onto red cell (12,7) — red = lethal, avoid
 - Current plan: go right 6, down 3
 ```
 
@@ -139,8 +192,9 @@ notes block plus one `status` call should fully re-orient you.
 
 ## End conditions
 
-- On **GAME_OVER**: `reset` and replay, applying everything in your mechanics
-  notes. Deaths are cheap; lost knowledge is not.
+- On **GAME_OVER**: first do **death attribution** (record the cause), then
+  `reset` and replay your macro chain, applying everything in your mechanics
+  notes. Deaths are cheap; lost knowledge and repeated deaths are not.
 - On **WIN**, or when your step budget is nearly exhausted: stop acting and
   produce a **final report** — levels completed, final score and state, and a
   summary of the mechanics you learned for each level.

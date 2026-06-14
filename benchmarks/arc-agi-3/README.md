@@ -97,6 +97,16 @@ Flags:
    (game, state, levels won, API actions, agent steps, stop reason), and the
    scorecard link in the form `https://arcprize.org/scorecards/{card_id}`.
 
+The agent keeps its full toolset alongside the `mcp__arc__*` tools. Every
+`reset`/`act` appends the raw 64x64 grid to a per-game JSONL at
+`<workdir>/arc-history-<game_id>.jsonl` (path set via `ARC_FRAME_LOG_DIR`, also
+printed in the `reset` output). The `arc-agi-3` skill directs the agent to load
+this with `code-exec` for code-assisted reasoning — exact diffs, transition
+models, and path search on ground-truth grids — which also survives LLM context
+compaction. The skill additionally enforces death attribution (record the cause
+of each GAME_OVER, never repeat a fatal move) and hypothesis discipline (pick
+discriminating probes).
+
 ## Cost
 
 Expect roughly $1-6 per game on frontier models, depending on the configured

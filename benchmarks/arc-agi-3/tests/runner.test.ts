@@ -136,6 +136,16 @@ describe("buildBenchConfig", () => {
     expect("ARC_COOKIES" in mcp.servers[0]!.env).toBe(false);
   });
 
+  test("forwards frameLogDir as ARC_FRAME_LOG_DIR for code-assisted reasoning", () => {
+    const config = buildBenchConfig({}, {
+      apiKey: "k",
+      cardId: "c",
+      frameLogDir: "/tmp/arc-workdir-xyz",
+    });
+    const mcp = config.mcp as { servers: Array<{ env: Record<string, string> }> };
+    expect(mcp.servers[0]!.env.ARC_FRAME_LOG_DIR).toBe("/tmp/arc-workdir-xyz");
+  });
+
   test("applies reasoningEffort to the user's model block", () => {
     const config = buildBenchConfig(userConfig, {
       apiKey: "k",

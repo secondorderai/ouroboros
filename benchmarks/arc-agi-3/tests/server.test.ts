@@ -7,10 +7,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { createArcServer } from "../src/server";
+import { frameLogPath, type HistoryRecord } from "../src/history";
 import {
   MOCK_GAMES,
   MOCK_L2_MARK,
@@ -29,6 +33,7 @@ interface ToolReply {
 let mock: MockArcServer;
 let server: ReturnType<typeof createArcServer>;
 let client: Client;
+let frameLogDir: string;
 
 async function connectServer(): Promise<void> {
   server = createArcServer({
@@ -49,6 +54,9 @@ beforeEach(async () => {
   process.env.ARC_BASE_URL = mock.url;
   delete process.env.ARC_CARD_ID;
   delete process.env.ARC_COOKIES;
+  // Isolate frame-history writes to a temp dir (don't pollute the repo).
+  frameLogDir = mkdtempSync(join(tmpdir(), "arc-srv-hist-"));
+  process.env.ARC_FRAME_LOG_DIR = frameLogDir;
   await connectServer();
 });
 
@@ -56,7 +64,16 @@ afterEach(async () => {
   await client.close();
   await server.close();
   mock.stop();
+  delete process.env.ARC_FRAME_LOG_DIR;
+  rmSync(frameLogDir, { recursive: true, force: true });
 });
+
+function readHistory(gameId: string): HistoryRecord[] {
+  return readFileSync(frameLogPath(gameId), "utf-8")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l) as HistoryRecord);
+}
 
 function call(
   name: string,
@@ -106,6 +123,8 @@ describe("reset", () => {
     expect(res.text).toContain(
       "state=NOT_FINISHED score=0/2 available_actions=[1,2,3,4] total_actions=0",
     );
+    // Surfaces the frame-history path for code-assisted reasoning.
+    expect(res.text).toContain(`frame_history=${frameLogPath(GAME1)}`);
   });
 
   test("second reset reuses the prior guid", async () => {
@@ -447,6 +466,37 @@ describe("serialization", () => {
     expect(reasonings).toEqual(["A1", "A2", "B1", "B2", "B3"]);
     // 5 downs total: batch B's last move reaches the target.
     expect(resB.text).toContain("score 0→1");
+  });
+});
+
+describe("frame history (code-assisted reasoning)", () => {
+  test("reset then act append raw grids to the per-game JSONL", async () => {
+    await call("reset", { game_id: GAME1 });
+    await call("act", { game_id: GAME1, moves: [{ action: 2 }, { action: 2 }] });
+
+    const hist = readHistory(GAME1);
+    expect(hist).toHaveLength(3); // 1 reset + 2 acts
+    expect(hist[0]!).toMatchObject({ seq: 0, t: "reset", state: "NOT_FINISHED" });
+    expect(hist[1]!).toMatchObject({ seq: 1, t: "act", action: 2 });
+    expect(hist[2]!).toMatchObject({ seq: 2, t: "act", action: 2 });
+    // The raw 64x64 integer grid is persisted for code analysis.
+    expect(hist[0]!.frame.length).toBe(64);
+    expect(hist[0]!.frame[0]!.length).toBe(64);
+    // The player (color 3) moved from row 2 to row 4 over two downs.
+    expect(hist[0]!.frame[2]![2]).toBe(3);
+    expect(hist[2]!.frame[4]![2]).toBe(3);
+  });
+
+  test("ACTION6 coordinates are recorded in the history", async () => {
+    await call("reset", { game_id: GAME1 });
+    // Clear level 1 (5 downs) so ACTION6 becomes available for level 2.
+    await call("act", { game_id: GAME1, moves: Array.from({ length: 5 }, () => ({ action: 2 })) });
+    await call("act", {
+      game_id: GAME1,
+      moves: [{ action: 6, x: MOCK_L2_MARK.x, y: MOCK_L2_MARK.y }],
+    });
+    const last = readHistory(GAME1).at(-1)!;
+    expect(last).toMatchObject({ t: "act", action: 6, x: MOCK_L2_MARK.x, y: MOCK_L2_MARK.y });
   });
 });
 

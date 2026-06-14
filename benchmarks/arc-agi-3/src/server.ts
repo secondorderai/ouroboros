@@ -37,6 +37,7 @@ import {
   type ArcClientOptions,
   type FrameResponse,
 } from "./client";
+import { appendHistory, frameLogPath } from "./history";
 import { describeObjectChanges, summarizeObjects } from "./objects";
 import {
   changedCellCount,
@@ -163,6 +164,24 @@ export function createArcServer(options: ArcServerOptions = {}): McpServer {
     session.score = frame.score;
   }
 
+  // Persist the raw grid for code-assisted analysis (see history.ts).
+  function logHistory(
+    session: GameSession,
+    t: "reset" | "act",
+    move?: { action: number; x?: number; y?: number },
+  ): void {
+    const frame = session.lastFrame;
+    appendHistory(session.gameId, {
+      seq: session.actionCount,
+      t,
+      ...(move ? { action: move.action, x: move.x, y: move.y } : {}),
+      score: frame.score,
+      state: frame.state,
+      available_actions: frame.available_actions ?? [],
+      frame: lastGrid(frame.frame),
+    });
+  }
+
   const server = new McpServer({ name: "arc", version: "0.1.0" });
 
   // -- list_games -------------------------------------------------------------
@@ -230,10 +249,14 @@ export function createArcServer(options: ArcServerOptions = {}): McpServer {
         updateSession(session, frame);
         sessions.set(args.game_id, session);
         ensureKeepAlive();
+        logHistory(session, "reset");
         return textResult(
           `RESET ${args.game_id} (guid ${frame.guid})\n` +
             `${renderFrame(frame.frame)}\n` +
-            `${summarizeObjects(lastGrid(frame.frame))}\n${statusLine(session)}`,
+            `${summarizeObjects(lastGrid(frame.frame))}\n${statusLine(session)}\n` +
+            `frame_history=${frameLogPath(args.game_id)} ` +
+            `(JSONL of {seq,t,action,x,y,score,state,available_actions,frame[64][64]} — ` +
+            `analyze with code-exec)`,
         );
       }),
   );
@@ -351,6 +374,7 @@ export function createArcServer(options: ArcServerOptions = {}): McpServer {
           lines.push(line);
 
           updateSession(session, frame);
+          logHistory(session, "act", { action: move.action, x: move.x, y: move.y });
           prevGrid = nextGrid;
 
           const terminal = frame.state === "WIN" || frame.state === "GAME_OVER";
