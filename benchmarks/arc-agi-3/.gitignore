@@ -2,3 +2,5 @@ pilot*.log
 pilot*.json
 smoke*.log
 smoke*.json
+*-results.json
+*-run.log
