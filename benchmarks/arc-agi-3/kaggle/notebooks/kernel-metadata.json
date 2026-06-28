@@ -1,0 +1,13 @@
+{
+  "id": "kinwochan/ouroboros-arc-agi-3-gemma4",
+  "title": "ouroboros-arc-agi-3-gemma4",
+  "code_file": "submission.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": ["arc-prize-2026-arc-agi-3"],
+  "model_sources": ["google/gemma-4/transformers/gemma-4-12b/1"]
+}

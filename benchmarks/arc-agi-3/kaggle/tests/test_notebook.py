@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+import importlib.util
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_builder():
+    spec = importlib.util.spec_from_file_location(
+        "build_notebook",
+        ROOT / "scripts" / "build_notebook.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class NotebookTest(unittest.TestCase):
+    def test_notebook_metadata_is_offline_rtx6000(self) -> None:
+        notebook = load_builder().build()
+        kaggle = notebook["metadata"]["kaggle"]
+        self.assertFalse(kaggle["isInternetEnabled"])
+        self.assertTrue(kaggle["isGpuEnabled"])
+        self.assertEqual(kaggle["accelerator"], "nvidiaRtx6000")
+
+    def test_notebook_embeds_agent_package_and_no_secrets(self) -> None:
+        notebook = load_builder().build()
+        source = "\n".join(cell.get("source", "") for cell in notebook["cells"])
+        self.assertIn("%%writefile /tmp/my_agent.py", source)
+        self.assertIn("%%writefile /tmp/ouro_arc/controller.py", source)
+        self.assertIn("/kaggle/input", source)
+        self.assertNotIn("ARC_API_KEY=", source.replace("ARC_API_KEY=test-key-123", ""))
+
+
+if __name__ == "__main__":
+    unittest.main()

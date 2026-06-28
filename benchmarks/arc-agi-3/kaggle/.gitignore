@@ -1,0 +1,12 @@
+.venv/
+vendor/
+environment_files/
+recordings/
+reference/
+logs.log
+__pycache__/
+.pytest_cache/
+*.pyc
+notebooks/submission.ipynb
+.kaggle/
+model-dataset/

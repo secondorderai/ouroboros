@@ -5,6 +5,13 @@ agent on [ARC-AGI-3](https://docs.arcprize.org), the interactive game benchmark
 from the ARC Prize. The agent plays unseen 64x64 grid games over the ARC HTTP
 API, discovering each game's mechanics purely by acting and observing frames.
 
+For Kaggle competition submissions, use `kaggle/`. That path is an offline
+Python submission package for the official Kaggle gateway and bundled Gemma 4
+12B Unified weights. The live HTTP scorecard harness documented below remains
+useful for research runs, prompt iteration, and Ouroboros-agent benchmarking,
+but it is not the Kaggle runtime because official reruns have internet
+disabled.
+
 Everything lives under `benchmarks/arc-agi-3/`. No core Ouroboros packages are
 modified; the integration point is the existing `.ouroboros` MCP server
 support plus the JSON-RPC agent server.
@@ -22,6 +29,8 @@ support plus the JSON-RPC agent server.
 - `skills/arc-agi-3/SKILL.md`: the agent's game-playing strategy skill.
 - `tests/`: full suite against a deterministic mock ARC server (no network,
   no LLM).
+- `kaggle/`: offline Kaggle submission package with Python unit tests,
+  notebook generation, and Gemma 4 12B Unified integration.
 
 ## Prerequisites
 
@@ -112,6 +121,13 @@ bun test
 The suite runs entirely against a local mock ARC server. From the repo root,
 `bun run verify` confirms the benchmark has zero impact on core packages (this
 directory is outside the workspace).
+
+The Kaggle submission package has its own deterministic Python suite:
+
+```bash
+cd benchmarks/arc-agi-3/kaggle
+make test
+```
 
 ## Troubleshooting
 
