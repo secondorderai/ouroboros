@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 SUMMARY_OBJECT_CAP = 16
 CHANGE_LINE_CAP = 12
+HUD_ROWS = 2
 
 
 @dataclass(frozen=True)
@@ -120,12 +121,120 @@ def foreground_objects(grid: list[list[int]]) -> list[GridObject]:
     return [obj for obj in objects if obj is not bg]
 
 
-def salient_click_targets(grid: list[list[int]], limit: int = 10) -> list[tuple[int, int, str]]:
+def object_signature(obj: GridObject) -> tuple[int, int, int, int]:
+    return (obj.color, obj.width, obj.height, obj.size)
+
+
+def object_motions(
+    prev: list[list[int]],
+    next_grid: list[list[int]],
+) -> list[tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int]]]:
+    """Match same-signature foreground objects and report center movements."""
+
+    prev_objects = foreground_objects(prev)
+    next_objects = foreground_objects(next_grid)
+    prev_groups: dict[tuple[int, int, int, int], list[GridObject]] = {}
+    next_groups: dict[tuple[int, int, int, int], list[GridObject]] = {}
+    for obj in prev_objects:
+        prev_groups.setdefault(object_signature(obj), []).append(obj)
+    for obj in next_objects:
+        next_groups.setdefault(object_signature(obj), []).append(obj)
+
+    motions: list[tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int]]] = []
+    for sig, old_group in prev_groups.items():
+        new_group = next_groups.get(sig)
+        if not new_group or len(old_group) != len(new_group):
+            continue
+        old_sorted = sorted(old_group, key=lambda o: (o.y0, o.x0))
+        new_sorted = sorted(new_group, key=lambda o: (o.y0, o.x0))
+        for old, new in zip(old_sorted, new_sorted):
+            if old.center != new.center:
+                motions.append((sig, old.center, new.center))
+    return motions
+
+
+def regular_click_targets(grid: list[list[int]], limit: int = 40) -> list[tuple[int, int, str]]:
+    """Return centers of regular rectangular tiles likely to be click targets."""
+
+    objects = [
+        obj
+        for obj in foreground_objects(grid)
+        if obj.size == obj.width * obj.height
+        and 2 <= obj.width <= 14
+        and 2 <= obj.height <= 14
+        and obj.size >= 4
+        and obj.y0 >= HUD_ROWS
+        and obj.y1 < len(grid) - HUD_ROWS
+    ]
+    groups: dict[tuple[int, int], list[GridObject]] = {}
+    for obj in objects:
+        groups.setdefault((obj.width, obj.height), []).append(obj)
+
+    targets: list[tuple[int, int, str]] = []
+    seen: set[tuple[int, int]] = set()
+    for (_width, _height), group in sorted(
+        groups.items(),
+        key=lambda item: (-len(item[1]), item[0][1] * item[0][0]),
+    ):
+        if len(group) < 2:
+            continue
+        rows: dict[int, list[GridObject]] = {}
+        for obj in group:
+            rows.setdefault(obj.center[1], []).append(obj)
+        regular_rows = [
+            sorted(row, key=lambda obj: obj.center[0])
+            for row in rows.values()
+            if len(row) >= 2
+        ]
+        if not regular_rows and len(group) < 2:
+            continue
+
+        ordered = sorted(group, key=lambda obj: (obj.center[1], obj.center[0]))
+        for obj in ordered:
+            point = obj.center
+            if point in seen:
+                continue
+            seen.add(point)
+            targets.append((point[0], point[1], f"regular tile {_describe_object(obj)}"))
+            if len(targets) >= limit:
+                return targets
+    return targets
+
+
+def salient_click_targets(grid: list[list[int]], limit: int = 40) -> list[tuple[int, int, str]]:
     """Return center points of likely interactive non-background objects."""
 
     targets: list[tuple[int, int, str]] = []
-    for obj in sorted(foreground_objects(grid), key=lambda o: (o.size, -o.y0, -o.x0), reverse=True):
+    seen: set[tuple[int, int]] = set()
+    for x, y, label in regular_click_targets(grid, limit=limit):
+        targets.append((x, y, label))
+        seen.add((x, y))
+        if len(targets) >= limit:
+            return targets
+
+    width = max((len(row) for row in grid), default=0)
+    height = len(grid)
+
+    def click_rank(obj: GridObject) -> tuple[int, int, int, int, int]:
+        touches_edge = obj.x0 == 0 or obj.y0 == 0 or obj.x1 >= width - 1 or obj.y1 >= height - 1
+        huge = obj.size > 128 or obj.width > 24 or obj.height > 24
+        compact_rect = obj.size == obj.width * obj.height and 2 <= obj.width <= 16 and 2 <= obj.height <= 16
+        tiny = obj.size == 1
+        return (
+            1 if huge or (touches_edge and obj.size > 16) else 0,
+            0 if compact_rect else 1,
+            1 if tiny else 0,
+            obj.size,
+            obj.y0 * 100 + obj.x0,
+        )
+
+    for obj in sorted(foreground_objects(grid), key=click_rank):
+        if obj.y0 < HUD_ROWS or obj.y1 >= height - HUD_ROWS:
+            continue
         x, y = obj.center
+        if (x, y) in seen:
+            continue
+        seen.add((x, y))
         targets.append((x, y, _describe_object(obj)))
         if len(targets) >= limit:
             break

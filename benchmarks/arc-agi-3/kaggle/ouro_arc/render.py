@@ -10,13 +10,20 @@ DIFF_CELL_CAP = 30
 FULL_RENDER_CHANGE_RATIO = 0.4
 
 
+def _as_list(value: object) -> object:
+    if hasattr(value, "tolist"):
+        return value.tolist()  # type: ignore[no-any-return]
+    return value
+
+
 def last_grid(frame: list[list[list[int]]] | list[list[int]]) -> list[list[int]]:
-    if not frame:
+    normalized = _as_list(frame)
+    if not isinstance(normalized, list) or len(normalized) == 0:
         return []
-    first = frame[0]  # type: ignore[index]
-    if first and isinstance(first[0], list):  # frame = [grid, ...]
-        return frame[-1]  # type: ignore[return-value]
-    return frame  # type: ignore[return-value]
+    first = _as_list(normalized[0])
+    if isinstance(first, list) and first and isinstance(first[0], list):
+        return _as_list(normalized[-1])  # type: ignore[return-value]
+    return normalized  # type: ignore[return-value]
 
 
 def render_full(grid: list[list[int]]) -> str:

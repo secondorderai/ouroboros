@@ -57,6 +57,27 @@ def build() -> dict:
         "    arc-agi python-dotenv pandas pyarrow"
     )
 
+    input_discovery_cell = code_cell(
+        dedent(
+            """\
+            import os
+
+            print("KAGGLE_IS_COMPETITION_RERUN=", os.getenv("KAGGLE_IS_COMPETITION_RERUN"))
+            print("OURO_ARC_MODEL_PATH=", os.getenv("OURO_ARC_MODEL_PATH"))
+            print("Discovering Gemma-like paths under /kaggle/input:")
+            found_gemma_paths = []
+            if os.path.exists("/kaggle/input"):
+                for root, dirs, files in os.walk("/kaggle/input"):
+                    if "gemma" in root.lower():
+                        found_gemma_paths.append(root)
+                        print(root)
+                print(f"Found {len(found_gemma_paths)} Gemma-like directories")
+            else:
+                print("/kaggle/input does not exist in this environment")
+            """
+        )
+    )
+
     run_cell = code_cell(
         dedent(
             """\
@@ -147,6 +168,7 @@ def build() -> dict:
             ),
             install_cell,
             *_package_cells(),
+            input_discovery_cell,
             run_cell,
             dummy_submission_cell,
         ],

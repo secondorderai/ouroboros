@@ -33,6 +33,8 @@ class NotebookTest(unittest.TestCase):
         self.assertIn("%%writefile /tmp/my_agent.py", source)
         self.assertIn("%%writefile /tmp/ouro_arc/controller.py", source)
         self.assertIn("/kaggle/input", source)
+        self.assertIn('if "gemma" in root.lower():', source)
+        self.assertIn("Found {len(found_gemma_paths)} Gemma-like directories", source)
         self.assertNotIn("ARC_API_KEY=", source.replace("ARC_API_KEY=test-key-123", ""))
 
 
