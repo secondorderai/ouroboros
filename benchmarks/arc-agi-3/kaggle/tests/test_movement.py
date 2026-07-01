@@ -31,6 +31,22 @@ class MovementModelTest(unittest.TestCase):
         self.assertEqual(model.deltas[2], (0, 1))
         self.assertEqual(model.current_position, (1, 2))
 
+    def test_ambiguous_motion_requires_repeated_evidence(self) -> None:
+        model = MovementModel()
+        prev = player_grid(1, 1)
+        prev[4][5] = 2
+        nxt = player_grid(1, 2)
+        nxt[5][5] = 2
+        model.observe_transition(prev, nxt, ActionSpec(2), "changed")
+        self.assertEqual(model.deltas, {})
+
+        prev2 = player_grid(1, 2)
+        prev2[5][5] = 2
+        nxt2 = player_grid(1, 3)
+        nxt2[6][5] = 2
+        model.observe_transition(prev2, nxt2, ActionSpec(2), "changed")
+        self.assertEqual(model.deltas[2], (0, 1))
+
     def test_bfs_finds_frontier_and_avoids_blocked_edge(self) -> None:
         model = MovementModel(
             deltas={1: (0, -1), 2: (0, 1), 4: (1, 0)},

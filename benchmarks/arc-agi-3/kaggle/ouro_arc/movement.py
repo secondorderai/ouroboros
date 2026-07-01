@@ -18,6 +18,8 @@ class MovementModel:
     visited_positions: set[Position] = field(default_factory=set)
     blocked_edges: set[tuple[Position, int]] = field(default_factory=set)
     death_edges: set[tuple[Position, int]] = field(default_factory=set)
+    candidate_scores: dict[tuple[tuple[int, int, int, int], int, Delta], int] = field(default_factory=dict)
+    frontier_targets: set[Position] = field(default_factory=set)
 
     def observe_transition(
         self,
@@ -50,7 +52,19 @@ class MovementModel:
             current = [motion for motion in motions if motion[1] == self.current_position]
             if current:
                 motions = current
-        _sig, old_center, new_center = max(motions, key=lambda item: item[0][3])
+        if len(motions) > 1 and self.current_position is None:
+            ranked: list[tuple[int, tuple[int, int, int, int], Position, Position]] = []
+            for sig, old_center, new_center in motions:
+                delta = (new_center[0] - old_center[0], new_center[1] - old_center[1])
+                key = (sig, action.action, delta)
+                self.candidate_scores[key] = self.candidate_scores.get(key, 0) + 1
+                ranked.append((self.candidate_scores[key], sig, old_center, new_center))
+            ranked.sort(key=lambda item: (-item[0], -item[1][3]))
+            if ranked[0][0] < 2:
+                return
+            _score, sig, old_center, new_center = ranked[0]
+        else:
+            sig, old_center, new_center = max(motions, key=lambda item: item[0][3])
         delta = (new_center[0] - old_center[0], new_center[1] - old_center[1])
         if delta == (0, 0):
             return
@@ -64,6 +78,8 @@ class MovementModel:
         self.visited_positions = set()
         self.blocked_edges = set()
         self.death_edges = set()
+        self.candidate_scores = {}
+        self.frontier_targets = set()
 
     def summary(self) -> str:
         return (
@@ -109,6 +125,8 @@ class MovementModel:
                     continue
                 next_path = [*path, action]
                 score = 10 if nxt not in self.visited_positions else 0
+                if nxt in self.frontier_targets:
+                    score += 8
                 score -= len(next_path)
                 if score > best_score:
                     best_score = score
