@@ -10,7 +10,7 @@ FRAMEWORK_DIR   := vendor/ARC-AGI-3-Agents
 GAME            ?=
 STEPS           ?= 200
 
-.PHONY: help setup test play-local verify-local list-games notebook submit status model-check clean _check-kaggle
+.PHONY: help setup test compile-skills play-local trace-click-games score-local-deterministic verify-local list-games notebook submit status model-check clean _check-kaggle
 
 help:
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-15s %s\n",$$1,$$2}' $(MAKEFILE_LIST)
@@ -29,9 +29,28 @@ setup: ## Create venv, install local tooling, and clone ARC-AGI-3-Agents
 test: ## Run deterministic unit tests
 	python3 -m unittest discover -s tests
 
+compile-skills: ## Compile Agent Skills into ouro_arc/distilled_skills.json
+	python3 scripts/compile_skills.py
+	python3 scripts/validate_skills.py
+
 play-local: ## Run agent locally; pass GAME=ls20 and STEPS=200 as needed
 	$(VENV_PY) scripts/slim_framework.py
 	OURO_ARC_DISABLE_MODEL=$${OURO_ARC_DISABLE_MODEL:-1} $(VENV_PY) scripts/play_local.py $(if $(GAME),--game $(GAME)) --max-steps $(STEPS)
+
+trace-click-games: ## Run ft09/s5i5 with frame snapshots and write HTML trace reports
+	$(VENV_PY) scripts/slim_framework.py
+	rm -f logs/click_trace.jsonl logs/click_summary.json
+	OURO_ARC_DISABLE_MODEL=1 OURO_ARC_TRACE_FRAMES=1 \
+	OURO_ARC_TRACE_PATH=logs/click_trace.jsonl \
+	OURO_ARC_SUMMARY_PATH=logs/click_summary.json \
+	$(VENV_PY) scripts/play_local.py --game ft09,s5i5 --max-steps 320 --results-json logs/click_results.json
+	$(VENV_PY) scripts/view_trace.py logs/click_trace.jsonl --game ft09 --html logs/ft09_trace.html
+	$(VENV_PY) scripts/view_trace.py logs/click_trace.jsonl --game s5i5 --html logs/s5i5_trace.html
+
+score-local-deterministic: ## Run all public games with model disabled and compare to baseline
+	$(VENV_PY) scripts/slim_framework.py
+	OURO_ARC_DISABLE_MODEL=1 $(VENV_PY) scripts/play_local.py --max-steps 320 --results-json logs/local_results.json
+	$(VENV_PY) scripts/analyze_local_results.py logs/local_results.json
 
 verify-local: ## 50-action smoke test on ls20 and vc33 without loading Gemma
 	$(VENV_PY) scripts/slim_framework.py

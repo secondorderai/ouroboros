@@ -9,5 +9,5 @@
   "enable_internet": false,
   "dataset_sources": [],
   "competition_sources": ["arc-prize-2026-arc-agi-3"],
-  "model_sources": ["google/gemma-4/transformers/gemma-4-12b-it/2"]
+  "model_sources": []
 }
