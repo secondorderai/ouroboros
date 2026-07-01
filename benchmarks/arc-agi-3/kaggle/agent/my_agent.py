@@ -7,6 +7,7 @@ so it can be unit-tested without the competition framework installed.
 from __future__ import annotations
 
 import os
+import atexit
 from typing import Any
 
 from arcengine import FrameData, GameAction, GameState
@@ -27,11 +28,14 @@ class MyAgent(Agent):
         self.controller = ArcController(
             advisor=GemmaAdvisor(require_model=require_model),
         )
+        atexit.register(self.controller.write_summary, True)
         if require_model:
             self.controller.advisor.ensure_available()
 
     @property
     def name(self) -> str:
+        if os.getenv("OURO_ARC_DISABLE_MODEL"):
+            return f"{super().name}.ouro-deterministic.{self.MAX_ACTIONS}"
         return f"{super().name}.ouro-gemma4-12b.{self.MAX_ACTIONS}"
 
     def is_done(self, frames: list[FrameData], latest_frame: FrameData) -> bool:

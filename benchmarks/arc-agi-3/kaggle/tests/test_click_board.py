@@ -47,6 +47,23 @@ class ClickBoardModelTest(unittest.TestCase):
         self.assertTrue(plan)
         self.assertNotEqual((plan[0].x, plan[0].y), (9, 9))
 
+    def test_dud_tracking_is_frame_family_scoped(self) -> None:
+        model = ClickBoardModel()
+        grid = board_grid()
+        model.observe_click(
+            ActionSpec(6, x=9, y=9),
+            grid,
+            grid,
+            0,
+            0,
+            "NOT_FINISHED",
+            frame_family="a",
+        )
+        same_family = model.plan(grid, level=0, available_actions={6}, frame_family="a")
+        other_family = model.plan(grid, level=0, available_actions={6}, frame_family="b")
+        self.assertNotEqual((same_family[0].x, same_family[0].y), (9, 9))
+        self.assertEqual((other_family[0].x, other_family[0].y), (9, 9))
+
     def test_plan_yields_when_all_targets_were_tried(self) -> None:
         model = ClickBoardModel()
         grid = board_grid()

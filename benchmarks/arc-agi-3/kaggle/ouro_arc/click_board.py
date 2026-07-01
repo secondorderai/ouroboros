@@ -26,6 +26,8 @@ class ClickOutcome:
 class ClickBoardModel:
     outcomes: dict[tuple[int, int], ClickOutcome] = field(default_factory=dict)
     tried_by_level: dict[int, set[tuple[int, int]]] = field(default_factory=dict)
+    outcomes_by_context: dict[tuple[int, str, int, int], ClickOutcome] = field(default_factory=dict)
+    tried_by_context: dict[tuple[int, str], set[tuple[int, int]]] = field(default_factory=dict)
 
     def detect_targets(self, grid: list[list[int]], limit: int = 64) -> list[BoardTarget]:
         return [
@@ -61,12 +63,16 @@ class ClickBoardModel:
         prev_level: int,
         next_level: int,
         next_state: str,
+        frame_family: str = "*",
     ) -> None:
         if action.action != 6 or action.x is None or action.y is None:
             return
         outcome, changed = self.classify(prev_grid, next_grid, prev_level, next_level, next_state)
-        self.outcomes[(action.x, action.y)] = ClickOutcome(action.x, action.y, outcome, changed)
+        click_outcome = ClickOutcome(action.x, action.y, outcome, changed)
+        self.outcomes[(action.x, action.y)] = click_outcome
+        self.outcomes_by_context[(prev_level, frame_family, action.x, action.y)] = click_outcome
         self.tried_by_level.setdefault(prev_level, set()).add((action.x, action.y))
+        self.tried_by_context.setdefault((prev_level, frame_family), set()).add((action.x, action.y))
 
     def plan(
         self,
@@ -74,15 +80,36 @@ class ClickBoardModel:
         level: int,
         available_actions: set[int],
         max_actions: int = 12,
+        frame_family: str = "*",
     ) -> list[ActionSpec]:
         if 6 not in available_actions:
             return []
-        tried = self.tried_by_level.setdefault(level, set())
+        tried = set(self.tried_by_context.setdefault((level, frame_family), set()))
+        if frame_family == "*":
+            tried |= self.tried_by_level.setdefault(level, set())
         actions: list[ActionSpec] = []
-        for target in self.detect_targets(grid):
+        targets = self.detect_targets(grid)
+
+        def target_rank(target: BoardTarget) -> tuple[int, int, int]:
+            outcome = self.outcomes_by_context.get((level, frame_family, target.x, target.y))
+            if outcome is None:
+                global_outcome = self.outcomes.get((target.x, target.y))
+                if global_outcome and global_outcome.outcome in {"region-change", "score-change"}:
+                    outcome = global_outcome
+            if outcome and outcome.outcome == "region-change":
+                priority = 0
+            elif outcome and outcome.outcome == "score-change":
+                priority = -1
+            elif outcome and outcome.outcome in {"no-op", "hud-only", "death"}:
+                priority = 9
+            else:
+                priority = 2
+            return (priority, target.y, target.x)
+
+        for target in sorted(targets, key=target_rank):
             point = (target.x, target.y)
-            outcome = self.outcomes.get(point)
-            if outcome and outcome.outcome in {"no-op", "hud-only", "death"}:
+            context_outcome = self.outcomes_by_context.get((level, frame_family, target.x, target.y))
+            if context_outcome and context_outcome.outcome in {"no-op", "hud-only", "death"}:
                 continue
             spec = ActionSpec(
                 6,

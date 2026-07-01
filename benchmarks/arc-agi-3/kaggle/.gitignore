@@ -4,6 +4,7 @@ environment_files/
 recordings/
 reference/
 logs.log
+logs/
 __pycache__/
 .pytest_cache/
 *.pyc

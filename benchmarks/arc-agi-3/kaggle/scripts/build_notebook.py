@@ -42,6 +42,8 @@ def _package_cells() -> list[dict]:
     cells = [code_cell("!mkdir -p /tmp/ouro_arc")]
     for path in sorted(PACKAGE_DIR.glob("*.py")):
         cells.append(_writefile_cell(f"/tmp/ouro_arc/{path.name}", path.read_text()))
+    for path in sorted(PACKAGE_DIR.glob("*.json")):
+        cells.append(_writefile_cell(f"/tmp/ouro_arc/{path.name}", path.read_text()))
     cells.append(_writefile_cell("/tmp/my_agent.py", AGENT_SRC.read_text()))
     return cells
 
@@ -82,10 +84,71 @@ def build() -> dict:
         dedent(
             """\
             import os
+            import json
+            import time
+            import urllib.error
+            import urllib.request
 
-            if os.getenv("KAGGLE_IS_COMPETITION_RERUN"):
-                !curl --fail --retry 999 --retry-all-errors --retry-delay 5 \\
-                      --retry-max-time 600 http://gateway:8001/api/games
+            def write_run_summary(**values):
+                path = "/kaggle/working/ouro_arc_summary.json"
+                current = {}
+                try:
+                    if os.path.exists(path):
+                        with open(path, "r", encoding="utf-8") as f:
+                            current = json.load(f)
+                except Exception:
+                    current = {}
+                current.update(values)
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(current, f, indent=2, sort_keys=True)
+                        f.write("\\n")
+                except OSError:
+                    pass
+
+            def gateway_available(retries=3, delay=1.0, timeout=2.0):
+                url = "http://gateway:8001/api/games"
+                for attempt in range(1, retries + 1):
+                    try:
+                        with urllib.request.urlopen(url, timeout=timeout) as response:
+                            if 200 <= response.status < 500:
+                                return True
+                    except (OSError, urllib.error.URLError):
+                        pass
+                    if attempt < retries:
+                        time.sleep(delay)
+                return False
+
+            os.environ["OURO_ARC_DISABLE_MODEL"] = "1"
+            os.environ["OURO_ARC_GEMMA_POLICY"] = "off"
+            os.environ["OURO_ARC_GEMMA_MAX_CALLS"] = "0"
+            os.environ.setdefault("OURO_ARC_GEMMA_INTERVAL", "16")
+            os.environ.setdefault("OURO_ARC_MAX_ACTIONS", "320")
+
+            competition_rerun_detected = bool(os.getenv("KAGGLE_IS_COMPETITION_RERUN"))
+            gateway_up = gateway_available(
+                retries=120 if competition_rerun_detected else 3,
+                delay=5.0 if competition_rerun_detected else 1.0,
+                timeout=2.0,
+            )
+            run_arc_agent = competition_rerun_detected or gateway_up
+            selected_execution_path = "arc-agent" if run_arc_agent else "dummy-submission"
+            print("competition_rerun_detected=", competition_rerun_detected)
+            print("gateway_available=", gateway_up)
+            print("selected_execution_path=", selected_execution_path)
+            write_run_summary(
+                competition_rerun_detected=competition_rerun_detected,
+                gateway_available=gateway_up,
+                selected_execution_path=selected_execution_path,
+                disable_model=os.getenv("OURO_ARC_DISABLE_MODEL"),
+                gemma_policy=os.getenv("OURO_ARC_GEMMA_POLICY"),
+                gemma_max_calls=os.getenv("OURO_ARC_GEMMA_MAX_CALLS"),
+                gemma_interval=os.getenv("OURO_ARC_GEMMA_INTERVAL"),
+            )
+
+            if run_arc_agent:
+                if not gateway_up:
+                    print("Warning: rerun flag set but gateway probe failed; starting agent anyway")
 
                 !cp -r /kaggle/input/competitions/arc-prize-2026-arc-agi-3/ARC-AGI-3-Agents \\
                        /kaggle/working/ARC-AGI-3-Agents
@@ -131,7 +194,7 @@ def build() -> dict:
         dedent(
             """\
             import os
-            if not os.getenv("KAGGLE_IS_COMPETITION_RERUN"):
+            if not globals().get("run_arc_agent", False):
                 import pandas as pd
                 submission = pd.DataFrame(
                     data=[["1_0", "1", True, 1]],
