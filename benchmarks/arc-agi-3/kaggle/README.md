@@ -38,9 +38,13 @@ rewrite the vendored framework's `agents/__init__.py` to avoid optional
 template imports such as `langsmith`, `langgraph`, and `smolagents`.
 
 Local play disables Gemma by default with `OURO_ARC_DISABLE_MODEL=1`, so smoke
-tests can run without a 12B model. Kaggle reruns default to
-`OURO_ARC_GEMMA_POLICY=active`; local runs default to sparse unless you set the
-policy explicitly. To test with a local model:
+tests can run without a 12B model. The generated Kaggle notebook also
+hard-disables Gemma on every path, including competition reruns: the submitted
+agent is the deterministic controller only. Gemma-active reruns scored 0.00
+(submission versions 7 and 8) because `require_model=True` makes any advisor
+load or inference failure abort the entire run; do not re-enable Gemma in the
+submission until those failures degrade to deterministic play instead of
+raising. The Gemma env knobs remain for local experiments:
 
 ```bash
 OURO_ARC_DISABLE_MODEL=0 OURO_ARC_GEMMA_POLICY=active \
@@ -70,16 +74,19 @@ coordinate-heavy walkthroughs so the submitted artifact remains generic.
 
 ## Kaggle Model Input
 
-Official competition reruns have internet disabled. Attach Gemma 4 12B Unified
-as a Kaggle model or dataset input and set `OURO_ARC_MODEL_PATH` if its path is
-not one of the defaults:
+The current submission is deterministic-only, so `kernel-metadata.json` attaches
+no model sources. If re-enabling Gemma for an experiment, official competition
+reruns have internet disabled: attach Gemma 4 12B as a Kaggle model input and
+set `OURO_ARC_MODEL_PATH` if its path is not one of the defaults from
+`ouro_arc/gemma.py`:
 
-- `/kaggle/input/gemma-4/transformers/gemma-4-12b/1`
-- `/kaggle/input/gemma-4/transformers/gemma-4-12b-unified/1`
-- `/kaggle/input/gemma-4/transformers/gemma-4-12b-it/1`
-- `/kaggle/input/gemma-4`
+- `/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b-it/2`
+- `/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b-it`
+- `/kaggle/input/models/google/gemma-4/transformers`
+- `/kaggle/input/models/google/gemma-4`
 
-During `KAGGLE_IS_COMPETITION_RERUN`, missing model weights are a hard error.
+During `KAGGLE_IS_COMPETITION_RERUN`, missing model weights are a hard error
+unless Gemma is disabled (which the generated notebook does).
 
 ## Submission
 

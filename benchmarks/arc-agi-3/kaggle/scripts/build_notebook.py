@@ -119,12 +119,6 @@ def build() -> dict:
                         time.sleep(delay)
                 return False
 
-            os.environ["OURO_ARC_DISABLE_MODEL"] = "1"
-            os.environ["OURO_ARC_GEMMA_POLICY"] = "off"
-            os.environ["OURO_ARC_GEMMA_MAX_CALLS"] = "0"
-            os.environ.setdefault("OURO_ARC_GEMMA_INTERVAL", "16")
-            os.environ.setdefault("OURO_ARC_MAX_ACTIONS", "320")
-
             competition_rerun_detected = bool(os.getenv("KAGGLE_IS_COMPETITION_RERUN"))
             gateway_up = gateway_available(
                 retries=120 if competition_rerun_detected else 3,
@@ -133,6 +127,15 @@ def build() -> dict:
             )
             run_arc_agent = competition_rerun_detected or gateway_up
             selected_execution_path = "arc-agent" if run_arc_agent else "dummy-submission"
+            # Deterministic submission: Gemma disabled on every path, including
+            # competition reruns. Gemma-active reruns scored 0.00 (V7/V8) because a
+            # single advisor load/inference failure aborts the whole run under
+            # require_model=True; do not re-enable without making those non-fatal.
+            os.environ["OURO_ARC_DISABLE_MODEL"] = "1"
+            os.environ["OURO_ARC_GEMMA_POLICY"] = "off"
+            os.environ["OURO_ARC_GEMMA_MAX_CALLS"] = "0"
+            os.environ.setdefault("OURO_ARC_GEMMA_INTERVAL", "16")
+            os.environ.setdefault("OURO_ARC_MAX_ACTIONS", "320")
             print("competition_rerun_detected=", competition_rerun_detected)
             print("gateway_available=", gateway_up)
             print("selected_execution_path=", selected_execution_path)

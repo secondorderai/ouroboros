@@ -27,15 +27,24 @@ class NotebookTest(unittest.TestCase):
         self.assertTrue(kaggle["isGpuEnabled"])
         self.assertEqual(kaggle["accelerator"], "nvidiaRtx6000")
 
+    def test_kernel_metadata_has_no_model_inputs(self) -> None:
+        metadata = (ROOT / "notebooks" / "kernel-metadata.json").read_text()
+        self.assertIn('"model_sources": []', metadata)
+        self.assertNotIn("gemma", metadata.lower().replace("ouroboros-arc-agi-3-gemma4", ""))
+
     def test_notebook_embeds_agent_package_and_no_secrets(self) -> None:
         notebook = load_builder().build()
         source = "\n".join(cell.get("source", "") for cell in notebook["cells"])
         self.assertIn("%%writefile /tmp/my_agent.py", source)
         self.assertIn("%%writefile /tmp/ouro_arc/controller.py", source)
         self.assertIn("%%writefile /tmp/ouro_arc/distilled_skills.json", source)
+        # Deterministic submission config: Gemma must be hard-disabled on every
+        # execution path, competition reruns included (Gemma-active reruns
+        # scored 0.00 on Kaggle because advisor failures are fatal there).
         self.assertIn('os.environ["OURO_ARC_DISABLE_MODEL"] = "1"', source)
         self.assertIn('os.environ["OURO_ARC_GEMMA_POLICY"] = "off"', source)
         self.assertIn('os.environ["OURO_ARC_GEMMA_MAX_CALLS"] = "0"', source)
+        self.assertNotIn('"active" if competition_rerun_detected else "sparse"', source)
         self.assertIn('os.environ.setdefault("OURO_ARC_GEMMA_INTERVAL", "16")', source)
         self.assertIn("def gateway_available", source)
         self.assertIn("competition_rerun_detected", source)
