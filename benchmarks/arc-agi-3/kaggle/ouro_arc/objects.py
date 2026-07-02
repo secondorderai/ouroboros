@@ -239,3 +239,51 @@ def salient_click_targets(grid: list[list[int]], limit: int = 40) -> list[tuple[
         if len(targets) >= limit:
             break
     return targets
+
+
+def paired_control_targets(grid: list[list[int]], limit: int = 8) -> list[tuple[int, int, str]]:
+    """Return positive-side buttons from paired click controls.
+
+    Some ARC games render controls as two adjacent same-colored button blobs on a
+    larger panel. The positive side usually grows or advances the controlled
+    object, while the center line is inert. Detecting the pair lets the
+    controller avoid spending the step budget on unrelated foreground objects.
+    """
+
+    height = len(grid)
+    controls = [
+        obj
+        for obj in foreground_objects(grid)
+        if 2 <= obj.width <= 5
+        and 2 <= obj.height <= 5
+        and obj.size >= 5
+        and obj.y0 >= HUD_ROWS
+        and obj.y1 < height - HUD_ROWS
+    ]
+    groups: dict[tuple[int, int, int, int], list[GridObject]] = {}
+    for obj in controls:
+        groups.setdefault(object_signature(obj), []).append(obj)
+
+    targets: list[tuple[int, int, str]] = []
+    seen: set[tuple[int, int]] = set()
+    for group in groups.values():
+        ordered = sorted(group, key=lambda obj: (obj.center[1], obj.center[0]))
+        for index, first in enumerate(ordered):
+            for second in ordered[index + 1 :]:
+                dx = second.center[0] - first.center[0]
+                dy = second.center[1] - first.center[1]
+                if abs(dy) <= 1 and 4 <= dx <= 10:
+                    point = second.center
+                    orientation = "horizontal"
+                elif abs(dx) <= 1 and 4 <= dy <= 10:
+                    point = second.center
+                    orientation = "vertical"
+                else:
+                    continue
+                if point in seen:
+                    continue
+                seen.add(point)
+                targets.append((point[0], point[1], f"{orientation} paired control {_describe_object(second)}"))
+                if len(targets) >= limit:
+                    return targets
+    return targets

@@ -11,6 +11,13 @@ def load_json(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
+def achieved_levels(row: dict[str, Any]) -> int:
+    return max(
+        int(row.get("levels_completed", 0)),
+        int(row.get("max_level_reached", 0)),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize local ARC-AGI-3 run results.")
     parser.add_argument("results", nargs="?", default="logs/local_results.json")
@@ -21,7 +28,7 @@ def main() -> None:
     baseline_path = Path(args.baseline)
     baseline = load_json(baseline_path) if baseline_path.exists() else {"games": []}
     baseline_levels = {
-        row["game_id"]: int(row.get("levels_completed", 0))
+        row["game_id"]: achieved_levels(row)
         for row in baseline.get("games", [])
     }
 
@@ -30,7 +37,8 @@ def main() -> None:
     loop_risks: list[str] = []
     for row in results.get("games", []):
         game_id = row["game_id"]
-        levels = int(row.get("levels_completed", 0))
+        final_levels = int(row.get("levels_completed", 0))
+        levels = achieved_levels(row)
         actions = max(1, int(row.get("actions", 0)))
         solver_counts = row.get("solver_counts", {})
         dominant_solver = "?"
@@ -43,7 +51,7 @@ def main() -> None:
         if dominant_ratio > 0.75:
             loop_risks.append(f"{game_id}:{dominant_solver}:{dominant_ratio:.2f}")
         print(
-            f"{game_id:8} levels={levels:2} resets={int(row.get('resets', 0)):3} "
+            f"{game_id:8} levels={levels:2} final={final_levels:2} resets={int(row.get('resets', 0)):3} "
             f"dominant={dominant_solver}:{dominant_ratio:.2f}"
         )
 
@@ -55,4 +63,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
