@@ -60,6 +60,31 @@ def click_grid(color: int = 2) -> list[list[list[int]]]:
     return [base]
 
 
+def region_grid(width: int, height: int, color: int = 5) -> list[list[list[int]]]:
+    base = [[0 for _ in range(64)] for _ in range(64)]
+    base[20][20] = 3
+    for y in range(8, 8 + height):
+        for x in range(8, 8 + width):
+            base[y][x] = color
+    return [base]
+
+
+def paired_control_grid() -> list[list[list[int]]]:
+    base = [[5 for _ in range(64)] for _ in range(64)]
+    for y in range(20, 23):
+        for x in range(38, 41):
+            base[y][x] = 14
+        for x in range(44, 47):
+            base[y][x] = 14
+    for y in range(37, 40):
+        for x in range(23, 26):
+            base[y][x] = 11
+    for y in range(43, 46):
+        for x in range(23, 26):
+            base[y][x] = 11
+    return [base]
+
+
 class ControllerTest(unittest.TestCase):
     def setUp(self) -> None:
         self._old_trace = os.environ.get("OURO_ARC_TRACE")
@@ -115,6 +140,17 @@ class ControllerTest(unittest.TestCase):
         action = controller.choose(DummyFrame(grid(), "NOT_PLAYED", available_actions=[]))
         self.assertEqual(action.action, 0)
 
+    def test_game_over_reset_replays_learned_macro(self) -> None:
+        controller = ArcController()
+        controller.macros = [[ActionSpec(6, x=9, y=8, reason="learned", source="learned-macro")]]
+
+        reset = controller.choose(DummyFrame(grid(), "GAME_OVER", available_actions=[]))
+        replay = controller.choose(DummyFrame(grid(), "NOT_FINISHED", available_actions=[6]))
+
+        self.assertEqual(reset.action, 0)
+        self.assertEqual((replay.action, replay.x, replay.y), (6, 9, 8))
+        self.assertEqual(replay.source, "learned-macro")
+
     def test_systematic_probe_uses_legal_action(self) -> None:
         controller = ArcController()
         action = controller.choose(DummyFrame(grid(), "NOT_FINISHED", available_actions=[2, 4]))
@@ -169,6 +205,48 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(first.action, 6)
         self.assertEqual(second.action, 6)
         self.assertNotEqual((first.x, first.y), (second.x, second.y))
+
+    def test_large_board_changing_click_is_replayed_before_new_plans(self) -> None:
+        controller = ArcController(skill_registry=SkillRegistry([]))
+        before = controller._frame_view(DummyFrame(region_grid(1, 1), "NOT_FINISHED", available_actions=[6]))
+        controller.last_view = before
+        controller.last_action = ActionSpec(6, x=4, y=32, source="controller")
+
+        replay = controller.choose(DummyFrame(region_grid(16, 10), "NOT_FINISHED", available_actions=[6]))
+
+        self.assertEqual((replay.action, replay.x, replay.y), (6, 4, 32))
+        self.assertEqual(replay.reason, "repeat large board-changing click (159 cells)")
+
+    def test_small_board_changing_click_is_not_forced_into_replay(self) -> None:
+        controller = ArcController(skill_registry=SkillRegistry([]))
+        before = controller._frame_view(DummyFrame(region_grid(1, 1), "NOT_FINISHED", available_actions=[6]))
+        controller.last_view = before
+        controller.last_action = ActionSpec(6, x=4, y=32, source="controller")
+
+        action = controller.choose(DummyFrame(region_grid(3, 3), "NOT_FINISHED", available_actions=[6]))
+
+        self.assertNotEqual((action.x, action.y), (4, 32))
+        self.assertIsNone(controller.large_click_replay)
+
+    def test_click_only_paired_controls_repeat_positive_buttons_before_skills(self) -> None:
+        controller = ArcController(skill_registry=SkillRegistry([]))
+
+        action = controller.choose(DummyFrame(paired_control_grid(), "NOT_FINISHED", available_actions=[6]))
+        view = controller._frame_view(DummyFrame(paired_control_grid(), "NOT_FINISHED", available_actions=[6]))
+        plan = controller._paired_control_plan(view)
+
+        self.assertEqual((action.action, action.x, action.y), (6, 45, 21))
+        self.assertEqual(action.source, "paired-control")
+        self.assertEqual([(step.x, step.y) for step in plan], [])
+        self.assertEqual(len(controller.queue), 13)
+        self.assertEqual([(step.x, step.y) for step in controller.queue[:6]], [(45, 21)] * 6)
+        self.assertEqual([(step.x, step.y) for step in controller.queue[6:]], [(24, 44)] * 7)
+
+    def test_paired_control_plan_requires_click_only_board(self) -> None:
+        controller = ArcController(skill_registry=SkillRegistry([]))
+        view = controller._frame_view(DummyFrame(paired_control_grid(), "NOT_FINISHED", available_actions=[2, 6]))
+
+        self.assertEqual(controller._paired_control_plan(view), [])
 
     def test_click_sequence_planner_breaks_cycle_before_generic_clicks(self) -> None:
         controller = ArcController(skill_registry=SkillRegistry([]))

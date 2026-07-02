@@ -11,7 +11,7 @@ from .constraint_board import ConstraintBoardPlanner
 from .explore import EXPLORE_ACTIONS, ExplorePolicy
 from .gemma import GemmaAdvisor
 from .movement import MovementModel
-from .objects import object_motions, salient_click_targets, summarize_objects
+from .objects import object_motions, paired_control_targets, salient_click_targets, summarize_objects
 from .render import changed_cells, frame_hash, last_grid, render_diff, render_full
 from .skills import SkillContext, SkillPlan, SkillRegistry
 from .telemetry import TelemetryWriter
@@ -130,6 +130,22 @@ class ArcController:
         self.click_source_failures: dict[tuple[int, str, str], int] = {}
         self.click_source_cooldowns: dict[tuple[int, str, str], int] = {}
         self.transition_memory: dict[tuple[str, tuple[int, int | None, int | None]], str] = {}
+        self.large_click_replay: ActionSpec | None = None
+        self.large_click_replay_remaining = 0
+        self.large_click_replay_min_changed = max(
+            1,
+            int(os.getenv("OURO_ARC_LARGE_CLICK_REPLAY_MIN_CHANGED", "128")),
+        )
+        self.large_click_replay_limit = max(
+            1,
+            int(os.getenv("OURO_ARC_LARGE_CLICK_REPLAY_LIMIT", "8")),
+        )
+        self.paired_control_attempted_levels: set[int] = set()
+        self.paired_control_failed_levels: set[int] = set()
+        self.paired_control_replay_limit = max(
+            1,
+            int(os.getenv("OURO_ARC_PAIRED_CONTROL_REPLAY_LIMIT", "7")),
+        )
         self.gemma_backoff_count = 0
         self.model_failure_total = 0
         self.max_level_reached = 0
@@ -164,6 +180,8 @@ class ArcController:
             self.level_probe_actions = set()
             self.visited_positions = set()
             self.current_position = None
+            self._clear_large_click_replay()
+            self.paired_control_attempted_levels = set()
             self.movement_model.reset_level()
             self.explore_policy.reset_level()
             if view.state == "GAME_OVER" and self.replaying:
@@ -178,12 +196,23 @@ class ArcController:
             return self._reset_action(view, f"state={view.state}")
 
         if self.after_reset:
+            resume_replay = (
+                self.replaying
+                and view.levels_completed == 0
+                and bool(self.macros)
+                and not self.macro_replay_disabled
+            )
             self.queue = []
             self._clear_queue_metadata()
             self.current_macro = []
-            self.replaying = False
+            self.replaying = resume_replay
             self.level_probe_actions = set()
             self.after_reset = False
+
+        large_replay = self._large_click_replay_action(view)
+        if large_replay:
+            self._record_choice(view, large_replay)
+            return large_replay
 
         if self.replaying and not self.queue and view.levels_completed == 0 and not self.macro_replay_disabled:
             for macro in self.macros:
@@ -202,6 +231,12 @@ class ArcController:
         if probe:
             self._record_choice(view, probe)
             return probe
+
+        paired_control = self._paired_control_plan(view)
+        if paired_control:
+            self._enqueue(paired_control[1 : self.max_queue], view, source="paired-control")
+            self._record_choice(view, paired_control[0])
+            return paired_control[0]
 
         skill_plan = self._skill_plan(view, node)
         if skill_plan:
@@ -303,6 +338,8 @@ class ArcController:
             outcome = "changed"
             if view.levels_completed > prev_level:
                 outcome = "score increased"
+                self._clear_large_click_replay()
+                self.paired_control_attempted_levels.discard(view.levels_completed)
                 self.max_level_reached = max(self.max_level_reached, view.levels_completed)
                 self.consecutive_model_failures = 0
                 self.gemma_backoff_remaining = 0
@@ -324,6 +361,9 @@ class ArcController:
                 self.stagnation = 0
             elif view.state == "GAME_OVER":
                 outcome = "game over"
+                self._clear_large_click_replay()
+                if self.last_action.source == "paired-control":
+                    self.paired_control_failed_levels.add(prev_level)
                 self.dangerous_edges.add((prev_level, self.last_view.key, self.last_action.key))
                 self.macro_replay_disabled = True
                 self.queue = []
@@ -351,6 +391,7 @@ class ArcController:
                 self.stagnation = 0
                 self._learn_motion(self.last_view, view, self.last_action)
                 self._learn_frontier_targets(self.last_view, view)
+                self._observe_large_click_progress(self.last_view, view, self.last_action)
             self.movement_model.observe_transition(
                 self.last_view.grid,
                 view.grid,
@@ -440,6 +481,48 @@ class ArcController:
         self.queue_start_key = None
         self.queue_abort_on_key_change = False
 
+    def _clear_large_click_replay(self) -> None:
+        self.large_click_replay = None
+        self.large_click_replay_remaining = 0
+
+    def _observe_large_click_progress(
+        self,
+        prev: FrameView,
+        view: FrameView,
+        action: ActionSpec,
+    ) -> None:
+        if action.action != 6 or action.x is None or action.y is None:
+            self._clear_large_click_replay()
+            return
+        changed = len(changed_cells(prev.grid, view.grid))
+        if changed < self.large_click_replay_min_changed:
+            self._clear_large_click_replay()
+            return
+        self.large_click_replay = ActionSpec(
+            action.action,
+            x=action.x,
+            y=action.y,
+            reason=f"repeat large board-changing click ({changed} cells)",
+            source=action.source,
+        )
+        self.large_click_replay_remaining = self.large_click_replay_limit
+        self.queue = []
+        self._clear_queue_metadata()
+
+    def _large_click_replay_action(self, view: FrameView) -> ActionSpec | None:
+        action = self.large_click_replay
+        if action is None or self.large_click_replay_remaining <= 0:
+            self._clear_large_click_replay()
+            return None
+        if action.action not in view.available_actions:
+            self._clear_large_click_replay()
+            return None
+        if self._is_dangerous(view, action):
+            self._clear_large_click_replay()
+            return None
+        self.large_click_replay_remaining -= 1
+        return action
+
     def _pop_legal(self, view: FrameView) -> ActionSpec | None:
         if (
             self.queue
@@ -508,6 +591,30 @@ class ArcController:
             )
             if not self._is_dangerous(view, action) and not self._is_dud_click(view, action.x, action.y)
         ]
+
+    def _paired_control_plan(self, view: FrameView) -> list[ActionSpec]:
+        if 6 not in view.available_actions:
+            return []
+        if view.available_actions - {6}:
+            return []
+        if view.levels_completed in self.paired_control_attempted_levels:
+            return []
+        if view.levels_completed in self.paired_control_failed_levels:
+            return []
+
+        actions: list[ActionSpec] = []
+        for x, y, label in paired_control_targets(view.grid):
+            spec = ActionSpec(6, x=x, y=y, reason=f"repeat {label}", source="paired-control")
+            if self._is_dangerous(view, spec) or self._is_dud_click(view, x, y):
+                continue
+            actions.extend(
+                ActionSpec(6, x=x, y=y, reason=f"repeat {label}", source="paired-control")
+                for _ in range(self.paired_control_replay_limit)
+            )
+        if len(actions) < self.paired_control_replay_limit * 2:
+            return []
+        self.paired_control_attempted_levels.add(view.levels_completed)
+        return actions[: self.max_queue]
 
     def _click_sequence_plan(self, view: FrameView) -> list[ActionSpec]:
         if self._source_demoted("click-sequence") and not self._click_source_cooled(view, "controller"):

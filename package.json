@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "author": "SecondOrder AI",
   "private": true,
-  "description": "Ouroboros — recursive self-improving AI agent (monorepo)",
+  "description": "Ouroboros \u2014 recursive self-improving AI agent (monorepo)",
   "workspaces": [
     "packages/*"
   ],
@@ -25,19 +25,25 @@
     "husky": "^9.1.7"
   },
   "overrides": {
+    "@babel/core": "7.29.7",
     "@xmldom/xmldom": "0.8.13",
-    "electron-builder-squirrel-windows": "26.8.1",
-    "postcss": "^8.5.13",
     "brace-expansion": "^5.0.6",
+    "dompurify": "3.4.11",
+    "electron-builder-squirrel-windows": "26.8.1",
+    "esbuild": "0.28.1",
     "express-rate-limit": "8.5.1",
+    "fast-uri": "^3.1.2",
+    "form-data": "4.0.6",
+    "hono": "^4.12.21",
     "ip-address": "10.2.0",
-    "tar": "^7.5.13",
-    "tmp": "^0.2.6",
+    "js-yaml": "4.3.0",
+    "postcss": "^8.5.13",
+    "qs": "^6.15.2",
     "react": "19.2.5",
     "react-dom": "19.2.5",
-    "fast-uri": "^3.1.2",
-    "hono": "^4.12.21",
-    "qs": "^6.15.2",
-    "ws": "^8.20.1"
+    "tar": "7.5.19",
+    "tmp": "^0.2.6",
+    "undici": "6.27.0",
+    "ws": "8.21.0"
   }
 }
