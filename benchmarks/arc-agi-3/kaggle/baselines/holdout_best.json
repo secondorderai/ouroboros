@@ -1,0 +1,55 @@
+{
+  "dev_levels": 9,
+  "dev_score": null,
+  "git_sha": "a47f27c",
+  "notes": "planner build (deterministic, pixel key, planner on)",
+  "test_games": [
+    {
+      "achieved_levels": 0,
+      "actions": 321,
+      "game_id": "dc22"
+    },
+    {
+      "achieved_levels": 0,
+      "actions": 321,
+      "game_id": "g50t"
+    },
+    {
+      "achieved_levels": 0,
+      "actions": 321,
+      "game_id": "ka59"
+    },
+    {
+      "achieved_levels": 1,
+      "actions": 321,
+      "game_id": "lf52"
+    },
+    {
+      "achieved_levels": 0,
+      "actions": 321,
+      "game_id": "sc25"
+    },
+    {
+      "achieved_levels": 0,
+      "actions": 321,
+      "game_id": "su15"
+    },
+    {
+      "achieved_levels": 0,
+      "actions": 321,
+      "game_id": "tn36"
+    },
+    {
+      "achieved_levels": 2,
+      "actions": 321,
+      "game_id": "vc33"
+    },
+    {
+      "achieved_levels": 0,
+      "actions": 321,
+      "game_id": "wa30"
+    }
+  ],
+  "test_levels": 3,
+  "test_score": 0.1044174829311579
+}

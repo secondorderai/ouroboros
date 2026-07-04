@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from ouro_arc.holdout import fold_of  # noqa: E402
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -22,9 +28,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize local ARC-AGI-3 run results.")
     parser.add_argument("results", nargs="?", default="logs/local_results.json")
     parser.add_argument("--baseline", default="baselines/deterministic_public_0_242111.json")
+    parser.add_argument("--fold", choices=["dev", "test", "quarantine"], default=None)
     args = parser.parse_args()
 
     results = load_json(Path(args.results))
+    if args.fold is not None:
+        results = dict(results)
+        results["games"] = [
+            row
+            for row in results.get("games", [])
+            if fold_of(str(row.get("game_id", ""))) == args.fold
+        ]
     baseline_path = Path(args.baseline)
     baseline = load_json(baseline_path) if baseline_path.exists() else {"games": []}
     baseline_levels = {

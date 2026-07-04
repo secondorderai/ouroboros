@@ -1,0 +1,573 @@
+<mxfile host="65bd71144e">
+    <diagram id="det-status" name="0 Current Status">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1000" math="0" shadow="0">
+            <root>
+                <mxCell id="s0" />
+                <mxCell id="s1" parent="s0" />
+                <mxCell id="sTitle" value="&lt;b&gt;ARC-AGI-3 Kaggle — CURRENT STATE (2026-07-04). Tabs 1–4 are the original design proposals; this tab records what was built &amp; measured.&lt;/b&gt;" style="text;html=1;fontSize=15;align=left;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="15" width="1200" height="30" as="geometry" />
+                </mxCell>
+                <mxCell id="sLegOn" value="Shipped ON" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="52" width="110" height="24" as="geometry" />
+                </mxCell>
+                <mxCell id="sLegOff" value="Built, flag-OFF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="160" y="52" width="120" height="24" as="geometry" />
+                </mxCell>
+                <mxCell id="sLegBad" value="Measured negative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="290" y="52" width="140" height="24" as="geometry" />
+                </mxCell>
+                <mxCell id="sLegTool" value="Tooling" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="440" y="52" width="90" height="24" as="geometry" />
+                </mxCell>
+                <mxCell id="sScoreHdr" value="Score history — full 25 public games (official local scorecard)" style="text;html=1;fontSize=13;fontStyle=1;align=left;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="95" width="520" height="20" as="geometry" />
+                </mxCell>
+                <mxCell id="sScore" value="pre-enhancement baseline ............ 0.2421  (8 lvl)&#10;enhancements, pre-planner ........... ~1.011  (12 lvl)&#10;planner build (no color prior) ...... 1.0147  (12 lvl)&#10;CURRENT — planner + color prior ..... 1.0229  (12 lvl)  &lt;- V11&#10;&#10;DEV fold (13, tunable) .............. 1.8947  (9 lvl)&#10;TEST fold (9, LB proxy) ............. 0.1044  (3 lvl)  &lt;- FLAT&#10;public leaderboard (V9/V10 hidden) .. 0.16" style="text;html=1;fontFamily=monospace;fontSize=12;align=left;whiteSpace=wrap;spacingLeft=8;spacingTop=6;fillColor=#f5f5f5;strokeColor=#999999;rounded=1;verticalAlign=top;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="120" width="520" height="170" as="geometry" />
+                </mxCell>
+                <mxCell id="sGap" value="Local 1.02 vs LB 0.16 = overfitting to the public set. TEST fold (0.10) is the honest LB stand-in and it did NOT move across any version." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="300" width="520" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sBuiltHdr" value="What was built this session" style="text;html=1;fontSize=13;fontStyle=1;align=left;" vertex="1" parent="s1">
+                    <mxGeometry x="590" y="95" width="520" height="20" as="geometry" />
+                </mxCell>
+                <mxCell id="sPlanner" value="Symbolic planner + transition graph&#10;(_planner_plan, path_to_score / frontier)&#10;consumes the dead transition_memory write" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=6;" vertex="1" parent="s1">
+                    <mxGeometry x="590" y="120" width="255" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sColor" value="Cross-level color prior (click_board)&#10;learn click outcome by COLOR not coord&#10;+0.8% DEV, TEST flat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=6;" vertex="1" parent="s1">
+                    <mxGeometry x="855" y="120" width="255" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sObjKey" value="Object-graph state key&#10;OURO_ARC_STATE_KEY=pixel default&#10;built, OFF (neutral on public games)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=6;" vertex="1" parent="s1">
+                    <mxGeometry x="590" y="200" width="255" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sGoalNav" value="Goal-directed navigation actuator&#10;(goal_targets, step_toward, _goal_nav_plan)&#10;OURO_ARC_GOAL_NAV OFF — REGRESSED ls20" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=left;spacingLeft=6;" vertex="1" parent="s1">
+                    <mxGeometry x="855" y="200" width="255" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sHarness" value="Holdout harness + gate + overfit lint&#10;holdout.py / holdout_gate.py / overfit_lint.py&#10;baselines/holdout_best.json; make notebook blocked on TEST regression" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;" vertex="1" parent="s1">
+                    <mxGeometry x="590" y="280" width="255" height="90" as="geometry" />
+                </mxCell>
+                <mxCell id="sDiag" value="Efficiency diagnostic&#10;scripts/level_efficiency.py&#10;per-level baseline vs actual actions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;" vertex="1" parent="s1">
+                    <mxGeometry x="855" y="280" width="255" height="90" as="geometry" />
+                </mxCell>
+                <mxCell id="sVerHdr" value="141 tests green · overfit-lint clean · notebook rebuilt (deterministic) · V11 pushed" style="text;html=1;fontSize=12;fontStyle=2;align=left;" vertex="1" parent="s1">
+                    <mxGeometry x="1130" y="95" width="500" height="20" as="geometry" />
+                </mxCell>
+                <mxCell id="sV11" value="&lt;b&gt;SUBMITTED: kernel version 11&lt;/b&gt;&#10;deterministic reference floor&#10;(planner + color prior; Gemma OFF; goal-nav OFF)&#10;expected LB ≈ 0.16 — a checkpoint, not a score play" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="s1">
+                    <mxGeometry x="1130" y="120" width="480" height="90" as="geometry" />
+                </mxCell>
+                <mxCell id="sGemma" value="&lt;b&gt;Gemma-VLM: ~0% built&lt;/b&gt;&#10;advisor hardened (fail-open) but NEVER run with real weights&#10;no image/VLM plumbing wired; needs GPU to validate&#10;ls20 finding: win is a terrain MECHANIC, not a spatial goal → goal-nav VLM design is mismatched" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="s1">
+                    <mxGeometry x="1130" y="220" width="480" height="110" as="geometry" />
+                </mxCell>
+                <mxCell id="sLeversHdr" value="Seven levers measured — all neutral-to-negative on the generalization proxy" style="text;html=1;fontSize=13;fontStyle=1;align=left;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="400" width="700" height="20" as="geometry" />
+                </mxCell>
+                <mxCell id="sL1" value="1. Planner&#10;0%" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="425" width="150" height="55" as="geometry" />
+                </mxCell>
+                <mxCell id="sL2" value="2. Object-key&#10;0%" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="200" y="425" width="150" height="55" as="geometry" />
+                </mxCell>
+                <mxCell id="sL3" value="3. Color prior&#10;+0.8% (kept)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="360" y="425" width="150" height="55" as="geometry" />
+                </mxCell>
+                <mxCell id="sL4" value="4. Goal-nav&#10;NEGATIVE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="520" y="425" width="150" height="55" as="geometry" />
+                </mxCell>
+                <mxCell id="sL5" value="5. State-cycling&#10;no benefit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="680" y="425" width="150" height="55" as="geometry" />
+                </mxCell>
+                <mxCell id="sL6" value="6. Budget 320→640&#10;0% new levels" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="840" y="425" width="150" height="55" as="geometry" />
+                </mxCell>
+                <mxCell id="sL7" value="7. Constraint-board&#10;overfit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="s1">
+                    <mxGeometry x="1000" y="425" width="150" height="55" as="geometry" />
+                </mxCell>
+                <mxCell id="sWhyHdr" value="Why the ceiling holds (scorecard = quadratic per-level efficiency, level-weighted)" style="text;html=1;fontSize=13;fontStyle=1;align=left;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="500" width="800" height="20" as="geometry" />
+                </mxCell>
+                <mxCell id="sWhy1" value="Accessible headroom = level-0 efficiency on movement games → LOW WEIGHT (level 0 weight 1, level 1 weight 2, ...)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="525" width="500" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sWhy2" value="High-weight headroom = completing levels 1+ → CAPABILITY-BOUND (more budget completes zero new levels)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="s1">
+                    <mxGeometry x="560" y="525" width="500" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sWhy3" value="Level-0 wander (ls20: 305 vs baseline 22) is NEAR-OPTIMAL BLIND SEARCH — 301 distinct states, 19 revisits — because the agent can't perceive where the goal is." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="s1">
+                    <mxGeometry x="1080" y="525" width="530" height="70" as="geometry" />
+                </mxCell>
+                <mxCell id="sVerdict" value="&lt;b&gt;DETERMINATION:&lt;/b&gt; the ARC-AGI-3 score ceiling here is bound by MODEL MECHANIC-DISCOVERY CAPABILITY — not the harness, planner, or algorithm. No offline-runnable, locally-validatable lever moved the generalization proxy. A materially stronger vision-reasoning model that fits the offline rerun is the only input that could plausibly move it (the 12B Gemma is unlikely to suffice, and the ls20 mechanic finding shows goal-detection alone is insufficient)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;align=left;spacingLeft=10;verticalAlign=middle;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="625" width="1570" height="90" as="geometry" />
+                </mxCell>
+                <mxCell id="sNextHdr" value="Recommended next steps" style="text;html=1;fontSize=13;fontStyle=1;align=left;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="735" width="400" height="20" as="geometry" />
+                </mxCell>
+                <mxCell id="sNext1" value="1. Accept the capability ceiling — V11 as the reference floor (evidence-backed default)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="s1">
+                    <mxGeometry x="40" y="760" width="500" height="60" as="geometry" />
+                </mxCell>
+                <mxCell id="sNext2" value="2. Build Gemma-VLM plumbing (image → VLM advise → actuator) for GPU validation — scoped to MECHANIC reasoning, not just goal detection." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="s1">
+                    <mxGeometry x="560" y="760" width="500" height="60" as="geometry" />
+                </mxCell>
+                <mxCell id="sNext3" value="3. Supply a stronger in-rerun vision model — the only input that could move the ceiling." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="s1">
+                    <mxGeometry x="1080" y="760" width="530" height="60" as="geometry" />
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="det-arch" name="1 System Architecture">
+        <mxGraphModel dx="1136" dy="652" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1020" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="aTitle" value="&lt;b&gt;Ouroboros ARC-AGI-3 Kaggle — Proposed Future Architecture (V10+, deterministic, Gemma OFF)&lt;/b&gt;" style="text;html=1;fontSize=17;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="15" width="880" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="aLeg1" value="Existing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="960" y="18" width="120" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="aLeg2" value="Proposed new" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1090" y="18" width="120" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="aLeg3" value="Learned state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1220" y="18" width="120" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="aLeg4" value="Offline pipeline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1350" y="18" width="120" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="aLeg5" value="Environment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1480" y="18" width="120" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="aZoneK" value="Kaggle rerun environment (offline, internet disabled)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="60" width="480" height="450" as="geometry"/>
+                </mxCell>
+                <mxCell id="aZoneR" value="ouro_arc runtime (per game, in-notebook)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#6c8ebf;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="560" y="60" width="1060" height="570" as="geometry"/>
+                </mxCell>
+                <mxCell id="aZoneO" value="Offline improvement loop (local dev machine)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#d6b656;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="660" width="1580" height="320" as="geometry"/>
+                </mxCell>
+                <mxCell id="aNotebook" value="Kaggle notebook submission.ipynb — deterministic build: OURO_ARC_DISABLE_MODEL=1, GEMMA_POLICY=off, MAX_ACTIONS from budget sweep" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="100" width="200" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aMeta" value="kernel-metadata.json — no model_sources, enable_internet=false, no GPU dependency" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="100" width="200" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aFramework" value="ARC-AGI-3-Agents framework (Swarm / main.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="250" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="aEngine" value="arcengine gateway — private (unseen) games" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="250" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="aAgent" value="MyAgent adapter (agent/my_agent.py) — thin: frames in, GameAction out, atexit summary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="370" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="aPerc" value="Perception — render.py (frame hash, diffs) + objects.py (connected components, salient / paired targets)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="590" y="100" width="210" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aObjKey" value="NEW object-graph state key — hash objects + relations instead of raw pixels; stable state ids across cosmetic changes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="590" y="250" width="210" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aWorld" value="Learned world model (per game) — transition graph (transition_memory finally consumed), dangerous / no-op edges, dud clicks, movement deltas, click-board + click-sequence stats" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="840" y="100" width="230" height="260" as="geometry"/>
+                </mxCell>
+                <mxCell id="aPlanner" value="NEW symbolic planning layer — rule induction + falsification; active experiment selection (discriminating probes); BFS/A* over transition graph toward novelty and predicted score" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="1110" y="100" width="230" height="260" as="geometry"/>
+                </mxCell>
+                <mxCell id="aCascade" value="ArcController.choose() cascade — replay &gt; queue &gt; probe &gt; paired-control &gt; skill plans &gt; movement-BFS &gt; constraint-board &gt; click-board &gt; click-sequence &gt; explore &gt; fallback / escape" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="100" width="210" height="260" as="geometry"/>
+                </mxCell>
+                <mxCell id="aSkills" value="SkillRegistry — distilled_skills.json, ranked SkillPlans, cooldowns / bans" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="590" y="400" width="210" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aTelemetry" value="Telemetry — per-action JSONL trace, solver_counts, run summary (atexit, fail-open)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="840" y="400" width="230" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aNote" value="No neural dependency — CPU-only rerun, zero model-load risk, fastest per-action latency" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="1110" y="400" width="230" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aBudget" value="NEW budget governor — solver monopoly guard, stagnation early-stop, per-game wall-clock cap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="400" width="210" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="aTeacher" value="Teacher runs — live harness + frontier model (high effort) on unsolved mechanic families" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="710" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="aDistill" value="Skill distillation — extract_traces, distill_skills, validate (no game ids / hashes / coord macros), compile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="330" y="710" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="aEval" value="Local eval — play_local vs 25 public games, official scorecard; NEW k-fold holdout (tune on 20, verify on 5)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="590" y="710" width="230" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="aRatchet" value="NEW ratchet gate — analyzer vs best baseline; any per-game regression blocks the notebook build" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="860" y="710" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="aBuild" value="build_notebook.py — deterministic variant + metadata sync" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="1120" y="710" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="aSubmit" value="kaggle submit — one variable per submission; leaderboard feedback" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="1360" y="710" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="aKnobs" value="NEW parameter evolution — bandit / evolutionary search over env knobs, holdout-scored" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="590" y="850" width="230" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE1" value="launches" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aNotebook" target="aFramework" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE2" value="frames / actions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;startArrow=classic;" parent="1" source="aFramework" target="aEngine" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE3" value="choose_action(frame)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aFramework" target="aAgent" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE4" value="latest frame" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aAgent" target="aPerc" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aPerc" target="aObjKey" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE6" value="stable state keys" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;" parent="1" source="aObjKey" target="aWorld" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE7" value="observations" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aPerc" target="aWorld" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE8" value="evidence" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aWorld" target="aPlanner" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE9" value="planned probes / paths" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aPlanner" target="aCascade" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE10" value="ranked skill plans" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aSkills" target="aCascade" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE11" value="ActionSpec → GameAction" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" parent="1" source="aCascade" target="aAgent" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE12" value="gates / early-stop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;" parent="1" source="aBudget" target="aCascade" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE13" value="per-action events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aCascade" target="aTelemetry" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE14" value="ships distilled_skills.json" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;" parent="1" source="aDistill" target="aSkills" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE15" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aTeacher" target="aDistill" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aDistill" target="aEval" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aEval" target="aRatchet" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aRatchet" target="aBuild" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aBuild" target="aSubmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE20" value="knob candidates" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="aKnobs" target="aEval" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE21" value="local traces" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;" parent="1" source="aTelemetry" target="aEval" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="aE22" value="failure taxonomy → next teacher targets" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" parent="1" source="aSubmit" target="aTeacher" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="det-flow" name="2 Decision Flow">
+        <mxGraphModel dx="1136" dy="652" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="1650" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="bTitle" value="&lt;b&gt;Per-action decision flow — proposed ArcController.choose() (V10+)&lt;/b&gt;" style="text;html=1;fontSize=17;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="15" width="800" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="bStart" value="frame arrives (framework)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="160" y="70" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="bObserve" value="observe transition — update dangerous / no-op / dud edges, movement deltas, click stats; NEW: append edge to transition graph" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="160" width="360" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="bTerm" value="terminal / reset state? WIN, GAME_OVER, NOT_PLAYED → RESET (death attribution, macro-replay arming, recovery heuristics)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="290" width="360" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="bBudget" value="NEW budget governor — no new frame key for N actions, or per-game wall-clock hit?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="410" width="360" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="bStop" value="stop acting this game — write telemetry summary (efficiency banked)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+                    <mxGeometry x="660" y="410" width="220" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="bReplay" value="1. pending replay — large-click replay / macro-replay queue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="540" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bQueue" value="2. queued plan action — legality + safety filters (dangerous, no-op, dud, cooldowns, demoted sources)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="640" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bPlanner" value="3. NEW planner — path in transition graph to predicted score / novelty state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="740" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bProbe" value="4. level-opening probe — each simple action once per level" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="840" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bPaired" value="5. paired-control — mechanism-conditioned trigger (NEW: generalized, not game-shaped)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="940" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bSkills" value="6. ranked distilled skill plan (cooldowns / bans respected)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="1040" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bMove" value="7. movement-BFS toward unvisited frontier (learned deltas)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="1140" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bBoards" value="8. constraint-board / click-board / click-sequence plans" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="1240" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bExplore" value="9. explore bursts (stagnation-gated)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="1340" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bFallback" value="10. fallback / escape — salient-target enumeration, never blind coordinate sweeps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="1440" width="360" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="bEmit" value="emit ActionSpec → framework executes → next frame returns to top" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=middle;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="660" y="540" width="200" height="970" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bStart" target="bObserve" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bObserve" target="bTerm" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF3" value="playing" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bTerm" target="bBudget" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF4" value="RESET" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0.5;entryY=0;" parent="1" source="bTerm" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF5" value="exceeded" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bBudget" target="bStop" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF6" value="within budget" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bBudget" target="bReplay" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF7" value="none" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bReplay" target="bQueue" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF8" value="empty" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bQueue" target="bPlanner" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF9" value="no path" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bPlanner" target="bProbe" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF10" value="all probed" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bProbe" target="bPaired" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF11" value="no trigger" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bPaired" target="bSkills" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF12" value="no plan" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bSkills" target="bMove" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF13" value="no plan" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bMove" target="bBoards" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF14" value="no plan" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bBoards" target="bExplore" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF15" value="not stagnant" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bExplore" target="bFallback" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF16" value="plan found" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bReplay" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bQueue" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bPlanner" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bProbe" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF20" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bPaired" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF21" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bSkills" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF22" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bMove" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF23" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bBoards" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF24" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bExplore" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF25" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="bFallback" target="bEmit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="bF26" value="next frame" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0.5;exitY=0;entryX=1;entryY=0.5;" parent="1" source="bEmit" target="bStart" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="det-lifecycle" name="3 Game Lifecycle">
+        <mxGraphModel dx="1136" dy="652" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="700" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="cTitle" value="&lt;b&gt;Game-playing lifecycle — deterministic agent (per game, action + wall-clock budget)&lt;/b&gt;" style="text;html=1;fontSize=17;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="15" width="900" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="cStart" value="game start → RESET" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="210" width="150" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="cProbe" value="1. Opening probes — each simple action once; click salient targets; observe effects" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="240" y="190" width="210" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="cDiscover" value="2. Mechanic discovery — grow transition graph + movement / click models; NEW: induce rules, run discriminating experiments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="190" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="cExploit" value="3. Plan and exploit — NEW: BFS to predicted score states; execute skill plans; record winning macro" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="790" y="190" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="cLevel" value="4. LEVEL UP — score++; save macro; reset per-level state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="1080" y="190" width="210" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="cWin" value="WIN — all levels complete (is_done)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="1340" y="205" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="cDeath" value="GAME_OVER — death attribution: mark dangerous edge; ban / cool the fatal skill" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+                    <mxGeometry x="790" y="370" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="cReset" value="RESET + macro replay — chain saved macros to regain level; disable replay after repeated failure" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="370" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="cStall" value="Stagnation — explore bursts; NEW: solver monopoly guard rotates strategies" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="240" y="370" width="210" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="cStop" value="NEW early stop — still no novelty after N actions → stop, bank efficiency" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="240" y="510" width="210" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="cEnd" value="game ends — WIN / action budget / early stop → telemetry summary" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="790" y="520" width="280" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cStart" target="cProbe" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cProbe" target="cDiscover" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cDiscover" target="cExploit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE4" value="score++" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cExploit" target="cLevel" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE5" value="last level" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cLevel" target="cWin" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE6" value="next level: probe again" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" parent="1" source="cLevel" target="cProbe" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE7" value="fatal action" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cExploit" target="cDeath" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cDeath" target="cReset" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE9" value="macros replayed → resume frontier level" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cReset" target="cExploit" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE10" value="no new frame keys" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cDiscover" target="cStall" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE11" value="novelty found" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cStall" target="cDiscover" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE12" value="budget governor" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cStall" target="cStop" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cStop" target="cEnd" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="cWin" target="cEnd" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cE15" value="MAX_ACTIONS exhausted" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;" parent="1" source="cExploit" target="cEnd" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="det-rsi" name="4 RSI Outer Loop">
+        <mxGraphModel dx="1136" dy="652" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="750" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="dTitle" value="&lt;b&gt;Outer improvement loop — recursive self-improvement across submissions&lt;/b&gt;" style="text;html=1;fontSize=17;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="15" width="900" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="dGate" value="Ratchet gate — regression vs best baseline blocks the build; one variable per submission" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="100" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="dPlay" value="Build + submit — deterministic variant (Gemma off), metadata synced" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="100" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="dLB" value="Kaggle rerun — private (unseen) games → leaderboard score" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="100" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="dMemory" value="Evidence base — baselines/, score history (V3 0.10 … V9 0.16), memory notes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="1320" y="100" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="dTaxonomy" value="NEW failure taxonomy — mine telemetry: why did each zero-level game stall? which mechanic family is unsolved?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="1320" y="330" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="dTeacher" value="Teacher runs — frontier model, high effort, targeted at unsolved mechanic families" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="330" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="dDistill" value="Distill → validate → compile skills (generic-only: no game ids, hashes, coordinate macros)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="330" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="dEval" value="Local official-scorer eval — 25 public games, k-fold holdout (never tune on the scoreboard)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="330" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="dKnobs" value="Knob evolution (inner loop) — bandit search over env knobs: explore bursts, cooldown thresholds, replay limits, MAX_ACTIONS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="510" width="240" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="dPrinciples" value="Principles (from live-harness evidence): 1) budget utilization beats cleverness — the driver loop was the only harness change that moved score · 2) the deterministic floor is sacred · 3) every subsystem fails open, nothing may abort a run · 4) tune on holdout, never on the leaderboard · 5) capability gains come from distilled policy content + runtime learning, not harness polish" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#999999;dashed=1;align=left;spacing=10;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="500" width="720" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE1" value="pass" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dGate" target="dPlay" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dPlay" target="dLB" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE3" value="record outcome" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dLB" target="dMemory" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dMemory" target="dTaxonomy" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE5" value="targets" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dTaxonomy" target="dTeacher" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE6" value="traces" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dTeacher" target="dDistill" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE7" value="new skill cards" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dDistill" target="dEval" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE8" value="holdout score" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="dEval" target="dGate" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dE9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;startArrow=classic;" parent="1" source="dKnobs" target="dEval" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -28,8 +28,13 @@ class GemmaPlan:
 class GemmaAdvisor:
     """Lazy offline Gemma 4 12B advisor.
 
-    The controller treats this as optional during local smoke tests. In Kaggle
-    competition reruns `require_model=True` makes missing weights a hard error.
+    Advisor problems must never abort a run: the agent scores 0.00 for every
+    game if an exception escapes here during a Kaggle rerun (submission
+    versions 7 and 8). Every failure path logs, returns a null result, and —
+    for unrecoverable load problems — latches the advisor into a disabled
+    state so the deterministic controller keeps playing. `require_model=True`
+    (set for Kaggle reruns) only makes the startup check eager and the logging
+    loud; it never raises.
     """
 
     def __init__(
@@ -43,10 +48,17 @@ class GemmaAdvisor:
         self.max_new_tokens = max_new_tokens
         self.processor: Any | None = None
         self.model: Any | None = None
+        self.failure_reason: str | None = None
 
     @property
     def disabled(self) -> bool:
+        if self.failure_reason is not None:
+            return True
         return os.getenv("OURO_ARC_DISABLE_MODEL", "").lower() in {"1", "true", "yes"}
+
+    def _fail(self, reason: str) -> None:
+        self.failure_reason = reason
+        print(f"[ouro-arc] gemma advisor disabled, continuing deterministically: {reason}")
 
     def resolve_model_path(self) -> Path | None:
         candidates = (
@@ -65,9 +77,9 @@ class GemmaAdvisor:
             searched = ", ".join(
                 [self.model_path or "", *DEFAULT_MODEL_CANDIDATES]
             ).strip(", ")
-            raise FileNotFoundError(
-                "Gemma 4 12B Unified model input was not found. "
-                f"Set OURO_ARC_MODEL_PATH or attach it under one of: {searched}"
+            self._fail(
+                "model input not found. Set OURO_ARC_MODEL_PATH or attach it "
+                f"under one of: {searched}"
             )
         return resolved
 
@@ -87,22 +99,23 @@ class GemmaAdvisor:
                     from transformers import AutoModelForImageTextToText as AutoModelForMultimodalLM  # type: ignore
                 except ImportError:
                     from transformers import AutoModelForCausalLM as AutoModelForMultimodalLM  # type: ignore
-        except ImportError as exc:
-            if self.require_model:
-                raise RuntimeError(
-                    "transformers is required to load Gemma 4 12B Unified"
-                ) from exc
-            return False
 
-        self.processor = AutoProcessor.from_pretrained(
-            str(model_path), local_files_only=True
-        )
-        self.model = AutoModelForMultimodalLM.from_pretrained(
-            str(model_path),
-            local_files_only=True,
-            dtype="auto",
-            device_map="auto",
-        )
+            self.processor = AutoProcessor.from_pretrained(
+                str(model_path), local_files_only=True
+            )
+            self.model = AutoModelForMultimodalLM.from_pretrained(
+                str(model_path),
+                local_files_only=True,
+                dtype="auto",
+                device_map="auto",
+            )
+        except Exception as exc:
+            # Retrying a broken 12B load on every advise call would burn the
+            # wall-clock budget, so latch the advisor off permanently.
+            self.processor = None
+            self.model = None
+            self._fail(f"model load failed: {exc!r}")
+            return False
         return True
 
     def advise(
@@ -151,9 +164,11 @@ class GemmaAdvisor:
                 **inputs, max_new_tokens=self.max_new_tokens, do_sample=False
             )
             decoded = self.processor.decode(output[0], skip_special_tokens=True)
-        except Exception:
-            if self.require_model:
-                raise
+        except Exception as exc:
+            # Transient inference failures are not latched: the controller's
+            # failure backoff paces retries and OURO_ARC_GEMMA_MAX_CALLS bounds
+            # the total cost per game.
+            print(f"[ouro-arc] gemma advise failed, skipping model call: {exc!r}")
             return None
         return parse_model_plan(decoded, available_actions)
 

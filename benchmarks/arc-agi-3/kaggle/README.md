@@ -38,13 +38,20 @@ rewrite the vendored framework's `agents/__init__.py` to avoid optional
 template imports such as `langsmith`, `langgraph`, and `smolagents`.
 
 Local play disables Gemma by default with `OURO_ARC_DISABLE_MODEL=1`, so smoke
-tests can run without a 12B model. The generated Kaggle notebook also
-hard-disables Gemma on every path, including competition reruns: the submitted
-agent is the deterministic controller only. Gemma-active reruns scored 0.00
-(submission versions 7 and 8) because `require_model=True` makes any advisor
-load or inference failure abort the entire run; do not re-enable Gemma in the
-submission until those failures degrade to deterministic play instead of
-raising. The Gemma env knobs remain for local experiments:
+tests can run without a 12B model. `make notebook` also defaults to a
+deterministic-only submission: Gemma hard-disabled on every path, no model
+input attached (Gemma-active reruns scored 0.00 on submission versions 7 and 8
+when advisor failures were fatal). Advisor failures are now guaranteed
+non-fatal — a missing or broken model logs, latches the advisor off, and play
+continues deterministically — so a Gemma submission can be built explicitly:
+
+```bash
+OURO_ARC_SUBMISSION_GEMMA=1 make submit
+```
+
+This switches the generated notebook to a capped sparse Gemma policy and
+attaches the Gemma model input in `kernel-metadata.json` (plain `make submit`
+detaches it again). The env knobs for local experiments:
 
 ```bash
 OURO_ARC_DISABLE_MODEL=0 OURO_ARC_GEMMA_POLICY=active \
@@ -74,19 +81,19 @@ coordinate-heavy walkthroughs so the submitted artifact remains generic.
 
 ## Kaggle Model Input
 
-The current submission is deterministic-only, so `kernel-metadata.json` attaches
-no model sources. If re-enabling Gemma for an experiment, official competition
-reruns have internet disabled: attach Gemma 4 12B as a Kaggle model input and
-set `OURO_ARC_MODEL_PATH` if its path is not one of the defaults from
-`ouro_arc/gemma.py`:
+The default submission is deterministic-only, so `kernel-metadata.json`
+attaches no model sources. Building with `OURO_ARC_SUBMISSION_GEMMA=1`
+attaches Gemma 4 12B automatically. Official competition reruns have internet
+disabled, so set `OURO_ARC_MODEL_PATH` if the model input path is not one of
+the defaults from `ouro_arc/gemma.py`:
 
 - `/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b-it/2`
 - `/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b-it`
 - `/kaggle/input/models/google/gemma-4/transformers`
 - `/kaggle/input/models/google/gemma-4`
 
-During `KAGGLE_IS_COMPETITION_RERUN`, missing model weights are a hard error
-unless Gemma is disabled (which the generated notebook does).
+Missing or unloadable model weights are never fatal: the advisor logs the
+problem, latches itself off, and the deterministic controller keeps playing.
 
 ## Submission
 

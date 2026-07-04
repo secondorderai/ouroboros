@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -12,6 +13,36 @@ _ACCELERATORS = {
     "p100": {"name": "nvidiaTeslaP100", "gpu": True},
     "rtx6000": {"name": "nvidiaRtx6000", "gpu": True},
 }
+
+GEMMA_MODEL_SOURCE = "google/gemma-4/transformers/gemma-4-12b-it/2"
+
+# The default submission is deterministic-only: Gemma-active reruns scored 0.00
+# (submission versions 7 and 8) when advisor failures were fatal. Advisor
+# failures now degrade to deterministic play, but Gemma stays opt-in per build.
+DETERMINISTIC_ENV_BLOCK = dedent(
+    """\
+    # Deterministic submission: Gemma disabled on every path, including
+    # competition reruns. Build with OURO_ARC_SUBMISSION_GEMMA=1 for the
+    # Gemma-sparse variant.
+    os.environ["OURO_ARC_DISABLE_MODEL"] = "1"
+    os.environ["OURO_ARC_GEMMA_POLICY"] = "off"
+    os.environ["OURO_ARC_GEMMA_MAX_CALLS"] = "0"
+    """
+).rstrip("\n")
+
+GEMMA_ENV_BLOCK = dedent(
+    """\
+    # Gemma-sparse variant (built with OURO_ARC_SUBMISSION_GEMMA=1). Advisor
+    # load/inference failures are non-fatal and fall back to the deterministic
+    # controller; call count is capped per game.
+    os.environ["OURO_ARC_GEMMA_POLICY"] = "sparse"
+    os.environ["OURO_ARC_GEMMA_MAX_CALLS"] = "12"
+    """
+).rstrip("\n")
+
+
+def submission_gemma_enabled() -> bool:
+    return os.getenv("OURO_ARC_SUBMISSION_GEMMA", "").lower() in {"1", "true", "yes"}
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_SRC = ROOT / "agent" / "my_agent.py"
@@ -52,6 +83,7 @@ def build() -> dict:
     if ACCELERATOR not in _ACCELERATORS:
         raise SystemExit(f"Unknown ACCELERATOR={ACCELERATOR!r}")
     accel = _ACCELERATORS[ACCELERATOR]
+    env_block = GEMMA_ENV_BLOCK if submission_gemma_enabled() else DETERMINISTIC_ENV_BLOCK
 
     install_cell = code_cell(
         "!pip install --no-index --find-links \\\n"
@@ -127,13 +159,7 @@ def build() -> dict:
             )
             run_arc_agent = competition_rerun_detected or gateway_up
             selected_execution_path = "arc-agent" if run_arc_agent else "dummy-submission"
-            # Deterministic submission: Gemma disabled on every path, including
-            # competition reruns. Gemma-active reruns scored 0.00 (V7/V8) because a
-            # single advisor load/inference failure aborts the whole run under
-            # require_model=True; do not re-enable without making those non-fatal.
-            os.environ["OURO_ARC_DISABLE_MODEL"] = "1"
-            os.environ["OURO_ARC_GEMMA_POLICY"] = "off"
-            os.environ["OURO_ARC_GEMMA_MAX_CALLS"] = "0"
+            __OURO_GEMMA_ENV_BLOCK__
             os.environ.setdefault("OURO_ARC_GEMMA_INTERVAL", "16")
             os.environ.setdefault("OURO_ARC_MAX_ACTIONS", "320")
             print("competition_rerun_detected=", competition_rerun_detected)
@@ -190,7 +216,7 @@ def build() -> dict:
                     MPLBACKEND=agg \\
                     python main.py --agent myagent
             """
-        )
+        ).replace("__OURO_GEMMA_ENV_BLOCK__", env_block)
     )
 
     dummy_submission_cell = code_cell(
@@ -241,22 +267,37 @@ def build() -> dict:
     }
 
 
+def sync_metadata(meta: dict) -> bool:
+    """Align kernel metadata with the built notebook variant. The model input
+    must match the Gemma flag or the rerun either wastes provisioning
+    (deterministic + model) or plays without its model (Gemma + no model)."""
+    gpu = _ACCELERATORS[ACCELERATOR]["gpu"]
+    changed = False
+    if meta.get("enable_gpu") != gpu:
+        meta["enable_gpu"] = gpu
+        changed = True
+    if meta.get("enable_internet") is not False:
+        meta["enable_internet"] = False
+        changed = True
+    model_sources = [GEMMA_MODEL_SOURCE] if submission_gemma_enabled() else []
+    if meta.get("model_sources") != model_sources:
+        meta["model_sources"] = model_sources
+        changed = True
+    return changed
+
+
 def main() -> None:
     NOTEBOOK_PATH.parent.mkdir(parents=True, exist_ok=True)
     NOTEBOOK_PATH.write_text(json.dumps(build(), indent=1))
-    print(f"Wrote {NOTEBOOK_PATH.relative_to(ROOT)} with accelerator={ACCELERATOR}")
+    variant = "gemma-sparse" if submission_gemma_enabled() else "deterministic"
+    print(
+        f"Wrote {NOTEBOOK_PATH.relative_to(ROOT)} "
+        f"with accelerator={ACCELERATOR} variant={variant}"
+    )
 
     if METADATA_PATH.exists():
         meta = json.loads(METADATA_PATH.read_text())
-        gpu = _ACCELERATORS[ACCELERATOR]["gpu"]
-        changed = False
-        if meta.get("enable_gpu") != gpu:
-            meta["enable_gpu"] = gpu
-            changed = True
-        if meta.get("enable_internet") is not False:
-            meta["enable_internet"] = False
-            changed = True
-        if changed:
+        if sync_metadata(meta):
             METADATA_PATH.write_text(json.dumps(meta, indent=2) + "\n")
 
 

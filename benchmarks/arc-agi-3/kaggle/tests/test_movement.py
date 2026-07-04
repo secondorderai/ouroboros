@@ -70,3 +70,33 @@ class MovementModelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StepTowardTest(unittest.TestCase):
+    def _model(self) -> MovementModel:
+        model = MovementModel()
+        model.deltas = {1: (0, -1), 2: (0, 1), 3: (-1, 0), 4: (1, 0)}
+        model.current_position = (5, 5)
+        return model
+
+    def test_steps_toward_target(self) -> None:
+        model = self._model()
+        # target to the right -> action 4 (+1 x) reduces distance
+        self.assertEqual(model.step_toward((9, 5), {1, 2, 3, 4}), 4)
+        # target above -> action 1 (-1 y)
+        self.assertEqual(model.step_toward((5, 1), {1, 2, 3, 4}), 1)
+
+    def test_returns_none_at_target(self) -> None:
+        model = self._model()
+        self.assertIsNone(model.step_toward((5, 5), {1, 2, 3, 4}))
+
+    def test_avoids_blocked_and_deadly_edges(self) -> None:
+        model = self._model()
+        model.blocked_edges.add(((5, 5), 4))  # the ideal move is blocked
+        model.death_edges.add(((5, 5), 2))
+        # 4 (toward target) blocked -> must not be chosen; falls to another
+        self.assertNotEqual(model.step_toward((9, 5), {1, 2, 3, 4}), 4)
+
+    def test_returns_none_without_deltas(self) -> None:
+        model = MovementModel()
+        self.assertIsNone(model.step_toward((1, 1), {1, 2, 3, 4}))

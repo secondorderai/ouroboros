@@ -71,6 +71,30 @@ class ClickBoardModelTest(unittest.TestCase):
             model.tried_by_level.setdefault(0, set()).add((target.x, target.y))
         self.assertEqual(model.plan(grid, level=0, available_actions={6}), [])
 
+    def test_color_prior_transfers_across_levels(self) -> None:
+        # Two colored regions; a color-5 click scored on level 0. On level 1
+        # (no coordinate history) color-5 targets must be ranked before color-3.
+        grid = [[0 for _ in range(32)] for _ in range(32)]
+        for y0, x0, color in [(8, 8, 5), (8, 16, 5), (16, 8, 3), (16, 16, 3)]:
+            for y in range(y0, y0 + 4):
+                for x in range(x0, x0 + 4):
+                    grid[y][x] = color
+        model = ClickBoardModel()
+        model.observe_click(ActionSpec(6, x=9, y=9), grid, grid, 0, 1, "NOT_FINISHED")
+        self.assertEqual(model.feature_priority(5), -1)
+        self.assertIsNone(model.feature_priority(3))
+
+        plan = model.plan(grid, level=1, available_actions={6}, max_actions=8)
+        self.assertTrue(plan)
+        self.assertEqual(grid[plan[0].y][plan[0].x], 5)
+
+    def test_feature_priority_deprioritizes_dead_colors(self) -> None:
+        grid = [[0 for _ in range(32)] for _ in range(32)]
+        model = ClickBoardModel()
+        for _ in range(3):
+            model.observe_click(ActionSpec(6, x=5, y=5), grid, grid, 0, 0, "NOT_FINISHED")  # no-op
+        self.assertEqual(model.feature_priority(grid[5][5]), 8)
+
 
 if __name__ == "__main__":
     unittest.main()

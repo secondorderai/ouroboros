@@ -73,6 +73,38 @@ class MovementModel:
         self.visited_positions.add(old_center)
         self.visited_positions.add(new_center)
 
+    def step_toward(
+        self,
+        target: Position,
+        available_actions: set[int],
+    ) -> int | None:
+        """Greedy single action that most reduces distance to ``target``.
+
+        Uses learned deltas, skipping known blocked/deadly edges. Returns None at
+        a local minimum (no move improves) so the caller can fall back to
+        undirected exploration. Re-planned each step, so it discovers and routes
+        around walls reactively instead of committing to a stale full path.
+        """
+
+        if self.current_position is None or not self.deltas:
+            return None
+        sx, sy = self.current_position
+        tx, ty = target
+        best_action: int | None = None
+        best_distance = abs(sx - tx) + abs(sy - ty)
+        for action, (dx, dy) in sorted(self.deltas.items()):
+            if action not in available_actions:
+                continue
+            if (self.current_position, action) in self.blocked_edges:
+                continue
+            if (self.current_position, action) in self.death_edges:
+                continue
+            distance = abs(sx + dx - tx) + abs(sy + dy - ty)
+            if distance < best_distance:
+                best_distance = distance
+                best_action = action
+        return best_action
+
     def reset_level(self) -> None:
         self.current_position = None
         self.visited_positions = set()

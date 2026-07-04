@@ -46,6 +46,15 @@ class NoPlanAdvisor:
         return None
 
 
+class RaisingAdvisor:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def advise(self, prompt: str, available_actions: set[int]) -> GemmaPlan:
+        self.calls += 1
+        raise RuntimeError("advisor exploded")
+
+
 def grid(player_y: int = 1) -> list[list[list[int]]]:
     base = [[0 for _ in range(64)] for _ in range(64)]
     base[player_y][1] = 3
@@ -197,6 +206,15 @@ class ControllerTest(unittest.TestCase):
         action = controller.choose(DummyFrame(empty, "NOT_FINISHED", available_actions=[6]))
         self.assertEqual((action.action, action.x, action.y), (6, 9, 8))
         self.assertEqual(len(advisor.prompts), 1)
+
+    def test_advisor_exception_is_contained_and_run_continues(self) -> None:
+        advisor = RaisingAdvisor()
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        empty = [[[0 for _ in range(64)] for _ in range(64)]]
+        action = controller.choose(DummyFrame(empty, "NOT_FINISHED", available_actions=[6]))
+        self.assertEqual(advisor.calls, 1)
+        self.assertEqual(action.action, 6)
+        self.assertEqual(controller.model_failure_total, 1)
 
     def test_click_targets_are_not_repeated_before_new_targets(self) -> None:
         controller = ArcController()
@@ -558,6 +576,80 @@ class ControllerTest(unittest.TestCase):
         replay = controller.choose(DummyFrame(grid(1), "NOT_FINISHED", 0, available_actions=[2]))
         self.assertFalse(controller.replaying)
         self.assertTrue(controller.macro_replay_disabled)
+
+
+class PlannerTest(unittest.TestCase):
+    def _set_env(self, key: str, value: str) -> None:
+        old = os.environ.get(key)
+        os.environ[key] = value
+
+        def restore() -> None:
+            if old is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old
+
+        self.addCleanup(restore)
+
+    def _view(self, controller: ArcController, available=(1, 2, 3, 4)):
+        frame = DummyFrame(grid(), "NOT_FINISHED", 0, available_actions=list(available))
+        return controller._frame_view(frame)
+
+    def test_planner_noop_on_sparse_graph(self) -> None:
+        controller = ArcController()
+        view = self._view(controller)
+        # Default min-nodes is 6; an empty graph must not plan, so the cascade
+        # falls through to the existing solvers exactly as before.
+        self.assertEqual(controller._planner_plan(view), [])
+
+    def test_planner_disabled_by_env(self) -> None:
+        self._set_env("OURO_ARC_DISABLE_PLANNER", "1")
+        self._set_env("OURO_ARC_PLANNER_MIN_NODES", "1")
+        controller = ArcController()
+        view = self._view(controller)
+        controller.transition_graph.observe(view.key, (2, None, None), "t", "score increased", 0)
+        self.assertEqual(controller._planner_plan(view), [])
+
+    def test_planner_replays_known_score_transition(self) -> None:
+        self._set_env("OURO_ARC_PLANNER_MIN_NODES", "1")
+        controller = ArcController()
+        frame = DummyFrame(grid(), "NOT_FINISHED", 0, available_actions=[1, 2, 3, 4])
+        view = controller._frame_view(frame)
+        controller.transition_graph.observe(view.key, (2, None, None), "t", "score increased", 0)
+        # Force the earlier cascade stages (probe / paired-control) to yield so the
+        # planner is the stage that answers, proving the cascade wiring.
+        controller.level_probe_actions = {1, 2, 3, 4, 5, 7}
+        action = controller.choose(frame)
+        self.assertEqual(action.action, 2)
+        self.assertEqual(action.source, "planner")
+
+    def test_planner_prefers_safe_score_edge(self) -> None:
+        self._set_env("OURO_ARC_PLANNER_MIN_NODES", "1")
+        controller = ArcController()
+        view = self._view(controller)
+        controller.transition_graph.observe(view.key, (2, None, None), "t2", "score increased", 0)
+        controller.transition_graph.observe(view.key, (3, None, None), "t3", "score increased", 0)
+        controller.dangerous_edges.add((0, view.key, (2, None, None)))
+        plan = controller._planner_plan(view)
+        self.assertTrue(plan)
+        self.assertEqual(plan[0].action, 3)
+
+    def test_planner_respects_source_demotion(self) -> None:
+        self._set_env("OURO_ARC_PLANNER_MIN_NODES", "1")
+        controller = ArcController()
+        view = self._view(controller)
+        controller.transition_graph.observe(view.key, (2, None, None), "t", "score increased", 0)
+        controller.source_demotions["planner"] = 5
+        self.assertEqual(controller._planner_plan(view), [])
+
+    def test_planner_defers_when_local_frontier_exists(self) -> None:
+        # With no score route and untried local actions still available, the
+        # planner defers to the existing solvers instead of monopolizing.
+        self._set_env("OURO_ARC_PLANNER_MIN_NODES", "1")
+        controller = ArcController()
+        view = self._view(controller, available=(1, 2, 3, 4))
+        controller.transition_graph.observe(view.key, (1, None, None), "other", "changed", 0)
+        self.assertEqual(controller._planner_plan(view), [])
 
 
 if __name__ == "__main__":
