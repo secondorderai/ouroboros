@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 
-from .objects import hex_digit
+from .objects import hex_digit, object_state_signature
 
 
 DIFF_CELL_CAP = 30
@@ -94,3 +94,11 @@ def frame_hash(grid: list[list[int]], mask_hud: bool = True) -> str:
             h.update(bytes((v if 0 <= v < 255 else 254) for v in row))
         h.update(b"\n")
     return h.hexdigest()
+
+
+def object_frame_hash(grid: list[list[int]]) -> str:
+    """Structural state key. The ``obj:`` prefix namespaces it so it can never
+    collide with a raw-pixel ``frame_hash`` value during comparison or migration.
+    """
+
+    return "obj:" + object_state_signature(grid)

@@ -10,7 +10,7 @@ FRAMEWORK_DIR   := vendor/ARC-AGI-3-Agents
 GAME            ?=
 STEPS           ?= 200
 
-.PHONY: help setup test compile-skills play-local trace-click-games score-local-deterministic verify-local list-games notebook submit status model-check clean _check-kaggle
+.PHONY: help setup test compile-skills play-local trace-click-games score-local-deterministic verify-local list-games notebook submit status model-check clean _check-kaggle holdout overfit-lint _holdout-gate-check
 
 help:
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-15s %s\n",$$1,$$2}' $(MAKEFILE_LIST)
@@ -52,6 +52,15 @@ score-local-deterministic: ## Run all public games with model disabled and compa
 	OURO_ARC_DISABLE_MODEL=1 $(VENV_PY) scripts/play_local.py --max-steps 320 --results-json logs/local_results.json
 	$(VENV_PY) scripts/analyze_local_results.py logs/local_results.json
 
+holdout: ## Run the 25-game + TEST-fold deterministic plays and ratchet the holdout baseline
+	$(VENV_PY) scripts/slim_framework.py
+	OURO_ARC_DISABLE_MODEL=1 $(VENV_PY) scripts/play_local.py --max-steps 320 --results-json logs/local_results.json
+	OURO_ARC_DISABLE_MODEL=1 $(VENV_PY) scripts/play_local.py --game vc33,lf52,su15,sc25,g50t,wa30,ka59,dc22,tn36 --max-steps 320 --results-json logs/test_fold_results.json
+	$(VENV_PY) scripts/holdout_gate.py --results logs/local_results.json --test-results logs/test_fold_results.json --update
+
+overfit-lint: ## Lint the ouro_arc/agent/skills diff for reintroduced game-specificity
+	$(VENV_PY) scripts/overfit_lint.py
+
 verify-local: ## 50-action smoke test on ls20 and vc33 without loading Gemma
 	$(VENV_PY) scripts/slim_framework.py
 	OURO_ARC_DISABLE_MODEL=1 $(VENV_PY) scripts/play_local.py --game ls20,vc33 --max-steps 50
@@ -60,7 +69,15 @@ list-games: ## List local ARC-AGI-3 environments
 	$(VENV_PY) scripts/slim_framework.py
 	$(VENV_PY) scripts/play_local.py --list
 
-notebook: ## Build notebooks/submission.ipynb
+_holdout-gate-check:
+	@if [ -f logs/local_results.json ]; then \
+	    $(VENV_PY) scripts/holdout_gate.py --check-only --results logs/local_results.json $(if $(wildcard logs/test_fold_results.json),--test-results logs/test_fold_results.json) \
+	        || { echo 'holdout gate blocked build; use scripts/holdout_gate.py --allow-regression to override'; exit 1; }; \
+	else \
+	    echo 'holdout gate: no logs/local_results.json yet, skipping check'; \
+	fi
+
+notebook: _holdout-gate-check ## Build notebooks/submission.ipynb
 	$(VENV_PY) scripts/build_notebook.py
 
 model-check: ## Validate OURO_ARC_MODEL_PATH or a Gemma Kaggle input path

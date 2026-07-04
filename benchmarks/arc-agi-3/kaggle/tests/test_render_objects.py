@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import os
 import unittest
 
 from ouro_arc.objects import salient_click_targets, segment_objects, summarize_objects
-from ouro_arc.render import frame_hash, render_diff, render_full
+from ouro_arc.render import frame_hash, object_frame_hash, render_diff, render_full
+
+
+def _board(cells: dict[tuple[int, int], int]) -> list[list[int]]:
+    grid = [[0 for _ in range(64)] for _ in range(64)]
+    for (x, y), color in cells.items():
+        grid[y][x] = color
+    return grid
 
 
 class RenderObjectsTest(unittest.TestCase):
@@ -58,6 +66,67 @@ class RenderObjectsTest(unittest.TestCase):
             [(x, y) for x, y, _label in targets],
             [(22, 12), (30, 12), (38, 12), (22, 20), (30, 20), (38, 20)],
         )
+
+
+class ObjectStateKeyTest(unittest.TestCase):
+    def test_object_key_stable_across_hud_change(self) -> None:
+        # Identical gameplay object; grid_b additionally lights a top HUD-row cell.
+        grid_a = _board({(10, 10): 2})
+        grid_b = _board({(10, 10): 2, (0, 0): 7})
+        # The raw-pixel key already masks the HUD band here, but the object key
+        # must also treat the HUD cell as irrelevant.
+        self.assertEqual(object_frame_hash(grid_a), object_frame_hash(grid_b))
+
+    def test_object_key_distinguishes_structural_change(self) -> None:
+        grid_a = _board({(10, 10): 2})
+        grid_b = _board({(15, 15): 2})
+        self.assertNotEqual(object_frame_hash(grid_a), object_frame_hash(grid_b))
+
+    def test_frame_view_uses_object_key_only_when_flagged(self) -> None:
+        from ouro_arc.controller import ArcController
+
+        class _Frame:
+            def __init__(self, grid: list[list[int]]) -> None:
+                self.frame = [grid]
+                self.state = "NOT_FINISHED"
+                self.available_actions = [1, 2, 3, 4]
+                self.levels_completed = 0
+
+        old = os.environ.get("OURO_ARC_STATE_KEY")
+
+        def restore() -> None:
+            if old is None:
+                os.environ.pop("OURO_ARC_STATE_KEY", None)
+            else:
+                os.environ["OURO_ARC_STATE_KEY"] = old
+
+        self.addCleanup(restore)
+
+        board = _board({(10, 10): 2})
+        os.environ.pop("OURO_ARC_STATE_KEY", None)
+        controller = ArcController()
+        self.assertFalse(controller._frame_view(_Frame(board)).key.startswith("obj:"))
+
+        os.environ["OURO_ARC_STATE_KEY"] = "object"
+        controller = ArcController()
+        self.assertTrue(controller._frame_view(_Frame(board)).key.startswith("obj:"))
+
+
+class GoalTargetsTest(unittest.TestCase):
+    def test_prefers_rarest_compact_object_and_excludes_player(self) -> None:
+        from ouro_arc.objects import goal_targets
+        grid = [[0 for _ in range(32)] for _ in range(32)]
+        # walls: many color-4 blocks (common); player: color-3; goal: single color-8
+        for cx in (6, 12, 18):
+            for y in range(6, 9):
+                for x in range(cx, cx + 3):
+                    grid[y][x] = 4
+        grid[20][20] = 3   # player
+        grid[24][24] = 8   # rare distinct goal
+        targets = goal_targets(grid, exclude_colors=frozenset({3}))
+        self.assertTrue(targets)
+        self.assertEqual(targets[0][2], 8)                 # rarest color first
+        self.assertNotIn(3, [c for _x, _y, c in targets])  # player excluded
 
 
 if __name__ == "__main__":

@@ -11,10 +11,11 @@ from .constraint_board import ConstraintBoardPlanner
 from .explore import EXPLORE_ACTIONS, ExplorePolicy
 from .gemma import GemmaAdvisor
 from .movement import MovementModel
-from .objects import object_motions, paired_control_targets, salient_click_targets, summarize_objects
-from .render import changed_cells, frame_hash, last_grid, render_diff, render_full
+from .objects import goal_targets, object_motions, paired_control_targets, salient_click_targets, summarize_objects
+from .render import changed_cells, frame_hash, last_grid, object_frame_hash, render_diff, render_full
 from .skills import SkillContext, SkillPlan, SkillRegistry
 from .telemetry import TelemetryWriter
+from .transition_graph import TransitionGraph
 
 
 TERMINAL_STATES = {"WIN"}
@@ -130,6 +131,7 @@ class ArcController:
         self.click_source_failures: dict[tuple[int, str, str], int] = {}
         self.click_source_cooldowns: dict[tuple[int, str, str], int] = {}
         self.transition_memory: dict[tuple[str, tuple[int, int | None, int | None]], str] = {}
+        self.transition_graph = TransitionGraph()
         self.large_click_replay: ActionSpec | None = None
         self.large_click_replay_remaining = 0
         self.large_click_replay_min_changed = max(
@@ -166,6 +168,10 @@ class ArcController:
             1,
             int(os.getenv("OURO_ARC_CLICK_SOURCE_COOLDOWN_ACTIONS", "24")),
         )
+        self.planner_disabled = os.getenv("OURO_ARC_DISABLE_PLANNER", "0").lower() in {"1", "true", "yes"}
+        self.planner_min_nodes = max(1, int(os.getenv("OURO_ARC_PLANNER_MIN_NODES", "6")))
+        self.planner_max_depth = max(1, int(os.getenv("OURO_ARC_PLANNER_MAX_DEPTH", "24")))
+        self.goal_nav_enabled = os.getenv("OURO_ARC_GOAL_NAV", "0").lower() in {"1", "true", "yes"}
 
     def choose(self, latest_frame: Any) -> ActionSpec:
         view = self._frame_view(latest_frame)
@@ -238,6 +244,12 @@ class ArcController:
             self._record_choice(view, paired_control[0])
             return paired_control[0]
 
+        planner = self._planner_plan(view)
+        if planner:
+            self._enqueue(planner[1 : self.max_queue], view, source="planner", abort_on_key_change=True)
+            self._record_choice(view, planner[0])
+            return planner[0]
+
         skill_plan = self._skill_plan(view, node)
         if skill_plan:
             skill_candidates = self._skill_candidate_actions()
@@ -248,6 +260,11 @@ class ArcController:
             self._enqueue(skill_plan.actions[1 : self.max_queue], view, source=skill_plan.actions[0].source)
             self._record_choice(view, skill_plan.actions[0], skill_id=skill_plan.card.id)
             return skill_plan.actions[0]
+
+        goal_nav = self._goal_nav_plan(view)
+        if goal_nav:
+            self._record_choice(view, goal_nav[0])
+            return goal_nav[0]
 
         movement = self._movement_plan(view)
         if movement:
@@ -323,13 +340,19 @@ class ArcController:
         win_levels_raw = getattr(frame, "win_levels", getattr(frame, "win_score", None))
         win_levels = int(win_levels_raw) if win_levels_raw is not None else None
         available = normalize_available_actions(getattr(frame, "available_actions", []))
+        # State identity. Default raw-pixel key preserves existing behavior; the
+        # object key (opt-in, highest-risk) is stable across HUD/background churn.
+        if os.getenv("OURO_ARC_STATE_KEY", "pixel").lower() == "object":
+            key = object_frame_hash(grid)
+        else:
+            key = frame_hash(grid)
         return FrameView(
             grid=grid,
             state=state,
             levels_completed=levels_completed,
             win_levels=win_levels,
             available_actions=available,
-            key=frame_hash(grid),
+            key=key,
         )
 
     def _observe_transition(self, view: FrameView) -> None:
@@ -559,6 +582,35 @@ class ArcController:
         height = len(view.grid)
         return self.movement_model.plan(width, height, view.available_actions)
 
+    def _goal_nav_plan(self, view: FrameView) -> list[ActionSpec]:
+        """Steer the player toward a detected goal object instead of searching
+        the space blindly. Directed navigation is the only thing that beats
+        blind-search complexity on movement games (e.g. ls20 reaches its level-0
+        goal in ~22 human steps but the blind explorer needs ~300)."""
+
+        if not self.goal_nav_enabled or self._source_demoted("goal-nav"):
+            return []
+        if self.current_position is None or not self.movement_deltas:
+            return []
+        cx, cy = self.current_position
+        player_color = (
+            view.grid[cy][cx]
+            if 0 <= cy < len(view.grid) and 0 <= cx < len(view.grid[cy])
+            else None
+        )
+        exclude = frozenset({player_color}) if player_color is not None else frozenset()
+        for tx, ty, _color in goal_targets(view.grid, exclude_colors=exclude):
+            if (tx, ty) in self.visited_positions:
+                continue
+            action = self.movement_model.step_toward((tx, ty), view.available_actions)
+            if action is None:
+                continue
+            spec = ActionSpec(action, reason=f"goal-nav ({tx},{ty})", source="goal-nav")
+            if self._is_dangerous(view, spec) or self._is_noop(view, spec):
+                continue
+            return [spec]
+        return []
+
     def _click_board_plan(self, view: FrameView) -> list[ActionSpec]:
         if self._source_demoted("click-board"):
             return []
@@ -615,6 +667,80 @@ class ArcController:
             return []
         self.paired_control_attempted_levels.add(view.levels_completed)
         return actions[: self.max_queue]
+
+    def _planner_plan(self, view: FrameView) -> list[ActionSpec]:
+        """Directed plan over the learned transition graph.
+
+        Exploit first: replay the shortest observed route to a score-increasing
+        transition (the efficiency win). Otherwise route to the nearest reachable
+        state that still has an untried, safe action. Purely generic — the graph
+        is learned at runtime, so this transfers to unseen games where hand-built
+        game-specific heuristics do not. Execution safety is enforced by
+        ``_pop_legal`` and ``abort_on_key_change`` when the queue is consumed, so
+        the planning-time filters here are only a best-effort prune.
+        """
+
+        if self.planner_disabled or self._source_demoted("planner"):
+            return []
+        graph = self.transition_graph
+        if len(graph.edges) < self.planner_min_nodes:
+            return []
+
+        def is_blocked(action_key: tuple[int, int | None, int | None]) -> bool:
+            edge = (view.levels_completed, view.key, action_key)
+            return edge in self.dangerous_edges or edge in self.noop_edges
+
+        path = graph.path_to_score(view.key, self.planner_max_depth, is_blocked)
+        if not path:
+            current_candidates = self._planner_candidate_keys(view)
+            # Only ROUTE to a distant frontier when the current state is locally
+            # exhausted; if untried local actions remain, defer to the existing
+            # solvers so the planner augments exploration instead of monopolizing it.
+            if graph.frontier_actions(view.key, current_candidates, is_blocked):
+                return []
+            simple_candidates = [(action, None, None) for action in EXPLORE_ACTIONS]
+            path = graph.path_to_frontier(
+                view.key,
+                candidate_provider=lambda key: (
+                    current_candidates if key == view.key else simple_candidates
+                ),
+                max_depth=self.planner_max_depth,
+                is_blocked=is_blocked,
+            )
+        if not path:
+            return []
+        return self._materialize_path(view, path)
+
+    def _planner_candidate_keys(self, view: FrameView) -> list[tuple[int, int | None, int | None]]:
+        keys: list[tuple[int, int | None, int | None]] = []
+        seen: set[tuple[int, int | None, int | None]] = set()
+        for spec in self._candidate_actions(view):
+            if spec.key not in seen:
+                seen.add(spec.key)
+                keys.append(spec.key)
+        return keys
+
+    def _materialize_path(
+        self,
+        view: FrameView,
+        path: list[tuple[int, int | None, int | None]],
+    ) -> list[ActionSpec]:
+        specs = [
+            ActionSpec(action, x=x, y=y, reason="planner path", source="planner")
+            for action, x, y in path
+        ]
+        if not specs:
+            return []
+        first = specs[0]
+        if not filter_legal_actions([first], view.available_actions):
+            return []
+        if (
+            self._is_dangerous(view, first)
+            or self._is_noop(view, first)
+            or self._is_dud_click(view, first.x, first.y)
+        ):
+            return []
+        return specs
 
     def _click_sequence_plan(self, view: FrameView) -> list[ActionSpec]:
         if self._source_demoted("click-sequence") and not self._click_source_cooled(view, "controller"):
@@ -704,7 +830,14 @@ class ArcController:
         self.model_asked_keys.add(view.key)
         self.model_calls += 1
         self.actions_since_model = 0
-        plan = self.advisor.advise(self._prompt(view, candidates), view.available_actions)
+        try:
+            plan = self.advisor.advise(self._prompt(view, candidates), view.available_actions)
+        except Exception as exc:
+            # An advisor exception must never propagate: it would abort the
+            # whole run and zero every game (Kaggle submissions V7/V8).
+            print(f"[ouro-arc] gemma advise raised, treating as failure: {exc!r}")
+            self._record_model_failure()
+            return None
         if not plan:
             self._record_model_failure()
             return None
@@ -1058,6 +1191,13 @@ class ArcController:
         outcome: str,
     ) -> None:
         self.transition_memory[(prev.key, action.key)] = outcome
+        self.transition_graph.observe(
+            from_key=prev.key,
+            action_key=action.key,
+            to_key=prev.key if outcome == "no visible change" else view.key,
+            outcome=outcome,
+            level=prev.levels_completed,
+        )
         if action.source == "explore-repeat" and outcome in {"no visible change", "game over"}:
             self.explore_policy.ban(prev.levels_completed, prev.key, action.action)
 

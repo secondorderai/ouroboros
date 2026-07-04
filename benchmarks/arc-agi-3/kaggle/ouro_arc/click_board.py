@@ -28,6 +28,37 @@ class ClickBoardModel:
     tried_by_level: dict[int, set[tuple[int, int]]] = field(default_factory=dict)
     outcomes_by_context: dict[tuple[int, str, int, int], ClickOutcome] = field(default_factory=dict)
     tried_by_context: dict[tuple[int, str], set[tuple[int, int]]] = field(default_factory=dict)
+    # Outcome counts keyed by the COLOR clicked, aggregated across all levels.
+    # Coordinate keys do not transfer to a new level (same mechanic, new
+    # positions); the clicked color does, so this lets a mechanic learned on an
+    # early level rank the right targets immediately on later levels instead of
+    # re-brute-forcing them (the dominant per-level efficiency loss).
+    feature_outcomes: dict[int, dict[str, int]] = field(default_factory=dict)
+
+    def feature_priority(self, color: int | None) -> int | None:
+        """Ranking prior from a color's cross-level click history.
+
+        Returns a target_rank priority (lower = try sooner) or None when there
+        is not enough evidence, in which case ranking falls back to the
+        coordinate/default logic. Only reorders candidates; never hard-skips.
+        """
+
+        if color is None:
+            return None
+        stats = self.feature_outcomes.get(color)
+        if not stats:
+            return None
+        score = stats.get("score-change", 0)
+        region = stats.get("region-change", 0)
+        dead = stats.get("no-op", 0) + stats.get("hud-only", 0) + stats.get("death", 0)
+        positive = score * 3 + region
+        if score > 0 and score >= dead:
+            return -1
+        if positive > dead and positive > 0:
+            return 0
+        if dead >= 3 and positive == 0:
+            return 8
+        return None
 
     def detect_targets(self, grid: list[list[int]], limit: int = 64) -> list[BoardTarget]:
         return [
@@ -73,6 +104,10 @@ class ClickBoardModel:
         self.outcomes_by_context[(prev_level, frame_family, action.x, action.y)] = click_outcome
         self.tried_by_level.setdefault(prev_level, set()).add((action.x, action.y))
         self.tried_by_context.setdefault((prev_level, frame_family), set()).add((action.x, action.y))
+        if 0 <= action.y < len(prev_grid) and 0 <= action.x < len(prev_grid[action.y]):
+            color = prev_grid[action.y][action.x]
+            counts = self.feature_outcomes.setdefault(color, {})
+            counts[outcome] = counts.get(outcome, 0) + 1
 
     def plan(
         self,
@@ -103,7 +138,16 @@ class ClickBoardModel:
             elif outcome and outcome.outcome in {"no-op", "hud-only", "death"}:
                 priority = 9
             else:
-                priority = 2
+                # No coordinate evidence (typically a new level): fall back to
+                # the cross-level color prior so a learned mechanic ranks the
+                # right targets first instead of re-brute-forcing from scratch.
+                color = (
+                    grid[target.y][target.x]
+                    if 0 <= target.y < len(grid) and 0 <= target.x < len(grid[target.y])
+                    else None
+                )
+                feature = self.feature_priority(color)
+                priority = feature if feature is not None else 2
             return (priority, target.y, target.x)
 
         for target in sorted(targets, key=target_rank):

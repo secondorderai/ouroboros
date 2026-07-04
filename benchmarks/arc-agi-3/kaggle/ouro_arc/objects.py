@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 
@@ -68,6 +69,39 @@ def segment_objects(grid: list[list[int]]) -> list[GridObject]:
 
             objects.append(GridObject(color=color, size=size, x0=x0, y0=y0, x1=x1, y1=y1))
     return objects
+
+
+def object_state_signature(grid: list[list[int]], mask_hud_rows: int = HUD_ROWS) -> str:
+    """Structural fingerprint of the board, stable across cosmetic churn.
+
+    Drops the background (the color covering the most cells) and any object that
+    lives entirely inside the top/bottom HUD band, then fingerprints the sorted
+    ``(color, x0, y0, width, height, size)`` tuples of the remaining foreground
+    objects. Position IS included on purpose: in movement games the player's
+    position is the state, so a position-free key would merge a safe state with a
+    lethal one. The win over ``frame_hash`` is robustness to HUD counters and
+    background-palette changes; granularity is the knob to tune in an A/B.
+    """
+
+    if not grid:
+        return "0" * 32
+    height = len(grid)
+    objects = segment_objects(grid)
+    coverage: dict[int, int] = {}
+    for obj in objects:
+        coverage[obj.color] = coverage.get(obj.color, 0) + obj.size
+    background = max(coverage, key=lambda color: coverage[color]) if coverage else 0
+    foreground: list[tuple[int, int, int, int, int, int]] = []
+    for obj in objects:
+        if obj.color == background:
+            continue
+        if obj.y1 < mask_hud_rows or obj.y0 >= height - mask_hud_rows:
+            continue
+        foreground.append((obj.color, obj.x0, obj.y0, obj.width, obj.height, obj.size))
+    foreground.sort()
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(repr((len(foreground), foreground)).encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _cell_noun(n: int) -> str:
@@ -239,6 +273,48 @@ def salient_click_targets(grid: list[list[int]], limit: int = 40) -> list[tuple[
         if len(targets) >= limit:
             break
     return targets
+
+
+def goal_targets(
+    grid: list[list[int]],
+    exclude_colors: frozenset[int] = frozenset(),
+    limit: int = 6,
+) -> list[tuple[int, int, int]]:
+    """Candidate goal cells for directed navigation, rarest color first.
+
+    In movement games the goal is usually a small, distinctly-colored object the
+    player must reach, while walls/structure are the most common foreground
+    color. This returns (x, y, color) for compact non-background, non-excluded
+    objects ranked by color rarity then size — a generic goal proxy the movement
+    model can steer toward instead of searching the whole space blindly.
+    """
+
+    objects = foreground_objects(grid)
+    if not objects:
+        return []
+    color_cells: dict[int, int] = {}
+    for obj in objects:
+        color_cells[obj.color] = color_cells.get(obj.color, 0) + obj.size
+    common = max(color_cells, key=lambda color: color_cells[color])
+    height = len(grid)
+    candidates: list[tuple[int, int, int, tuple[int, int]]] = []
+    for obj in objects:
+        if obj.color in exclude_colors or obj.color == common:
+            continue
+        if obj.size > 64 or obj.y0 < HUD_ROWS or obj.y1 >= height - HUD_ROWS:
+            continue
+        candidates.append((color_cells[obj.color], obj.size, obj.color, obj.center))
+    candidates.sort(key=lambda item: (item[0], item[1], item[3][1], item[3][0]))
+    out: list[tuple[int, int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    for _rarity, _size, color, center in candidates:
+        if center in seen:
+            continue
+        seen.add(center)
+        out.append((center[0], center[1], color))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def paired_control_targets(grid: list[list[int]], limit: int = 8) -> list[tuple[int, int, str]]:
