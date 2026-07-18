@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import unittest
 
-from ouro_arc.objects import salient_click_targets, segment_objects, summarize_objects
+from ouro_arc.objects import compact_control_targets, salient_click_targets, segment_objects, summarize_objects, summarize_scene_graph
 from ouro_arc.render import frame_hash, object_frame_hash, render_diff, render_full
 
 
@@ -38,6 +38,18 @@ class RenderObjectsTest(unittest.TestCase):
         self.assertIn("color 3 2x2 rect (4 cells) at (1,1)..(2,2)", summary)
         self.assertIn("color 2 1x1 (1 cell) at (2,3)", summary)
 
+    def test_scene_graph_shape_ids_ignore_translation_and_report_contact(self) -> None:
+        grid = [[0 for _ in range(8)] for _ in range(8)]
+        grid[2][1] = grid[2][2] = 2
+        grid[3][2] = 3
+        grid[5][5] = grid[5][6] = 2
+
+        objects = [obj for obj in segment_objects(grid) if obj.color != 0]
+        summary = summarize_scene_graph(grid)
+
+        self.assertEqual(objects[0].shape_hash, objects[2].shape_hash)
+        self.assertIn("edges=[n0-n1]", summary)
+
     def test_render_full_and_diff_are_compact(self) -> None:
         a = [[0, 0], [0, 1]]
         b = [[0, 2], [0, 1]]
@@ -66,6 +78,20 @@ class RenderObjectsTest(unittest.TestCase):
             [(x, y) for x, y, _label in targets],
             [(22, 12), (30, 12), (38, 12), (22, 20), (30, 20), (38, 20)],
         )
+
+    def test_compact_control_targets_find_small_non_rectangular_components(self) -> None:
+        grid = [[0 for _ in range(64)] for _ in range(64)]
+        for y in range(10, 14):
+            for x in range(20, 24):
+                grid[y][x] = 8
+        for x in range(40, 43):
+            grid[30][x] = 5
+        grid[29][41] = 5
+
+        targets = compact_control_targets(grid, limit=4)
+
+        self.assertEqual([(x, y) for x, y, _label in targets], [(41, 29)])
+        self.assertIn("compact control", targets[0][2])
 
 
 class ObjectStateKeyTest(unittest.TestCase):

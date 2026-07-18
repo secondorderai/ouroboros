@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
 
@@ -28,6 +28,21 @@ class Edge:
     outcome: Outcome
     level: int
     visits: int = 1
+    observations: dict[tuple[str | None, Outcome], int] = field(default_factory=dict)
+
+    @property
+    def stable(self) -> bool:
+        return len(self.observations) <= 1
+
+    def record(self, to_key: str | None, outcome: Outcome) -> None:
+        variant = (to_key, outcome)
+        self.observations[variant] = self.observations.get(variant, 0) + 1
+        self.visits += 1
+        selected = min(
+            self.observations,
+            key=lambda item: (-self.observations[item], item[0] or "", item[1]),
+        )
+        self.to_key, self.outcome = selected
 
 
 class TransitionGraph:
@@ -55,14 +70,20 @@ class TransitionGraph:
         adjacency = self.edges.setdefault(from_key, {})
         edge = adjacency.get(action_key)
         if edge is None:
-            adjacency[action_key] = Edge(action_key, to_key, outcome, level)
+            adjacency[action_key] = Edge(
+                action_key,
+                to_key,
+                outcome,
+                level,
+                observations={(to_key, outcome): 1},
+            )
         else:
-            edge.visits += 1
-            edge.outcome = outcome
-            if to_key is not None:
-                edge.to_key = to_key
-        if outcome == "score increased":
+            edge.record(to_key, outcome)
+        current = adjacency[action_key]
+        if current.stable and current.outcome == "score increased":
             self.score_edges.add((from_key, action_key))
+        else:
+            self.score_edges.discard((from_key, action_key))
 
     def neighbors(self, key: str) -> dict[ActionKey, Edge]:
         return self.edges.get(key, {})
@@ -100,10 +121,13 @@ class TransitionGraph:
             for action_key in sorted(self.edges.get(key, {}), key=_sort_key):
                 if is_blocked(action_key):
                     continue
+                edge = self.edges[key][action_key]
+                if not edge.stable:
+                    continue
                 new_path = [*path, action_key]
                 if (key, action_key) in self.score_edges:
                     return new_path
-                to_key = self.edges[key][action_key].to_key
+                to_key = edge.to_key
                 if to_key is None or to_key in seen:
                     continue
                 seen.add(to_key)
@@ -116,6 +140,7 @@ class TransitionGraph:
         candidate_provider: Callable[[str], Iterable[ActionKey]],
         max_depth: int,
         is_blocked: Callable[[ActionKey], bool],
+        action_rank: Callable[[str, ActionKey], object] | None = None,
     ) -> list[ActionKey] | None:
         """Shortest path to a state that still has an untried, unblocked action.
 
@@ -131,11 +156,19 @@ class TransitionGraph:
                 continue
             frontier = self.frontier_actions(key, candidate_provider(key), is_blocked)
             if frontier:
-                return [*path, sorted(frontier, key=_sort_key)[0]]
+                rank = (
+                    (lambda action_key: action_rank(key, action_key))
+                    if action_rank is not None
+                    else _sort_key
+                )
+                return [*path, sorted(frontier, key=rank)[0]]
             for action_key in sorted(self.edges.get(key, {}), key=_sort_key):
                 if is_blocked(action_key):
                     continue
-                to_key = self.edges[key][action_key].to_key
+                edge = self.edges[key][action_key]
+                if not edge.stable:
+                    continue
+                to_key = edge.to_key
                 if to_key is None or to_key in seen:
                     continue
                 seen.add(to_key)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,13 +10,16 @@ from .click_board import ClickBoardModel
 from .click_sequence import ClickSequencePlanner
 from .constraint_board import ConstraintBoardPlanner
 from .explore import EXPLORE_ACTIONS, ExplorePolicy
-from .gemma import GemmaAdvisor
+from .advisor import ModelAdvisor
+from .model_config import model_env, model_flag
 from .movement import MovementModel
-from .objects import goal_targets, object_motions, paired_control_targets, salient_click_targets, summarize_objects
-from .render import changed_cells, frame_hash, last_grid, object_frame_hash, render_diff, render_full
+from .objects import compact_control_targets, goal_targets, object_motions, paired_control_targets, salient_click_targets, summarize_objects, summarize_scene_graph
+from .render import changed_cells, last_grid, object_frame_hash, render_diff, render_full
 from .skills import SkillContext, SkillPlan, SkillRegistry
 from .telemetry import TelemetryWriter
 from .transition_graph import TransitionGraph
+from .vlm_render import grid_to_png_bytes
+from .world_model import ExecutableWorldModel, MechanicHypothesis, ScenePerception, perceive_grid
 
 
 TERMINAL_STATES = {"WIN"}
@@ -37,6 +41,7 @@ class FrameView:
     win_levels: int | None
     available_actions: set[int]
     key: str
+    perception: ScenePerception | None = None
 
 
 @dataclass
@@ -47,26 +52,28 @@ class TransitionEvent:
     from_key: str
     to_key: str
     outcome: str
+    effect: str
     diff: str
 
     def prompt_line(self) -> str:
         return (
             f"level {self.from_level}->{self.to_level} {self.action} "
-            f"{self.from_key[:8]}->{self.to_key[:8]}: {self.outcome}; {self.diff}"
+            f"{self.from_key[:8]}->{self.to_key[:8]}: {self.outcome}; "
+            f"effect={self.effect}; {self.diff}"
         )
 
 
 class ArcController:
-    """Deterministic ARC-AGI-3 explorer with sparse Gemma advice."""
+    """Deterministic ARC-AGI-3 explorer with sparse model advice."""
 
     def __init__(
         self,
-        advisor: GemmaAdvisor | None = None,
+        advisor: ModelAdvisor | None = None,
         max_queue: int = 24,
         telemetry: TelemetryWriter | None = None,
         skill_registry: SkillRegistry | None = None,
     ) -> None:
-        self.advisor = advisor or GemmaAdvisor()
+        self.advisor = advisor or ModelAdvisor()
         self.max_queue = max_queue
         self.nodes: dict[str, GraphNode] = {}
         self.queue: list[ActionSpec] = []
@@ -79,6 +86,7 @@ class ArcController:
         self.last_action: ActionSpec | None = None
         self.stagnation = 0
         self.hypothesis = ""
+        self.mechanic_memory = ""
         self.replaying = False
         self.level = 0
         self.level_probe_actions: set[int] = set()
@@ -132,6 +140,13 @@ class ArcController:
         self.click_source_cooldowns: dict[tuple[int, str, str], int] = {}
         self.transition_memory: dict[tuple[str, tuple[int, int | None, int | None]], str] = {}
         self.transition_graph = TransitionGraph()
+        self.world_model = ExecutableWorldModel(self.transition_graph)
+        self.actions_since_progress = 0
+        self.actions_since_world_novelty = 0
+        self.information_probe_actions = 0
+        self.information_probe_novel = 0
+        self.hypothesis_rankings = 0
+        self.model_rejections: dict[str, int] = {}
         self.large_click_replay: ActionSpec | None = None
         self.large_click_replay_remaining = 0
         self.large_click_replay_min_changed = max(
@@ -148,18 +163,21 @@ class ArcController:
             1,
             int(os.getenv("OURO_ARC_PAIRED_CONTROL_REPLAY_LIMIT", "7")),
         )
-        self.gemma_backoff_count = 0
+        self.model_backoff_count = 0
         self.model_failure_total = 0
         self.max_level_reached = 0
         default_policy = "sparse"
-        self.gemma_policy = os.getenv("OURO_ARC_GEMMA_POLICY", default_policy).lower()
-        self.gemma_interval = max(1, int(os.getenv("OURO_ARC_GEMMA_INTERVAL", "16")))
-        self.max_model_calls = max(0, int(os.getenv("OURO_ARC_GEMMA_MAX_CALLS", "12")))
-        self.actions_since_model = self.gemma_interval
+        self.model_policy = model_env("POLICY", default_policy).lower()
+        self.model_interval = max(1, int(model_env("INTERVAL", "16")))
+        self.max_model_calls = max(0, int(model_env("MAX_CALLS", "12")))
+        self.actions_since_model = self.model_interval
         self.consecutive_model_failures = 0
-        self.gemma_backoff_remaining = 0
-        self.gemma_backoff_actions = max(1, int(os.getenv("OURO_ARC_GEMMA_BACKOFF_ACTIONS", "12")))
-        self.gemma_failure_threshold = max(1, int(os.getenv("OURO_ARC_GEMMA_FAILURE_THRESHOLD", "3")))
+        self.model_backoff_remaining = 0
+        self.model_backoff_actions = max(1, int(model_env("BACKOFF_ACTIONS", "12")))
+        self.model_failure_threshold = max(1, int(model_env("FAILURE_THRESHOLD", "3")))
+        self.model_vision_enabled = model_flag("VISION")
+        self.model_time_budget_seconds = float(model_env("TIME_BUDGET_SECONDS", "0") or "0")
+        self.model_time_spent_seconds = 0.0
         self.click_source_failure_threshold = max(
             1,
             int(os.getenv("OURO_ARC_CLICK_SOURCE_FAILURE_THRESHOLD", "8")),
@@ -172,6 +190,18 @@ class ArcController:
         self.planner_min_nodes = max(1, int(os.getenv("OURO_ARC_PLANNER_MIN_NODES", "6")))
         self.planner_max_depth = max(1, int(os.getenv("OURO_ARC_PLANNER_MAX_DEPTH", "24")))
         self.goal_nav_enabled = os.getenv("OURO_ARC_GOAL_NAV", "0").lower() in {"1", "true", "yes"}
+        self.induction_stuck_actions = max(
+            1,
+            int(os.getenv("OURO_ARC_INDUCTION_STUCK_ACTIONS", "48")),
+        )
+        self.induction_novelty_patience = max(
+            1,
+            int(os.getenv("OURO_ARC_INDUCTION_NOVELTY_PATIENCE", "12")),
+        )
+        self.hypothesis_candidate_limit = max(
+            1,
+            int(os.getenv("OURO_ARC_HYPOTHESIS_MAX_CANDIDATES", "8")),
+        )
 
     def choose(self, latest_frame: Any) -> ActionSpec:
         view = self._frame_view(latest_frame)
@@ -253,8 +283,12 @@ class ArcController:
         skill_plan = self._skill_plan(view, node)
         if skill_plan:
             skill_candidates = self._skill_candidate_actions()
-            if self._should_ask_gemma(view, skill_candidates, skill_candidates) and self._skill_plan_needs_model(skill_plan):
-                queued = self._ask_gemma(view, skill_candidates)
+            if (
+                not self._hypothesis_only_policy()
+                and self._should_ask_model(view, skill_candidates, skill_candidates)
+                and self._skill_plan_needs_model(skill_plan)
+            ):
+                queued = self._ask_model(view, skill_candidates)
                 if queued:
                     return queued
             self._enqueue(skill_plan.actions[1 : self.max_queue], view, source=skill_plan.actions[0].source)
@@ -296,8 +330,8 @@ class ArcController:
 
         candidates = self._candidate_actions(view)
         if not candidates:
-            if self._should_ask_gemma(view, candidates, []):
-                queued = self._ask_gemma(view, candidates)
+            if self._should_ask_model(view, candidates, []):
+                queued = self._ask_model(view, candidates)
                 if queued:
                     return queued
             fallback = self._fallback_non_reset(view)
@@ -317,8 +351,8 @@ class ArcController:
             return self._reset_action(view, "no legal actions available")
         unexplored = [action for action in candidates if action.key not in node.tried]
 
-        if self._should_ask_gemma(view, candidates, unexplored):
-            queued = self._ask_gemma(view, candidates)
+        if self._should_ask_model(view, candidates, unexplored):
+            queued = self._ask_model(view, candidates)
             if queued:
                 return queued
 
@@ -335,6 +369,7 @@ class ArcController:
     def _frame_view(self, frame: Any) -> FrameView:
         raw_frame = getattr(frame, "frame", None)
         grid = last_grid(raw_frame or [])
+        perception = perceive_grid(grid)
         state = str(getattr(getattr(frame, "state", ""), "name", getattr(frame, "state", "")))
         levels_completed = int(getattr(frame, "levels_completed", getattr(frame, "score", 0)) or 0)
         win_levels_raw = getattr(frame, "win_levels", getattr(frame, "win_score", None))
@@ -345,7 +380,8 @@ class ArcController:
         if os.getenv("OURO_ARC_STATE_KEY", "pixel").lower() == "object":
             key = object_frame_hash(grid)
         else:
-            key = frame_hash(grid)
+            key = perception.pixel_key
+        self.world_model.register(key, perception)
         return FrameView(
             grid=grid,
             state=state,
@@ -353,6 +389,7 @@ class ArcController:
             win_levels=win_levels,
             available_actions=available,
             key=key,
+            perception=perception,
         )
 
     def _observe_transition(self, view: FrameView) -> None:
@@ -365,7 +402,7 @@ class ArcController:
                 self.paired_control_attempted_levels.discard(view.levels_completed)
                 self.max_level_reached = max(self.max_level_reached, view.levels_completed)
                 self.consecutive_model_failures = 0
-                self.gemma_backoff_remaining = 0
+                self.model_backoff_remaining = 0
                 if not self.replaying and self.current_macro:
                     self.macros.append(self.current_macro[:])
                 self.current_macro = []
@@ -470,10 +507,10 @@ class ArcController:
             self._decay_source_demotions()
             self._decay_click_source_cooldowns()
             self.actions_since_model += 1
-            if self.gemma_backoff_remaining > 0:
-                self.gemma_backoff_remaining -= 1
-                if self.gemma_backoff_remaining == 0:
-                    print("[ouro-arc] gemma backoff ended")
+            if self.model_backoff_remaining > 0:
+                self.model_backoff_remaining -= 1
+                if self.model_backoff_remaining == 0:
+                    print("[ouro-arc] model backoff ended")
             self.action_counts[action.action] = self.action_counts.get(action.action, 0) + 1
             self.current_macro.append(action)
             if action.action in {1, 2, 3, 4, 5, 7}:
@@ -690,23 +727,22 @@ class ArcController:
             edge = (view.levels_completed, view.key, action_key)
             return edge in self.dangerous_edges or edge in self.noop_edges
 
-        path = graph.path_to_score(view.key, self.planner_max_depth, is_blocked)
-        if not path:
-            current_candidates = self._planner_candidate_keys(view)
-            # Only ROUTE to a distant frontier when the current state is locally
-            # exhausted; if untried local actions remain, defer to the existing
-            # solvers so the planner augments exploration instead of monopolizing it.
-            if graph.frontier_actions(view.key, current_candidates, is_blocked):
-                return []
-            simple_candidates = [(action, None, None) for action in EXPLORE_ACTIONS]
-            path = graph.path_to_frontier(
-                view.key,
-                candidate_provider=lambda key: (
-                    current_candidates if key == view.key else simple_candidates
-                ),
-                max_depth=self.planner_max_depth,
-                is_blocked=is_blocked,
-            )
+        current_candidates = self._planner_candidate_keys(view)
+        simple_candidates = [(action, None, None) for action in EXPLORE_ACTIONS]
+        path = self.world_model.search(
+            view.key,
+            candidate_provider=lambda key: (
+                current_candidates if key == view.key else simple_candidates
+            ),
+            max_depth=self.planner_max_depth,
+            is_blocked=is_blocked,
+            level=view.levels_completed,
+            allow_local_information_probe=(
+                self.actions_since_progress >= self.induction_stuck_actions
+                and self.actions_since_world_novelty
+                >= self.induction_novelty_patience
+            ),
+        )
         if not path:
             return []
         return self._materialize_path(view, path)
@@ -820,31 +856,55 @@ class ArcController:
                 actions.append(action)
         return actions
 
-    def _ask_gemma(self, view: FrameView, candidates: list[ActionSpec]) -> ActionSpec | None:
+    def _ask_model(self, view: FrameView, candidates: list[ActionSpec]) -> ActionSpec | None:
+        if self._hypothesis_only_policy():
+            return self._ask_hypothesis_advisor(view, candidates)
         if self.max_model_calls and self.model_calls >= self.max_model_calls:
             return None
-        if self.gemma_backoff_remaining > 0:
+        if self.model_backoff_remaining > 0:
+            return None
+        if self._model_time_budget_exhausted():
             return None
         if bool(getattr(self.advisor, "disabled", False)):
             return None
         self.model_asked_keys.add(view.key)
         self.model_calls += 1
         self.actions_since_model = 0
+        image = None
+        if self.model_vision_enabled:
+            try:
+                image = grid_to_png_bytes(view.grid)
+            except Exception as exc:
+                print(f"[ouro-arc] model image render failed, treating as failure: {exc!r}")
+                self._record_model_failure()
+                return None
+        started = time.monotonic()
         try:
-            plan = self.advisor.advise(self._prompt(view, candidates), view.available_actions)
+            plan = self.advisor.advise(
+                self._prompt(view, candidates),
+                view.available_actions,
+                image=image,
+            )
         except Exception as exc:
             # An advisor exception must never propagate: it would abort the
             # whole run and zero every game (Kaggle submissions V7/V8).
-            print(f"[ouro-arc] gemma advise raised, treating as failure: {exc!r}")
+            print(f"[ouro-arc] model advise raised, treating as failure: {exc!r}")
             self._record_model_failure()
             return None
+        finally:
+            self.model_time_spent_seconds += time.monotonic() - started
         if not plan:
+            self._record_model_rejection(
+                f"advisor:{getattr(self.advisor, 'last_call_status', 'no_plan')}"
+            )
             self._record_model_failure()
             return None
         self.model_plans += 1
         self.consecutive_model_failures = 0
-        self.gemma_backoff_remaining = 0
+        self.model_backoff_remaining = 0
         self.hypothesis = plan.hypothesis or self.hypothesis
+        if plan.hypothesis:
+            self.mechanic_memory = plan.hypothesis[:600]
         self._enqueue(plan.actions[: self.max_queue], view, source="model")
         queued = self._pop_legal(view)
         if queued:
@@ -853,17 +913,145 @@ class ArcController:
         self._record_model_failure()
         return None
 
+    def _ask_hypothesis_advisor(
+        self,
+        view: FrameView,
+        candidates: list[ActionSpec],
+    ) -> ActionSpec | None:
+        if self.max_model_calls and self.model_calls >= self.max_model_calls:
+            return None
+        if self.model_backoff_remaining > 0 or self._model_time_budget_exhausted():
+            return None
+        if bool(getattr(self.advisor, "disabled", False)):
+            return None
+        hypotheses = self._world_model_hypotheses(view, candidates)
+        if not hypotheses:
+            return None
+
+        self.model_asked_keys.add(view.key)
+        self.model_calls += 1
+        self.actions_since_model = 0
+        image = None
+        if self.model_vision_enabled:
+            try:
+                image = grid_to_png_bytes(view.grid)
+            except Exception as exc:
+                print(f"[ouro-arc] hypothesis image render failed, treating as failure: {exc!r}")
+                self._record_model_failure()
+                return None
+        started = time.monotonic()
+        try:
+            plan = self.advisor.advise(
+                self._hypothesis_prompt(view, hypotheses),
+                view.available_actions,
+                image=image,
+            )
+        except Exception as exc:
+            print(f"[ouro-arc] hypothesis advisor raised, treating as failure: {exc!r}")
+            self._record_model_failure()
+            return None
+        finally:
+            self.model_time_spent_seconds += time.monotonic() - started
+        if not plan:
+            self._record_model_rejection(
+                f"advisor:{getattr(self.advisor, 'last_call_status', 'no_plan')}"
+            )
+            self._record_model_failure()
+            return None
+
+        self.model_plans += 1
+        self.consecutive_model_failures = 0
+        self.model_backoff_remaining = 0
+        ranking = plan.ranked_hypotheses or ((plan.hypothesis,) if plan.hypothesis else ())
+        selected = self._selected_hypothesis(ranking, hypotheses)
+        self.hypothesis = selected.id if selected is not None else (plan.hypothesis or self.hypothesis)
+        if selected is None:
+            self._record_model_rejection("unknown_hypothesis_id")
+            return None
+        self.mechanic_memory = selected.statement[:600]
+
+        action, x, y = selected.action_key
+        probe = ActionSpec(
+            action,
+            x=x,
+            y=y,
+            reason=f"CPU probe for Qwen-ranked {selected.id}",
+            source="world-model-probe",
+        )
+        if not filter_legal_actions([probe], view.available_actions):
+            self._record_model_rejection("illegal_probe")
+            return None
+        if self._is_dangerous(view, probe):
+            self._record_model_rejection("dangerous_probe")
+            return None
+        if self._is_noop(view, probe):
+            self._record_model_rejection("known_noop_probe")
+            return None
+        if self._is_dud_click(view, probe.x, probe.y):
+            self._record_model_rejection("known_dud_probe")
+            return None
+        self.hypothesis_rankings += 1
+        self._record_choice(view, probe)
+        return probe
+
+    def _world_model_hypotheses(
+        self,
+        view: FrameView,
+        candidates: list[ActionSpec],
+    ) -> list[MechanicHypothesis]:
+        def is_blocked(action_key: tuple[int, int | None, int | None]) -> bool:
+            edge = (view.levels_completed, view.key, action_key)
+            return edge in self.dangerous_edges or edge in self.noop_edges
+
+        return self.world_model.hypotheses(
+            view.levels_completed,
+            view.key,
+            (candidate.key for candidate in candidates),
+            is_blocked,
+            limit=self.hypothesis_candidate_limit,
+        )
+
+    @staticmethod
+    def _selected_hypothesis(
+        responses: tuple[str, ...] | list[str],
+        hypotheses: list[MechanicHypothesis],
+    ) -> MechanicHypothesis | None:
+        exact = {hypothesis.id.lower(): hypothesis for hypothesis in hypotheses}
+        for response in responses:
+            normalized = response.strip().lower()
+            if normalized in exact:
+                return exact[normalized]
+            matches = [
+                hypothesis
+                for hypothesis in hypotheses
+                if hypothesis.id.lower() in normalized
+            ]
+            if len(matches) == 1:
+                return matches[0]
+        return None
+
+    def _hypothesis_only_policy(self) -> bool:
+        return self.model_policy in {"hypothesis", "hypotheses", "induction"}
+
+    def _model_time_budget_exhausted(self) -> bool:
+        if self.model_time_budget_seconds <= 0:
+            return False
+        return self.model_time_spent_seconds >= self.model_time_budget_seconds
+
     def _record_model_failure(self) -> None:
         self.model_failure_total += 1
         self.consecutive_model_failures += 1
-        if self.consecutive_model_failures >= self.gemma_failure_threshold:
-            self.gemma_backoff_remaining = self.gemma_backoff_actions
+        if self.consecutive_model_failures >= self.model_failure_threshold:
+            self.model_backoff_remaining = self.model_backoff_actions
             self.consecutive_model_failures = 0
-            self.gemma_backoff_count += 1
+            self.model_backoff_count += 1
             print(
-                "[ouro-arc] gemma backoff started "
-                f"actions={self.gemma_backoff_remaining}"
+                "[ouro-arc] model backoff started "
+                f"actions={self.model_backoff_remaining}"
             )
+
+    def _record_model_rejection(self, reason: str) -> None:
+        self.model_rejections[reason] = self.model_rejections.get(reason, 0) + 1
 
     def _reset_action(self, view: FrameView, reason: str) -> ActionSpec:
         action = ActionSpec(RESET_ACTION, reason=reason, source="controller")
@@ -961,7 +1149,15 @@ class ArcController:
             controller_click_blocked = self._click_source_cooled(view, "controller")
             clicked = self.clicked_targets.setdefault(view.levels_completed, set())
             skipped: list[ActionSpec] = []
-            for x, y, label in salient_click_targets(view.grid):
+            target_sources: list[tuple[int, int, str]] = []
+            if os.getenv("OURO_ARC_CONTROL_FIRST_CLICK_TARGETS", "0").lower() in {"1", "true", "yes"}:
+                target_sources.extend(compact_control_targets(view.grid))
+            target_sources.extend(salient_click_targets(view.grid))
+            seen_targets: set[tuple[int, int]] = set()
+            for x, y, label in target_sources:
+                if (x, y) in seen_targets:
+                    continue
+                seen_targets.add((x, y))
                 spec = ActionSpec(6, x=x, y=y, reason=f"click {label}", source="controller")
                 if (
                     controller_click_blocked
@@ -1191,13 +1387,6 @@ class ArcController:
         outcome: str,
     ) -> None:
         self.transition_memory[(prev.key, action.key)] = outcome
-        self.transition_graph.observe(
-            from_key=prev.key,
-            action_key=action.key,
-            to_key=prev.key if outcome == "no visible change" else view.key,
-            outcome=outcome,
-            level=prev.levels_completed,
-        )
         if action.source == "explore-repeat" and outcome in {"no visible change", "game over"}:
             self.explore_policy.ban(prev.levels_completed, prev.key, action.action)
 
@@ -1226,7 +1415,32 @@ class ArcController:
         action: ActionSpec,
         outcome: str,
     ) -> None:
+        changes = changed_cells(prev.grid, view.grid)
         diff = render_diff(prev.grid, view.grid).splitlines()[0]
+        effect = self._transition_effect(prev, view, outcome, changes)
+        before_perception = prev.perception or perceive_grid(prev.grid)
+        after_perception = view.perception or perceive_grid(view.grid)
+        world_novelty = self.world_model.observe(
+            level=prev.levels_completed,
+            from_key=prev.key,
+            action_key=action.key,
+            to_key=prev.key if outcome == "no visible change" else view.key,
+            outcome=outcome,
+            effect=effect,
+            before=before_perception,
+            after=after_perception,
+        )
+        if action.source in {"probe", "world-model-probe", "planner"}:
+            self.information_probe_actions += 1
+            self.information_probe_novel += int(world_novelty)
+        if outcome == "score increased":
+            self.actions_since_progress = 0
+            self.actions_since_world_novelty = 0
+        else:
+            self.actions_since_progress += 1
+            self.actions_since_world_novelty = (
+                0 if world_novelty else self.actions_since_world_novelty + 1
+            )
         self.last_transition_diff = diff
         self.recent_events.append(
             TransitionEvent(
@@ -1236,6 +1450,7 @@ class ArcController:
                 from_key=prev.key,
                 to_key=view.key,
                 outcome=outcome,
+                effect=effect,
                 diff=diff,
             )
         )
@@ -1254,18 +1469,19 @@ class ArcController:
             },
             "diff": diff,
             "outcome": outcome,
+            "effect": effect,
             "score_changed": view.levels_completed > prev.levels_completed,
             "solver": action.source,
-            "gemma": {
+            "advisor": {
                 "calls": self.model_calls,
                 "plans": self.model_plans,
                 "used": action.source == "model",
-                "policy": self.gemma_policy,
+                "policy": self.model_policy,
                 "max_calls": self.max_model_calls,
-                "interval": self.gemma_interval,
+                "interval": self.model_interval,
                 "failed_calls": self.consecutive_model_failures,
-                "backoff_remaining": self.gemma_backoff_remaining,
-                "backoff_count": self.gemma_backoff_count,
+                "backoff_remaining": self.model_backoff_remaining,
+                "backoff_count": self.model_backoff_count,
             },
             "model": self._model_summary(),
             "controller": {
@@ -1280,6 +1496,26 @@ class ArcController:
                     for (level, frame_key, source), remaining in sorted(self.click_source_cooldowns.items())
                 },
                 "click_sequence": self.click_sequence.summary(),
+                "world_model": {
+                    "observations": self.world_model.observation_count,
+                    "novel_observations": self.world_model.novel_observation_count,
+                    "prediction": self.world_model.prediction_metrics(),
+                    "mechanic_templates": len(self.world_model.mechanic_templates()),
+                    "probe_efficiency": {
+                        "actions": self.information_probe_actions,
+                        "novel": self.information_probe_novel,
+                        "rate": (
+                            self.information_probe_novel / self.information_probe_actions
+                            if self.information_probe_actions
+                            else 0.0
+                        ),
+                    },
+                    "actions_since_progress": self.actions_since_progress,
+                    "actions_since_novelty": self.actions_since_world_novelty,
+                    "hypothesis_rankings": self.hypothesis_rankings,
+                    "last_record": self.world_model.records[-1].to_json(),
+                },
+                "model_rejections": dict(sorted(self.model_rejections.items())),
             },
         }
         if os.getenv("OURO_ARC_TRACE_FRAMES", "0").lower() in {"1", "true", "yes"}:
@@ -1297,14 +1533,29 @@ class ArcController:
 
     def _model_summary(self) -> dict[str, Any]:
         path = None
+        diagnostics: dict[str, Any] = {}
         try:
-            resolved = self.advisor.resolve_model_path()
+            resolved = None
+            if hasattr(self.advisor, "resolve_model_path"):
+                resolved = self.advisor.resolve_model_path()
             path = str(resolved) if resolved else None
         except Exception:
             path = None
+        try:
+            if hasattr(self.advisor, "diagnostics"):
+                diagnostics = self.advisor.diagnostics()
+        except Exception:
+            diagnostics = {}
         return {
+            "backend": str(getattr(self.advisor, "backend", "unknown")),
             "path": path,
             "loaded": bool(getattr(self.advisor, "model", None) is not None),
+            "vision": self.model_vision_enabled,
+            "time_spent_seconds": round(self.model_time_spent_seconds, 3),
+            "time_budget_seconds": self.model_time_budget_seconds,
+            "last_call_status": diagnostics.get("last_call_status"),
+            "rejection_counts": diagnostics.get("rejection_counts", {}),
+            "repair_count": diagnostics.get("repair_count", 0),
         }
 
     def write_summary(self, print_summary: bool = False) -> None:
@@ -1314,18 +1565,26 @@ class ArcController:
                 "max_level_reached": self.max_level_reached,
                 "final_state": self.last_view.state if self.last_view else "?",
                 "reset_count": self.reset_count,
-                "gemma_calls": self.model_calls,
-                "gemma_plans": self.model_plans,
-                "gemma_failures": self.model_failure_total,
-                "gemma_backoff_count": self.gemma_backoff_count,
+                "model_calls": self.model_calls,
+                "model_plans": self.model_plans,
+                "model_failures": self.model_failure_total,
+                "model_backoff_count": self.model_backoff_count,
+                "hypothesis_rankings": self.hypothesis_rankings,
+                "world_model_observations": self.world_model.observation_count,
+                "world_model_novel_observations": self.world_model.novel_observation_count,
+                "world_model_prediction": self.world_model.prediction_metrics(),
+                "world_model_templates": len(self.world_model.mechanic_templates()),
+                "information_probe_actions": self.information_probe_actions,
+                "information_probe_novel": self.information_probe_novel,
+                "model_rejections": dict(sorted(self.model_rejections.items())),
                 "model_path_found": self._model_summary()["path"],
-                "gemma_loaded": self._model_summary()["loaded"],
+                "model_loaded": self._model_summary()["loaded"],
                 "solver_counts": self.solver_counts,
             },
             print_summary=print_summary,
         )
 
-    def _should_ask_gemma(
+    def _should_ask_model(
         self,
         view: FrameView,
         candidates: list[ActionSpec],
@@ -1333,21 +1592,23 @@ class ArcController:
     ) -> bool:
         if not view.grid or not view.available_actions:
             return False
-        if self.gemma_policy in {"off", "none", "disabled"}:
+        if self.model_policy in {"off", "none", "disabled"}:
             return False
         if self.max_model_calls and self.model_calls >= self.max_model_calls:
             return False
-        if self.gemma_backoff_remaining > 0:
+        if self.model_backoff_remaining > 0:
             return False
+        if self._hypothesis_only_policy():
+            return self._deterministic_induction_stuck(view, candidates, unexplored)
         simple_available = view.available_actions & {1, 2, 3, 4, 5, 7}
         simple_probed = bool(simple_available) and simple_available <= self.level_probe_actions
         clicked = self.clicked_targets.get(view.levels_completed, set())
         click_probe_ready = 6 not in view.available_actions or len(clicked) >= min(4, len(candidates))
 
-        if self.gemma_policy in {"every", "always"}:
+        if self.model_policy in {"every", "always"}:
             return simple_probed or not simple_available
 
-        if self.gemma_policy in {"active", "aggressive"}:
+        if self.model_policy in {"active", "aggressive"}:
             if view.key not in self.model_asked_keys and (simple_probed or not simple_available):
                 return True
             if self.last_skill_plans and len(self.last_skill_plans) > 1:
@@ -1355,7 +1616,7 @@ class ArcController:
                 second = self.last_skill_plans[1].score
                 if top - second <= 8:
                     return True
-            if self.actions_since_model >= self.gemma_interval and (simple_probed or self.stagnation):
+            if self.actions_since_model >= self.model_interval and (simple_probed or self.stagnation):
                 return True
             if simple_probed and click_probe_ready and (self.stagnation >= 1 or not self.movement_deltas):
                 return True
@@ -1367,10 +1628,46 @@ class ArcController:
             return True
         return self.stagnation >= 2 or not unexplored
 
+    def _deterministic_induction_stuck(
+        self,
+        view: FrameView,
+        candidates: list[ActionSpec],
+        unexplored: list[ActionSpec],
+    ) -> bool:
+        if self.actions_since_progress < self.induction_stuck_actions:
+            return False
+        if self.actions_since_model < self.model_interval:
+            return False
+        if view.key in self.model_asked_keys:
+            return False
+        simple_available = view.available_actions & {1, 2, 3, 4, 5, 7}
+        if simple_available and not simple_available <= self.level_probe_actions:
+            return False
+        hypotheses = self._world_model_hypotheses(view, candidates)
+        if not hypotheses:
+            return False
+        if not self.world_model.needs_external_ranking(hypotheses):
+            return False
+        return (
+            not unexplored
+            or self.stagnation >= 2
+            or self.actions_since_world_novelty >= self.induction_novelty_patience
+        )
+
     def _prompt(self, view: FrameView, candidates: list[ActionSpec]) -> str:
+        if model_flag("SCIENTIST_PROMPT"):
+            return self._scientist_prompt(view, candidates)
+        if model_flag("MICRO_PROMPT"):
+            return self._micro_prompt(view, candidates)
+        if model_flag("COMPACT_PROMPT"):
+            return self._compact_prompt(view, candidates)
         previous = ""
         if self.last_transition_diff:
             previous = "\nDiff from previous frame:\n" + self.last_transition_diff
+        if self.model_vision_enabled and not model_flag("VISION_TEXT_GRID"):
+            frame_context = "Frame image: attached PNG rendered from the current 64x64 board.\n"
+        else:
+            frame_context = "Frame:\n" f"{render_full(view.grid)}\n"
         macros = [
             [action.to_json() for action in macro]
             for macro in self.macros[-5:]
@@ -1398,8 +1695,148 @@ class ArcController:
             "Objects:\n"
             f"{summarize_objects(view.grid)}\n"
             f"{previous}\n"
-            "Frame:\n"
-            f"{render_full(view.grid)}\n"
+            f"{frame_context}"
             'Required JSON: {"mode":"probe|exploit|replay","actions":[{"action":1}],'
             '"hypothesis":"...","confidence":0.0}'
+        )
+
+    def _hypothesis_prompt(
+        self,
+        view: FrameView,
+        hypotheses: list[MechanicHypothesis],
+    ) -> str:
+        recent = " | ".join(
+            f"a={event.action.get('action')},effect={event.effect},"
+            f"score={event.from_level}->{event.to_level}"
+            for event in self.recent_events[-6:]
+        )
+        perception = view.perception or perceive_grid(view.grid)
+        options = "\n".join(hypothesis.prompt_line() for hypothesis in hypotheses)
+        return (
+            "Rank up to three supplied CPU experiments by how well their predictions "
+            "distinguish competing mechanics. Prefer score evidence, information gain, "
+            "and low risk over HUD changes. Use cpu_prior as the deterministic tie-break; "
+            "do not rederive the pixels. Do not plan or emit game actions. Return only "
+            "supplied hypothesis ids, best first, and an empty actions list.\n"
+            f"State={view.state}; score={view.levels_completed}/{view.win_levels or '?'}; "
+            f"legal={sorted(view.available_actions)}\n"
+            f"Perception={perception.summary(max_objects=8)}\n"
+            f"Recent={recent or 'none'}\n"
+            f"Hypotheses:\n{options}\n"
+            'Return strict JSON only with mode="hypothesis", actions=[], hypothesis='
+            '"<best-supplied-id>", ranked_hypotheses=["<best-supplied-id>",...], '
+            'and confidence between 0 and 1.'
+        )
+
+    def _compact_prompt(self, view: FrameView, candidates: list[ActionSpec]) -> str:
+        previous = self.last_transition_diff or "none"
+        recent = "\n".join(event.prompt_line() for event in self.recent_events[-6:])
+        candidate_json = [action.to_json() for action in candidates[:12]]
+        return (
+            "Use the attached 64x64 ARC game PNG to choose the next generic "
+            "mechanic-discovery action. Coordinates are zero-based x,y board pixels. "
+            "Use only legal actions and prefer one of the candidate objects exactly. "
+            "For action 6, x and y are required. Avoid known dud or dangerous clicks.\n"
+            f"State={view.state}; levels={view.levels_completed}/{view.win_levels or '?'}; "
+            f"legal={sorted(view.available_actions)}; stagnation={self.stagnation}\n"
+            f"Candidates={candidate_json}\n"
+            f"Dud clicks={sorted(self.dud_clicks_by_family.get((view.levels_completed, view.key), set()))[:12]}\n"
+            f"Recent outcomes:\n{recent or 'none'}\n"
+            f"Previous diff={previous}\n"
+            f"Objects={summarize_objects(view.grid)}\n"
+            'Return strict JSON only: {"mode":"probe|exploit|replay",'
+            '"actions":[{"action":6,"x":0,"y":0}],"hypothesis":"...",'
+            '"confidence":0.0}'
+        )
+
+    def _micro_prompt(self, view: FrameView, candidates: list[ActionSpec]) -> str:
+        candidate_lines = []
+        for index, action in enumerate(candidates[:10]):
+            payload = action.to_json()
+            payload.pop("source", None)
+            candidate_lines.append(f"{index}: {payload}")
+        recent = []
+        for event in self.recent_events[-4:]:
+            action = dict(event.action)
+            action.pop("source", None)
+            recent.append(
+                f"{action} -> {event.outcome}; score {event.from_level}->{event.to_level}; {event.diff}"
+            )
+        dud_clicks = sorted(self.dud_clicks_by_family.get((view.levels_completed, view.key), set()))[:10]
+        return (
+            "Choose one next ARC-AGI-3 action from the indexed candidates. "
+            "Use the attached board image. Avoid candidates like recent no-progress "
+            "or game-over actions. If repeated regular grid/tile clicks only changed "
+            "a timer or HUD cell, prefer compact controls, selectors, or unusual "
+            "foreground objects over another regular tile. Return only the selected candidate's action JSON; "
+            "do not return an index or markdown.\n"
+            f"State={view.state}; score={view.levels_completed}/{view.win_levels or '?'}; "
+            f"legal={sorted(view.available_actions)}; stagnation={self.stagnation}\n"
+            f"Candidates:\n{chr(10).join(candidate_lines) or 'none'}\n"
+            f"Dud clicks={dud_clicks}\n"
+            f"Recent outcomes:\n{chr(10).join(recent) or 'none'}\n"
+            'Schema: {"mode":"probe","actions":[{"action":6,"x":0,"y":0}],'
+            '"hypothesis":"short","confidence":0.0}'
+        )
+
+    @staticmethod
+    def _transition_effect(
+        prev: FrameView,
+        view: FrameView,
+        outcome: str,
+        changes: list[tuple[int, int, int, int]],
+    ) -> str:
+        if outcome == "score increased":
+            return "progress"
+        if outcome == "game over":
+            return "terminal"
+        if not changes:
+            return "no-op"
+        height = max(len(prev.grid), len(view.grid))
+        width = max(
+            max((len(row) for row in prev.grid), default=0),
+            max((len(row) for row in view.grid), default=0),
+        )
+        edge_band = 2
+        if all(
+            x < edge_band
+            or y < edge_band
+            or x >= width - edge_band
+            or y >= height - edge_band
+            for x, y, _old, _new in changes
+        ):
+            return "hud-only"
+        return "gameplay-change"
+
+    def _scientist_prompt(self, view: FrameView, candidates: list[ActionSpec]) -> str:
+        candidate_lines = []
+        for index, action in enumerate(candidates[:16]):
+            payload = action.to_json()
+            payload.pop("source", None)
+            candidate_lines.append(f"c{index}={payload}")
+        recent = []
+        for event in self.recent_events[-8:]:
+            action = dict(event.action)
+            action.pop("source", None)
+            recent.append(
+                f"{action} => {event.effect}; score={event.from_level}->{event.to_level}; "
+                f"state={event.from_key[:8]}->{event.to_key[:8]}"
+            )
+        return (
+            "Act as a scientist learning an unknown multi-level ARC game. Perform one "
+            "observe-hypothesize-test cycle. Choose the shortest reliable exploit when "
+            "the mechanic is supported; otherwise choose the candidate that best "
+            "distinguishes competing mechanic hypotheses. A HUD-only change is not "
+            "gameplay progress. Repeated shape ids denote equal translated objects. "
+            "Return one or a short safe sequence from the candidates; never invent a click.\n"
+            f"State={view.state}; score={view.levels_completed}/{view.win_levels or '?'}; "
+            f"legal={sorted(view.available_actions)}; stagnation={self.stagnation}\n"
+            f"Working world model={self.mechanic_memory or self.hypothesis or 'unknown'}\n"
+            f"Scene graph={summarize_scene_graph(view.grid)}\n"
+            f"Candidates={' | '.join(candidate_lines) or 'none'}\n"
+            f"Experiments={' | '.join(recent) or 'none'}\n"
+            "In hypothesis, compactly state: entities; action effects; likely goal; "
+            "remaining uncertainty; why this test discriminates. "
+            'Return strict JSON only: {"mode":"probe|exploit","actions":[{"action":1}],'
+            '"hypothesis":"compact world model","confidence":0.0}'
         )

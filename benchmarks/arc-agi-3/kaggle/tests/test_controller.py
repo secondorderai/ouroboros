@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ouro_arc.actions import ActionSpec
-from ouro_arc.controller import ArcController, GraphNode
-from ouro_arc.gemma import GemmaPlan
+from ouro_arc.controller import ArcController, FrameView, GraphNode
+from ouro_arc.advisor import AdvisorPlan
 from ouro_arc.skills import SkillRegistry
 from ouro_arc.telemetry import TelemetryWriter
 
@@ -26,10 +26,17 @@ class FakeAdvisor:
     def __init__(self, action: ActionSpec) -> None:
         self.action = action
         self.prompts: list[str] = []
+        self.images: list[object | None] = []
 
-    def advise(self, prompt: str, available_actions: set[int]) -> GemmaPlan:
+    def advise(
+        self,
+        prompt: str,
+        available_actions: set[int],
+        image: object | None = None,
+    ) -> AdvisorPlan:
         self.prompts.append(prompt)
-        return GemmaPlan(
+        self.images.append(image)
+        return AdvisorPlan(
             mode="exploit",
             actions=[self.action],
             hypothesis="use transition history",
@@ -41,7 +48,12 @@ class NoPlanAdvisor:
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
-    def advise(self, prompt: str, available_actions: set[int]) -> None:
+    def advise(
+        self,
+        prompt: str,
+        available_actions: set[int],
+        image: object | None = None,
+    ) -> None:
         self.prompts.append(prompt)
         return None
 
@@ -50,9 +62,42 @@ class RaisingAdvisor:
     def __init__(self) -> None:
         self.calls = 0
 
-    def advise(self, prompt: str, available_actions: set[int]) -> GemmaPlan:
+    def advise(
+        self,
+        prompt: str,
+        available_actions: set[int],
+        image: object | None = None,
+    ) -> AdvisorPlan:
         self.calls += 1
         raise RuntimeError("advisor exploded")
+
+
+class HypothesisAdvisor:
+    def __init__(
+        self,
+        hypothesis_id: str,
+        supplied_action: int = 4,
+        ranked_hypotheses: tuple[str, ...] = (),
+    ) -> None:
+        self.hypothesis_id = hypothesis_id
+        self.supplied_action = supplied_action
+        self.ranked_hypotheses = ranked_hypotheses
+        self.prompts: list[str] = []
+
+    def advise(
+        self,
+        prompt: str,
+        available_actions: set[int],
+        image: object | None = None,
+    ) -> AdvisorPlan:
+        self.prompts.append(prompt)
+        return AdvisorPlan(
+            mode="hypothesis",
+            actions=[ActionSpec(self.supplied_action, source="model")],
+            hypothesis=self.hypothesis_id,
+            confidence=0.9,
+            ranked_hypotheses=self.ranked_hypotheses,
+        )
 
 
 def grid(player_y: int = 1) -> list[list[list[int]]]:
@@ -97,21 +142,39 @@ def paired_control_grid() -> list[list[list[int]]]:
 class ControllerTest(unittest.TestCase):
     def setUp(self) -> None:
         self._old_trace = os.environ.get("OURO_ARC_TRACE")
-        self._old_policy = os.environ.get("OURO_ARC_GEMMA_POLICY")
-        self._old_interval = os.environ.get("OURO_ARC_GEMMA_INTERVAL")
-        self._old_max_calls = os.environ.get("OURO_ARC_GEMMA_MAX_CALLS")
-        self._old_backoff = os.environ.get("OURO_ARC_GEMMA_BACKOFF_ACTIONS")
-        self._old_threshold = os.environ.get("OURO_ARC_GEMMA_FAILURE_THRESHOLD")
+        self._old_policy = os.environ.get("OURO_ARC_MODEL_POLICY")
+        self._old_interval = os.environ.get("OURO_ARC_MODEL_INTERVAL")
+        self._old_max_calls = os.environ.get("OURO_ARC_MODEL_MAX_CALLS")
+        self._old_backoff = os.environ.get("OURO_ARC_MODEL_BACKOFF_ACTIONS")
+        self._old_threshold = os.environ.get("OURO_ARC_MODEL_FAILURE_THRESHOLD")
         self._old_summary = os.environ.get("OURO_ARC_SUMMARY_PATH")
         self._old_trace_frames = os.environ.get("OURO_ARC_TRACE_FRAMES")
         self._old_game_id = os.environ.get("OURO_ARC_GAME_ID")
+        self._old_vision = os.environ.get("OURO_ARC_MODEL_VISION")
+        self._old_text_grid = os.environ.get("OURO_ARC_MODEL_VISION_TEXT_GRID")
+        self._old_time_budget = os.environ.get("OURO_ARC_MODEL_TIME_BUDGET_SECONDS")
+        self._old_micro_prompt = os.environ.get("OURO_ARC_MODEL_MICRO_PROMPT")
+        self._old_scientist_prompt = os.environ.get("OURO_ARC_MODEL_SCIENTIST_PROMPT")
+        self._old_control_targets = os.environ.get("OURO_ARC_CONTROL_FIRST_CLICK_TARGETS")
+        self._old_stuck_actions = os.environ.get("OURO_ARC_INDUCTION_STUCK_ACTIONS")
+        self._old_novelty_patience = os.environ.get("OURO_ARC_INDUCTION_NOVELTY_PATIENCE")
+        self._old_hypothesis_limit = os.environ.get("OURO_ARC_HYPOTHESIS_MAX_CANDIDATES")
         os.environ["OURO_ARC_TRACE"] = "0"
-        os.environ["OURO_ARC_GEMMA_POLICY"] = "sparse"
-        os.environ.pop("OURO_ARC_GEMMA_INTERVAL", None)
-        os.environ.pop("OURO_ARC_GEMMA_MAX_CALLS", None)
-        os.environ.pop("OURO_ARC_GEMMA_BACKOFF_ACTIONS", None)
-        os.environ.pop("OURO_ARC_GEMMA_FAILURE_THRESHOLD", None)
+        os.environ["OURO_ARC_MODEL_POLICY"] = "sparse"
+        os.environ.pop("OURO_ARC_MODEL_INTERVAL", None)
+        os.environ.pop("OURO_ARC_MODEL_MAX_CALLS", None)
+        os.environ.pop("OURO_ARC_MODEL_BACKOFF_ACTIONS", None)
+        os.environ.pop("OURO_ARC_MODEL_FAILURE_THRESHOLD", None)
         os.environ.pop("OURO_ARC_SUMMARY_PATH", None)
+        os.environ.pop("OURO_ARC_MODEL_VISION", None)
+        os.environ.pop("OURO_ARC_MODEL_VISION_TEXT_GRID", None)
+        os.environ.pop("OURO_ARC_MODEL_TIME_BUDGET_SECONDS", None)
+        os.environ.pop("OURO_ARC_MODEL_MICRO_PROMPT", None)
+        os.environ.pop("OURO_ARC_MODEL_SCIENTIST_PROMPT", None)
+        os.environ.pop("OURO_ARC_CONTROL_FIRST_CLICK_TARGETS", None)
+        os.environ.pop("OURO_ARC_INDUCTION_STUCK_ACTIONS", None)
+        os.environ.pop("OURO_ARC_INDUCTION_NOVELTY_PATIENCE", None)
+        os.environ.pop("OURO_ARC_HYPOTHESIS_MAX_CANDIDATES", None)
 
     def tearDown(self) -> None:
         if self._old_trace is None:
@@ -119,30 +182,39 @@ class ControllerTest(unittest.TestCase):
         else:
             os.environ["OURO_ARC_TRACE"] = self._old_trace
         if self._old_policy is None:
-            os.environ.pop("OURO_ARC_GEMMA_POLICY", None)
+            os.environ.pop("OURO_ARC_MODEL_POLICY", None)
         else:
-            os.environ["OURO_ARC_GEMMA_POLICY"] = self._old_policy
+            os.environ["OURO_ARC_MODEL_POLICY"] = self._old_policy
         for key, value in (
-            ("OURO_ARC_GEMMA_INTERVAL", self._old_interval),
-            ("OURO_ARC_GEMMA_MAX_CALLS", self._old_max_calls),
-            ("OURO_ARC_GEMMA_BACKOFF_ACTIONS", self._old_backoff),
-            ("OURO_ARC_GEMMA_FAILURE_THRESHOLD", self._old_threshold),
+            ("OURO_ARC_MODEL_INTERVAL", self._old_interval),
+            ("OURO_ARC_MODEL_MAX_CALLS", self._old_max_calls),
+            ("OURO_ARC_MODEL_BACKOFF_ACTIONS", self._old_backoff),
+            ("OURO_ARC_MODEL_FAILURE_THRESHOLD", self._old_threshold),
             ("OURO_ARC_SUMMARY_PATH", self._old_summary),
             ("OURO_ARC_TRACE_FRAMES", self._old_trace_frames),
             ("OURO_ARC_GAME_ID", self._old_game_id),
+            ("OURO_ARC_MODEL_VISION", self._old_vision),
+            ("OURO_ARC_MODEL_VISION_TEXT_GRID", self._old_text_grid),
+            ("OURO_ARC_MODEL_TIME_BUDGET_SECONDS", self._old_time_budget),
+            ("OURO_ARC_MODEL_MICRO_PROMPT", self._old_micro_prompt),
+            ("OURO_ARC_MODEL_SCIENTIST_PROMPT", self._old_scientist_prompt),
+            ("OURO_ARC_CONTROL_FIRST_CLICK_TARGETS", self._old_control_targets),
+            ("OURO_ARC_INDUCTION_STUCK_ACTIONS", self._old_stuck_actions),
+            ("OURO_ARC_INDUCTION_NOVELTY_PATIENCE", self._old_novelty_patience),
+            ("OURO_ARC_HYPOTHESIS_MAX_CANDIDATES", self._old_hypothesis_limit),
         ):
             if value is None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
 
-    def test_gemma_defaults_are_conservative_for_submission(self) -> None:
+    def test_qwen_defaults_are_conservative_for_submission(self) -> None:
         controller = ArcController()
-        self.assertEqual(controller.gemma_policy, "sparse")
-        self.assertEqual(controller.gemma_interval, 16)
+        self.assertEqual(controller.model_policy, "sparse")
+        self.assertEqual(controller.model_interval, 16)
         self.assertEqual(controller.max_model_calls, 12)
-        self.assertEqual(controller.gemma_backoff_actions, 12)
-        self.assertEqual(controller.gemma_failure_threshold, 3)
+        self.assertEqual(controller.model_backoff_actions, 12)
+        self.assertEqual(controller.model_failure_threshold, 3)
 
     def test_reset_on_not_played(self) -> None:
         controller = ArcController()
@@ -215,6 +287,74 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(advisor.calls, 1)
         self.assertEqual(action.action, 6)
         self.assertEqual(controller.model_failure_total, 1)
+
+    def test_hypothesis_policy_ignores_model_action_and_executes_cpu_probe(self) -> None:
+        os.environ["OURO_ARC_MODEL_POLICY"] = "hypothesis"
+        advisor = HypothesisAdvisor("h-a2-xn-yn", supplied_action=4)
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        view = controller._frame_view(
+            DummyFrame(grid(), "NOT_FINISHED", available_actions=[1, 2, 4])
+        )
+
+        action = controller._ask_model(
+            view,
+            [ActionSpec(1), ActionSpec(2), ActionSpec(4)],
+        )
+
+        self.assertIsNotNone(action)
+        assert action is not None
+        self.assertEqual(action.action, 2)
+        self.assertEqual(action.source, "world-model-probe")
+        self.assertEqual(controller.solver_counts.get("model", 0), 0)
+        self.assertIn("Do not plan or emit game actions", advisor.prompts[0])
+
+    def test_hypothesis_policy_waits_until_deterministic_induction_is_stuck(self) -> None:
+        os.environ["OURO_ARC_MODEL_POLICY"] = "hypothesis"
+        os.environ["OURO_ARC_INDUCTION_STUCK_ACTIONS"] = "3"
+        os.environ["OURO_ARC_MODEL_INTERVAL"] = "2"
+        controller = ArcController()
+        view = controller._frame_view(
+            DummyFrame(grid(), "NOT_FINISHED", available_actions=[1, 2])
+        )
+        candidates = [ActionSpec(1), ActionSpec(2)]
+        controller.level_probe_actions = {1, 2}
+
+        self.assertFalse(controller._should_ask_model(view, candidates, []))
+        controller.actions_since_progress = 3
+        controller.actions_since_model = 2
+        self.assertTrue(controller._should_ask_model(view, candidates, []))
+
+    def test_hypothesis_ranking_uses_first_valid_supplied_id(self) -> None:
+        os.environ["OURO_ARC_MODEL_POLICY"] = "hypothesis"
+        advisor = HypothesisAdvisor(
+            "unknown",
+            ranked_hypotheses=("unknown", "h-a2-xn-yn", "h-a1-xn-yn"),
+        )
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        view = controller._frame_view(
+            DummyFrame(grid(), "NOT_FINISHED", available_actions=[1, 2])
+        )
+
+        action = controller._ask_model(view, [ActionSpec(1), ActionSpec(2)])
+
+        self.assertIsNotNone(action)
+        assert action is not None
+        self.assertEqual(action.action, 2)
+        self.assertEqual(controller.model_rejections, {})
+
+    def test_hypothesis_advisor_failure_reason_is_recorded(self) -> None:
+        os.environ["OURO_ARC_MODEL_POLICY"] = "hypothesis"
+        advisor = NoPlanAdvisor()
+        advisor.last_call_status = "empty_content"  # type: ignore[attr-defined]
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        view = controller._frame_view(
+            DummyFrame(grid(), "NOT_FINISHED", available_actions=[1, 2])
+        )
+
+        action = controller._ask_model(view, [ActionSpec(1), ActionSpec(2)])
+
+        self.assertIsNone(action)
+        self.assertEqual(controller.model_rejections, {"advisor:empty_content": 1})
 
     def test_click_targets_are_not_repeated_before_new_targets(self) -> None:
         controller = ArcController()
@@ -296,7 +436,32 @@ class ControllerTest(unittest.TestCase):
         self.assertNotIn((6, 10, 10), [action.key for action in candidates])
         self.assertIn((6, 20, 20), [action.key for action in candidates])
 
-    def test_gemma_receives_recent_transition_history_after_probe_evidence(self) -> None:
+    def test_control_first_click_targets_are_opt_in(self) -> None:
+        base = [[0 for _ in range(64)] for _ in range(64)]
+        for y in range(10, 14):
+            for x in range(20, 24):
+                base[y][x] = 8
+        for x in range(40, 43):
+            base[30][x] = 5
+        base[29][41] = 5
+        view = FrameView(
+            grid=base,
+            state="NOT_FINISHED",
+            levels_completed=0,
+            win_levels=1,
+            available_actions={6},
+            key="k",
+        )
+
+        controller = ArcController(skill_registry=SkillRegistry([]))
+        default_candidates = controller._candidate_actions(view)
+        os.environ["OURO_ARC_CONTROL_FIRST_CLICK_TARGETS"] = "1"
+        control_first = ArcController(skill_registry=SkillRegistry([]))._candidate_actions(view)
+
+        self.assertEqual(default_candidates[0].key, (6, 21, 11))
+        self.assertEqual(control_first[0].key, (6, 41, 29))
+
+    def test_qwen_receives_recent_transition_history_after_probe_evidence(self) -> None:
         advisor = FakeAdvisor(ActionSpec(2, reason="advisor", source="model"))
         controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
         controller.source_demotions["explore-repeat"] = 99
@@ -314,8 +479,47 @@ class ControllerTest(unittest.TestCase):
         self.assertIn("Distilled skill candidates:", advisor.prompts[0])
         self.assertIn("Recent failed skills:", advisor.prompts[0])
 
-    def test_active_gemma_policy_does_not_preempt_valid_skill_plan(self) -> None:
-        os.environ["OURO_ARC_GEMMA_POLICY"] = "active"
+    def test_scientist_prompt_uses_scene_graph_experiments_and_memory(self) -> None:
+        os.environ["OURO_ARC_MODEL_SCIENTIST_PROMPT"] = "1"
+        controller = ArcController(skill_registry=SkillRegistry([]))
+        controller.mechanic_memory = "buttons may rotate repeated pieces"
+        before = [[0 for _ in range(64)] for _ in range(64)]
+        after = [row[:] for row in before]
+        after[20][20] = 2
+        first = controller._frame_view(DummyFrame([before], "NOT_FINISHED", available_actions=[1, 2]))
+        second = controller._frame_view(DummyFrame([after], "NOT_FINISHED", available_actions=[1, 2]))
+        controller._append_event(first, second, ActionSpec(1), "changed")
+
+        prompt = controller._prompt(second, [ActionSpec(2)])
+
+        self.assertIn("observe-hypothesize-test", prompt)
+        self.assertIn("Working world model=buttons may rotate repeated pieces", prompt)
+        self.assertIn("Scene graph=", prompt)
+        self.assertIn("Experiments=", prompt)
+        self.assertIn("gameplay-change", prompt)
+
+    def test_transition_effect_separates_hud_only_from_gameplay_change(self) -> None:
+        controller = ArcController(skill_registry=SkillRegistry([]))
+        base = [[0 for _ in range(64)] for _ in range(64)]
+        hud = [row[:] for row in base]
+        hud[0][10] = 2
+        play = [row[:] for row in base]
+        play[20][20] = 2
+        first = FrameView(base, "NOT_FINISHED", 0, 1, {1}, "a")
+        hud_view = FrameView(hud, "NOT_FINISHED", 0, 1, {1}, "b")
+        play_view = FrameView(play, "NOT_FINISHED", 0, 1, {1}, "c")
+
+        self.assertEqual(
+            controller._transition_effect(first, hud_view, "changed", [(10, 0, 0, 2)]),
+            "hud-only",
+        )
+        self.assertEqual(
+            controller._transition_effect(first, play_view, "changed", [(20, 20, 0, 2)]),
+            "gameplay-change",
+        )
+
+    def test_active_model_policy_does_not_preempt_valid_skill_plan(self) -> None:
+        os.environ["OURO_ARC_MODEL_POLICY"] = "active"
         advisor = FakeAdvisor(ActionSpec(2, reason="advisor", source="model"))
         controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
         controller.level_probe_actions = {1, 2}
@@ -326,8 +530,8 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(action.source, "movement-bfs")
         self.assertEqual(len(advisor.prompts), 0)
 
-    def test_active_gemma_can_advise_stale_skill_plan(self) -> None:
-        os.environ["OURO_ARC_GEMMA_POLICY"] = "active"
+    def test_active_qwen_can_advise_stale_skill_plan(self) -> None:
+        os.environ["OURO_ARC_MODEL_POLICY"] = "active"
         advisor = FakeAdvisor(ActionSpec(2, reason="advisor", source="model"))
         controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
         controller.source_demotions["explore-repeat"] = 99
@@ -340,9 +544,61 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(action.source, "model")
         self.assertEqual(len(advisor.prompts), 1)
 
-    def test_gemma_no_plan_failures_enter_backoff(self) -> None:
-        os.environ["OURO_ARC_GEMMA_POLICY"] = "active"
-        os.environ["OURO_ARC_GEMMA_INTERVAL"] = "1"
+    def test_qwen_vision_flag_passes_png_image_and_omits_text_grid(self) -> None:
+        os.environ["OURO_ARC_MODEL_VISION"] = "1"
+        advisor = FakeAdvisor(ActionSpec(6, x=9, y=8, reason="advisor", source="model"))
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        view = controller._frame_view(DummyFrame(grid(), "NOT_FINISHED", available_actions=[6]))
+
+        action = controller._ask_model(view, [])
+
+        self.assertIsNotNone(action)
+        self.assertTrue(isinstance(advisor.images[0], bytes))
+        self.assertTrue(advisor.images[0].startswith(b"\x89PNG\r\n\x1a\n"))  # type: ignore[union-attr]
+        self.assertIn("Frame image: attached PNG", advisor.prompts[0])
+        self.assertNotIn("Frame:\n", advisor.prompts[0])
+
+    def test_qwen_vision_flag_off_passes_no_image(self) -> None:
+        advisor = FakeAdvisor(ActionSpec(6, x=9, y=8, reason="advisor", source="model"))
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        view = controller._frame_view(DummyFrame(grid(), "NOT_FINISHED", available_actions=[6]))
+
+        action = controller._ask_model(view, [])
+
+        self.assertIsNotNone(action)
+        self.assertEqual(advisor.images, [None])
+        self.assertIn("Frame:\n", advisor.prompts[0])
+
+    def test_qwen_image_render_failure_is_contained(self) -> None:
+        os.environ["OURO_ARC_MODEL_VISION"] = "1"
+        advisor = FakeAdvisor(ActionSpec(1, reason="advisor", source="model"))
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        view = FrameView(
+            grid=[[0], [0, 1]],
+            state="NOT_FINISHED",
+            levels_completed=0,
+            win_levels=2,
+            available_actions={1},
+            key="ragged",
+        )
+
+        self.assertIsNone(controller._ask_model(view, []))
+        self.assertEqual(advisor.images, [])
+        self.assertEqual(controller.model_failure_total, 1)
+
+    def test_model_time_budget_blocks_extra_calls(self) -> None:
+        os.environ["OURO_ARC_MODEL_TIME_BUDGET_SECONDS"] = "1"
+        advisor = FakeAdvisor(ActionSpec(1, reason="advisor", source="model"))
+        controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
+        controller.model_time_spent_seconds = 1.1
+        view = controller._frame_view(DummyFrame(grid(), "NOT_FINISHED", available_actions=[1]))
+
+        self.assertIsNone(controller._ask_model(view, []))
+        self.assertEqual(advisor.prompts, [])
+
+    def test_qwen_no_plan_failures_enter_backoff(self) -> None:
+        os.environ["OURO_ARC_MODEL_POLICY"] = "active"
+        os.environ["OURO_ARC_MODEL_INTERVAL"] = "1"
         advisor = NoPlanAdvisor()
         controller = ArcController(advisor=advisor)  # type: ignore[arg-type]
         empty = [[[0 for _ in range(64)] for _ in range(64)]]
@@ -352,7 +608,7 @@ class ControllerTest(unittest.TestCase):
             self.assertNotEqual(action.source, "model")
 
         self.assertEqual(len(advisor.prompts), 3)
-        self.assertGreater(controller.gemma_backoff_remaining, 0)
+        self.assertGreater(controller.model_backoff_remaining, 0)
 
         controller.choose(DummyFrame(empty, "NOT_FINISHED", available_actions=[6]))
         self.assertEqual(len(advisor.prompts), 3)
@@ -510,6 +766,7 @@ class ControllerTest(unittest.TestCase):
             self.assertIn('"interval":16', contents)
             self.assertIn('"game_id":"unit"', contents)
             self.assertIn('"frames"', contents)
+            self.assertIn('"last_record"', contents)
 
     def test_runtime_summary_contains_required_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -523,7 +780,7 @@ class ControllerTest(unittest.TestCase):
             controller.write_summary()
             summary = Path(os.environ["OURO_ARC_SUMMARY_PATH"]).read_text()
             self.assertIn('"action_count"', summary)
-            self.assertIn('"gemma_calls"', summary)
+            self.assertIn('"model_calls"', summary)
             self.assertIn('"max_level_reached"', summary)
             self.assertIn('"solver_counts"', summary)
 
@@ -650,6 +907,28 @@ class PlannerTest(unittest.TestCase):
         view = self._view(controller, available=(1, 2, 3, 4))
         controller.transition_graph.observe(view.key, (1, None, None), "other", "changed", 0)
         self.assertEqual(controller._planner_plan(view), [])
+
+    def test_planner_uses_information_gain_after_induction_stalls(self) -> None:
+        self._set_env("OURO_ARC_PLANNER_MIN_NODES", "1")
+        self._set_env("OURO_ARC_INDUCTION_STUCK_ACTIONS", "3")
+        self._set_env("OURO_ARC_INDUCTION_NOVELTY_PATIENCE", "2")
+        controller = ArcController()
+        view = self._view(controller, available=(1, 2))
+        controller.transition_graph.observe(
+            view.key,
+            (1, None, None),
+            view.key,
+            "no visible change",
+            0,
+        )
+        controller.actions_since_progress = 3
+        controller.actions_since_world_novelty = 2
+
+        plan = controller._planner_plan(view)
+
+        self.assertTrue(plan)
+        self.assertEqual(plan[0].action, 2)
+        self.assertEqual(plan[0].source, "planner")
 
 
 if __name__ == "__main__":

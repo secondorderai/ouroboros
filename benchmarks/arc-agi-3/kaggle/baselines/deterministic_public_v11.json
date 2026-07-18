@@ -1,0 +1,31 @@
+{
+  "score": 1.0228557578743325,
+  "max_steps": 320,
+  "games": [
+    {"game_id": "ar25", "levels_completed": 0, "actions": 321},
+    {"game_id": "bp35", "levels_completed": 0, "actions": 321},
+    {"game_id": "cd82", "levels_completed": 0, "actions": 321},
+    {"game_id": "cn04", "levels_completed": 0, "actions": 321},
+    {"game_id": "dc22", "levels_completed": 0, "actions": 321},
+    {"game_id": "ft09", "levels_completed": 4, "actions": 321},
+    {"game_id": "g50t", "levels_completed": 0, "actions": 321},
+    {"game_id": "ka59", "levels_completed": 0, "actions": 321},
+    {"game_id": "lf52", "levels_completed": 1, "actions": 321},
+    {"game_id": "lp85", "levels_completed": 1, "actions": 321},
+    {"game_id": "ls20", "levels_completed": 1, "actions": 321},
+    {"game_id": "m0r0", "levels_completed": 1, "actions": 321},
+    {"game_id": "r11l", "levels_completed": 0, "actions": 321},
+    {"game_id": "re86", "levels_completed": 0, "actions": 321},
+    {"game_id": "s5i5", "levels_completed": 1, "actions": 321},
+    {"game_id": "sb26", "levels_completed": 0, "actions": 321},
+    {"game_id": "sc25", "levels_completed": 0, "actions": 321},
+    {"game_id": "sk48", "levels_completed": 0, "actions": 321},
+    {"game_id": "sp80", "levels_completed": 1, "actions": 321},
+    {"game_id": "su15", "levels_completed": 0, "actions": 321},
+    {"game_id": "tn36", "levels_completed": 0, "actions": 321},
+    {"game_id": "tr87", "levels_completed": 0, "actions": 321},
+    {"game_id": "tu93", "levels_completed": 0, "actions": 321},
+    {"game_id": "vc33", "levels_completed": 2, "actions": 321},
+    {"game_id": "wa30", "levels_completed": 0, "actions": 321}
+  ]
+}

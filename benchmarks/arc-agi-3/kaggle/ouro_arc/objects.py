@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 SUMMARY_OBJECT_CAP = 16
@@ -17,6 +17,12 @@ class GridObject:
     y0: int
     x1: int
     y1: int
+    shape_hash: str = ""
+    cells: frozenset[tuple[int, int]] = field(
+        default_factory=frozenset,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def width(self) -> int:
@@ -46,12 +52,14 @@ def segment_objects(grid: list[list[int]]) -> list[GridObject]:
                 continue
             visited[y][x] = 1
             stack = [(x, y)]
+            cells: set[tuple[int, int]] = set()
             size = 0
             x0 = x1 = x
             y0 = y1 = y
 
             while stack:
                 cx, cy = stack.pop()
+                cells.add((cx, cy))
                 size += 1
                 x0 = min(x0, cx)
                 x1 = max(x1, cx)
@@ -67,7 +75,23 @@ def segment_objects(grid: list[list[int]]) -> list[GridObject]:
                     visited[ny][nx] = 1
                     stack.append((nx, ny))
 
-            objects.append(GridObject(color=color, size=size, x0=x0, y0=y0, x1=x1, y1=y1))
+            normalized = sorted((cx - x0, cy - y0) for cx, cy in cells)
+            shape_hash = hashlib.blake2b(
+                repr((color, normalized)).encode("ascii"),
+                digest_size=6,
+            ).hexdigest()
+            objects.append(
+                GridObject(
+                    color=color,
+                    size=size,
+                    x0=x0,
+                    y0=y0,
+                    x1=x1,
+                    y1=y1,
+                    shape_hash=shape_hash,
+                    cells=frozenset(cells),
+                )
+            )
     return objects
 
 
@@ -145,6 +169,45 @@ def summarize_objects(
                 f"...and {len(omitted)} more (smallest {smallest} {_cell_noun(smallest)})"
             )
     return "\n".join(lines)
+
+
+def summarize_scene_graph(
+    grid: list[list[int]],
+    max_objects: int = 24,
+    max_edges: int = 32,
+) -> str:
+    """Return a compact object graph suitable for mechanic reasoning."""
+
+    objects = segment_objects(grid)
+    if not objects:
+        return "nodes=[]; edges=[]"
+    background = max(objects, key=lambda obj: obj.size)
+    foreground = [obj for obj in objects if obj is not background]
+    foreground.sort(key=lambda obj: (obj.y0, obj.x0, obj.color, obj.size))
+    selected = foreground[:max_objects]
+    nodes = [
+        f"n{index}:c={hex_digit(obj.color)},shape={obj.shape_hash},cells={obj.size},"
+        f"box=({obj.x0},{obj.y0})-({obj.x1},{obj.y1}),center={obj.center}"
+        for index, obj in enumerate(selected)
+    ]
+
+    owner: dict[tuple[int, int], int] = {}
+    for index, obj in enumerate(selected):
+        for cell in obj.cells:
+            owner[cell] = index
+    edges: set[tuple[int, int]] = set()
+    for (x, y), first in owner.items():
+        for neighbor in ((x + 1, y), (x, y + 1)):
+            second = owner.get(neighbor)
+            if second is not None and second != first:
+                edges.add((min(first, second), max(first, second)))
+    edge_text = [f"n{first}-n{second}" for first, second in sorted(edges)[:max_edges]]
+    omitted = len(foreground) - len(selected)
+    suffix = f"; omitted_nodes={omitted}" if omitted else ""
+    return (
+        f"background=c{hex_digit(background.color)} cells={background.size}; "
+        f"nodes=[{' | '.join(nodes)}]; edges=[{', '.join(edge_text)}]{suffix}"
+    )
 
 
 def foreground_objects(grid: list[list[int]]) -> list[GridObject]:
@@ -270,6 +333,37 @@ def salient_click_targets(grid: list[list[int]], limit: int = 40) -> list[tuple[
             continue
         seen.add((x, y))
         targets.append((x, y, _describe_object(obj)))
+        if len(targets) >= limit:
+            break
+    return targets
+
+
+def compact_control_targets(grid: list[list[int]], limit: int = 24) -> list[tuple[int, int, str]]:
+    """Return small foreground components that look like controls.
+
+    This deliberately complements ``regular_click_targets``. Dense puzzle boards
+    can contain many repeated rectangular cells, which otherwise crowd out small
+    buttons, selectors, and handles from the candidate list.
+    """
+
+    height = len(grid)
+    targets: list[tuple[int, int, str]] = []
+    seen: set[tuple[int, int]] = set()
+    for obj in sorted(
+        foreground_objects(grid),
+        key=lambda item: (item.y0, item.x0, item.size),
+    ):
+        if obj.y0 < HUD_ROWS or obj.y1 >= height - HUD_ROWS:
+            continue
+        if obj.size > 24 or obj.width > 8 or obj.height > 8:
+            continue
+        if obj.size == obj.width * obj.height and obj.width >= 4 and obj.height >= 4:
+            continue
+        point = obj.center
+        if point in seen:
+            continue
+        seen.add(point)
+        targets.append((point[0], point[1], f"compact control {_describe_object(obj)}"))
         if len(targets) >= limit:
             break
     return targets

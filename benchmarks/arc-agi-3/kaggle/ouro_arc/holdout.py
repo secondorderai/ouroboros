@@ -52,6 +52,16 @@ QUARANTINE_GAMES = frozenset({"ar25", "re86", "cd82"})
 
 ALL_PUBLIC_GAMES = DEV_GAMES | TEST_GAMES | QUARANTINE_GAMES
 
+# Fixed five-way folds for ablations and leave-one-fold-out reporting. These are
+# evaluation partitions only: controller code must never branch on them.
+GENERALIZATION_FOLDS = {
+    "fold_1": frozenset({"ft09", "vc33", "ar25", "m0r0", "lf52"}),
+    "fold_2": frozenset({"sp80", "su15", "re86", "s5i5", "sc25"}),
+    "fold_3": frozenset({"ls20", "g50t", "cd82", "lp85", "wa30"}),
+    "fold_4": frozenset({"cn04", "ka59", "tr87", "dc22", "sb26"}),
+    "fold_5": frozenset({"sk48", "tn36", "bp35", "r11l", "tu93"}),
+}
+
 
 def normalize_game_id(game_id: str) -> str:
     """Reduce an id like ``"vc33-ab12cd34"`` or ``"VC33"`` to the bare ``"vc33"``."""
