@@ -27,7 +27,7 @@ def achieved_levels(row: dict[str, Any]) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize local ARC-AGI-3 run results.")
     parser.add_argument("results", nargs="?", default="logs/local_results.json")
-    parser.add_argument("--baseline", default="baselines/deterministic_public_0_242111.json")
+    parser.add_argument("--baseline", default="baselines/deterministic_public_v11.json")
     parser.add_argument("--fold", choices=["dev", "test", "quarantine"], default=None)
     args = parser.parse_args()
 

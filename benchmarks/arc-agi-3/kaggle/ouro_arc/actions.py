@@ -61,6 +61,16 @@ class ActionSpec:
             out["y"] = self.y
         return out
 
+    def to_model_json(self) -> dict[str, int]:
+        """Return only the environmental action fields visible to a world model."""
+
+        out = {"action": self.action}
+        if self.x is not None:
+            out["x"] = self.x
+        if self.y is not None:
+            out["y"] = self.y
+        return out
+
     @classmethod
     def from_json(cls, value: Any) -> "ActionSpec":
         if isinstance(value, str):

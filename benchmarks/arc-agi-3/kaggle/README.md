@@ -1,113 +1,209 @@
 # Ouroboros ARC-AGI-3 Kaggle Submission
 
-This directory contains the offline Kaggle submission path for ARC Prize 2026
-ARC-AGI-3. It is separate from the live scorecard harness one level up.
+This directory contains the offline Kaggle submission and local public-game
+validation harness for ARC Prize 2026 ARC-AGI-3.
 
-The submitted agent is a Python `MyAgent` for the official
-`ARC-AGI-3-Agents` framework. Local full Ouroboros runs with a remote
-high-effort model can be used as the teacher for skill distillation; the Kaggle
-runtime is the offline student. In Kaggle reruns, Gemma 4 12B Unified is used
-actively on GPU to choose among distilled skills and solver plans, while the
-deterministic controller executes and validates actions.
+The default agent remains deterministic: scene perception, mechanic induction,
+an observed-transition model, and CPU search select every action. Two opt-in
+Qwen3.5-4B experiments are available: the existing hypothesis ranker and an
+autonomous causal world model that writes isolated per-game Python simulators.
 
-## Layout
-
-- `agent/my_agent.py`: framework adapter copied into the Kaggle notebook.
-- `ouro_arc/`: testable strategy package: render/object summaries, graph
-  exploration, macro replay, action validation, and Gemma prompting.
-- `skills/`: Agent Skills source of truth for distilled ARC strategies.
-- `scripts/play_local.py`: local ARC-AGI-3 runner using `arc-agi`.
-- `scripts/compile_skills.py`: compiles Agent Skills into Kaggle runtime JSON.
-- `scripts/build_notebook.py`: generates `notebooks/submission.ipynb`.
-- `scripts/package_model.py`: validates or stages the attached Gemma model.
-- `tests/`: deterministic unit tests that do not need `arc-agi` or Gemma.
-
-## Local Loop
+## Local Setup
 
 ```bash
 cd benchmarks/arc-agi-3/kaggle
 make setup
 make test
-make compile-skills
 make verify-local
-make notebook
 ```
 
-`make setup`, `make verify-local`, `make play-local`, and `make list-games`
-rewrite the vendored framework's `agents/__init__.py` to avoid optional
-template imports such as `langsmith`, `langgraph`, and `smolagents`.
-
-Local play disables Gemma by default with `OURO_ARC_DISABLE_MODEL=1`, so smoke
-tests can run without a 12B model. `make notebook` also defaults to a
-deterministic-only submission: Gemma hard-disabled on every path, no model
-input attached (Gemma-active reruns scored 0.00 on submission versions 7 and 8
-when advisor failures were fatal). Advisor failures are now guaranteed
-non-fatal — a missing or broken model logs, latches the advisor off, and play
-continues deterministically — so a Gemma submission can be built explicitly:
+Local play is model-free unless `--model` is supplied. The shared behavior is
+defined by `config/qwen_candidate.json`; both local Ollama and Kaggle
+Transformers consume this file.
 
 ```bash
-OURO_ARC_SUBMISSION_GEMMA=1 make submit
+ollama pull qwen3.5:4b-mlx
+python3 scripts/smoke_ollama_vlm.py
+make score-local-qwen
 ```
 
-This switches the generated notebook to a capped sparse Gemma policy and
-attaches the Gemma model input in `kernel-metadata.json` (plain `make submit`
-detaches it again). The env knobs for local experiments:
+The local Qwen baseline uses `qwen3.5:4b-mlx`, thinking enabled, one call per
+game, vision enabled, greedy generation, and a 4096-token output budget. These
+can be overridden with model-neutral `OURO_ARC_MODEL_*` variables. Legacy
+`OURO_ARC_GEMMA_*` names remain temporary fallback aliases.
+
+For structured thinking calls, `max_new_tokens` is the usable answer allowance.
+The runtime reserves an equal private-reasoning allowance, so the default causal
+transport limit is 8192 generated tokens while the answer contract remains 4096.
+
+Useful commands:
 
 ```bash
-OURO_ARC_DISABLE_MODEL=0 OURO_ARC_GEMMA_POLICY=active \
-  OURO_ARC_MODEL_PATH=/path/to/gemma-4-12b \
-  make play-local GAME=ls20 STEPS=200
+make score-local-deterministic
+make replay-world-model TRACE=logs/ouro_arc_trace.jsonl
+make generalization-report
+make holdout
 ```
 
-Use `OURO_ARC_GEMMA_POLICY=every` only for short experiments; it asks Gemma after
-the opening probes on nearly every state and can burn the action budget on slow
-hardware.
+## Autonomous Causal Model
 
-## Skill Distillation
+`config/qwen_autonomous_candidate.json` enables the Schema-style loop:
 
-Distilled strategy lives as Agent Skills under `skills/*/SKILL.md`. The Kaggle
-runtime loads the compact compiled artifact at `ouro_arc/distilled_skills.json`.
-After editing or generating skills, compile and validate before building the
-notebook:
+```text
+observe -> revise retained model -> sequential replay -> critic -> probe/CPU plan -> verify
+```
+
+Generated code implements `parse_observation`, `available_actions`, `step`,
+`render`, `is_goal`, and `canonicalize`. It runs in a separate constrained
+process with a private workspace. Game source, repository files, environment
+variables, networking, child processes, native loading, and unsafe imports are
+blocked. Deterministic exact replay authorizes multi-action planning; the critic
+remains advisory for planning and mandatory for helper promotion. Partial models
+remain available for one-step discriminating probes. The controller aborts on
+the first predicted-grid, state, or canonical-hash mismatch.
+
+Evidence contains the complete compact timeline, action-conditioned rigid-object
+tracks, exact changed-cell tuples, separate connected change-region crops, and
+spatial effect signatures. This keeps distant changes from being collapsed into
+an unchanged crop and distinguishes identical color flows moving in different
+directions.
 
 ```bash
-python3 scripts/extract_traces.py ../*-run.log > /tmp/ouro_traces.json
-python3 scripts/distill_skills.py /tmp/ouro_traces.json
-make compile-skills
+make trace-causal-game GAME=ls20 STEPS=120
+make score-local-qwen-causal-no-transfer
+make score-local-qwen-causal
+make score-local-qwen-causal-transfer
+make compare-causal-ablation
+make audit-generated-model SOURCE=/path/to/world_model.py
 ```
 
-Validation rejects game ids, frame hashes, static public-game macros, and
-coordinate-heavy walkthroughs so the submitted artifact remains generic.
+The full causal run deliberately optimizes all 25 public games. Its output must
+be described as public-set optimization, not evidence of hidden-game
+generalization. The core candidate disables transfer. Generic helpers can
+transfer in the separate transfer candidate only after exact replay, critic,
+source, and host-generated metamorphic checks.
 
-## Kaggle Model Input
+The world model keeps exact observed transitions as the only executable rules.
+It also induces coordinate-free mechanic templates from scene composition and
+semantic action targets. Those templates rank safe, high-information CPU probes
+and expose support, contradictions, prequential prediction accuracy, calibration,
+and probe efficiency in local and Kaggle result artifacts.
 
-The default submission is deterministic-only, so `kernel-metadata.json`
-attaches no model sources. Building with `OURO_ARC_SUBMISSION_GEMMA=1`
-attaches Gemma 4 12B automatically. Official competition reruns have internet
-disabled, so set `OURO_ARC_MODEL_PATH` if the model input path is not one of
-the defaults from `ouro_arc/gemma.py`:
+`make generalization-report` compares the current run with the frozen V11
+baseline across five fixed folds. Promotion requires complete coverage, no
+per-game regression, and no fold-level loss. The DEV/TEST/QUARANTINE discipline
+remains the stronger tuning boundary; the five-way report is for ablations and
+variance detection.
 
-- `/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b-it/2`
-- `/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b-it`
-- `/kaggle/input/models/google/gemma-4/transformers`
-- `/kaggle/input/models/google/gemma-4`
+## Qwen Model Packaging
 
-Missing or unloadable model weights are never fatal: the advisor logs the
-problem, latches itself off, and the deterministic controller keeps playing.
-
-## Submission
-
-Edit `notebooks/kernel-metadata.json` and replace
-`REPLACE_WITH_YOUR_USERNAME`, then:
+Kaggle uses the official `Qwen/Qwen3.5-4B` Transformers checkpoint pinned to
+revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. Weights are downloaded into
+a gitignored staging directory, verified, hashed, and published as a private
+Kaggle Model. Ollama and MLX files are never packaged.
 
 ```bash
-mkdir -p .kaggle
-printf '%s\n' 'KGAT_...' > .kaggle/access_token
-chmod 600 .kaggle/access_token
-make submit
-make status
+make qwen-model-stage
+make qwen-model-push
+make qwen-runtime-wheels-push
 ```
 
-The generated notebook uses the `rtx6000` accelerator, disables internet, and
-loads all authored code from generated cells plus model weights from
-`/kaggle/input`.
+The expected private model source is
+`kinwochan/qwen-3-5-4b/transformers/qwen-3-5-4b/1`. Kaggle inference is BF16,
+CUDA-only, SDPA, serialized, greedy, and offline.
+
+Qwen3.6-27B-FP8 is a separate Kaggle-only candidate because its 30.9 GB
+checkpoint does not fit the local 16 GB machine. It is pinned to revision
+`e89b16ebf1988b3d6befa7de50abc2d76f26eb09` and published separately:
+
+```bash
+make qwen36-model-stage
+make qwen36-model-check
+make qwen36-model-push
+```
+
+The RTX validation notebook defaults to the ready public Kaggle mirror
+`michaelpoluektov/qwen3-6-27b-fp8/transformers/default/1`. Its file names and
+byte sizes match the pinned Hugging Face snapshot. The private model targets
+remain available when an account-owned mirror is required.
+
+The Qwen3.6 verifier checks the model index, every referenced Safetensor shard,
+the `qwen3_5` architecture tag, and the fine-grained `fp8` quantization marker.
+It never packages Ollama or MLX data.
+
+## RTX Validation
+
+The private validation kernel runs sequentially against all 25 packaged public
+games with seed 0. It is isolated from the competition submission notebook.
+
+```bash
+make kaggle-gpu-assets-push
+make kaggle-gpu-push GPU_STAGE=smoke
+make kaggle-gpu-status
+make kaggle-gpu-pull
+make kaggle-gpu-analyze
+```
+
+Use `make kaggle-gpu-push-causal GPU_STAGE=smoke` for the autonomous candidate.
+After validation and promotion, its competition configuration uses a fixed
+16-action discovery phase, stable game-ID inference ordering, deterministic
+helper merge, and a two-phase barrier. A 12-minute timeout releases every game
+with the pre-discovery library rather than exposing a partial order-dependent
+merge.
+
+After smoke passes, run `GPU_STAGE=pilot`. The pilot compares thinking off and
+on over `ls20`, `ft09`, `vc33`, and `tn36`. Run `GPU_STAGE=full` with the
+selected `GPU_SELECTED_MODE`. The artifacts are `qwen_gpu_validation.json`,
+`qwen_gpu_validation.md`, and failed-game traces.
+
+The generated kernel requests Kaggle's canonical `NvidiaRtxPro6000` machine
+shape by default. Its hardware gate rejects P100, CPU fallback, and model
+offload before the validation stages run.
+
+The Qwen3.6 experiment uses a separate private notebook and Transformers 5.14.1:
+
+```bash
+make kaggle-gpu-assets-push
+make kaggle-qwen36-gpu-push GPU_STAGE=smoke
+make kaggle-qwen36-gpu-status
+make kaggle-qwen36-gpu-pull
+make kaggle-qwen36-gpu-analyze
+```
+
+Its smoke additionally requires compute capability 8.9 or newer, active FP8
+modules, no unscaled FP8 linear layers, no FP8-to-BF16 expansion, CUDA-only parameters, strict multimodal JSON,
+and peak allocated VRAM below 80 GiB. Only a passing smoke should advance to
+`GPU_STAGE=pilot`, followed by `GPU_STAGE=full` with the frozen selected mode.
+
+## Promotion and Submission
+
+The deterministic notebook remains model-free. A Qwen submission can only be
+built after a full validation report passes the score, regression, failure,
+memory, and runtime gates:
+
+```bash
+make kaggle-gpu-promote
+OURO_ARC_SUBMISSION_QWEN=1 make submit
+```
+
+Promotion writes `config/qwen_promoted.json`. The Qwen notebook then attaches
+the private Qwen model and offline runtime-wheel dataset. Plain `make submit`
+detaches both and disables model inference on every path.
+
+The promotion threshold is a score above `1.0278557578743325`, with no lost
+levels on previously solved games, no fatal model or OOM failures, all 25 games
+completed, and acceptable runtime.
+
+## Verification
+
+Changes under this benchmark run:
+
+```bash
+python3 -m unittest discover -s tests
+cd /Users/henry/workspace/ouroboros
+bun run lint
+bun run ts-check
+bun run test:cli
+```
+
+Desktop E2E is intentionally skipped for benchmark-only changes.

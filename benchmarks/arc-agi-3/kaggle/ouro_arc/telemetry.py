@@ -58,7 +58,7 @@ class TelemetryWriter:
                 f"actions={merged.get('action_count', 0)} "
                 f"max_level={merged.get('max_level_reached', 0)} "
                 f"state={merged.get('final_state', '?')} "
-                f"gemma={merged.get('gemma_calls', 0)}/{merged.get('gemma_plans', 0)} "
+                f"model={merged.get('model_calls', 0)}/{merged.get('model_plans', 0)} "
                 f"resets={merged.get('reset_count', 0)}"
             )
 
@@ -95,7 +95,7 @@ class TelemetryWriter:
     def _update_summary_from_event(self, event: dict[str, Any]) -> None:
         after = event.get("after", {})
         action = event.get("action", {})
-        gemma = event.get("gemma", {})
+        advisor = event.get("advisor", event.get("gemma", {}))
         model = event.get("model", {})
         solver = str(event.get("solver", action.get("source", "unknown")))
         current = self._read_summary()
@@ -108,12 +108,12 @@ class TelemetryWriter:
             "max_level_reached": max(int(current.get("max_level_reached", 0) or 0), level),
             "reset_count": int(current.get("reset_count", 0) or 0)
             + (1 if int(action.get("action", -1) or -1) == 0 else 0),
-            "gemma_calls": int(gemma.get("calls", current.get("gemma_calls", 0)) or 0),
-            "gemma_plans": int(gemma.get("plans", current.get("gemma_plans", 0)) or 0),
-            "gemma_failures": int(gemma.get("failed_calls", current.get("gemma_failures", 0)) or 0),
-            "gemma_backoff_remaining": int(gemma.get("backoff_remaining", 0) or 0),
+            "model_calls": int(advisor.get("calls", current.get("model_calls", 0)) or 0),
+            "model_plans": int(advisor.get("plans", current.get("model_plans", 0)) or 0),
+            "model_failures": int(advisor.get("failed_calls", current.get("model_failures", 0)) or 0),
+            "model_backoff_remaining": int(advisor.get("backoff_remaining", 0) or 0),
             "model_path_found": model.get("path", current.get("model_path_found")),
-            "gemma_loaded": bool(model.get("loaded", current.get("gemma_loaded", False))),
+            "model_loaded": bool(model.get("loaded", current.get("model_loaded", False))),
             "solver_counts": solver_counts,
         }
         self.write_summary(summary)

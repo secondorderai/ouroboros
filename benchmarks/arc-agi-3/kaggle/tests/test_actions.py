@@ -6,6 +6,11 @@ from ouro_arc.actions import ActionSpec, filter_legal_actions, normalize_availab
 
 
 class ActionsTest(unittest.TestCase):
+    def test_model_json_excludes_controller_provenance(self) -> None:
+        action = ActionSpec(6, x=10, y=20, reason="BFS frontier", source="movement-bfs")
+        self.assertEqual(action.to_model_json(), {"action": 6, "x": 10, "y": 20})
+        self.assertIn("source", action.to_json())
+
     def test_action6_requires_coordinates(self) -> None:
         with self.assertRaises(ValueError):
             ActionSpec(6).validate({6})

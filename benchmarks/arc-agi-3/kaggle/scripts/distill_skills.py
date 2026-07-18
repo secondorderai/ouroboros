@@ -110,7 +110,7 @@ not yet been tried from the current frame hash.
 
 Avoid actions known to be no-ops or dangerous from the same level and state.
 This skill keeps exploration systematic while preserving budget for stronger
-solvers and Gemma plan selection.
+solvers and model hypothesis selection.
 
 The skill must remain game-agnostic and must not contain public-game ids,
 static macros, frame hashes, or fixed public-game action sequences.

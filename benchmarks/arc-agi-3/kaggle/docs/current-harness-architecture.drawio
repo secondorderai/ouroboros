@@ -1,0 +1,238 @@
+<mxfile host="app.diagrams.net" modified="2026-07-18T00:00:00.000Z" agent="Codex" version="24.7.17" type="device">
+  <diagram id="arc-current-harness" name="Current Harness Architecture">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="&lt;b&gt;ARC-AGI-3 Kaggle Harness — Current Architecture&lt;/b&gt;" style="text;html=1;fontSize=24;fontColor=#1f2937;align=left;verticalAlign=middle;spacingLeft=4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="920" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Deterministic perception + executable world model + CPU planning, with the same stuck-only Qwen3.5-4B locally and on Kaggle" style="text;html=1;fontSize=13;fontColor=#4b5563;align=left;verticalAlign=middle;spacingLeft=4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="56" width="1160" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legendDet" value="Deterministic runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="28" width="135" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="legendModel" value="Optional model" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="1355" y="28" width="110" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="legendData" value="Data / artifacts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="1475" y="28" width="115" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="legendDeploy" value="Build / deploy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="1600" y="28" width="115" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="runtimeLane" value="&lt;b&gt;1. Runtime action loop&lt;/b&gt;  ·  one controller per game  ·  maximum 320 actions" style="swimlane;html=1;rounded=0;horizontal=1;startSize=36;fillColor=#f9fafb;swimlaneFillColor=#ffffff;strokeColor=#9ca3af;fontSize=14;fontColor=#1f2937;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="95" width="1710" height="690" as="geometry" />
+        </mxCell>
+
+        <mxCell id="environment" value="&lt;b&gt;ARC environment&lt;/b&gt;&lt;br&gt;&lt;br&gt;FrameData&lt;br&gt;64×64 color grid&lt;br&gt;game state + level&lt;br&gt;available actions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="65" y="185" width="170" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="runtimeModes" value="&lt;b&gt;Execution host&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;Local:&lt;/b&gt; Arcade OFFLINE, sequential&lt;br&gt;&lt;b&gt;Competition:&lt;/b&gt; gateway + framework Swarm" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;fontColor=#1f2937;align=left;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="65" y="390" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="adapter" value="&lt;b&gt;MyAgent adapter&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#4b5563&quot;&gt;agent/my_agent.py&lt;/font&gt;&lt;br&gt;&lt;br&gt;FrameData → controller&lt;br&gt;ActionSpec → GameAction&lt;br&gt;WIN / RESET lifecycle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4b5563;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="275" y="185" width="190" height="165" as="geometry" />
+        </mxCell>
+
+        <mxCell id="perception" value="&lt;b&gt;Deterministic perception&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#4b5563&quot;&gt;perceive_grid + objects + render&lt;/font&gt;&lt;br&gt;&lt;br&gt;canonical background / objects&lt;br&gt;pixel key + scene key&lt;br&gt;frame diff + salient targets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="505" y="145" width="235" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="worldModel" value="&lt;b&gt;ExecutableWorldModel&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#4b5563&quot;&gt;world_model.py + transition_graph.py&lt;/font&gt;&lt;br&gt;&lt;br&gt;observed state/action/effect graph&lt;br&gt;support + contradictions&lt;br&gt;predictions, information gain, risk&lt;br&gt;replayable transition records" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="505" y="330" width="235" height="185" as="geometry" />
+        </mxCell>
+
+        <mxCell id="controller" value="&lt;b&gt;ArcController orchestrator&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#4b5563&quot;&gt;controller.py&lt;/font&gt;&lt;br&gt;&lt;br&gt;observe transition&lt;br&gt;choose highest-priority safe plan&lt;br&gt;track progress / stagnation&lt;br&gt;queue plans and abort stale paths&lt;br&gt;fail open on advisor errors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4b5563;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="785" y="185" width="225" height="205" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cpuSearch" value="&lt;b&gt;CPU planning + induction&lt;/b&gt;&lt;br&gt;&lt;br&gt;shortest path to score edge&lt;br&gt;path to unexplored frontier&lt;br&gt;safe discriminating experiment&lt;br&gt;stable deterministic tie-breaks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="785" y="430" width="225" height="145" as="geometry" />
+        </mxCell>
+
+        <mxCell id="solverGroup" value="&lt;b&gt;Deterministic solver cascade&lt;/b&gt;" style="swimlane;html=1;rounded=1;horizontal=1;startSize=30;fillColor=#d5e8d4;swimlaneFillColor=#f7fbf6;strokeColor=#82b366;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1055" y="145" width="245" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="solver1" value="1  queued plans + macro replay" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="190" width="215" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="solver2" value="2  structured + paired-control probes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="238" width="215" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="solver3" value="3  transition-graph CPU planner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="286" width="215" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="solver4" value="4  distilled SkillRegistry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="334" width="215" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="solver5" value="5  movement BFS / goal-nav (flagged)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="382" width="215" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="solver6" value="6  constraint / click board / sequence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="430" width="215" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="solver7" value="7  exploration + least-bad fallback" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontColor=#1f2937;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="478" width="215" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="solverNote" value="First applicable plan wins; source failures are demoted." style="text;html=1;fontSize=10;fontColor=#4b5563;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="526" width="215" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="modelBoundary" value="&lt;b&gt;Optional reasoning advisor boundary&lt;/b&gt;" style="swimlane;html=1;rounded=1;horizontal=1;startSize=30;fillColor=#e1d5e7;swimlaneFillColor=#fbf8fc;strokeColor=#9673a6;strokeWidth=2;fontSize=12;fontColor=#1f2937;align=left;spacingLeft=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1335" y="145" width="390" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="advisor" value="&lt;b&gt;ModelAdvisor&lt;/b&gt;&lt;br&gt;strict hypothesis JSON contract&lt;br&gt;thinking removal + candidate filter&lt;br&gt;timeouts, call caps, shared runtime locks&lt;br&gt;fail-open deterministic fallback" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="190" width="340" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="qwen" value="&lt;b&gt;Local Ollama&lt;/b&gt;  ·  qwen3.5:4b-mlx&lt;br&gt;thinking ON · max 1 stuck-only call/game&lt;br&gt;ranks supplied CPU hypothesis IDs&lt;br&gt;&lt;b&gt;cannot author actions&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="310" width="160" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="gemma" value="&lt;b&gt;Kaggle Transformers&lt;/b&gt;&lt;br&gt;Qwen3.5-4B vision&lt;br&gt;official pinned checkpoint · BF16&lt;br&gt;CUDA + SDPA · greedy decode&lt;br&gt;offline private model source" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="310" width="160" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="modelOutput" value="Both runtimes → ranked hypothesis → controller materializes a &lt;b&gt;world-model probe&lt;/b&gt;&lt;br&gt;The model never emits actions; deterministic fallback always remains active" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;dashed=1;fontSize=10;fontColor=#4b5563;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="460" width="340" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="safety" value="&lt;b&gt;Action safety gate&lt;/b&gt;&lt;br&gt;available-action legality · dangerous edges · known no-ops · dud clicks · stale queue checks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="785" y="620" width="515" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="telemetry" value="&lt;b&gt;TelemetryWriter&lt;/b&gt;&lt;br&gt;choice + transition + world-model records&lt;br&gt;model parse / timeout / rejection diagnostics&lt;br&gt;JSONL trace + summary JSON" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d0e7e5;strokeColor=#0e8088;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="505" y="575" width="235" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="action" value="&lt;b&gt;ActionSpec / GameAction&lt;/b&gt;&lt;br&gt;source + reason + optional x,y" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4b5563;strokeWidth=2;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="275" y="605" width="190" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="buildLane" value="&lt;b&gt;2. Build, validation, and promotion workflow&lt;/b&gt;" style="swimlane;html=1;rounded=0;horizontal=1;startSize=36;fillColor=#fffaf5;swimlaneFillColor=#ffffff;strokeColor=#d79b00;fontSize=14;fontColor=#1f2937;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="815" width="1710" height="335" as="geometry" />
+        </mxCell>
+
+        <mxCell id="source" value="&lt;b&gt;Repository sources&lt;/b&gt;&lt;br&gt;&lt;br&gt;ouro_arc/ + agent/&lt;br&gt;compiled distilled skills&lt;br&gt;Makefile + build scripts&lt;br&gt;deterministic baselines" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="70" y="880" width="180" height="145" as="geometry" />
+        </mxCell>
+
+        <mxCell id="detBuild" value="&lt;b&gt;Default submission build&lt;/b&gt;&lt;br&gt;scripts/build_notebook.py&lt;br&gt;&lt;br&gt;model hard OFF&lt;br&gt;no model or runtime input attached&lt;br&gt;generated submission.ipynb" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="300" y="870" width="205" height="165" as="geometry" />
+        </mxCell>
+
+        <mxCell id="assets" value="&lt;b&gt;Private validation assets&lt;/b&gt;&lt;br&gt;25 public environments&lt;br&gt;agent package + baselines&lt;br&gt;offline Python wheelhouse" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="555" y="870" width="190" height="165" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gpuKernel" value="&lt;b&gt;Private GPU validation notebook&lt;/b&gt;&lt;br&gt;RTX Pro 6000 · internet OFF&lt;br&gt;pinned Qwen3.5-4B private mirror&lt;br&gt;Arcade OFFLINE · seed 0 · sequential&lt;br&gt;&lt;br&gt;&lt;b&gt;smoke → pilot A/B → full 25&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="795" y="870" width="230" height="165" as="geometry" />
+        </mxCell>
+
+        <mxCell id="results" value="&lt;b&gt;Validation artifacts&lt;/b&gt;&lt;br&gt;qwen_gpu_validation.json + Markdown&lt;br&gt;hardware / VRAM / versions&lt;br&gt;per-call parse + latency&lt;br&gt;per-game score + traces" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d0e7e5;strokeColor=#0e8088;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="1075" y="870" width="210" height="165" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gate" value="&lt;b&gt;Promotion gate&lt;/b&gt;&lt;br&gt;&lt;br&gt;all 25 complete&lt;br&gt;score ≥ baseline + 0.005&lt;br&gt;no solved-game regressions&lt;br&gt;no fatal/OOM failures&lt;br&gt;runtime within limit" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=10;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=5;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="855" width="190" height="190" as="geometry" />
+        </mxCell>
+
+        <mxCell id="promoted" value="&lt;b&gt;Promoted Qwen submission&lt;/b&gt;&lt;br&gt;config/qwen_promoted.json&lt;br&gt;exact validated policy + budgets&lt;br&gt;offline Transformers only&lt;br&gt;&lt;br&gt;&lt;b&gt;OURO_ARC_SUBMISSION_QWEN=1&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;fontSize=11;fontColor=#1f2937;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="1">
+          <mxGeometry x="1560" y="870" width="165" height="165" as="geometry" />
+        </mxCell>
+
+        <mxCell id="localAnalysis" value="Local score runs + holdout gate + overfit lint + world-model replay" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontColor=#4b5563;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="300" y="1065" width="985" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="boundaryNote" value="&lt;b&gt;Boundary invariant:&lt;/b&gt; Ollama and packaged public environment files never enter the competition notebook." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontColor=#1f2937;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="1065" width="395" height="45" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eFrame" value="frame" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#4b5563;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="environment" target="adapter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eAdapterPerception" value="grid + state" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#4b5563;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="adapter" target="perception">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePerceptionWorld" value="canonical scene" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="perception" target="worldModel">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePerceptionController" value="FrameView" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#4b5563;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="perception" target="controller">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eControllerWorld" value="observed transition" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="controller" target="worldModel">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eWorldSearch" value="graph + hypotheses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="worldModel" target="cpuSearch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eSearchController" value="safe path / probe" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="cpuSearch" target="controller">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eControllerSolvers" value="ordered plan request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#4b5563;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="controller" target="solverGroup">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eStuckAdvisor" value="stuck / sparse advice" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=2;dashed=1;fontSize=10;" edge="1" parent="1" source="controller" target="advisor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eAdvisorQwen" value="local" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;dashed=1;fontSize=10;" edge="1" parent="1" source="advisor" target="qwen">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eAdvisorGemma" value="Kaggle" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;dashed=1;fontSize=10;" edge="1" parent="1" source="advisor" target="gemma">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eModelReturn" value="parsed, constrained result" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=2;dashed=1;fontSize=10;exitX=0;exitY=0.8;entryX=1;entryY=0.8;" edge="1" parent="1" source="modelOutput" target="controller">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eControllerSafety" value="candidate action" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="controller" target="safety">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eSafetyAction" value="legal safe action" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#4b5563;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="safety" target="action">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eActionAdapter" value="convert" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#4b5563;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="action" target="adapter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eAdapterEnvironment" value="execute" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#4b5563;strokeWidth=2;fontSize=10;entryX=1;entryY=0.82;exitX=0;exitY=0.82;" edge="1" parent="1" source="adapter" target="environment">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eControllerTelemetry" value="events + diagnostics" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0e8088;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="controller" target="telemetry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eWorldTelemetry" value="records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0e8088;fontSize=10;" edge="1" parent="1" source="worldModel" target="telemetry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eSourceDet" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="source" target="detBuild">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eSourceAssets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="source" target="assets">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eAssetsGpu" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="assets" target="gpuKernel">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eGpuResults" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="gpuKernel" target="results">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eResultsGate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="results" target="gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eGatePromoted" value="PASS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;fontStyle=1;fontSize=10;" edge="1" parent="1" source="gate" target="promoted">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eAnalysisResults" value="compare baselines" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;dashed=1;fontSize=10;" edge="1" parent="1" source="localAnalysis" target="results">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePromotedBuild" value="exact validated config" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=2;dashed=1;fontSize=10;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="promoted" target="detBuild">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1640" y="835" />
+              <mxPoint x="405" y="835" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

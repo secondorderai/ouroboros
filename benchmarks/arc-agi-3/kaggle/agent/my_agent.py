@@ -7,14 +7,13 @@ so it can be unit-tested without the competition framework installed.
 from __future__ import annotations
 
 import os
-import atexit
 from typing import Any
 
 from arcengine import FrameData, GameAction, GameState
 from agents.agent import Agent
 
 from ouro_arc import ActionSpec, ArcController
-from ouro_arc.gemma import GemmaAdvisor
+from ouro_arc.advisor import ModelAdvisor
 
 
 class MyAgent(Agent):
@@ -26,9 +25,10 @@ class MyAgent(Agent):
             os.getenv("OURO_ARC_DISABLE_MODEL")
         )
         self.controller = ArcController(
-            advisor=GemmaAdvisor(require_model=require_model),
+            advisor=ModelAdvisor(require_model=require_model),
+            game_id=str(getattr(self, "game_id", os.getenv("OURO_ARC_GAME_ID", "unknown"))),
         )
-        atexit.register(self.controller.write_summary, True)
+        self._controller_closed = False
         if require_model:
             self.controller.advisor.ensure_available()
 
@@ -36,7 +36,7 @@ class MyAgent(Agent):
     def name(self) -> str:
         if os.getenv("OURO_ARC_DISABLE_MODEL"):
             return f"{super().name}.ouro-deterministic.{self.MAX_ACTIONS}"
-        return f"{super().name}.ouro-gemma4-12b.{self.MAX_ACTIONS}"
+        return f"{super().name}.ouro-qwen3.5-4b.{self.MAX_ACTIONS}"
 
     def is_done(self, frames: list[FrameData], latest_frame: FrameData) -> bool:
         return latest_frame.state is GameState.WIN
@@ -48,6 +48,12 @@ class MyAgent(Agent):
     ) -> GameAction:
         action = self.controller.choose(latest_frame)
         return self._to_game_action(action)
+
+    def cleanup(self, scorecard: Any | None = None) -> None:
+        super().cleanup(scorecard)
+        if not self._controller_closed:
+            self._controller_closed = True
+            self.controller.write_summary(print_summary=True)
 
     def _to_game_action(self, spec: ActionSpec) -> GameAction:
         if spec.is_reset():

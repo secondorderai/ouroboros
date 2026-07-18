@@ -26,6 +26,15 @@ class TransitionGraphTest(unittest.TestCase):
         graph.observe("A", A1, "B", "changed", 0)
         self.assertEqual(graph.neighbors("A")[A1].visits, 2)
 
+    def test_conflicting_observations_make_edge_non_executable(self) -> None:
+        graph = TransitionGraph()
+        graph.observe("A", A1, "B", "score increased", 0)
+        graph.observe("A", A1, "C", "changed", 0)
+
+        self.assertFalse(graph.neighbors("A")[A1].stable)
+        self.assertNotIn(("A", A1), graph.known_score_edges())
+        self.assertIsNone(graph.path_to_score("A", 3, never_blocked))
+
     def test_path_to_score_returns_action_sequence(self) -> None:
         graph = TransitionGraph()
         graph.observe("A", A1, "B", "changed", 0)
