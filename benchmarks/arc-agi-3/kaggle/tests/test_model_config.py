@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from ouro_arc.model_config import (
@@ -62,6 +63,25 @@ class ModelConfigTest(unittest.TestCase):
             kaggle = advisor_contract_hashes(prompt, image)
         self.assertEqual(local, kaggle)
         self.assertEqual(set(local), {"prompt", "image", "schema", "generation"})
+
+    def test_autonomous_candidate_applies_world_model_settings(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "config" / "qwen_autonomous_candidate.json"
+        config = load_qwen_config(path)
+        with patch.dict(os.environ, {}, clear=True):
+            apply_qwen_config(config, backend="ollama", overwrite=True)
+            self.assertEqual(model_env("POLICY"), "world-model")
+            self.assertEqual(os.environ["OURO_ARC_WORLD_MODEL_MODE"], "autonomous-python")
+            self.assertEqual(os.environ["OURO_ARC_WORLD_MODEL_BEAM"], "4")
+            self.assertEqual(os.environ["OURO_ARC_MODEL_CRITIC"], "1")
+            self.assertEqual(os.environ["OURO_ARC_DISCOVERY_ACTIONS"], "8")
+            self.assertEqual(os.environ["OURO_ARC_WORLD_MODEL_MAX_STALLED_REVISIONS"], "2")
+            self.assertEqual(os.environ["OURO_ARC_WORLD_MODEL_PROMPT_MAX_CHARS"], "24000")
+            self.assertNotIn("OURO_ARC_MODEL_NUM_PREDICT", os.environ)
+        self.assertTrue(config["think"])
+        self.assertEqual(config["max_calls"], 8)
+        self.assertEqual(config["max_new_tokens"], 4096)
+        self.assertEqual(config["time_budget_seconds"], 1800)
+        self.assertFalse(config["shared_mechanics"])
 
 
 if __name__ == "__main__":

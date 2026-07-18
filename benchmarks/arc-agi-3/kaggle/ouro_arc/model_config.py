@@ -68,7 +68,29 @@ def apply_qwen_config(
     }
     if backend == "ollama":
         values["OURO_ARC_OLLAMA_MODEL"] = config["local_model"]
-        values["OURO_ARC_MODEL_NUM_PREDICT"] = config["max_new_tokens"]
+    optional_values = {
+        "OURO_ARC_MODEL_DO_SAMPLE": int(bool(config.get("do_sample"))) if "do_sample" in config else None,
+        "OURO_ARC_MODEL_TEMPERATURE": config.get("temperature"),
+        "OURO_ARC_MODEL_TOP_P": config.get("top_p"),
+        "OURO_ARC_MODEL_TOP_K": config.get("top_k"),
+        "OURO_ARC_MODEL_SEED": config.get("seed"),
+        "OURO_ARC_MODEL_FP8_FIX_GATE_PROJ": int(bool(config.get("fp8_fix_gate_proj"))) if "fp8_fix_gate_proj" in config else None,
+        "OURO_ARC_MODEL_REQUIRE_SCALED_FP8": int(bool(config.get("require_scaled_fp8"))) if "require_scaled_fp8" in config else None,
+        "OURO_ARC_WORLD_MODEL_MODE": config.get("world_model_mode"),
+        "OURO_ARC_WORLD_MODEL_BEAM": config.get("world_model_beam"),
+        "OURO_ARC_WORLD_MODEL_WORKER_TIMEOUT_SECONDS": config.get("worker_timeout_seconds"),
+        "OURO_ARC_WORLD_MODEL_MEMORY_MB": config.get("worker_memory_mb"),
+        "OURO_ARC_WORLD_MODEL_SEARCH_STATES": config.get("search_states"),
+        "OURO_ARC_WORLD_MODEL_SEARCH_DEPTH": config.get("search_depth"),
+        "OURO_ARC_MODEL_CRITIC": int(bool(config.get("critic"))) if "critic" in config else None,
+        "OURO_ARC_SHARED_MECHANICS": int(bool(config.get("shared_mechanics"))) if "shared_mechanics" in config else None,
+        "OURO_ARC_DISCOVERY_ACTIONS": config.get("discovery_actions"),
+        "OURO_ARC_WORLD_MODEL_MAX_STALLED_REVISIONS": config.get("max_stalled_revisions"),
+        "OURO_ARC_WORLD_MODEL_PROMPT_MAX_CHARS": config.get("prompt_max_chars"),
+        "OURO_ARC_DISCOVERY_BARRIER_SECONDS": config.get("discovery_barrier_seconds"),
+        "OURO_ARC_DISCOVERY_BARRIER_ENABLED": int(bool(config.get("discovery_barrier"))) if "discovery_barrier" in config else None,
+    }
+    values.update({key: value for key, value in optional_values.items() if value is not None})
     for key, value in values.items():
         if overwrite or key not in os.environ:
             os.environ[key] = str(value)
@@ -92,4 +114,32 @@ def behavioral_contract(config: dict[str, Any]) -> dict[str, Any]:
         "induction_novelty_patience",
         "hypothesis_max_candidates",
     )
-    return {key: config[key] for key in keys}
+    optional = (
+        "world_model_mode",
+        "world_model_beam",
+        "worker_timeout_seconds",
+        "worker_memory_mb",
+        "search_states",
+        "search_depth",
+        "critic",
+        "shared_mechanics",
+        "discovery_actions",
+        "max_stalled_revisions",
+        "prompt_max_chars",
+        "discovery_barrier_seconds",
+        "discovery_barrier",
+        "do_sample",
+        "temperature",
+        "top_p",
+        "top_k",
+        "seed",
+        "thinking_generation",
+        "nonthinking_generation",
+        "fp8_fix_gate_proj",
+        "require_scaled_fp8",
+    )
+    return {
+        key: config[key]
+        for key in (*keys, *optional)
+        if key in config
+    }

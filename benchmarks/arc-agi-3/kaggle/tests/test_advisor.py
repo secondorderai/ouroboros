@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -8,11 +9,14 @@ import threading
 import time
 import types
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from ouro_arc.advisor import (
     DEFAULT_OLLAMA_MODEL,
     ModelAdvisor,
+    _repair_qwen_fp8_skip_patterns,
+    _unscaled_fp8_linear_names,
     parse_model_plan,
     parse_model_plan_result,
 )
@@ -132,6 +136,41 @@ class ModelAdvisorTest(unittest.TestCase):
             self.assertTrue(advisor.disabled)
             self.assertFalse(advisor.load())
             self.assertIsNone(advisor.advise("prompt", {1}))
+
+    def test_diagnostics_report_active_fp8_and_parameter_placement(self) -> None:
+        class Parameter:
+            dtype = "torch.float8_e4m3fn"
+            device = "cuda:0"
+
+            def numel(self) -> int:
+                return 42
+
+        class FP8Linear:
+            pass
+
+        model = SimpleNamespace(
+            device="cuda:0",
+            hf_device_map={"": "cuda:0"},
+            config=SimpleNamespace(
+                model_type="qwen3_5",
+                quantization_config={"quant_method": "fp8", "dequantize": False},
+            ),
+            parameters=lambda: [Parameter()],
+            modules=lambda: [FP8Linear()],
+        )
+        advisor = ModelAdvisor()
+        advisor.model = model
+        advisor.processor = object()
+
+        diagnostics = advisor.diagnostics()
+
+        self.assertEqual(diagnostics["quantization_method"], "fp8")
+        self.assertTrue(diagnostics["quantization_active"])
+        self.assertFalse(diagnostics["quantization_dequantized"])
+        self.assertEqual(diagnostics["fp8_module_count"], 1)
+        self.assertEqual(
+            diagnostics["parameter_device_numels"], {"cuda:0": 42}
+        )
 
     def test_advise_swallows_inference_exceptions(self) -> None:
         class BoomProcessor:
@@ -382,6 +421,75 @@ class ModelAdvisorTest(unittest.TestCase):
 
         self.assertEqual(model.max_concurrent, 1)
 
+    def test_transformers_sampling_is_profile_controlled_and_seeded(self) -> None:
+        processor = RecordingProcessor()
+        model = RecordingModel()
+        advisor = ModelAdvisor()
+        advisor.processor = processor
+        advisor.model = model
+        fake_torch = types.ModuleType("torch")
+        fake_torch.inference_mode = lambda: contextlib.nullcontext()  # type: ignore[attr-defined]
+        seeds: list[int] = []
+        fake_torch.manual_seed = seeds.append  # type: ignore[attr-defined]
+        with patch.dict(
+            os.environ,
+            {
+                "OURO_ARC_MODEL_DO_SAMPLE": "1",
+                "OURO_ARC_MODEL_TEMPERATURE": "0.7",
+                "OURO_ARC_MODEL_TOP_P": "0.8",
+                "OURO_ARC_MODEL_TOP_K": "20",
+                "OURO_ARC_MODEL_SEED": "11",
+            },
+            clear=False,
+        ), patch.dict(sys.modules, {"torch": fake_torch}):
+            self.assertIsNotNone(advisor.advise("prompt", {1}))
+
+        self.assertEqual(seeds, [11])
+        self.assertTrue(model.generation_kwargs["do_sample"])
+        self.assertEqual(model.generation_kwargs["temperature"], 0.7)
+        self.assertEqual(model.generation_kwargs["top_p"], 0.8)
+        self.assertEqual(model.generation_kwargs["top_k"], 20)
+
+    def test_structured_no_json_records_final_response_excerpt(self) -> None:
+        advisor = ModelAdvisor()
+        result = advisor._parse_json_completion("plain response without braces", {"type": "object"})
+
+        self.assertIsNone(result)
+        self.assertEqual(advisor.last_call_status, "no_json")
+        self.assertIn("plain response without braces", advisor.last_call_detail)
+
+    def test_qwen_fp8_skip_repair_does_not_shadow_gate_projection(self) -> None:
+        quantization = SimpleNamespace(
+            modules_to_not_convert=[
+                "model.language_model.layers.0.mlp.gate",
+                "model.language_model.layers.0.input_layernorm",
+                "lm_head",
+            ]
+        )
+        config = SimpleNamespace(quantization_config=quantization)
+
+        self.assertEqual(_repair_qwen_fp8_skip_patterns(config), 1)
+        self.assertEqual(
+            quantization.modules_to_not_convert,
+            ["model.language_model.layers.0.input_layernorm", "lm_head"],
+        )
+
+    def test_unscaled_fp8_linear_integrity_check(self) -> None:
+        class Module:
+            def __init__(self, *, scaled: bool) -> None:
+                self.weight = SimpleNamespace(dtype="torch.float8_e4m3fn")
+                if scaled:
+                    self.weight_scale_inv = object()
+
+        model = SimpleNamespace(
+            named_modules=lambda: [
+                ("scaled", Module(scaled=True)),
+                ("broken", Module(scaled=False)),
+            ]
+        )
+
+        self.assertEqual(_unscaled_fp8_linear_names(model), ["broken"])
+
     def test_shared_runtime_is_reused_by_multiple_advisors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             key = (str(os.path.realpath(tmp)), "bf16")
@@ -437,6 +545,129 @@ class ModelAdvisorTest(unittest.TestCase):
         self.assertIs(captured["dtype"], torch_module.bfloat16)  # type: ignore[attr-defined]
         self.assertTrue(captured["eval"])
 
+    def test_structured_completion_uses_schema_and_ignores_thinking_field(self) -> None:
+        os.environ["OURO_ARC_MODEL_BACKEND"] = "ollama"
+        os.environ["OURO_ARC_MODEL_THINK"] = "1"
+        captured: list[dict[str, object]] = []
+        schema = {
+            "type": "object",
+            "properties": {"model_source": {"type": "string"}},
+            "required": ["model_source"],
+        }
+
+        def fake_urlopen(request: object, timeout: float):
+            payload = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+            captured.append(payload)
+            return FakeResponse(
+                {
+                    "message": {
+                        "thinking": '{"model_source":"bad"}',
+                        "content": '{"model_source":"def step(): pass"}',
+                    }
+                }
+            )
+
+        advisor = ModelAdvisor()
+        with patch("ouro_arc.advisor.urllib.request.urlopen", fake_urlopen):
+            result = advisor.complete_json(
+                "author model",
+                schema,
+                image=b"png",
+                purpose="world-model-physicist",
+                max_new_tokens=256,
+            )
+
+        self.assertEqual(result, {"model_source": "def step(): pass"})
+        self.assertEqual(captured[0]["format"], "json")
+        self.assertTrue(captured[0]["think"])
+        self.assertEqual(captured[0]["options"]["num_predict"], 512)  # type: ignore[index]
+        self.assertEqual(captured[0]["messages"][1]["images"], ["cG5n"])  # type: ignore[index]
+        self.assertEqual(advisor.call_records[0]["purpose"], "world-model-physicist")
+
+    def test_structured_thinking_reserves_separate_reasoning_tokens(self) -> None:
+        os.environ["OURO_ARC_MODEL_BACKEND"] = "ollama"
+        os.environ["OURO_ARC_MODEL_THINK"] = "1"
+        captured: list[dict[str, object]] = []
+
+        def fake_urlopen(request: object, timeout: float):
+            captured.append(json.loads(request.data.decode("utf-8")))  # type: ignore[attr-defined]
+            return FakeResponse({"message": {"content": "{}"}})
+
+        advisor = ModelAdvisor()
+        with patch("ouro_arc.advisor.urllib.request.urlopen", fake_urlopen):
+            result = advisor.complete_json(
+                "prompt",
+                {"type": "object"},
+                max_new_tokens=4096,
+            )
+
+        self.assertEqual(result, {})
+        self.assertEqual(captured[0]["options"]["num_predict"], 8192)  # type: ignore[index]
+
+    def test_structured_completion_rejects_reasoning_without_final_json(self) -> None:
+        os.environ["OURO_ARC_MODEL_BACKEND"] = "ollama"
+
+        def fake_urlopen(request: object, timeout: float):
+            return FakeResponse({"message": {"thinking": "private", "content": ""}})
+
+        advisor = ModelAdvisor()
+        with patch("ouro_arc.advisor.urllib.request.urlopen", fake_urlopen):
+            result = advisor.complete_json("prompt", {"type": "object"})
+        self.assertIsNone(result)
+        self.assertEqual(advisor.last_call_status, "empty_content")
+
+    def test_structured_completion_repairs_qwen_code_only_object(self) -> None:
+        os.environ["OURO_ARC_MODEL_BACKEND"] = "ollama"
+        source = (
+            "def parse_observation(grid, memory):\n    return grid\n"
+            "def available_actions(state):\n    return []\n"
+            "def step(state, action):\n    return state\n"
+            "def render(state):\n    return state\n"
+            "def is_goal(state):\n    return False\n"
+            "def canonicalize(state):\n    return state"
+        )
+        malformed = '{"' + source + '"}'
+
+        def fake_urlopen(request: object, timeout: float):
+            return FakeResponse({"message": {"content": malformed}})
+
+        advisor = ModelAdvisor()
+        schema = {
+            "type": "object",
+            "properties": {"model_source": {"type": "string"}},
+        }
+        with patch("ouro_arc.advisor.urllib.request.urlopen", fake_urlopen):
+            result = advisor.complete_json("prompt", schema)
+        self.assertIn("def parse_observation", result["model_source"])
+        self.assertTrue(advisor.last_call_repaired)
+
+    def test_structured_completion_repairs_repeated_model_source_loop(self) -> None:
+        os.environ["OURO_ARC_MODEL_BACKEND"] = "ollama"
+        source = "def parse_observation(grid, memory):\n    return grid\ndef step(state, action):\n    return state"
+        encoded = json.dumps(source)
+        malformed = '{"model_source":' + encoded + ',"model_source":' + encoded
+
+        def fake_urlopen(request: object, timeout: float):
+            return FakeResponse({"message": {"content": malformed}})
+
+        advisor = ModelAdvisor()
+        schema = {
+            "type": "object",
+            "properties": {
+                "model_source": {"type": "string"},
+                "notes": {"type": "string"},
+                "experiment": {"type": ["object", "null"]},
+                "helpers": {"type": "array"},
+            },
+            "required": ["model_source", "notes", "experiment", "helpers"],
+            "additionalProperties": False,
+        }
+        with patch("ouro_arc.advisor.urllib.request.urlopen", fake_urlopen):
+            result = advisor.complete_json("prompt", schema)
+        self.assertEqual(result["model_source"], source)
+        self.assertIsNone(result["experiment"])
+        self.assertTrue(advisor.last_call_repaired)
+
 
 class FakeResponse:
     def __init__(self, payload: dict[str, object]) -> None:
@@ -491,8 +722,10 @@ class RecordingModel:
 
     def __init__(self) -> None:
         self.max_new_tokens = 0
+        self.generation_kwargs: dict[str, object] = {}
 
     def generate(self, **kwargs: object) -> list[str]:
+        self.generation_kwargs = dict(kwargs)
         self.max_new_tokens = int(kwargs["max_new_tokens"])
         return ["tokens"]
 

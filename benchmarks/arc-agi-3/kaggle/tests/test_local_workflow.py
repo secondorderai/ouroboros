@@ -22,6 +22,10 @@ def load_play_local():
 
 
 class LocalQwenWorkflowTest(unittest.TestCase):
+    def test_public_results_are_labeled_as_optimization(self) -> None:
+        source = (ROOT / "scripts" / "play_local.py").read_text()
+        self.assertIn('"evaluation_scope": "public-set-optimization"', source)
+
     def test_score_target_freezes_qwen_baseline_policy(self) -> None:
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn("score-local-qwen:", makefile)
@@ -66,6 +70,23 @@ class LocalQwenWorkflowTest(unittest.TestCase):
         self.assertEqual(config["induction_stuck_actions"], 48)
         self.assertTrue(config["vision"])
         self.assertTrue(config["scientist_prompt"])
+
+    def test_autonomous_workflows_use_separate_candidate_and_ablation(self) -> None:
+        makefile = (ROOT / "Makefile").read_text()
+        for setting in (
+            "trace-causal-game:",
+            "smoke-ollama-causal:",
+            "score-local-qwen-causal:",
+            "score-local-qwen-causal-no-transfer:",
+            "compare-causal-ablation:",
+            "audit-generated-model:",
+            "config/qwen_autonomous_candidate.json",
+        ):
+            self.assertIn(setting, makefile)
+        candidate = json.loads((ROOT / "config" / "qwen_autonomous_candidate.json").read_text())
+        self.assertEqual(candidate["world_model_mode"], "autonomous-python")
+        self.assertEqual(candidate["policy"], "world-model")
+        self.assertTrue(candidate["think"])
 
 
 if __name__ == "__main__":

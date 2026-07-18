@@ -172,6 +172,14 @@ class ModelAdvisor:
                 processor = AutoProcessor.from_pretrained(
                     str(model_path), local_files_only=True
                 )
+                model_config = None
+                if model_flag("FP8_FIX_GATE_PROJ"):
+                    from transformers import AutoConfig  # type: ignore
+
+                    model_config = AutoConfig.from_pretrained(
+                        str(model_path), local_files_only=True
+                    )
+                    _repair_qwen_fp8_skip_patterns(model_config)
                 model_kwargs: dict[str, Any] = {
                     "local_files_only": True,
                     "dtype": dtype,
@@ -179,12 +187,21 @@ class ModelAdvisor:
                     "attn_implementation": "sdpa",
                     "device_map": {"": "cuda:0"} if cuda_available else "auto",
                 }
+                if model_config is not None:
+                    model_kwargs["config"] = model_config
                 model = AutoModelForMultimodalLM.from_pretrained(
                     str(model_path),
                     **model_kwargs,
                 )
                 if hasattr(model, "eval"):
                     model.eval()
+                unscaled_fp8 = _unscaled_fp8_linear_names(model)
+                if model_flag("REQUIRE_SCALED_FP8") and unscaled_fp8:
+                    preview = ", ".join(unscaled_fp8[:4])
+                    raise RuntimeError(
+                        "unscaled FP8 linear modules remain after load: "
+                        f"count={len(unscaled_fp8)} examples={preview}"
+                    )
                 load_seconds = time.monotonic() - load_started
                 self.processor = processor
                 self.model = model
@@ -236,6 +253,244 @@ class ModelAdvisor:
             }
         )
         return plan
+
+    def complete_json(
+        self,
+        prompt: str,
+        schema: dict[str, Any],
+        *,
+        image: Any | None = None,
+        system_prompt: str = "Return only one strict JSON object. Do not use markdown.",
+        purpose: str = "world-model",
+        max_new_tokens: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Run a model-neutral structured completion for causal model authoring."""
+
+        self.call_attempts += 1
+        started = time.monotonic()
+        self.last_call_status = "pending"
+        self.last_call_detail = ""
+        self.last_call_repaired = False
+        transformers_prompt = (
+            prompt
+            + "\n\nRequired JSON Schema:\n"
+            + json.dumps(schema, sort_keys=True, separators=(",", ":"))
+        )
+        try:
+            if self.backend == "ollama":
+                result = self._complete_ollama_json(
+                    prompt,
+                    schema,
+                    image=image,
+                    system_prompt=system_prompt,
+                    max_new_tokens=max_new_tokens,
+                )
+            else:
+                result = self._complete_transformers_json(
+                    transformers_prompt,
+                    schema=schema,
+                    image=image,
+                    system_prompt=system_prompt,
+                    max_new_tokens=max_new_tokens,
+                )
+        finally:
+            latency = time.monotonic() - started
+            self.call_latencies.append(latency)
+        if result is not None:
+            self.call_successes += 1
+            if self.last_call_status == "pending":
+                self._set_call_status("success")
+        elif self.last_call_status == "pending":
+            self._set_call_status("unknown_failure")
+        self.call_records.append(
+            {
+                "attempt": self.call_attempts,
+                "purpose": purpose,
+                "status": self.last_call_status,
+                "detail": self.last_call_detail,
+                "repaired": self.last_call_repaired,
+                "candidate_hypothesis_ids": [],
+                "latency_seconds": round(latency, 3),
+            }
+        )
+        return result
+
+    def _complete_ollama_json(
+        self,
+        prompt: str,
+        schema: dict[str, Any],
+        *,
+        image: Any | None,
+        system_prompt: str,
+        max_new_tokens: int | None,
+    ) -> dict[str, Any] | None:
+        if not self.load():
+            return None
+        think_enabled = model_flag("THINK")
+        answer_tokens = max_new_tokens or int(
+            model_env("MAX_NEW_TOKENS", "2048" if think_enabled else "512")
+        )
+        # Ollama counts hidden reasoning against num_predict. Keep the public
+        # max_new_tokens setting as the usable structured-answer allowance and
+        # reserve an equal number of tokens for reasoning. A direct
+        # NUM_PREDICT override remains available for transport-level tuning.
+        num_predict = int(
+            model_env(
+                "NUM_PREDICT",
+                str(answer_tokens * (2 if think_enabled else 1)),
+            )
+        )
+        payload: dict[str, Any] = {
+            "model": os.getenv("OURO_ARC_OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
+            "stream": False,
+            "think": think_enabled,
+            # Qwen3.5 can loop on one required property when Ollama's full JSON
+            # Schema decoder is used for code-heavy objects. JSON mode plus
+            # host-side schema validation remains strict without that decoder bug.
+            "format": "json",
+            "options": {"temperature": 0, "num_predict": num_predict},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        encoded_image = _image_for_ollama(image)
+        if encoded_image is not None:
+            payload["messages"][-1]["images"] = [encoded_image]
+        url = os.getenv("OURO_ARC_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+        timeout = float(model_env("TIMEOUT_SECONDS", "300"))
+        request = urllib.request.Request(
+            f"{url}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+            message = response_payload.get("message", {})
+            content = str(message.get("content", "")) if isinstance(message, dict) else ""
+            if not content.strip():
+                thinking_chars = len(str(message.get("thinking", ""))) if isinstance(message, dict) else 0
+                self.last_call_detail = (
+                    f"done_reason={response_payload.get('done_reason', '')};"
+                    f"thinking_chars={thinking_chars}"
+                )
+        except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
+            status = "timeout" if isinstance(exc, TimeoutError) or "timed out" in str(exc).lower() else "transport_error"
+            self._set_call_status(status, repr(exc))
+            return None
+        return self._parse_json_completion(content, schema)
+
+    def _complete_transformers_json(
+        self,
+        prompt: str,
+        *,
+        schema: dict[str, Any],
+        image: Any | None,
+        system_prompt: str,
+        max_new_tokens: int | None,
+    ) -> dict[str, Any] | None:
+        if not self.load():
+            return None
+        assert self.processor is not None
+        assert self.model is not None
+        image_input = _image_for_transformers(image)
+        think_enabled = model_flag("THINK")
+        answer_tokens = max_new_tokens or int(
+            model_env("MAX_NEW_TOKENS", "2048" if think_enabled else "512")
+        )
+        generation_tokens = answer_tokens * (2 if think_enabled else 1)
+        messages = [
+            {"role": "system", "content": [{"type": "text", "text": system_prompt}]},
+            {
+                "role": "user",
+                "content": (
+                    ([{"type": "image", "image": image_input}] if image_input is not None else [])
+                    + [{"type": "text", "text": prompt}]
+                ),
+            },
+        ]
+        try:
+            inputs = self.processor.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+                enable_thinking=think_enabled,
+            )
+            inputs = {
+                key: value.to(self.model.device) if hasattr(value, "to") else value
+                for key, value in inputs.items()
+            }
+            input_len = _input_length(inputs.get("input_ids"))
+            serialize = _model_flag_default("SERIALIZE_INFERENCE", True)
+            generation_context = self._shared_generation_lock if serialize else contextlib.nullcontext()
+            with generation_context:
+                _seed_transformers_generation(self.call_attempts)
+                with _torch_inference_context():
+                    output = self.model.generate(
+                        **inputs,
+                        **_transformers_generation_kwargs(generation_tokens),
+                    )
+            generated = _generated_tokens(output, input_len)
+            decoded = self.processor.decode(generated, skip_special_tokens=False)
+            content = _extract_final_response(self.processor, decoded)
+        except Exception as exc:
+            self._set_call_status("inference_error", repr(exc))
+            return None
+        return self._parse_json_completion(content, schema)
+
+    def _parse_json_completion(
+        self,
+        content: str,
+        schema: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not content.strip():
+            self.empty_content_responses += 1
+            self._set_call_status("empty_content", self.last_call_detail)
+            return None
+        final = _extract_final_response(object(), content)
+        match = re.search(r"\{.*\}", final, re.S)
+        if match:
+            raw = match.group(0)
+        elif "{" in final:
+            raw = final[final.index("{"):]
+        else:
+            _debug_model_text("structured parse failed: no json", final)
+            self._set_call_status("no_json", _response_excerpt(final))
+            return None
+        repaired = False
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            value = _repair_json_object(raw)
+            repaired = value is not None
+            if value is None:
+                value = _repair_repeated_model_source(raw, schema)
+                repaired = value is not None
+            if value is None:
+                value = _repair_code_only_object(raw, schema)
+                repaired = value is not None
+        if not isinstance(value, dict):
+            _debug_model_text("structured parse failed: malformed json", raw)
+            self._set_call_status("malformed_json", _response_excerpt(raw))
+            return None
+        normalized = _normalize_structured_payload(value, schema)
+        if normalized != value:
+            repaired = True
+            value = normalized
+        schema_error = _json_schema_error(value, schema)
+        if schema_error:
+            _debug_model_text("structured schema mismatch", json.dumps(value)[:4000])
+            self._set_call_status(
+                "schema_mismatch",
+                f"{schema_error};{_response_excerpt(json.dumps(value, sort_keys=True))}",
+            )
+            return None
+        self._set_call_status("success", repaired=repaired)
+        return value
 
     def _set_call_status(
         self,
@@ -319,12 +574,12 @@ class ModelAdvisor:
             serialize = _model_flag_default("SERIALIZE_INFERENCE", True)
             generation_context = self._shared_generation_lock if serialize else contextlib.nullcontext()
             with generation_context:
+                _seed_transformers_generation(self.call_attempts)
                 inference_context = _torch_inference_context()
                 with inference_context:
                     output = self.model.generate(
                         **inputs,
-                        max_new_tokens=max_new_tokens,
-                        do_sample=False,
+                        **_transformers_generation_kwargs(max_new_tokens),
                     )
             generated = _generated_tokens(output, input_len)
             decoded = self.processor.decode(generated, skip_special_tokens=False)
@@ -352,6 +607,44 @@ class ModelAdvisor:
             if isinstance(raw_device_map, dict)
             else {}
         )
+        model_config = getattr(self.model, "config", None) if self.model is not None else None
+        raw_quantization = getattr(model_config, "quantization_config", {})
+        if hasattr(raw_quantization, "to_dict"):
+            raw_quantization = raw_quantization.to_dict()
+        quantization = dict(raw_quantization) if isinstance(raw_quantization, dict) else {}
+        dtype_numels: dict[str, int] = {}
+        device_numels: dict[str, int] = {}
+        fp8_module_count = 0
+        if self.model is not None:
+            try:
+                for parameter in self.model.parameters():
+                    dtype_name = str(getattr(parameter, "dtype", "unknown"))
+                    device_name = str(getattr(parameter, "device", "unknown"))
+                    count = int(parameter.numel())
+                    dtype_numels[dtype_name] = dtype_numels.get(dtype_name, 0) + count
+                    device_numels[device_name] = device_numels.get(device_name, 0) + count
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+            try:
+                fp8_module_count = sum(
+                    1
+                    for module in self.model.modules()
+                    if "fp8" in type(module).__name__.casefold()
+                )
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+        quant_method = str(quantization.get("quant_method", ""))
+        unscaled_fp8_linear_names = _unscaled_fp8_linear_names(self.model)
+        quantization_dequantized = bool(quantization.get("dequantize", False))
+        has_fp8_parameters = any("float8" in name.casefold() for name in dtype_numels)
+        peak_vram_bytes = 0
+        try:
+            import torch  # type: ignore
+
+            if torch.cuda.is_available():
+                peak_vram_bytes = int(torch.cuda.max_memory_allocated())
+        except Exception:
+            pass
         return {
             "backend": self.backend,
             "loaded": self.model is not None and self.processor is not None,
@@ -359,6 +652,19 @@ class ModelAdvisor:
             "failure_reason": self.failure_reason,
             "device": device,
             "device_map": device_map,
+            "model_class": type(self.model).__name__ if self.model is not None else "",
+            "model_type": str(getattr(model_config, "model_type", "")),
+            "quantization_method": quant_method,
+            "quantization_dequantized": quantization_dequantized,
+            "quantization_active": bool(
+                quant_method and not quantization_dequantized and (has_fp8_parameters or fp8_module_count)
+            ),
+            "fp8_module_count": fp8_module_count,
+            "unscaled_fp8_linear_count": len(unscaled_fp8_linear_names),
+            "unscaled_fp8_linear_examples": unscaled_fp8_linear_names[:4],
+            "parameter_dtype_numels": dict(sorted(dtype_numels.items())),
+            "parameter_device_numels": dict(sorted(device_numels.items())),
+            "peak_vram_bytes": peak_vram_bytes,
             "load_seconds": round(self.load_seconds, 3),
             "call_attempts": self.call_attempts,
             "call_successes": self.call_successes,
@@ -470,8 +776,11 @@ def advisor_contract_hashes(prompt: str, image: bytes | None = None) -> dict[str
         "generation": {
             "think": think,
             "max_new_tokens": max_tokens,
-            "temperature": 0,
-            "do_sample": False,
+            "temperature": float(model_env("TEMPERATURE", "0")),
+            "top_p": float(model_env("TOP_P", "1")),
+            "top_k": int(model_env("TOP_K", "0")),
+            "do_sample": model_flag("DO_SAMPLE"),
+            "seed": int(model_env("SEED", "0")),
         },
     }
     return {
@@ -576,6 +885,144 @@ def _repair_json_object(text: str) -> dict[str, Any] | None:
         return value if isinstance(value, dict) else None
     except (SyntaxError, ValueError):
         return None
+
+
+def _repair_code_only_object(
+    text: str,
+    schema: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Repair Qwen's observed ``{"<entire Python program>"}`` response."""
+
+    match = re.fullmatch(r"\{\s*(\"(?:\\.|[^\"\\])*\")\s*\}", text.strip(), re.S)
+    if not match:
+        return None
+    try:
+        source = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        source = match.group(1)[1:-1]
+        source = source.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+    if (
+        not isinstance(source, str)
+        or "def parse_observation" not in source
+        or "def step" not in source
+        or "def render" not in source
+    ):
+        return None
+    properties = schema.get("properties", {})
+    lines = source.splitlines()
+    if "model_source" in properties:
+        source_value: Any = source
+        if properties.get("model_source", {}).get("type") == "array":
+            source_value = lines
+        return {
+            "model_source": source_value,
+            "notes": "repaired code-only response",
+            "experiment": None,
+            "helpers": [],
+        }
+    if "verdict" in properties:
+        return {
+            "verdict": "revise",
+            "issues": ["critic returned a replacement program without wrapper fields"],
+            "counterexample_indexes": [],
+        }
+    return None
+
+
+def _repair_repeated_model_source(
+    text: str,
+    schema: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Recover the first complete source value from Qwen's repeated-key loop."""
+
+    if "model_source" not in schema.get("properties", {}):
+        return None
+    match = re.search(r'"model_source"\s*:\s*', text)
+    if match is None:
+        return None
+    try:
+        source, _ = json.JSONDecoder().raw_decode(text[match.end():])
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(source, str) or "def parse_observation" not in source or "def step" not in source:
+        return None
+    return {
+        "model_source": source,
+        "notes": "repaired repeated model_source response",
+        "experiment": None,
+        "helpers": [],
+    }
+
+
+def _json_schema_error(value: Any, schema: dict[str, Any], path: str = "$") -> str:
+    expected = schema.get("type")
+    if isinstance(expected, list):
+        if value is None and "null" in expected:
+            return ""
+        non_null = [item for item in expected if item != "null"]
+        return _json_schema_error(value, {**schema, "type": non_null[0] if non_null else None}, path)
+    type_checks = {
+        "object": lambda item: isinstance(item, dict),
+        "array": lambda item: isinstance(item, list),
+        "string": lambda item: isinstance(item, str),
+        "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+        "number": lambda item: isinstance(item, (int, float)) and not isinstance(item, bool),
+        "boolean": lambda item: isinstance(item, bool),
+        "null": lambda item: item is None,
+    }
+    if expected in type_checks and not type_checks[expected](value):
+        return f"{path} must be {expected}"
+    if "enum" in schema and value not in schema["enum"]:
+        return f"{path} is not an allowed value"
+    if isinstance(value, dict):
+        for key in schema.get("required", []):
+            if key not in value:
+                return f"{path}.{key} is required"
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            unknown = set(value) - set(properties)
+            if unknown:
+                return f"{path} has unknown properties: {', '.join(sorted(unknown))}"
+        for key, child in properties.items():
+            if key in value:
+                error = _json_schema_error(value[key], child, f"{path}.{key}")
+                if error:
+                    return error
+    if isinstance(value, list):
+        if "maxItems" in schema and len(value) > int(schema["maxItems"]):
+            return f"{path} has too many items"
+        if "minItems" in schema and len(value) < int(schema["minItems"]):
+            return f"{path} has too few items"
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(value):
+                error = _json_schema_error(item, item_schema, f"{path}[{index}]")
+                if error:
+                    return error
+    return ""
+
+
+def _normalize_structured_payload(
+    value: dict[str, Any],
+    schema: dict[str, Any],
+) -> dict[str, Any]:
+    properties = schema.get("properties", {})
+    normalized = (
+        {key: item for key, item in value.items() if key in properties}
+        if schema.get("additionalProperties") is False
+        else dict(value)
+    )
+    if "model_source" in properties and isinstance(normalized.get("model_source"), str):
+        defaults = {"notes": "", "experiment": None, "helpers": []}
+        for key, default in defaults.items():
+            if key in properties:
+                normalized.setdefault(key, default)
+    if "verdict" in properties and str(normalized.get("verdict", "")) in {"accept", "revise", "reject"}:
+        normalized.setdefault("issues", [])
+        normalized.setdefault("counterexample_indexes", [])
+        if "approved_helpers" in properties:
+            normalized.setdefault("approved_helpers", [])
+    return normalized
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:
@@ -686,6 +1133,80 @@ def _torch_inference_context() -> Any:
         return torch.inference_mode()
     except (ImportError, AttributeError):
         return contextlib.nullcontext()
+
+
+def _repair_qwen_fp8_skip_patterns(config: Any) -> int:
+    """Prevent Qwen's ``mlp.gate`` skip regex from shadowing ``gate_proj``."""
+
+    quantization = getattr(config, "quantization_config", None)
+    patterns = (
+        quantization.get("modules_to_not_convert")
+        if isinstance(quantization, dict)
+        else getattr(quantization, "modules_to_not_convert", None)
+    )
+    if not isinstance(patterns, list):
+        return 0
+    repaired = [
+        pattern
+        for pattern in patterns
+        if not (isinstance(pattern, str) and pattern.endswith(".mlp.gate"))
+    ]
+    removed = len(patterns) - len(repaired)
+    if isinstance(quantization, dict):
+        quantization["modules_to_not_convert"] = repaired
+    else:
+        quantization.modules_to_not_convert = repaired
+    return removed
+
+
+def _unscaled_fp8_linear_names(model: Any) -> list[str]:
+    if model is None or not hasattr(model, "named_modules"):
+        return []
+    try:
+        modules = model.named_modules()
+    except Exception:
+        return []
+    result: list[str] = []
+    for name, module in modules:
+        weight = getattr(module, "weight", None)
+        if "float8" not in str(getattr(weight, "dtype", "")).lower():
+            continue
+        if getattr(module, "weight_scale_inv", None) is None:
+            result.append(str(name))
+    return sorted(result)
+
+
+def _transformers_generation_kwargs(max_new_tokens: int) -> dict[str, Any]:
+    do_sample = model_flag("DO_SAMPLE")
+    kwargs: dict[str, Any] = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+    }
+    if do_sample:
+        kwargs.update(
+            {
+                "temperature": float(model_env("TEMPERATURE", "1.0")),
+                "top_p": float(model_env("TOP_P", "0.95")),
+                "top_k": int(model_env("TOP_K", "20")),
+            }
+        )
+    return kwargs
+
+
+def _seed_transformers_generation(attempt: int) -> None:
+    if not model_flag("DO_SAMPLE"):
+        return
+    try:
+        import torch  # type: ignore
+
+        torch.manual_seed(int(model_env("SEED", "0")) + max(0, attempt - 1))
+    except (ImportError, AttributeError, TypeError, ValueError):
+        pass
+
+
+def _response_excerpt(text: str) -> str:
+    compact = " ".join(text.split())
+    return "final_excerpt=" + compact[:460]
 
 
 def _extract_final_response(processor: Any, decoded: str) -> str:

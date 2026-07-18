@@ -23,6 +23,8 @@ from ouro_arc.model_config import (  # noqa: E402
 def model_run_config(enabled: bool) -> dict[str, object]:
     if not enabled:
         return {"enabled": False}
+    thinking = model_flag("THINK")
+    max_new_tokens = int(model_env("MAX_NEW_TOKENS", "256"))
     return {
         "enabled": True,
         "backend": model_env("BACKEND", "transformers"),
@@ -32,10 +34,16 @@ def model_run_config(enabled: bool) -> dict[str, object]:
         "policy": model_env("POLICY", "sparse"),
         "vision": model_flag("VISION"),
         "scientist_prompt": model_flag("SCIENTIST_PROMPT"),
-        "thinking": model_flag("THINK"),
+        "thinking": thinking,
         "interval": int(model_env("INTERVAL", "16")),
         "max_calls": int(model_env("MAX_CALLS", "12")),
-        "num_predict": int(model_env("NUM_PREDICT", "256")),
+        "max_new_tokens": max_new_tokens,
+        "num_predict": int(
+            model_env(
+                "NUM_PREDICT",
+                str(max_new_tokens * (2 if thinking else 1)),
+            )
+        ),
         "timeout_seconds": float(model_env("TIMEOUT_SECONDS", "60")),
         "time_budget_seconds": float(model_env("TIME_BUDGET_SECONDS", "0") or "0"),
         "induction_stuck_actions": int(
@@ -46,6 +54,17 @@ def model_run_config(enabled: bool) -> dict[str, object]:
         ),
         "hypothesis_candidate_limit": int(
             os.getenv("OURO_ARC_HYPOTHESIS_MAX_CANDIDATES", "8")
+        ),
+        "world_model_mode": os.getenv("OURO_ARC_WORLD_MODEL_MODE", "observed"),
+        "world_model_beam": int(os.getenv("OURO_ARC_WORLD_MODEL_BEAM", "4")),
+        "shared_mechanics": os.getenv("OURO_ARC_SHARED_MECHANICS", "0").lower()
+        in {"1", "true", "yes"},
+        "discovery_actions": int(os.getenv("OURO_ARC_DISCOVERY_ACTIONS", "16")),
+        "max_stalled_revisions": int(
+            os.getenv("OURO_ARC_WORLD_MODEL_MAX_STALLED_REVISIONS", "2")
+        ),
+        "prompt_max_chars": int(
+            os.getenv("OURO_ARC_WORLD_MODEL_PROMPT_MAX_CHARS", "24000")
         ),
     }
 
@@ -148,12 +167,22 @@ def main() -> None:
         rows.append((game_id, final.state, final.levels_completed, agent.action_counter))
         summary = getattr(agent.controller, "solver_counts", {}) if hasattr(agent, "controller") else {}
         world_model = getattr(getattr(agent, "controller", None), "world_model", None)
+        autonomous_model = getattr(getattr(agent, "controller", None), "autonomous_model", None)
         result_rows.append(
             {
                 "game_id": game_id,
                 "state": str(final.state),
                 "levels_completed": int(final.levels_completed),
                 "actions": int(agent.action_counter),
+                "controller_actions_issued": int(
+                    getattr(getattr(agent, "controller", None), "issued_actions", 0)
+                ),
+                "transitions_observed": int(
+                    getattr(getattr(agent, "controller", None), "observed_transitions", 0)
+                ),
+                "autonomous_actions": int(
+                    getattr(getattr(agent, "controller", None), "autonomous_actions", 0)
+                ),
                 "solver_counts": dict(summary),
                 "resets": int(getattr(getattr(agent, "controller", None), "reset_count", 0)),
                 "max_level_reached": int(getattr(getattr(agent, "controller", None), "max_level_reached", 0)),
@@ -181,6 +210,12 @@ def main() -> None:
                     if world_model is not None
                     else {}
                 ),
+                "autonomous_world_model": (
+                    autonomous_model.summary() if autonomous_model is not None else {"enabled": False}
+                ),
+                "autonomous_deliberations": list(
+                    getattr(getattr(agent, "controller", None), "autonomous_deliberations", [])
+                ),
                 "model_diagnostics": (
                     agent.controller.advisor.diagnostics()
                     if hasattr(getattr(agent, "controller", None), "advisor")
@@ -205,6 +240,7 @@ def main() -> None:
         path.write_text(
             json.dumps(
                 {
+                    "evaluation_scope": "public-set-optimization",
                     "score": getattr(scorecard, "score", scorecard),
                     "max_steps": args.max_steps,
                     "model_config": model_run_config(args.model),

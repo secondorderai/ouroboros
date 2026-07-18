@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .actions import ActionSpec, RESET_ACTION, filter_legal_actions, normalize_available_actions
+from .autonomous_model import AutonomousPlan, AutonomousWorldModel
+from .causal_advisor import CausalDeliberation, CausalPhysicist
 from .click_board import ClickBoardModel
 from .click_sequence import ClickSequencePlanner
 from .constraint_board import ConstraintBoardPlanner
@@ -16,6 +18,7 @@ from .movement import MovementModel
 from .objects import compact_control_targets, goal_targets, object_motions, paired_control_targets, salient_click_targets, summarize_objects, summarize_scene_graph
 from .render import changed_cells, last_grid, object_frame_hash, render_diff, render_full
 from .skills import SkillContext, SkillPlan, SkillRegistry
+from .shared_mechanics import SharedMechanicsRegistry, session_barrier, session_discovery_batch, session_registry
 from .telemetry import TelemetryWriter
 from .transition_graph import TransitionGraph
 from .vlm_render import grid_to_png_bytes
@@ -63,6 +66,16 @@ class TransitionEvent:
         )
 
 
+@dataclass(frozen=True)
+class AutonomousPrediction:
+    action: ActionSpec
+    input_state: Any
+    expected_grid: list[list[int]]
+    expected_hash: str
+    expected_state: Any
+    model_version: str
+
+
 class ArcController:
     """Deterministic ARC-AGI-3 explorer with sparse model advice."""
 
@@ -72,8 +85,10 @@ class ArcController:
         max_queue: int = 24,
         telemetry: TelemetryWriter | None = None,
         skill_registry: SkillRegistry | None = None,
+        game_id: str | None = None,
     ) -> None:
         self.advisor = advisor or ModelAdvisor()
+        self.game_id = game_id or os.getenv("OURO_ARC_GAME_ID", "unknown")
         self.max_queue = max_queue
         self.nodes: dict[str, GraphNode] = {}
         self.queue: list[ActionSpec] = []
@@ -118,6 +133,9 @@ class ArcController:
         self.telemetry = telemetry or TelemetryWriter()
         self.model_calls = 0
         self.model_plans = 0
+        self.issued_actions = 0
+        self.observed_transitions = 0
+        self.autonomous_actions = 0
         skills_disabled = os.getenv("OURO_ARC_DISABLE_SKILLS", "0").lower() in {"1", "true", "yes"}
         self.skill_registry = skill_registry or SkillRegistry([] if skills_disabled else None)
         self.last_skill_plans: list[SkillPlan] = []
@@ -202,6 +220,46 @@ class ArcController:
             1,
             int(os.getenv("OURO_ARC_HYPOTHESIS_MAX_CANDIDATES", "8")),
         )
+        self.world_model_mode = os.getenv("OURO_ARC_WORLD_MODEL_MODE", "observed").lower()
+        self.autonomous_enabled = self.world_model_mode in {
+            "autonomous-python",
+            "autonomous_python",
+            "python",
+        }
+        self.autonomous_model: AutonomousWorldModel | None = None
+        self.causal_physicist: CausalPhysicist | None = None
+        self.private_mechanics_registry: SharedMechanicsRegistry | None = None
+        if self.autonomous_enabled:
+            shared_mechanics = os.getenv("OURO_ARC_SHARED_MECHANICS", "1").lower() in {
+                "1", "true", "yes"
+            }
+            if shared_mechanics:
+                registry = session_registry()
+            else:
+                self.private_mechanics_registry = SharedMechanicsRegistry()
+                registry = self.private_mechanics_registry
+            self.autonomous_model = AutonomousWorldModel(self.game_id)
+            self.causal_physicist = CausalPhysicist(self.advisor, registry)
+        self.autonomous_rounds = 0
+        self.autonomous_deliberations: list[dict[str, Any]] = []
+        self.autonomous_pending_prediction: AutonomousPrediction | None = None
+        self.autonomous_prediction_queue: list[AutonomousPrediction] = []
+        self.autonomous_plan_steps = 0
+        self.autonomous_plan_matches = 0
+        self.autonomous_last_revision_action = -1
+        self.autonomous_episode = 0
+        self.autonomous_revision_pending = False
+        self.autonomous_effect_signatures: set[tuple[int, str]] = set()
+        self.autonomous_max_stalled_revisions = max(
+            1,
+            int(os.getenv("OURO_ARC_WORLD_MODEL_MAX_STALLED_REVISIONS", "2")),
+        )
+        self.discovery_actions = max(1, int(os.getenv("OURO_ARC_DISCOVERY_ACTIONS", "16")))
+        self.discovery_barrier_enabled = os.getenv(
+            "OURO_ARC_DISCOVERY_BARRIER_ENABLED", "0"
+        ).lower() in {"1", "true", "yes"}
+        self.discovery_released = not self.discovery_barrier_enabled
+        self.discovery_release: dict[str, Any] | None = None
 
     def choose(self, latest_frame: Any) -> ActionSpec:
         view = self._frame_view(latest_frame)
@@ -245,14 +303,25 @@ class ArcController:
             self.level_probe_actions = set()
             self.after_reset = False
 
+        if self.replaying and not self.queue and view.levels_completed == 0 and not self.macro_replay_disabled:
+            for macro in self.macros:
+                self._enqueue(macro, view, source="macro-replay")
+
+        if self.queue_source == "autonomous-plan":
+            queued = self._pop_legal(view)
+            if queued:
+                self._record_choice(view, queued)
+                return queued
+
+        autonomous = self._autonomous_action(view)
+        if autonomous:
+            self._record_choice(view, autonomous)
+            return autonomous
+
         large_replay = self._large_click_replay_action(view)
         if large_replay:
             self._record_choice(view, large_replay)
             return large_replay
-
-        if self.replaying and not self.queue and view.levels_completed == 0 and not self.macro_replay_disabled:
-            for macro in self.macros:
-                self._enqueue(macro, view, source="macro-replay")
 
         queued = self._pop_legal(view)
         if queued:
@@ -394,6 +463,7 @@ class ArcController:
 
     def _observe_transition(self, view: FrameView) -> None:
         if self.last_action and self.last_view:
+            self._observe_autonomous_prediction(view)
             prev_level = self.last_view.levels_completed
             outcome = "changed"
             if view.levels_completed > prev_level:
@@ -449,15 +519,17 @@ class ArcController:
                     self.noop_edges.add((prev_level, self.last_view.key, self.last_action.key))
             else:
                 self.stagnation = 0
-                self._learn_motion(self.last_view, view, self.last_action)
+                if self._stable_motion_transition(self.last_view, view, self.last_action):
+                    self._learn_motion(self.last_view, view, self.last_action)
                 self._learn_frontier_targets(self.last_view, view)
                 self._observe_large_click_progress(self.last_view, view, self.last_action)
-            self.movement_model.observe_transition(
-                self.last_view.grid,
-                view.grid,
-                self.last_action,
-                outcome,
-            )
+            if self._stable_motion_transition(self.last_view, view, self.last_action):
+                self.movement_model.observe_transition(
+                    self.last_view.grid,
+                    view.grid,
+                    self.last_action,
+                    outcome,
+                )
             if self.last_action.action == 6:
                 self.click_board.observe_click(
                     self.last_action,
@@ -482,12 +554,54 @@ class ArcController:
             self.last_skill_id = None
         self.last_view = view
 
+    def _observe_autonomous_prediction(self, view: FrameView) -> None:
+        pending = self.autonomous_pending_prediction
+        self.autonomous_pending_prediction = None
+        if pending is None or self.autonomous_model is None:
+            return
+        self.autonomous_plan_steps += 1
+        recomputed = self.autonomous_model.predict_from_state(
+            pending.model_version,
+            pending.input_state,
+            pending.action,
+        )
+        matches_plan = bool(
+            recomputed is not None
+            and recomputed.get("grid") == pending.expected_grid
+            and recomputed.get("state_hash") == pending.expected_hash
+            and recomputed.get("state") == pending.expected_state
+        )
+        if matches_plan and pending.expected_grid == view.grid:
+            self.autonomous_plan_matches += 1
+            return
+        self.autonomous_model.plan_aborts += 1
+        self.autonomous_model.record_plan_mismatch(
+            {
+                "action": pending.action.to_model_json(),
+                "model_version": pending.model_version,
+                "expected_hash": pending.expected_hash,
+                "recomputed_hash": recomputed.get("state_hash") if recomputed else None,
+                "expected_grid_matches_real": pending.expected_grid == view.grid,
+                "recomputed_matches_plan": matches_plan,
+            }
+        )
+        if self.queue_source == "autonomous-plan":
+            self.queue = []
+        self.autonomous_prediction_queue = []
+        self._clear_queue_metadata()
+        self.autonomous_last_revision_action = -1
+        self.autonomous_revision_pending = True
+        print("[ouro-arc] autonomous plan prediction mismatch; aborting committed plan")
+
     def _record_choice(
         self,
         view: FrameView,
         action: ActionSpec,
         skill_id: str | None = None,
     ) -> None:
+        self.issued_actions += 1
+        if action.source in {"autonomous-plan", "autonomous-probe"}:
+            self.autonomous_actions += 1
         node = self.nodes.setdefault(view.key, GraphNode(key=view.key))
         node.tried.add(action.key)
         self.last_action = action
@@ -540,6 +654,7 @@ class ArcController:
         self.queue_source = None
         self.queue_start_key = None
         self.queue_abort_on_key_change = False
+        self.autonomous_prediction_queue = []
 
     def _clear_large_click_replay(self) -> None:
         self.large_click_replay = None
@@ -608,6 +723,8 @@ class ArcController:
             if self._is_dangerous(view, action) or self._is_noop(view, action):
                 continue
             if filter_legal_actions([action], view.available_actions):
+                if action.source == "autonomous-plan" and self.autonomous_prediction_queue:
+                    self.autonomous_pending_prediction = self.autonomous_prediction_queue.pop(0)
                 return action
         self._clear_queue_metadata()
         return None
@@ -704,6 +821,191 @@ class ArcController:
             return []
         self.paired_control_attempted_levels.add(view.levels_completed)
         return actions[: self.max_queue]
+
+    def _autonomous_action(self, view: FrameView) -> ActionSpec | None:
+        model = self.autonomous_model
+        physicist = self.causal_physicist
+        if not self.autonomous_enabled or model is None or physicist is None:
+            return None
+
+        if model.best_certified is not None and self.discovery_released:
+            planned = model.plan(view.grid, algorithm=os.getenv("OURO_ARC_WORLD_MODEL_SEARCH", "bfs"))
+            action = self._accept_autonomous_plan(view, planned)
+            if action is not None:
+                return action
+
+        candidates = self._candidate_actions(view)
+        probe = model.discriminating_probe(view.grid, candidates[:24])
+        if probe is not None and self.discovery_released:
+            action = ActionSpec(
+                probe.action.action,
+                probe.action.x,
+                probe.action.y,
+                f"candidate disagreement={probe.disagreement}",
+                "autonomous-probe",
+            )
+            if self._safe_autonomous_action(view, action):
+                return action
+
+        if not self._should_deliberate_autonomous():
+            return None
+        image = None
+        if self.model_vision_enabled:
+            try:
+                image = grid_to_png_bytes(view.grid)
+            except Exception as exc:
+                self._record_model_rejection(f"autonomous-image:{exc!r}")
+                return None
+
+        def deliberate() -> CausalDeliberation:
+            return physicist.deliberate(
+                model,
+                current_grid=view.grid,
+                available_actions=view.available_actions,
+                image=image,
+                defer_helpers=self.discovery_barrier_enabled and not self.discovery_released,
+            )
+
+        started = time.monotonic()
+        try:
+            if self.discovery_barrier_enabled and not self.discovery_released:
+                result = session_discovery_batch().submit(self.game_id, deliberate)
+                if result is None:
+                    release = session_barrier().arrive(self.game_id, ())
+                    self._record_discovery_release(release)
+                    return None
+            else:
+                result = deliberate()
+        except Exception as exc:
+            self._record_model_rejection(f"autonomous-deliberation:{exc!r}")
+            self._record_model_failure()
+            return None
+        finally:
+            self.model_time_spent_seconds += time.monotonic() - started
+
+        self.model_calls += result.calls
+        self.autonomous_rounds += 1
+        self.autonomous_last_revision_action = sum(self.action_counts.values())
+        self.autonomous_revision_pending = False
+        self.autonomous_deliberations.append(
+            {
+                "accepted": result.accepted,
+                "model_version": result.model_version,
+                "verdict": result.verdict,
+                "issues": list(result.issues),
+                "helpers": list(result.helper_results),
+                "reason": result.reason,
+            }
+        )
+        if result.accepted:
+            self.consecutive_model_failures = 0
+        else:
+            self._record_model_failure()
+
+        if self.discovery_barrier_enabled and not self.discovery_released:
+            release = session_barrier().arrive(self.game_id, result.helper_proposals)
+            self._record_discovery_release(release)
+
+        planned = model.plan(view.grid, algorithm=os.getenv("OURO_ARC_WORLD_MODEL_SEARCH", "bfs"))
+        action = self._accept_autonomous_plan(view, planned)
+        if action is not None:
+            return action
+        if result.experiment is not None and self._safe_autonomous_action(view, result.experiment):
+            return result.experiment
+        return None
+
+    def _should_deliberate_autonomous(self) -> bool:
+        model = self.autonomous_model
+        if model is None or not model.timeline:
+            return False
+        actions = sum(self.action_counts.values())
+        current_available = self.last_view.available_actions if self.last_view is not None else set()
+        simple_legal = {action for action in current_available if action in EXPLORE_ACTIONS}
+        unique_discovery_complete = bool(simple_legal) and simple_legal <= self.level_probe_actions
+        if actions < self.discovery_actions and not unique_discovery_complete:
+            return False
+        if self.max_model_calls and self.model_calls + 2 > self.max_model_calls:
+            return False
+        if self._model_time_budget_exhausted() or bool(getattr(self.advisor, "disabled", False)):
+            return False
+        if model.stalled_revisions >= self.autonomous_max_stalled_revisions:
+            return False
+        urgent = self.autonomous_revision_pending or model.last_mismatch is not None
+        if (
+            not urgent
+            and self.autonomous_last_revision_action >= 0
+            and actions - self.autonomous_last_revision_action < self.model_interval
+        ):
+            return False
+        return (
+            model.best_certified is None
+            or model.last_mismatch is not None
+            or self.autonomous_revision_pending
+            or self.actions_since_progress >= self.induction_stuck_actions
+        )
+
+    def _accept_autonomous_plan(
+        self,
+        view: FrameView,
+        plan: AutonomousPlan | None,
+    ) -> ActionSpec | None:
+        if plan is None or not plan.actions:
+            return None
+        legal_actions = [action for action in plan.actions if self._safe_autonomous_action(view, action)]
+        if len(legal_actions) != len(plan.actions):
+            self._record_model_rejection("autonomous-plan-unsafe")
+            return None
+        model = self.autonomous_model
+        if model is None:
+            return None
+        candidate = next(
+            (item for item in model.candidates if item.version == plan.model_version),
+            None,
+        )
+        if candidate is None or candidate.certification.final_state is None:
+            self._record_model_rejection("autonomous-plan-unsynchronized")
+            return None
+        input_states = [candidate.certification.final_state, *plan.predicted_states[:-1]]
+        predictions = [
+            AutonomousPrediction(action, input_state, grid, state_hash, state, plan.model_version)
+            for action, input_state, grid, state_hash, state in zip(
+                plan.actions,
+                input_states,
+                plan.predicted_grids,
+                plan.state_hashes,
+                plan.predicted_states,
+            )
+        ]
+        if self.queue_source != "autonomous-plan":
+            self.queue = []
+            self._clear_queue_metadata()
+        self.autonomous_pending_prediction = None
+        self._enqueue(
+            list(plan.actions[1 : self.max_queue]),
+            view,
+            source="autonomous-plan",
+        )
+        self.autonomous_pending_prediction = predictions[0]
+        self.autonomous_prediction_queue = predictions[1:]
+        self.model_plans += 1
+        return plan.actions[0]
+
+    def _safe_autonomous_action(self, view: FrameView, action: ActionSpec) -> bool:
+        return bool(
+            filter_legal_actions([action], view.available_actions)
+            and not self._is_dangerous(view, action)
+            and not self._is_noop(view, action)
+            and not self._is_dud_click(view, action.x, action.y)
+        )
+
+    def _record_discovery_release(self, release: Any) -> None:
+        self.discovery_released = True
+        self.discovery_release = {
+            "generation": int(release.generation),
+            "timed_out": bool(release.timed_out),
+            "participants": list(release.participants),
+            "library_version": int(release.library_version),
+        }
 
     def _planner_plan(self, view: FrameView) -> list[ActionSpec]:
         """Directed plan over the learned transition graph.
@@ -1268,6 +1570,22 @@ class ArcController:
         self.visited_positions.add(old_center)
         self.visited_positions.add(new_center)
 
+    @staticmethod
+    def _stable_motion_transition(
+        prev: FrameView,
+        view: FrameView,
+        action: ActionSpec,
+    ) -> bool:
+        if action.is_reset() or prev.state in RESET_STATES or view.state in RESET_STATES:
+            return False
+        if prev.state in TERMINAL_STATES or view.state in TERMINAL_STATES:
+            return False
+        if prev.levels_completed != view.levels_completed:
+            return False
+        cells = max(1, sum(len(row) for row in prev.grid))
+        global_change_limit = max(64, int(cells * 0.02))
+        return len(changed_cells(prev.grid, view.grid)) <= global_change_limit
+
     def _learn_frontier_targets(self, prev: FrameView, view: FrameView) -> None:
         for x, y, _old, _new in changed_cells(prev.grid, view.grid)[:24]:
             self.movement_model.frontier_targets.add((x, y))
@@ -1415,6 +1733,7 @@ class ArcController:
         action: ActionSpec,
         outcome: str,
     ) -> None:
+        self.observed_transitions += 1
         changes = changed_cells(prev.grid, view.grid)
         diff = render_diff(prev.grid, view.grid).splitlines()[0]
         effect = self._transition_effect(prev, view, outcome, changes)
@@ -1430,7 +1749,34 @@ class ArcController:
             before=before_perception,
             after=after_perception,
         )
-        if action.source in {"probe", "world-model-probe", "planner"}:
+        if self.autonomous_model is not None:
+            if action.is_reset():
+                self.autonomous_episode += 1
+            else:
+                self.autonomous_model.observe(
+                    episode=self.autonomous_episode,
+                    level=prev.levels_completed,
+                    before_grid=prev.grid,
+                    action=action,
+                    after_grid=view.grid,
+                    before_state=prev.state,
+                    after_state=view.state,
+                    goal=(view.levels_completed > prev.levels_completed or view.state in TERMINAL_STATES),
+                )
+                invalidated = self.autonomous_model.recertify_all()
+                if invalidated:
+                    if self.queue_source == "autonomous-plan":
+                        self.queue = []
+                        self._clear_queue_metadata()
+                    self.autonomous_last_revision_action = -1
+                    self.autonomous_revision_pending = True
+                effect_signature = (action.action, effect)
+                if effect_signature not in self.autonomous_effect_signatures:
+                    self.autonomous_effect_signatures.add(effect_signature)
+                    self.autonomous_revision_pending = True
+                if view.levels_completed != prev.levels_completed or view.state != prev.state:
+                    self.autonomous_revision_pending = True
+        if action.source in {"probe", "world-model-probe", "autonomous-probe", "planner"}:
             self.information_probe_actions += 1
             self.information_probe_novel += int(world_novelty)
         if outcome == "score increased":
@@ -1475,7 +1821,7 @@ class ArcController:
             "advisor": {
                 "calls": self.model_calls,
                 "plans": self.model_plans,
-                "used": action.source == "model",
+                "used": action.source in {"model", "autonomous-plan", "autonomous-probe"},
                 "policy": self.model_policy,
                 "max_calls": self.max_model_calls,
                 "interval": self.model_interval,
@@ -1514,6 +1860,11 @@ class ArcController:
                     "actions_since_novelty": self.actions_since_world_novelty,
                     "hypothesis_rankings": self.hypothesis_rankings,
                     "last_record": self.world_model.records[-1].to_json(),
+                    "autonomous": (
+                        self.autonomous_model.summary()
+                        if self.autonomous_model is not None
+                        else {"enabled": False}
+                    ),
                 },
                 "model_rejections": dict(sorted(self.model_rejections.items())),
             },
@@ -1561,7 +1912,10 @@ class ArcController:
     def write_summary(self, print_summary: bool = False) -> None:
         self.telemetry.write_summary(
             {
-                "action_count": sum(self.solver_counts.values()),
+                "action_count": self.issued_actions,
+                "issued_actions": self.issued_actions,
+                "observed_transitions": self.observed_transitions,
+                "autonomous_actions": self.autonomous_actions,
                 "max_level_reached": self.max_level_reached,
                 "final_state": self.last_view.state if self.last_view else "?",
                 "reset_count": self.reset_count,
@@ -1574,6 +1928,15 @@ class ArcController:
                 "world_model_novel_observations": self.world_model.novel_observation_count,
                 "world_model_prediction": self.world_model.prediction_metrics(),
                 "world_model_templates": len(self.world_model.mechanic_templates()),
+                "autonomous_world_model": (
+                    self.autonomous_model.summary()
+                    if self.autonomous_model is not None
+                    else {"enabled": False}
+                ),
+                "autonomous_deliberations": list(self.autonomous_deliberations),
+                "autonomous_plan_steps": self.autonomous_plan_steps,
+                "autonomous_plan_matches": self.autonomous_plan_matches,
+                "discovery_release": self.discovery_release,
                 "information_probe_actions": self.information_probe_actions,
                 "information_probe_novel": self.information_probe_novel,
                 "model_rejections": dict(sorted(self.model_rejections.items())),
@@ -1583,6 +1946,10 @@ class ArcController:
             },
             print_summary=print_summary,
         )
+        if self.autonomous_model is not None:
+            self.autonomous_model.close()
+        if self.private_mechanics_registry is not None:
+            self.private_mechanics_registry.close()
 
     def _should_ask_model(
         self,
@@ -1593,6 +1960,8 @@ class ArcController:
         if not view.grid or not view.available_actions:
             return False
         if self.model_policy in {"off", "none", "disabled"}:
+            return False
+        if self.model_policy in {"world-model", "world_model", "causal"}:
             return False
         if self.max_model_calls and self.model_calls >= self.max_model_calls:
             return False
