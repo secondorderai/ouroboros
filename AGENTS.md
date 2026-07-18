@@ -93,3 +93,9 @@ After implementation, run `bun run verify` from the repo root before reporting
 completion. It runs lint, type checks, CLI tests, and desktop E2E. If any step
 fails, fix the issue and rerun. Live LLM tests are manual only:
 `bun run test:cli:live`.
+
+For changes confined to `benchmarks/`, skip the desktop E2E suite. Run the
+benchmark's own applicable tests, then run `bun run lint`, `bun run ts-check`,
+and `bun run test:cli` from the repo root instead of `bun run verify`. This
+exception does not apply when the change also touches `packages/desktop` or a
+shared contract used by the desktop app.
