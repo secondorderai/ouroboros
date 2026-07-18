@@ -14,7 +14,7 @@ from arcengine import FrameData, GameAction, GameState
 from agents.agent import Agent
 
 from ouro_arc import ActionSpec, ArcController
-from ouro_arc.gemma import GemmaAdvisor
+from ouro_arc.advisor import ModelAdvisor
 
 
 class MyAgent(Agent):
@@ -26,7 +26,7 @@ class MyAgent(Agent):
             os.getenv("OURO_ARC_DISABLE_MODEL")
         )
         self.controller = ArcController(
-            advisor=GemmaAdvisor(require_model=require_model),
+            advisor=ModelAdvisor(require_model=require_model),
         )
         atexit.register(self.controller.write_summary, True)
         if require_model:
@@ -36,7 +36,7 @@ class MyAgent(Agent):
     def name(self) -> str:
         if os.getenv("OURO_ARC_DISABLE_MODEL"):
             return f"{super().name}.ouro-deterministic.{self.MAX_ACTIONS}"
-        return f"{super().name}.ouro-gemma4-12b.{self.MAX_ACTIONS}"
+        return f"{super().name}.ouro-qwen3.5-4b.{self.MAX_ACTIONS}"
 
     def is_done(self, frames: list[FrameData], latest_frame: FrameData) -> bool:
         return latest_frame.state is GameState.WIN

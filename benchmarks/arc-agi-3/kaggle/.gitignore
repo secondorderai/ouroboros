@@ -9,5 +9,10 @@ __pycache__/
 .pytest_cache/
 *.pyc
 notebooks/submission.ipynb
+notebooks/gpu-validation/gpu-validation.ipynb
+notebooks/gpu-validation/assets/
+notebooks/gpu-validation/output/
+notebooks/qwen-model/
+notebooks/qwen-runtime-wheels/
 .kaggle/
 model-dataset/

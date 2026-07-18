@@ -1,0 +1,21 @@
+{
+  "model_family": "qwen3.5-4b",
+  "upstream_repo": "Qwen/Qwen3.5-4B",
+  "upstream_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "local_model": "qwen3.5:4b-mlx",
+  "kaggle_model_source": "kinwochan/qwen-3-5-4b/transformers/qwen-3-5-4b/1",
+  "policy": "hypothesis",
+  "vision": true,
+  "scientist_prompt": true,
+  "think": true,
+  "interval": 48,
+  "max_calls": 1,
+  "max_new_tokens": 4096,
+  "timeout_seconds": 300,
+  "time_budget_seconds": 900,
+  "dtype": "bf16",
+  "serialize_inference": true,
+  "induction_stuck_actions": 48,
+  "induction_novelty_patience": 12,
+  "hypothesis_max_candidates": 4
+}
