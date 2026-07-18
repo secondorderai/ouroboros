@@ -83,8 +83,106 @@ def configure_mode(think: bool, max_calls: int) -> None:
     config = load_qwen_config(config_path)
     config["think"] = think
     config["max_calls"] = max_calls
+    config["max_new_tokens"] = 2048 if think else 256
     apply_qwen_config(config, backend="transformers", overwrite=True)
     os.environ["OURO_ARC_MODEL_REQUIRE_CUDA"] = "1"
+
+
+def advisor_smoke_payload(
+    advisor: Any,
+    grid: list[list[int]],
+    available_actions: set[int],
+) -> dict[str, Any]:
+    """Execute one explicit multimodal call independent of controller policy."""
+
+    from ouro_arc.vlm_render import grid_to_png_bytes
+
+    prompt = (
+        "Game=ls20. Rank these supplied deterministic mechanic hypotheses for "
+        "the attached initial frame: h-a1-xn-yn predicts action 1 changes the "
+        "scene; h-a2-xn-yn predicts action 2 changes the scene. Return only a "
+        "hypothesis AdvisorPlan using those ids and an empty actions list."
+    )
+    image = grid_to_png_bytes(grid)
+    plan = advisor.advise(prompt, available_actions, image=image)
+    diagnostics = advisor.diagnostics()
+    return {
+        "parseable": plan is not None,
+        "plan": (
+            {
+                "mode": plan.mode,
+                "hypothesis": plan.hypothesis,
+                "ranked_hypotheses": list(plan.ranked_hypotheses),
+                "confidence": plan.confidence,
+            }
+            if plan is not None
+            else None
+        ),
+        "model": diagnostics,
+    }
+
+
+def run_model_smoke(seed: int) -> dict[str, Any]:
+    configure_mode(think=False, max_calls=1)
+    from arc_agi import Arcade, OperationMode  # type: ignore
+    from ouro_arc.advisor import ModelAdvisor
+    from ouro_arc.render import last_grid
+
+    environments_dir = os.getenv(
+        "OURO_ARC_ENVIRONMENTS_DIR",
+        str(ROOT / "environment_files"),
+    )
+    arc = Arcade(
+        operation_mode=OperationMode.OFFLINE,
+        environments_dir=environments_dir,
+    )
+    env = arc.make("ls20", seed=seed)
+    if env is None:
+        return {
+            "label": "smoke",
+            "thinking": False,
+            "seed": seed,
+            "games": [{"game_id": "ls20", "error": "environment unavailable"}],
+            "model": {},
+            "parseable": False,
+            "fatal_model_failures": 1,
+            "oom_failures": 0,
+        }
+
+    advisor = ModelAdvisor(require_model=True, max_new_tokens=256)
+    error = ""
+    payload: dict[str, Any] = {"model": {}, "parseable": False, "plan": None}
+    started = time.monotonic()
+    try:
+        frame = env.reset()
+        grid = last_grid(getattr(frame, "frame", []) or [])
+        available_actions = {
+            int(getattr(action, "value", action))
+            for action in (getattr(frame, "available_actions", []) or [])
+        }
+        payload = advisor_smoke_payload(advisor, grid, available_actions)
+    except Exception as exc:
+        error = repr(exc)
+        payload["model"] = advisor.diagnostics()
+        print(f"Qwen GPU smoke call failed: {error}")
+    failure = str(payload.get("model", {}).get("failure_reason", "") or "")
+    combined_error = f"{error} {failure}".lower()
+    return {
+        "label": "smoke",
+        "thinking": False,
+        "seed": seed,
+        "runtime_seconds": time.monotonic() - started,
+        "games": [
+            {
+                "game_id": "ls20",
+                "initial_frame": True,
+                **({"error": error} if error else {}),
+            }
+        ],
+        **payload,
+        "fatal_model_failures": int(bool(error or failure)),
+        "oom_failures": int("out of memory" in combined_error),
+    }
 
 
 def run_game_set(
@@ -282,19 +380,13 @@ def main() -> None:
         write_markdown(report, output_path.with_suffix(".md"))
         raise SystemExit(report["hardware_error"])
     overall_started = time.monotonic()
-    smoke = run_game_set(
-        ("ls20",),
-        think=False,
-        max_calls=1,
-        max_steps=80,
-        label="smoke",
-        seed=seed,
-    )
+    smoke = run_model_smoke(seed)
     report["smoke"] = smoke
     smoke_model = smoke["model"]
     smoke_ok = (
         int(smoke_model["call_attempts"]) >= 1
         and int(smoke_model["call_successes"]) >= 1
+        and bool(smoke.get("parseable"))
         and model_is_cuda_only(smoke_model)
         and not smoke["fatal_model_failures"]
         and not smoke["oom_failures"]

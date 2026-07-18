@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from ouro_arc.gpu_validation import (
     PUBLIC_GAMES,
@@ -44,6 +47,63 @@ def pilot_result(*, levels: int, score: float, latencies: list[float], successes
 
 
 class GpuValidationTest(unittest.TestCase):
+    def test_smoke_executes_explicit_multimodal_advisor_call(self) -> None:
+        runner = load_script("run_gpu_validation.py")
+
+        class Advisor:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def advise(self, prompt, available_actions, image=None):
+                self.calls.append((prompt, available_actions, image))
+                return SimpleNamespace(
+                    mode="hypothesis",
+                    hypothesis="h-a1-xn-yn",
+                    ranked_hypotheses=("h-a1-xn-yn", "h-a2-xn-yn"),
+                    confidence=0.75,
+                )
+
+            def diagnostics(self):
+                return {
+                    "call_attempts": 1,
+                    "call_successes": 1,
+                    "device": "cuda:0",
+                    "device_map": {"": "cuda:0"},
+                }
+
+        advisor = Advisor()
+        grid = [[0 for _ in range(8)] for _ in range(8)]
+        result = runner.advisor_smoke_payload(advisor, grid, {1, 2})
+
+        self.assertTrue(result["parseable"])
+        self.assertEqual(result["plan"]["hypothesis"], "h-a1-xn-yn")
+        self.assertEqual(len(advisor.calls), 1)
+        prompt, available, image = advisor.calls[0]
+        self.assertIn("Game=ls20", prompt)
+        self.assertEqual(available, {1, 2})
+        self.assertIsInstance(image, bytes)
+        self.assertTrue(image.startswith(b"\x89PNG"))
+
+    def test_mode_uses_bounded_tokens_for_thinking_ab(self) -> None:
+        runner = load_script("run_gpu_validation.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            config = json.loads(
+                (ROOT / "config" / "qwen_candidate.json").read_text(encoding="utf-8")
+            )
+            config["max_new_tokens"] = 4096
+            path.write_text(
+                json.dumps(config),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                "os.environ", {"OURO_ARC_MODEL_CONFIG": str(path)}, clear=False
+            ):
+                runner.configure_mode(False, 1)
+                self.assertEqual(os.environ["OURO_ARC_MODEL_MAX_NEW_TOKENS"], "256")
+                runner.configure_mode(True, 1)
+                self.assertEqual(os.environ["OURO_ARC_MODEL_MAX_NEW_TOKENS"], "2048")
+
     def test_pilot_selection_disqualifies_empty_thinking_and_selects_off(self) -> None:
         selection = select_pilot_mode(
             {
