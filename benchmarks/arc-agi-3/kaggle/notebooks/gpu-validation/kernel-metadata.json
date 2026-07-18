@@ -1,0 +1,20 @@
+{
+  "id": "kinwochan/ouroboros-qwen3-5-4b-rtx-6000-public-validation",
+  "title": "Ouroboros Qwen3.5-4B RTX 6000 Public Validation",
+  "code_file": "gpu-validation.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "machine_shape": "NvidiaRtxPro6000",
+  "enable_internet": false,
+  "dataset_sources": [
+    "kinwochan/ouroboros-arc-gpu-validation-assets"
+  ],
+  "competition_sources": [
+    "arc-prize-2026-arc-agi-3"
+  ],
+  "model_sources": [
+    "kinwochan/qwen-3-5-4b/transformers/qwen-3-5-4b/1"
+  ]
+}
