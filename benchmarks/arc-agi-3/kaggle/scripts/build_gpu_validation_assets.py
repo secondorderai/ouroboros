@@ -15,6 +15,9 @@ STAGE = OUTPUT / "bundle"
 WHEELHOUSE = OUTPUT / "wheels"
 REQUIREMENTS = ROOT / "gpu-validation-requirements.txt"
 DEFAULT_DATASET_ID = "kinwochan/ouroboros-arc-gpu-validation-assets"
+FP8_KERNEL_REPO = "kernels-community/finegrained-fp8"
+FP8_KERNEL_REVISION = "7cdb05d472d6c954c7d03182ed836ebfd4610df0"
+FP8_KERNEL_PATH = Path("kernels") / "finegrained-fp8"
 
 
 def copy_assets() -> None:
@@ -44,6 +47,14 @@ def copy_assets() -> None:
         ROOT / "config" / "qwen_candidate.json",
         STAGE / "config" / "qwen_candidate.json",
     )
+    shutil.copy2(
+        ROOT / "config" / "qwen_autonomous_candidate.json",
+        STAGE / "config" / "qwen_autonomous_candidate.json",
+    )
+    shutil.copy2(
+        ROOT / "config" / "qwen36_fp8_autonomous_candidate.json",
+        STAGE / "config" / "qwen36_fp8_autonomous_candidate.json",
+    )
 
 
 def download_wheels() -> None:
@@ -57,6 +68,10 @@ def download_wheels() -> None:
             "download",
             "--only-binary=:all:",
             "--no-deps",
+            "--platform=manylinux2014_x86_64",
+            "--python-version=312",
+            "--implementation=cp",
+            "--abi=cp312",
             "--dest",
             str(WHEELHOUSE),
             "--requirement",
@@ -64,6 +79,27 @@ def download_wheels() -> None:
         ],
         check=True,
     )
+
+
+def download_fp8_kernel() -> None:
+    from huggingface_hub import snapshot_download  # type: ignore
+
+    target = STAGE / FP8_KERNEL_PATH
+    snapshot_download(
+        repo_id=FP8_KERNEL_REPO,
+        repo_type="kernel",
+        revision=FP8_KERNEL_REVISION,
+        local_dir=target,
+        allow_patterns=["build/torch-cuda/*"],
+    )
+    shutil.rmtree(target / ".cache", ignore_errors=True)
+    required = (
+        target / "build" / "torch-cuda" / "__init__.py",
+        target / "build" / "torch-cuda" / "metadata.json",
+    )
+    missing = [str(path.relative_to(target)) for path in required if not path.is_file()]
+    if missing:
+        raise ValueError(f"fine-grained FP8 kernel is incomplete: {missing}")
 
 
 def write_bundle() -> Path:
@@ -92,6 +128,7 @@ def build(dataset_id: str, include_wheels: bool) -> dict[str, object]:
     copy_assets()
     if include_wheels:
         download_wheels()
+        download_fp8_kernel()
     archive = write_bundle()
     wheelhouse = write_wheelhouse()
     metadata = {
@@ -112,6 +149,8 @@ def build(dataset_id: str, include_wheels: bool) -> dict[str, object]:
         "wheelhouse_bytes": wheelhouse.stat().st_size,
         "environment_count": len(list((STAGE / "environment_files").glob("*/"))),
         "wheel_count": len(list(WHEELHOUSE.glob("*.whl"))),
+        "fp8_kernel_repo": FP8_KERNEL_REPO if include_wheels else "",
+        "fp8_kernel_revision": FP8_KERNEL_REVISION if include_wheels else "",
     }
     (OUTPUT / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n",

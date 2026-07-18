@@ -22,6 +22,8 @@ from ouro_arc.gpu_validation import (  # noqa: E402
     evaluate_promotion,
     gpu_matches_expectation,
     model_is_cuda_only,
+    model_uses_quantization,
+    model_within_vram_budget,
     select_pilot_mode,
 )
 from ouro_arc.model_config import apply_qwen_config, load_qwen_config  # noqa: E402
@@ -61,6 +63,7 @@ def hardware_info() -> dict[str, Any]:
                     "gpu": torch.cuda.get_device_name(0),
                     "gpu_memory_bytes": int(props.total_memory),
                     "bf16_supported": bool(torch.cuda.is_bf16_supported()),
+                    "compute_capability": list(torch.cuda.get_device_capability(0)),
                 }
             )
     except Exception as exc:
@@ -71,19 +74,50 @@ def hardware_info() -> dict[str, Any]:
         info["transformers"] = transformers.__version__
     except Exception as exc:
         info["transformers_error"] = repr(exc)
+    info["optimized_linear_attention"] = bool(
+        importlib.util.find_spec("fla") and importlib.util.find_spec("causal_conv1d")
+    )
     return info
 
 
-def configure_mode(think: bool, max_calls: int) -> None:
+def configure_mode(
+    think: bool,
+    max_calls: int,
+    *,
+    max_new_tokens: int | None = None,
+) -> None:
     os.environ.pop("OURO_ARC_DISABLE_MODEL", None)
     config_path = os.getenv(
         "OURO_ARC_MODEL_CONFIG",
         str(ROOT / "config" / "qwen_candidate.json"),
     )
     config = load_qwen_config(config_path)
+    generation_profile = config.get(
+        "thinking_generation" if think else "nonthinking_generation",
+        {},
+    )
+    if isinstance(generation_profile, dict):
+        config.update(generation_profile)
+    validation_max_calls = os.getenv("OURO_ARC_VALIDATION_MAX_CALLS", "").strip()
+    validation_max_new_tokens = os.getenv(
+        "OURO_ARC_VALIDATION_MAX_NEW_TOKENS", ""
+    ).strip()
+    if validation_max_calls:
+        max_calls = int(validation_max_calls)
+    elif config.get("world_model_mode") == "autonomous-python":
+        max_calls = max(max_calls, int(config.get("max_calls", 4)))
     config["think"] = think
     config["max_calls"] = max_calls
-    config["max_new_tokens"] = 2048 if think else 256
+    configured_tokens = int(config.get("max_new_tokens", 4096))
+    config["max_new_tokens"] = (
+        max_new_tokens
+        if max_new_tokens is not None
+        else int(validation_max_new_tokens)
+        if validation_max_new_tokens
+        else configured_tokens
+        if think
+        else min(configured_tokens, 512)
+    )
     apply_qwen_config(config, backend="transformers", overwrite=True)
     os.environ["OURO_ARC_MODEL_REQUIRE_CUDA"] = "1"
 
@@ -97,6 +131,26 @@ def advisor_smoke_payload(
 
     from ouro_arc.vlm_render import grid_to_png_bytes
 
+    if os.getenv("OURO_ARC_WORLD_MODEL_MODE", "observed") == "autonomous-python":
+        schema = {
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+            "additionalProperties": False,
+        }
+        image = grid_to_png_bytes(grid)
+        result = advisor.complete_json(
+            "Inspect the attached ARC frame and return status=ready.",
+            schema,
+            image=image,
+            purpose="autonomous-smoke",
+        )
+        diagnostics = advisor.diagnostics()
+        return {
+            "parseable": isinstance(result, dict) and result.get("status") == "ready",
+            "plan": result,
+            "model": diagnostics,
+        }
     prompt = (
         "Game=ls20. Rank these supplied deterministic mechanic hypotheses for "
         "the attached initial frame: h-a1-xn-yn predicts action 1 changes the "
@@ -123,7 +177,7 @@ def advisor_smoke_payload(
 
 
 def run_model_smoke(seed: int) -> dict[str, Any]:
-    configure_mode(think=False, max_calls=1)
+    configure_mode(think=False, max_calls=1, max_new_tokens=1024)
     from arc_agi import Arcade, OperationMode  # type: ignore
     from ouro_arc.advisor import ModelAdvisor
     from ouro_arc.render import last_grid
@@ -149,7 +203,7 @@ def run_model_smoke(seed: int) -> dict[str, Any]:
             "oom_failures": 0,
         }
 
-    advisor = ModelAdvisor(require_model=True, max_new_tokens=256)
+    advisor = ModelAdvisor(require_model=True, max_new_tokens=1024)
     error = ""
     payload: dict[str, Any] = {"model": {}, "parseable": False, "plan": None}
     started = time.monotonic()
@@ -217,6 +271,7 @@ def run_game_set(
     load_seconds = 0.0
     model_device = ""
     model_device_map: dict[str, str] = {}
+    model_runtime: dict[str, Any] = {}
     started = time.monotonic()
     trace_dir = Path(os.getenv("OURO_ARC_VALIDATION_TRACE_DIR", "/kaggle/working/traces"))
     trace_dir.mkdir(parents=True, exist_ok=True)
@@ -260,6 +315,21 @@ def run_game_set(
             model_device = str(diagnostics["device"])
         if diagnostics.get("device_map"):
             model_device_map = dict(diagnostics["device_map"])
+        for key in (
+            "model_class",
+            "model_type",
+            "quantization_method",
+            "quantization_dequantized",
+            "quantization_active",
+            "fp8_module_count",
+            "unscaled_fp8_linear_count",
+            "unscaled_fp8_linear_examples",
+            "parameter_dtype_numels",
+            "parameter_device_numels",
+            "peak_vram_bytes",
+        ):
+            if key in diagnostics:
+                model_runtime[key] = diagnostics[key]
         if diagnostics.get("failure_reason"):
             fatal_model_failures += 1
         if getattr(agent, "frames", None):
@@ -270,10 +340,18 @@ def run_game_set(
                 "levels_completed": int(final.levels_completed),
                 "max_level_reached": int(agent.controller.max_level_reached),
                 "actions": int(agent.action_counter),
+                "controller_actions_issued": int(agent.controller.issued_actions),
+                "transitions_observed": int(agent.controller.observed_transitions),
+                "autonomous_actions": int(agent.controller.autonomous_actions),
                 "resets": int(agent.controller.reset_count),
                 "solver_counts": dict(agent.controller.solver_counts),
                 "model_calls": int(agent.controller.model_calls),
                 "model_plans": int(agent.controller.model_plans),
+                "autonomous_world_model": (
+                    agent.controller.autonomous_model.summary()
+                    if agent.controller.autonomous_model is not None
+                    else {"enabled": False}
+                ),
                 "world_model": {
                     "observations": agent.controller.world_model.observation_count,
                     "novel_observations": agent.controller.world_model.novel_observation_count,
@@ -312,6 +390,7 @@ def run_game_set(
             "load_seconds": load_seconds,
             "device": model_device,
             "device_map": model_device_map,
+            **model_runtime,
             "call_attempts": call_attempts,
             "call_successes": call_successes,
             "call_latencies": all_latencies,
@@ -321,8 +400,9 @@ def run_game_set(
 
 
 def write_markdown(report: dict[str, Any], path: Path) -> None:
+    model_family = str(report.get("candidate_config", {}).get("model_family", "Qwen"))
     lines = [
-        "# Qwen3.5-4B RTX 6000 Validation",
+        f"# {model_family} RTX 6000 Validation",
         "",
         f"Stage: `{report['stage']}`",
         f"Selected mode: `{report.get('selection', {}).get('selected_mode')}`",
@@ -356,16 +436,26 @@ def main() -> None:
         )
     )
     hardware = hardware_info()
+    candidate_config = load_qwen_config(
+        os.getenv("OURO_ARC_MODEL_CONFIG", str(ROOT / "config" / "qwen_candidate.json"))
+    )
+    validation_max_calls = os.getenv("OURO_ARC_VALIDATION_MAX_CALLS", "").strip()
+    validation_max_new_tokens = os.getenv(
+        "OURO_ARC_VALIDATION_MAX_NEW_TOKENS", ""
+    ).strip()
+    if validation_max_calls:
+        candidate_config["max_calls"] = int(validation_max_calls)
+    if validation_max_new_tokens:
+        candidate_config["max_new_tokens"] = int(validation_max_new_tokens)
     report: dict[str, Any] = {
+        "evaluation_scope": "public-set-optimization",
         "stage": stage,
         "seed": seed,
         "hardware": hardware,
         "baseline_score": BASELINE_SCORE,
         "local_qwen_score": LOCAL_QWEN_SCORE,
         "model_path": os.getenv("OURO_ARC_MODEL_PATH", ""),
-        "candidate_config": load_qwen_config(
-            os.getenv("OURO_ARC_MODEL_CONFIG", str(ROOT / "config" / "qwen_candidate.json"))
-        ),
+        "candidate_config": candidate_config,
     }
     expected_gpu = os.getenv("OURO_ARC_VALIDATION_EXPECT_GPU", "").strip()
     if expected_gpu and not gpu_matches_expectation(hardware, expected_gpu):
@@ -383,15 +473,42 @@ def main() -> None:
     smoke = run_model_smoke(seed)
     report["smoke"] = smoke
     smoke_model = smoke["model"]
+    expected_quantization = str(candidate_config.get("expected_quant_method", ""))
+    max_peak_vram_bytes = int(
+        float(candidate_config.get("validation_max_peak_vram_gb", 0) or 0)
+        * 1024**3
+    )
+    quantization_ok = model_uses_quantization(smoke_model, expected_quantization)
+    scaled_fp8_ok = (
+        expected_quantization.casefold() != "fp8"
+        or int(smoke_model.get("unscaled_fp8_linear_count", 0)) == 0
+    )
+    vram_ok = model_within_vram_budget(smoke_model, max_peak_vram_bytes)
     smoke_ok = (
         int(smoke_model["call_attempts"]) >= 1
         and int(smoke_model["call_successes"]) >= 1
         and bool(smoke.get("parseable"))
         and model_is_cuda_only(smoke_model)
+        and quantization_ok
+        and scaled_fp8_ok
+        and vram_ok
         and not smoke["fatal_model_failures"]
         and not smoke["oom_failures"]
     )
+    report["smoke_gates"] = {
+        "cuda_only": model_is_cuda_only(smoke_model),
+        "expected_quantization": expected_quantization,
+        "quantization_ok": quantization_ok,
+        "scaled_fp8_ok": scaled_fp8_ok,
+        "max_peak_vram_bytes": max_peak_vram_bytes,
+        "vram_ok": vram_ok,
+    }
     report["smoke_passed"] = smoke_ok
+    print("QWEN_GPU_SMOKE=" + json.dumps(smoke, sort_keys=True, default=str))
+    print(
+        "QWEN_GPU_SMOKE_GATES="
+        + json.dumps(report["smoke_gates"], sort_keys=True, default=str)
+    )
 
     selected_mode = os.getenv("OURO_ARC_VALIDATION_SELECTED_MODE", "").strip()
     if selected_mode not in {"", "thinking_off", "thinking_on"}:

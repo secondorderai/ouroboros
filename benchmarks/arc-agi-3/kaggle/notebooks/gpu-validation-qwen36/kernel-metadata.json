@@ -1,0 +1,20 @@
+{
+  "id": "kinwochan/ouroboros-qwen3-6-27b-fp8-rtx-validation",
+  "title": "Ouroboros Qwen3.6-27B-FP8 RTX Validation",
+  "code_file": "gpu-validation.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "machine_shape": "NvidiaRtxPro6000",
+  "enable_internet": false,
+  "dataset_sources": [
+    "kinwochan/ouroboros-arc-gpu-validation-assets"
+  ],
+  "competition_sources": [
+    "arc-prize-2026-arc-agi-3"
+  ],
+  "model_sources": [
+    "michaelpoluektov/qwen3-6-27b-fp8/transformers/default/1"
+  ]
+}

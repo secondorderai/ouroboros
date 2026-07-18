@@ -34,7 +34,33 @@ def model_is_cuda_only(model: dict[str, object]) -> bool:
     if not isinstance(raw_map, dict):
         return False
     values = [str(value).casefold() for value in raw_map.values()]
-    return all(value.startswith("cuda") or value.isdigit() for value in values)
+    if not all(value.startswith("cuda") or value.isdigit() for value in values):
+        return False
+    raw_parameter_devices = model.get("parameter_device_numels", {})
+    if isinstance(raw_parameter_devices, dict) and raw_parameter_devices:
+        parameter_devices = [str(value).casefold() for value in raw_parameter_devices]
+        if not all(value.startswith("cuda") for value in parameter_devices):
+            return False
+    return True
+
+
+def model_uses_quantization(model: dict[str, object], expected: str) -> bool:
+    """Require the requested pre-quantized runtime without BF16 expansion."""
+
+    if not expected:
+        return True
+    return (
+        str(model.get("quantization_method", "")).casefold() == expected.casefold()
+        and bool(model.get("quantization_active"))
+        and not bool(model.get("quantization_dequantized"))
+    )
+
+
+def model_within_vram_budget(model: dict[str, object], max_bytes: int) -> bool:
+    if max_bytes <= 0:
+        return True
+    peak = int(model.get("peak_vram_bytes", 0) or 0)
+    return 0 < peak <= max_bytes
 PROMOTION_EPSILON = 0.005
 MAX_PROJECTED_MODEL_SECONDS = 2 * 60 * 60
 MAX_FULL_RUNTIME_SECONDS = 5 * 60 * 60
