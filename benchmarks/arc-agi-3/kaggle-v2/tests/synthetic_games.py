@@ -175,10 +175,11 @@ class CollectGame(SyntheticGame):
 
 
 class HazardTickGame(SyntheticGame):
-    """A patrolling enemy sweeps a corridor; touching it is death.
+    """A patrolling enemy sweeps a column; touching it is death.
 
-    The enemy bounces between x=5 and x=7 on row 6; columns 4 and 8 are
-    always safe crossings. Avatar must reach the goal below the corridor.
+    The enemy bounces vertically in column 5 (rows 5-7). The goal is
+    reachable without ever entering that column — this game verifies tick
+    induction and the GAME_OVER autopsy, not timing luck.
     """
 
     n_levels = 1
@@ -192,9 +193,9 @@ class HazardTickGame(SyntheticGame):
         for y in range(3, 10):
             walls |= {(3, y), (9, y)}
         return {
-            "avatar": (6, 4),
-            "goal": (6, 8),
-            "enemy": (5, 6),
+            "avatar": (4, 4),
+            "goal": (5, 8),
+            "enemy": (5, 5),
             "dir": 1,
             "walls": walls,
         }
@@ -218,12 +219,12 @@ class HazardTickGame(SyntheticGame):
             nx, ny = ax + delta[0], ay + delta[1]
             if (nx, ny) not in s["walls"]:
                 ax, ay = nx, ny
-        # Enemy ticks every action, bouncing between LO and HI.
+        # Enemy ticks every action, bouncing vertically between LO and HI.
         ex, ey = s["enemy"]
         d = s["dir"]
-        if not self.LO <= ex + d <= self.HI:
+        if not self.LO <= ey + d <= self.HI:
             d = -d
-        ex += d
+        ey += d
         s = dict(s, avatar=(ax, ay), enemy=(ex, ey), dir=d)
         if (ax, ay) == (ex, ey):
             return s, False, True

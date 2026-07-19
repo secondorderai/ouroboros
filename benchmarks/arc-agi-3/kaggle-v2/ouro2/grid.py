@@ -50,6 +50,22 @@ def grid_key(g: Grid) -> str:
     return hashlib.blake2b(g, digest_size=8).hexdigest()
 
 
+def masked_key(g: Grid, volatile: frozenset[int], keep_color: int | None = None) -> str:
+    """State key with volatile cells zeroed (animation-proof identity).
+
+    Cells currently holding ``keep_color`` (the avatar) are never zeroed:
+    the avatar's position IS the state, even when it stands on a cell the
+    volatility mask covers (e.g. inside a patroller's corridor).
+    """
+    if not volatile:
+        return grid_key(g)
+    flat = bytearray(g)
+    for i in volatile:
+        if keep_color is None or flat[i] != keep_color:
+            flat[i] = 0
+    return hashlib.blake2b(bytes(flat), digest_size=8).hexdigest()
+
+
 def diff(a: Grid, b: Grid) -> list[tuple[int, int, int, int]]:
     """Changed cells as (x, y, old, new)."""
     out = []

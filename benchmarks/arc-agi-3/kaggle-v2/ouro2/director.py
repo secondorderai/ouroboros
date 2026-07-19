@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 
 from .config import Config
 from .explore import Explorer
-from .grid import Grid, grid_key, to_grid
+from .grid import Grid, grid_key, masked_key, to_grid
 from .induce import Model, induce
-from .plan import plan
-from .rules import State, step
+from .plan import plan, plan_frontier
+from .rules import MoveRule, State, step
 from .timeline import RESET, ActionSpec, Timeline
 
 
@@ -84,6 +84,22 @@ class Director:
         # Post-WIN speedrun replay (a new play can only raise the score)
         self.speedrun_queue: list[tuple[ActionSpec, Grid | None]] = []
         self.speedrun_done = False
+        self.last_novel_at = 0  # timeline length when a new state last appeared
+        self.last_stuck_reset_at = 0
+        self.aborts_since_induce = 0
+        self.model_paused_until = 0  # circuit breaker: timeline length gate
+        self.breaker_trips: dict[int, int] = {}
+        self.model_disabled_levels: set[int] = set()
+        # Observed transition graph over masked keys (model-free navigation)
+        self.graph_edges: dict[tuple[str, tuple], Counter] = {}
+        self.lethal_edges: set[tuple[str, tuple]] = set()
+
+    def _key(self, g: Grid) -> str:
+        if self.model is None:
+            return masked_key(g, frozenset())
+        return masked_key(
+            g, self.model.volatile, keep_color=self.model.binding.avatar_color
+        )
 
     # -- framework hooks -------------------------------------------------
     def wants_speedrun(self) -> bool:
@@ -229,28 +245,49 @@ class Director:
             changed = view.grid != self.last_grid
             if not changed and not action.is_reset():
                 self.ledger.noops += 1
-            key = grid_key(view.grid)
+            key = self._key(view.grid)
             if key in self.seen_keys:
                 self.ledger.revisits += 1
+            else:
+                self.last_novel_at = len(self.timeline)
             self.seen_keys.add(key)
             self.explorer.note_result(
-                grid_key(self.last_grid), action, changed, grid=self.last_grid
+                self._key(self.last_grid), action, changed, grid=self.last_grid
             )
+            if not action.is_reset():
+                edge = (self._key(self.last_grid), action.key())
+                self.graph_edges.setdefault(edge, Counter())[key] += 1
         # Verify the committed step (plan or speedrun): reality outranks
         # the model/recording.
         if self.pending_prediction is not None:
-            if view.grid is not None and view.grid != self.pending_prediction:
+            mismatch = view.grid is not None and view.grid != self.pending_prediction
+            if mismatch and self.model is not None:
+                mismatch = self.model.masked(view.grid) != self.model.masked(
+                    self.pending_prediction
+                )
+            if mismatch:
                 self.plan_queue.clear()
                 self.speedrun_queue.clear()
                 self.wants_speedrun_flag = False
                 self.ledger.plan_aborts += 1
                 self.reinduce_pending = True
+                self.aborts_since_induce += 1
+                if self.aborts_since_induce >= 6:
+                    # Circuit breaker: a chronically mispredicting model must
+                    # not keep steering (strict additivity) — floor only for
+                    # a long window; two trips on one level disable the model
+                    # path for that level entirely.
+                    self.model_paused_until = len(self.timeline) + 64
+                    self.aborts_since_induce = 0
+                    level = view.levels_completed
+                    self.breaker_trips[level] = self.breaker_trips.get(level, 0) + 1
             else:
                 self.ledger.plan_steps += 1
             self.pending_prediction = None
         # Autopsy: never repeat the exact action that ended the game.
         if view.state == "GAME_OVER" and self.last_grid is not None:
-            self.explorer.ban(grid_key(self.last_grid), action)
+            self.explorer.ban(self._key(self.last_grid), action)
+            self.lethal_edges.add((self._key(self.last_grid), action.key()))
         # Track the level-start grid for consumed-counter reconstruction.
         if view.levels_completed != self.last_levels or view.full_reset or (
             action.is_reset() and view.grid is not None
@@ -276,6 +313,17 @@ class Director:
             return RESET
         if view.grid is None:
             return self._explore(view)
+        # Stuck escape: no novel state for a long stretch usually means an
+        # irreversible dead position (cornered sokoban box) — a level reset
+        # is the only exit, and it costs one action.
+        if (
+            len(self.timeline) - self.last_novel_at >= 96
+            and len(self.timeline) - self.last_stuck_reset_at >= 96
+            and self.timeline.current_level_transitions()
+        ):
+            self.last_stuck_reset_at = len(self.timeline)
+            self.reinduce_pending = True
+            return ActionSpec(0, source="director", reason="stuck: level reset")
         if self.speedrun_queue:
             action, expected = self.speedrun_queue.pop(0)
             self.pending_prediction = expected
@@ -297,10 +345,84 @@ class Director:
         grown = len(self.timeline) - self.induced_at
         if self.model is None or self.reinduce_pending or grown >= 16:
             if len(self.timeline) >= 4:
+                old_sig = (
+                    (self.model.volatile, self.model.binding.avatar_color)
+                    if self.model is not None
+                    else (frozenset(), None)
+                )
                 self.model = induce(self.timeline)
                 self.induced_at = len(self.timeline)
                 self.reinduce_pending = False
                 self.plan_retry_at = 0  # new evidence: planning may retry
+                new_sig = (self.model.volatile, self.model.binding.avatar_color)
+                if new_sig != old_sig:
+                    self._rebuild_keys()
+                self._oracle_goal_tiebreak()
+
+    def _rebuild_keys(self) -> None:
+        """The state-identity function just changed (new volatility mask or
+        avatar binding): every derived key set would fragment across epochs.
+        The timeline is ground truth — rebuild them all under the new mask."""
+        self.seen_keys.clear()
+        self.graph_edges.clear()
+        self.lethal_edges.clear()
+        ex = self.explorer
+        ex.tried.clear()
+        ex.noop_bans.clear()
+        ex.last_used.clear()
+        for t in self.timeline.transitions:
+            if t.after is not None:
+                self.seen_keys.add(self._key(t.after))
+            if t.before is None:
+                continue
+            key = self._key(t.before)
+            ex.clock += 1
+            if not t.action.is_reset():
+                ex.last_used[(key, t.action.key())] = ex.clock
+            changed = t.after is not None and t.after != t.before
+            ex.note_result(key, t.action, changed, grid=t.before)
+            if t.after is not None and not t.action.is_reset():
+                self.graph_edges.setdefault(
+                    (key, t.action.key()), Counter()
+                )[self._key(t.after)] += 1
+            if t.state_after == "GAME_OVER":
+                ex.ban(key, t.action)
+                self.lethal_edges.add((key, t.action.key()))
+
+    def _oracle_goal_tiebreak(self) -> None:
+        """When several goal predicates survive the negative examples, let
+        the oracle pick; its answer is one of OUR candidates or ignored."""
+        if self.oracle is None or self.model is None:
+            return
+        from .induce import infer_goal_candidates
+        from .rules import Goal
+
+        goals = infer_goal_candidates(self.timeline, self.model.binding)
+        if len(goals) <= 1:
+            return
+        render = {f"{g.kind} color={g.color} n={g.count}": g for g in goals}
+        choices = list(render)
+        picked = self.oracle.select(
+            "GOAL_SELECT",
+            "Which condition most plausibly completes a level of this game?",
+            choices,
+            default=choices[0],
+        )
+        self.model.goal = render.get(picked, goals[0])
+
+    def _frontier_eligible(self, model: Model, view: FrameView) -> bool:
+        """Frontier probing needs only a usable move-model: misses may run
+        higher than the exploit gate (probes are cheap and per-step
+        verified — an abort just returns to the explorer)."""
+        # Schema's bar: frontier probing (which steers real actions on pure
+        # curiosity) only from a model with a CLEAN backtest for this level.
+        # Goal-directed exploit planning keeps its small tolerance elsewhere.
+        return (
+            any(isinstance(r, MoveRule) for r in model.rules)
+            and model.binding.avatar_color is not None
+            and model.report.misses_by_level.get(view.levels_completed, 0) == 0
+            and model.report.support >= 12
+        )
 
     def _consumed_counters(self, current: Grid) -> tuple[tuple[int, int], ...]:
         if self.level_start_grid is None:
@@ -316,25 +438,46 @@ class Director:
 
     def _try_plan(self, view: FrameView) -> ActionSpec | None:
         model = self.model
+        attempted = self.ledger.plan_steps + self.ledger.plan_aborts
+        failing = attempted >= 6 and self.ledger.plan_aborts / attempted > 0.5
         if (
             model is None
-            or model.goal is None
-            or not model.healthy_for(view.levels_completed)
             or len(self.timeline) < self.plan_retry_at
+            or len(self.timeline) < self.model_paused_until
+            or failing
             or self.ledger.think_time_s > self.config.time_budget_s
         ):
             return None
         state = State(view.grid, counters=self._consumed_counters(view.grid))
         legal = tuple(a for a in view.available_actions if a != 0) or (1, 2, 3, 4)
-        actions = plan(
-            state,
-            model.rules,
-            model.binding,
-            model.goal,
-            legal=legal,
-            node_cap=self.config.node_cap,
-            deadline_s=2.0,
-        )
+        actions = None
+        if model.goal is not None and model.healthy_for(view.levels_completed):
+            actions = plan(
+                state,
+                model.rules,
+                model.binding,
+                model.goal,
+                legal=legal,
+                node_cap=self.config.node_cap,
+                deadline_s=2.0,
+            )
+        if not actions and self._frontier_eligible(model, view):
+            # No goal yet (level 0 is the lab) or goal unreachable: use the
+            # verified move-model for shortest-path novelty probing instead
+            # of rotor-router wandering.
+            actions = plan_frontier(
+                state,
+                model.rules,
+                model.binding,
+                self.seen_keys,
+                legal=legal,
+                node_cap=self.config.node_cap,
+                deadline_s=1.0,
+                volatile=model.volatile,
+                banned=self.explorer.noop_bans,
+            )
+            if actions:
+                self.ledger.probes += len(actions)
         if not actions:
             # Cool down: don't re-pay BFS cost until new evidence arrives.
             self.plan_retry_at = len(self.timeline) + 8
@@ -354,4 +497,52 @@ class Director:
         if view.grid is None:
             return RESET
         legal = [a for a in view.available_actions if a != 0] or [1, 2, 3, 4]
-        return self.explorer.next(view.grid, list(legal))
+        action = self.explorer.next(view.grid, list(legal))
+        if action.reason == "lru sweep":
+            # Nothing untried here: walk the OBSERVED graph to the nearest
+            # state that still has untried actions (model-free, so it works
+            # even when the induced model is unclean). Self-correcting: each
+            # step re-runs this.
+            routed = self._graph_frontier_step(view, legal)
+            if routed is not None:
+                return routed
+        return action
+
+    def _graph_frontier_step(self, view: FrameView, legal: list[int]) -> ActionSpec | None:
+        from collections import deque
+
+        start = self._key(view.grid)
+        adjacency: dict[str, list] = {}
+        for (from_key, action_key), targets in self.graph_edges.items():
+            if (from_key, action_key) in self.lethal_edges:
+                continue  # an edge that EVER killed is off-limits to routing
+            adjacency.setdefault(from_key, []).append(
+                (action_key, targets.most_common(1)[0][0])
+            )
+        seen = {start}
+        queue = deque([(start, None)])  # (key, first action on path)
+        expanded = 0
+        while queue:
+            expanded += 1
+            if expanded > 600:
+                return None
+            key, first = queue.popleft()
+            if key != start:
+                tried = self.explorer.tried.get(key, set())
+                for a in legal:
+                    if a == 6:
+                        continue  # graph nav targets simple-action frontiers
+                    k = (a, None, None)
+                    if k not in tried and (key, k) not in self.explorer.noop_bans:
+                        if first is None:
+                            return None
+                        return ActionSpec(
+                            first[0], first[1], first[2],
+                            source="graph-frontier", reason="route to untried",
+                        )
+            for action_key, nxt in adjacency.get(key, ()):
+                if nxt in seen:
+                    continue
+                seen.add(nxt)
+                queue.append((nxt, first if first is not None else action_key))
+        return None

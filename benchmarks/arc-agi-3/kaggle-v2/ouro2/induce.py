@@ -57,6 +57,40 @@ def translated(before: Grid, after: Grid, color: int) -> tuple[int, int] | None:
 
 
 # ---------------------------------------------------------------------------
+# Volatility mask: cells that keep changing regardless of what the rules
+# explain (energy bars, timers, animations). Excluded from model comparison,
+# per-step verification and state keys — Schema's observation that a model
+# is "right" when mispredictions collapse, made cell-local.
+
+
+def volatile_cells(timeline: Timeline, sample: int = 200) -> frozenset[int]:
+    counts = [0] * 4096
+    n = 0
+    for t in timeline.transitions[-sample:]:
+        if t.before is None or t.after is None or t.action.is_reset() or t.level_up:
+            continue
+        n += 1
+        for x, y, _, _ in diff(t.before, t.after):
+            counts[y * 64 + x] += 1
+    if n < 12:
+        return frozenset()
+    # Only near-every-transition churn qualifies (energy bars, timers,
+    # animations). Gameplay cells an oscillating walk revisits stay firmly
+    # below this — masking them would blind the executor where it matters.
+    threshold = max(8, int(0.45 * n))
+    return frozenset(i for i, c in enumerate(counts) if c >= threshold)
+
+
+def masked(g: Grid, volatile: frozenset[int]) -> Grid:
+    if not volatile:
+        return g
+    flat = bytearray(g)
+    for i in volatile:
+        flat[i] = 0
+    return bytes(flat)
+
+
+# ---------------------------------------------------------------------------
 # Binding (representation) induction
 
 
@@ -84,6 +118,36 @@ def rebind(timeline: Timeline) -> Binding:
         distinct = {delta for delta, _ in majority.values()}
         if len(majority) >= 2 and len(distinct) < 2:
             continue  # constant delta across actions: a ticker, not an avatar
+        score = sum(n for _, n in majority.values())
+        if score > best_score:
+            best_color, best_score = color, score
+    if best_color is not None:
+        return Binding(avatar_color=best_color)
+    # Loose pass (representation revision): multi-color sprites never
+    # translate rigidly per color — vote on unit CENTROID displacement with
+    # size tolerance instead (ls20's cyan+maroon block with a mutating
+    # direction indicator).
+    per_color = defaultdict(lambda: defaultdict(Counter))
+    for t in _informative(timeline):
+        if t.before is None or t.after is None or t.action.action not in SIMPLE_MOVE_ACTIONS:
+            continue
+        for color in {old for _, _, old, _ in diff(t.before, t.after)}:
+            a = _cells_of(t.before, color)
+            b = _cells_of(t.after, color)
+            if not a or not b or len(a) > 512 or abs(len(a) - len(b)) > max(2, len(a) // 4):
+                continue
+            ax = sum(x for x, _ in a) / len(a)
+            ay = sum(y for _, y in a) / len(a)
+            bx = sum(x for x, _ in b) / len(b)
+            by = sum(y for _, y in b) / len(b)
+            delta = (round(bx - ax), round(by - ay))
+            if abs(delta[0]) + abs(delta[1]) == 1:
+                per_color[color][t.action.action][delta] += 1
+    for color, by_action in per_color.items():
+        majority = {a: c.most_common(1)[0] for a, c in by_action.items()}
+        distinct = {delta for delta, _ in majority.values()}
+        if len(majority) >= 2 and len(distinct) < 2:
+            continue
         score = sum(n for _, n in majority.values())
         if score > best_score:
             best_color, best_score = color, score
@@ -122,10 +186,17 @@ def candidates_from(t: Transition, binding: Binding) -> list[Rule]:
             if new == binding.avatar_color and old not in (binding.avatar_color,)
             and old != binding.bg(t.before) and (x, y) in av_after
         }
-        # A color that moved with the same delta alongside the avatar -> push.
+        # A color that moved with the same delta AND stood in the cells the
+        # avatar entered -> push. (Same-delta alone votes coincidental
+        # co-movers — a patrolling enemy — into "pushable".)
+        av_before = _cells_of(t.before, binding.avatar_color)
+        entered_cells = {
+            (x + delta[0], y + delta[1]) for x, y in av_before
+        } - av_before
         pushed = {
             c for c, d in moved_colors.items()
             if c != binding.avatar_color and d == delta
+            and entered_cells & _cells_of(t.before, c)
         }
         if eaten:
             out.append(MoveRule(deltas=((action, delta),), consumes=frozenset(eaten)))
@@ -213,10 +284,16 @@ def _informative(timeline: Timeline) -> list[Transition]:
     return extras + keep
 
 
-def evaluate(rules: RuleSet, timeline: Timeline, binding: Binding) -> Report:
+def evaluate(
+    rules: RuleSet,
+    timeline: Timeline,
+    binding: Binding,
+    volatile: frozenset[int] = frozenset(),
+) -> Report:
     """Replay recorded transitions through the interpreter and compare grids
-    exactly (level-up frames excluded: the env swaps the board). Bounded by
-    EVALUATE_WINDOW to keep re-induction affordable."""
+    exactly outside the volatility mask (level-up frames excluded: the env
+    swaps the board). Bounded by EVALUATE_WINDOW to keep re-induction
+    affordable."""
     report = Report()
     for t in _informative(timeline):
         if (
@@ -228,7 +305,7 @@ def evaluate(rules: RuleSet, timeline: Timeline, binding: Binding) -> Report:
         ):
             continue
         predicted, _ = step(State(t.before), t.action.key(), rules, binding)
-        if predicted.grid == t.after:
+        if masked(predicted.grid, volatile) == masked(t.after, volatile):
             report.support += 1
             report.matches_by_level[t.level] += 1
         else:
@@ -292,16 +369,17 @@ def specialize(rule: MoveRule, counterexample: Transition, binding: Binding) -> 
 # Goal inference
 
 
-def infer_goal(timeline: Timeline, binding: Binding) -> Goal | None:
-    """A predicate true at every level-up and false at non-level-up states
-    of the same level (negative examples are what make this sound)."""
+def infer_goal_candidates(timeline: Timeline, binding: Binding) -> list[Goal]:
+    """Predicates true at every level-up and false at non-level-up states
+    of the same level (negative examples are what make this sound). The
+    consistent list is exposed so an oracle can break ties."""
     level_ups = [
         t
         for t in timeline.transitions
         if t.level_up and t.before is not None and t.after is not None
     ]
     if not level_ups:
-        return None
+        return []
     candidates: list[Goal] = []
     first = level_ups[0]
     bg = binding.bg(first.before)
@@ -354,10 +432,13 @@ def infer_goal(timeline: Timeline, binding: Binding) -> Goal | None:
                     return False
         return True
 
-    for goal in candidates:
-        if consistent(goal):
-            return goal
-    return candidates[0] if candidates else None
+    consistent_goals = [g for g in candidates if consistent(g)]
+    return consistent_goals or (candidates[:1] if candidates else [])
+
+
+def infer_goal(timeline: Timeline, binding: Binding) -> Goal | None:
+    goals = infer_goal_candidates(timeline, binding)
+    return goals[0] if goals else None
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +451,10 @@ class Model:
     rules: RuleSet
     report: Report
     goal: Goal | None
+    volatile: frozenset[int] = frozenset()
+
+    def masked(self, g: Grid) -> Grid:
+        return masked(g, self.volatile)
 
     def healthy_for(self, level: int) -> bool:
         return bool(self.rules) and self.report.healthy_for(level)
@@ -379,6 +464,7 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
     """Full (re)induction from scratch over the timeline. Time cost is
     bounded by the caller's cadence, not internally."""
     binding = rebind(timeline)
+    volatile = volatile_cells(timeline)
     votes: Counter[Rule] = Counter()
     for t in _informative(timeline):
         for rule in candidates_from(t, binding):
@@ -399,10 +485,10 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
             (action, counter.most_common(1)[0][0])
             for action, counter in sorted(move_deltas.items())
         )
+        delta_map = dict(deltas)
         # Level-up transitions hide their consume event behind the board
         # swap (after = next level's grid), so mine the BEFORE grid: the
         # cell the avatar entered to complete a level must be enterable.
-        delta_map = dict(deltas)
         for t in timeline.transitions:
             if not t.level_up or t.before is None:
                 continue
@@ -417,9 +503,46 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
                     c = t.before[ny * 64 + nx]
                     if c not in (bg, binding.avatar_color):
                         consumes.add(c)
+        # Blockers learned from CONFIRMED no-change moves (not only from
+        # mispredictions: default-block semantics means a correct "blocked"
+        # prediction never yields a counterexample, so specialization alone
+        # would leave blockers empty and every wall an "untested assumption").
+        blockers: Counter = Counter()
+        for t in _informative(timeline):
+            if (
+                t.before is None
+                or t.after is None
+                or t.before != t.after
+                or t.action.action not in delta_map
+            ):
+                continue
+            delta = delta_map[t.action.action]
+            cells = avatar_cells(t.before, binding)
+            bgc = binding.bg(t.before)
+            for x, y in cells:
+                nx, ny = x + delta[0], y + delta[1]
+                if (nx, ny) not in cells and 0 <= nx < 64 and 0 <= ny < 64:
+                    c = t.before[ny * 64 + nx]
+                    if c in (bgc, binding.avatar_color):
+                        continue
+                    bx, by = nx + delta[0], ny + delta[1]
+                    behind_free = (
+                        0 <= bx < 64 and 0 <= by < 64
+                        and t.before[by * 64 + bx] == bgc
+                    )
+                    if behind_free:
+                        # The cell behind was free, so the color itself
+                        # refused entry — true blocker evidence. A jammed
+                        # push chain is NOT evidence against pushability.
+                        blockers[c] += 1
+        confirmed = frozenset(
+            c for c, n in blockers.items()
+            if n >= 2 and c not in consumes and c not in pushable
+        )
         rules.append(
             MoveRule(
                 deltas=deltas,
+                blockers=confirmed,
                 consumes=frozenset(consumes),
                 pushable=frozenset(pushable),
             )
@@ -441,6 +564,12 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
         if mapping:
             rules.append(ClickRule(scope=scope, mapping=tuple(sorted(mapping.items()))))
     tick_by_color: dict[int, Counter] = defaultdict(Counter)
+    n_change = sum(
+        1
+        for t in _informative(timeline)
+        if t.before is not None and t.after is not None and t.before != t.after
+        and not t.action.is_reset()
+    )
     for rule, n in votes.items():
         if isinstance(rule, TickRule):
             if binding.avatar_color is None or rule.color != binding.avatar_color:
@@ -448,8 +577,10 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
     for color, deltas in tick_by_color.items():
         delta, n = deltas.most_common(1)[0]
         # Majority delta only — a bouncing patroller votes both directions;
-        # emitting both would cancel out in the interpreter.
-        if n >= 3:
+        # emitting both would cancel out. And a true ticker moves on most
+        # transitions: occasionally-translated colors are pushed objects,
+        # not passive dynamics.
+        if n >= max(3, int(0.4 * n_change)):
             rules.append(TickRule(color=color, delta=delta))
     hazard_colors: Counter[int] = Counter()
     for rule, n in votes.items():
@@ -462,7 +593,7 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
         )
 
     ruleset: RuleSet = tuple(rules)
-    report = evaluate(ruleset, timeline, binding)
+    report = evaluate(ruleset, timeline, binding, volatile)
     for _ in range(max_specialize_rounds):
         if not report.counterexamples:
             break
@@ -476,9 +607,9 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
                 # Screen against the single counterexample before paying for
                 # a full backtest.
                 predicted, _ = step(State(ce.before), ce.action.key(), trial, binding)
-                if predicted.grid != ce.after:
+                if masked(predicted.grid, volatile) != masked(ce.after, volatile):
                     continue
-                trial_report = evaluate(trial, timeline, binding)
+                trial_report = evaluate(trial, timeline, binding, volatile)
                 if trial_report.contradictions < report.contradictions:
                     ruleset, report = trial, trial_report
                     improved = True
@@ -489,4 +620,4 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
             break
 
     goal = infer_goal(timeline, binding)
-    return Model(binding=binding, rules=ruleset, report=report, goal=goal)
+    return Model(binding=binding, rules=ruleset, report=report, goal=goal, volatile=volatile)
