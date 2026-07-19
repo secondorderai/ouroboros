@@ -90,35 +90,50 @@ else:
     ).to_parquet("/kaggle/working/submission.parquet")
     print("wrote dummy submission.parquet")
 
-    model_path = os.environ.get("OURO2_MODEL_PATH", "")
-    if model_path:
-        # Save-run model smoke: the agent only runs in a competition rerun,
-        # so this is the one chance to prove the attached model loads on the
-        # rerun image before a scored run bets on it (the V1 V7/V8 zeroes
-        # were exactly this failure). Fail-open: a failure here is loud in
-        # the log but never fails the notebook.
-        import traceback
+    if os.environ.get("OURO2_MODEL_PATH"):
+        # Save-run model smoke, in a FRESH SUBPROCESS: the rerun runs the
+        # agent via subprocess too, so this is the faithful topology — and
+        # it sidesteps the stale sys.modules state the in-kernel %pip
+        # upgrades create (a half-cached old Pillow broke an in-process
+        # attempt). Fail-open: loud in the log, never fails the notebook.
+        r = subprocess.run(
+            [sys.executable, "/tmp/model_smoke.py"],
+            capture_output=True, text=True, timeout=1800,
+        )
+        print(r.stdout[-4000:])
+        print(r.stderr[-4000:])
+        print(f"model-smoke exit={{r.returncode}}")
+'''
 
-        print(f"model-smoke: path={{model_path}} isdir={{os.path.isdir(model_path)}}")
-        if not os.path.isdir(model_path):
-            for root, dirs, _ in os.walk("/kaggle/input"):
-                if root.count("/") <= 6:
-                    print("  " + root)
-                else:
-                    dirs[:] = []
-        try:
-            t0 = time.time()
-            sys.path.insert(0, "/tmp")
-            from ouro2.config import Config
-            from ouro2.oracle import Oracle
+SMOKE_SCRIPT = '''\
+"""Save-run model smoke (subprocess): prove the attached model loads on
+this image through the exact code path a competition rerun would use —
+the one thing a save-run does not otherwise exercise (the V1 V7/V8
+zeroes were exactly this class of failure)."""
+import os
+import sys
+import time
+import traceback
 
-            raw = Oracle(Config.from_env())._transformers(
-                'Reply with JSON: {{"choice": "alpha"}}'
-            )
-            print(f"model-smoke: OK {{time.time() - t0:.1f}}s raw={{raw[:200]!r}}")
-        except Exception:
-            traceback.print_exc()
-            print("model-smoke: FAILED (a rerun would fail open to CPU defaults)")
+path = os.environ.get("OURO2_MODEL_PATH", "")
+print(f"model-smoke: path={path} isdir={os.path.isdir(path)}")
+if not os.path.isdir(path):
+    for root, dirs, _ in os.walk("/kaggle/input"):
+        if root.count("/") <= 6:
+            print("  " + root)
+        else:
+            dirs[:] = []
+try:
+    t0 = time.time()
+    sys.path.insert(0, "/tmp")
+    from ouro2.config import Config
+    from ouro2.oracle import Oracle
+
+    raw = Oracle(Config.from_env())._transformers('Reply with JSON: {"choice": "alpha"}')
+    print(f"model-smoke: OK {time.time() - t0:.1f}s raw={raw[:200]!r}")
+except Exception:
+    traceback.print_exc()
+    print("model-smoke: FAILED (a rerun would fail open to CPU defaults)")
 '''
 
 
@@ -147,6 +162,8 @@ def build(model: bool) -> dict:
     cells.append(
         writefile_cell("/tmp/my_agent.py", (ROOT / "agent" / "my_agent.py").read_text())
     )
+    if model:
+        cells.append(writefile_cell("/tmp/model_smoke.py", SMOKE_SCRIPT))
     model_env = (
         'os.environ.setdefault("OURO2_DISABLE_MODEL", "0")\n'
         'os.environ.setdefault("OURO2_MODEL_BACKEND", "transformers")\n'

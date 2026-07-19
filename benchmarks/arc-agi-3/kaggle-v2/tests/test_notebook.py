@@ -50,11 +50,14 @@ def test_notebook_model_variant_attaches_model(tmp_path):
     nb = json.loads((tmp_path / "submission.ipynb").read_text())
     joined = "\n".join("".join(c["source"]) for c in nb["cells"])
     assert 'OURO2_DISABLE_MODEL", "0"' in joined
-    # The save-run smoke must exercise the real transformers load path and
-    # stay fail-open (traceback, not raise) so it can never sink a save.
+    # The save-run smoke must exercise the real transformers load path in a
+    # FRESH SUBPROCESS (the rerun topology; also immune to the stale-module
+    # state in-kernel pip upgrades create) and stay fail-open.
     assert "model-smoke" in joined
     assert "._transformers(" in joined
     assert "traceback.print_exc()" in joined
+    assert "%%writefile /tmp/model_smoke.py" in joined
+    assert '[sys.executable, "/tmp/model_smoke.py"]' in joined
     # The rerun image's transformers is too old for qwen3_5: the model
     # variant must attach the pinned-wheels dataset and upgrade offline,
     # BEFORE the run cell.
