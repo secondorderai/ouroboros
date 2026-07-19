@@ -42,6 +42,7 @@ import os, shutil, subprocess, sys, time, urllib.request
 
 os.environ.setdefault("MPLBACKEND", "agg")
 os.environ.setdefault("OURO2_MAX_ACTIONS", "320")
+os.environ.setdefault("ARC_BASE_URL", "http://gateway:8001")
 {model_env}
 rerun = bool(os.getenv("KAGGLE_IS_COMPETITION_RERUN"))
 
@@ -70,6 +71,7 @@ if run_agent:
     with open(f"{{dst}}/agents/__init__.py", "w") as fh:
         fh.write(
             "from .agent import Agent\\n"
+            "from .swarm import Swarm\\n"
             "from .templates.my_agent import MyAgent\\n"
             "AVAILABLE_AGENTS = {{'myagent': MyAgent}}\\n"
         )

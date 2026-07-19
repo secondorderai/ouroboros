@@ -33,5 +33,12 @@ notebook:
 	$(PY) scripts/holdout_gate.py --check-only
 	$(PY) scripts/build_notebook.py $(ARGS)
 
+notebook-model:
+	$(PY) scripts/holdout_gate.py --check-only
+	$(PY) scripts/build_notebook.py --model --out notebooks-model
+
 submit: notebook
-	cd notebooks && kaggle kernels push -p .
+	cd notebooks && ../.venv/bin/kaggle kernels push -p .
+
+submit-model: notebook-model
+	cd notebooks-model && ../.venv/bin/kaggle kernels push -p .

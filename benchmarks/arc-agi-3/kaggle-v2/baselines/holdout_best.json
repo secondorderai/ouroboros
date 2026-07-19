@@ -1,0 +1,15 @@
+{
+  "levels": {
+    "dc22": 0,
+    "g50t": 0,
+    "ka59": 0,
+    "lf52": 0,
+    "sc25": 0,
+    "su15": 0,
+    "tn36": 0,
+    "vc33": 0,
+    "wa30": 0
+  },
+  "note": "V2 lineage baseline seeded from its first TEST read (2026-07-19). V1 kernel remains the champion (LB 0.16, TEST 0.1044); ratchet re-seeds from V1 values once V2 reaches them.",
+  "score": 0.0
+}
