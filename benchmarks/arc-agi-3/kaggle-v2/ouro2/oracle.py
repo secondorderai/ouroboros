@@ -29,6 +29,8 @@ class Oracle:
         self.failures = 0
         self._model = None
         self._tokenizer = None
+        self._load_failed = False
+        self._load_attempts = 0
 
     def select(self, kind: str, question: str, choices: list[str], default: str) -> str:
         if not choices or len(choices) == 1:
@@ -89,15 +91,25 @@ class Oracle:
 
     def _transformers(self, prompt: str) -> str:
         if self._model is None:
-            import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            # A failed load never succeeds later in-run (bad path, missing
+            # dep, unknown architecture) but costs ~20s per retry; latch off
+            # after one attempt so select() fails open instantly thereafter.
+            if self._load_failed:
+                raise RuntimeError("transformers model previously failed to load")
+            self._load_attempts += 1
+            try:
+                import torch
+                from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            self._tokenizer = AutoTokenizer.from_pretrained(self.config.model_path)
-            self._model = AutoModelForCausalLM.from_pretrained(
-                self.config.model_path,
-                torch_dtype=torch.bfloat16,
-                device_map={"": "cuda:0"},
-            )
+                self._tokenizer = AutoTokenizer.from_pretrained(self.config.model_path)
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    self.config.model_path,
+                    torch_dtype=torch.bfloat16,
+                    device_map={"": "cuda:0"},
+                )
+            except Exception:
+                self._load_failed = True
+                raise
         messages = [
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": prompt},

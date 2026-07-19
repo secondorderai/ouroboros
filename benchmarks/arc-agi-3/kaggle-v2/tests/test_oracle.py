@@ -46,3 +46,21 @@ def test_single_choice_short_circuits():
     o = make(lambda p: calls.append(p) or '{"choice": "a"}')
     assert o.select("RULE_SELECT", "q", ["a"], default="a") == "a"
     assert not calls  # no LLM call for a trivial menu
+
+
+def test_transformers_load_failure_latches_after_one_attempt():
+    # Bad model path: from_pretrained (or the transformers import itself)
+    # raises on the first call. The latch must record the failure and skip
+    # the ~20s retry on every later call, still failing open to the default.
+    cfg = Config(
+        disable_model=False,
+        model_backend="transformers",
+        model_path="/nonexistent/model",
+        model_max_calls=5,
+    )
+    o = Oracle(cfg)
+    assert o.select("RULE_SELECT", "q", ["a", "b"], default="a") == "a"
+    assert o.select("RULE_SELECT", "q", ["a", "b"], default="a") == "a"
+    assert o.failures == 2
+    assert o._load_failed is True
+    assert o._load_attempts == 1  # second call latched, no reload attempt
