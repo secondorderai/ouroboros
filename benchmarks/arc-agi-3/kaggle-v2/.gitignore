@@ -4,5 +4,6 @@ environment_files
 __pycache__/
 *.pyc
 baselines/*_latest.json
-notebooks/*.ipynb
+notebooks/
+notebooks-model/
 .rehearse/
