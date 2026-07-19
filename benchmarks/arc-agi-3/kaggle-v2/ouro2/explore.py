@@ -27,7 +27,8 @@ class Explorer:
         self.last_used: dict[tuple[str, tuple[int, int | None, int | None]], int] = {}
         self.clock = 0
         self.color_stats: dict[int, list[int]] = {}  # color -> [changes, tries]
-        self.cell_stats: dict[tuple[int, int], list[int]] = {}  # (x,y) -> same
+        # (x,y) -> [changes, tries, last_try_clock]
+        self.cell_stats: dict[tuple[int, int], list[int]] = {}
 
     def note_result(
         self,
@@ -36,9 +37,15 @@ class Explorer:
         changed: bool,
         grid: Grid | None = None,
         novel: bool = True,
+        raw_changed: bool | None = None,
     ) -> None:
         self.tried.setdefault(state_key, set()).add(action.key())
-        if not changed and not action.is_reset():
+        # Bans key off RAW no-change only: a masked judgment must never ban
+        # an action — if the mask is wrong (a remote effect misread as HUD)
+        # a masked-no-op ban would permanently bury the win button. Masked
+        # "changed" still drives milking and priors below.
+        raw = changed if raw_changed is None else raw_changed
+        if not raw and not action.is_reset():
             self.noop_bans.add((state_key, action.key()))
         if action.action == 6 and action.x is not None:
             # Milk only while the click produces NOVEL states: a changing-
@@ -61,9 +68,10 @@ class Explorer:
             cs = self.color_stats.setdefault(color, [0, 0])
             cs[0] += 1 if changed else 0
             cs[1] += 1
-            cell = self.cell_stats.setdefault((action.x, action.y), [0, 0])
+            cell = self.cell_stats.setdefault((action.x, action.y), [0, 0, 0])
             cell[0] += 1 if changed else 0
             cell[1] += 1
+            cell[2] = self.clock
 
     def ban(self, state_key: str, action: ActionSpec) -> None:
         """Permanent ban (deaths): never repeat this exact mistake."""
@@ -95,13 +103,21 @@ class Explorer:
             if not added:
                 break
             round_idx += 1
-        # Cell-precision targets for small pattern boards: paint/copy games
-        # respond to individual CELLS, not object centroids (the audit's
-        # "center-of-object only" blind spot). Enumerate cells of up to two
-        # mid-sized objects.
-        boards = [
-            o for o in components(g) if 9 <= o.size <= 49 and o.width >= 3 and o.height >= 3
-        ][:2]
+        # Cell-precision targets, evidence-triggered: once clicks on a color
+        # have produced ANY change, that color's components respond at cell
+        # granularity worth sweeping (paint/copy boards). Triggering from
+        # observed click-effects generalizes over the old fixed 9-49-cell
+        # size window, which encoded one public game's board dimensions and
+        # gave a 10x10 board zero per-cell targets.
+        hot = {
+            color
+            for color, (ch, _tr) in self.color_stats.items()
+            if ch > 0
+        }
+        boards = sorted(
+            (o for o in components(g) if o.color in hot and o.size >= 2),
+            key=lambda o: o.size,
+        )[:2]
         for o in boards:
             for x, y in sorted(o.cells):
                 if len(out) >= 140:
@@ -118,10 +134,14 @@ class Explorer:
         for x, y in self._click_targets(g):
             color = g[y * 64 + x]
             ch, tr = self.color_stats.get(color, (0, 0))
-            cch, ctr = self.cell_stats.get((x, y), (0, 0))
+            cch, ctr, last = self.cell_stats.get((x, y), (0, 0, 0))
             fallback.append((x, y))
-            if ctr >= 2 and cch == 0:
-                continue  # globally inert cell
+            if ctr >= 2 and cch == 0 and self.clock - last < 150:
+                # Inert twice: suppress, but DECAY the suppression — a
+                # prerequisite-gated control (button dead until unlocked)
+                # earns a fresh try every 150 actions instead of a
+                # permanent drop.
+                continue
             prior = (ch + 1) / (tr + 2)
             scored.append((-prior, ctr, x, y))
         if not scored:

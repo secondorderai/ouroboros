@@ -65,7 +65,8 @@ def translated(before: Grid, after: Grid, color: int) -> tuple[int, int] | None:
 
 def volatile_cells(timeline: Timeline, sample: int = 200) -> frozenset[int]:
     counts = [0] * 4096
-    far_click = [0] * 4096
+    actors: dict[int, set[int]] = {}  # cell -> distinct action ids seen changing it
+    far_origins: dict[int, set[tuple[int, int]]] = {}  # cell -> far click coords
     n = 0
     for t in timeline.transitions[-sample:]:
         if t.before is None or t.after is None or t.action.is_reset() or t.level_up:
@@ -73,19 +74,30 @@ def volatile_cells(timeline: Timeline, sample: int = 200) -> frozenset[int]:
         n += 1
         is_click = t.action.action == 6 and t.action.x is not None
         for x, y, _, _ in diff(t.before, t.after):
-            counts[y * 64 + x] += 1
+            i = y * 64 + x
+            counts[i] += 1
+            actors.setdefault(i, set()).add(t.action.action)
             if is_click and max(abs(x - t.action.x), abs(y - t.action.y)) > 12:
-                # Changed although the click was far away: action-independent
-                # (attempt counters, progress strips) — HUD, not gameplay.
-                far_click[y * 64 + x] += 1
+                far_origins.setdefault(i, set()).add((t.action.x, t.action.y))
     if n < 12:
         return frozenset()
     # Only near-every-transition churn qualifies (energy bars, timers,
-    # animations). Gameplay cells an oscillating walk revisits stay firmly
-    # below this — masking them would blind the executor where it matters.
+    # animations), and only when corroborated by ACTION-INDEPENDENCE (the
+    # cell churns under >=2 distinct actions): action-independence is the
+    # definition of HUD, and it keeps a cell that answers one specific
+    # control visible as gameplay.
     threshold = max(8, int(0.45 * n))
-    out = {i for i, c in enumerate(counts) if c >= threshold}
-    out |= {i for i, c in enumerate(far_click) if c >= 2}
+    out = {
+        i
+        for i, c in enumerate(counts)
+        if c >= threshold and len(actors.get(i, ())) >= 2
+    }
+    # Far-click cells need >=2 DISTINCT far origins: a counter ticks for
+    # clicks anywhere (many origins), while a door toggled by its one
+    # remote switch changes under a single origin and must stay visible —
+    # masking remote-effect gameplay as "HUD" was the worst transfer risk
+    # in the generalization audit.
+    out |= {i for i, origins in far_origins.items() if len(origins) >= 2}
     return frozenset(out)
 
 
@@ -195,11 +207,14 @@ def _consistent_majorities(by_action: dict) -> dict:
     return out
 
 
-def _axis_jump(delta: tuple[int, int]) -> bool:
-    """A plausible move delta: along one axis, 1-8 cells (ls20's avatar
-    jumps 5 cells per press)."""
+def _plausible_delta(delta: tuple[int, int]) -> bool:
+    """A plausible move delta: nonzero, magnitude-bounded. RECURRENCE is the
+    real evidence (the majority vote requires the same delta per action);
+    this gate only excludes wrap-around and board-swap artifacts. Diagonal
+    and long jumps are legal moves — the old single-axis 1-8 gate encoded
+    one public game's geometry and left diagonal movers unbindable."""
     dx, dy = delta
-    return (dx == 0) != (dy == 0) and abs(dx) + abs(dy) <= 8
+    return (dx, dy) != (0, 0) and max(abs(dx), abs(dy)) <= 16
 
 
 def rebind(timeline: Timeline, prior: Binding | None = None) -> Binding:
@@ -220,7 +235,7 @@ def rebind(timeline: Timeline, prior: Binding | None = None) -> Binding:
             if color == bg:
                 continue  # backgrounds don't move; they get moved through
             delta = translated(t.before, t.after, color)
-            if delta is not None and _axis_jump(delta):
+            if delta is not None and _plausible_delta(delta):
                 per_color[color][t.action.action][delta] += 1
     best_color = None
     best_score = 0
@@ -253,7 +268,7 @@ def rebind(timeline: Timeline, prior: Binding | None = None) -> Binding:
             bx = sum(x for x, _ in b) / len(b)
             by = sum(y for _, y in b) / len(b)
             delta = (round(bx - ax), round(by - ay))
-            if _axis_jump(delta):
+            if _plausible_delta(delta):
                 per_color[color][t.action.action][delta] += 1
     for color, by_action in per_color.items():
         majority = _consistent_majorities(by_action)
@@ -284,7 +299,7 @@ def rebind(timeline: Timeline, prior: Binding | None = None) -> Binding:
         ax = sum(x for x, _ in a) / len(a); ay = sum(y for _, y in a) / len(a)
         bx = sum(x for x, _ in b) / len(b); by = sum(y for _, y in b) / len(b)
         delta = (round(bx - ax), round(by - ay))
-        if not _axis_jump(delta):
+        if not _plausible_delta(delta):
             continue
         moves += 1
         av = _cells_of(t.before, best_color)
@@ -482,6 +497,17 @@ def evaluate(
         ):
             continue
         predicted, _ = step(State(t.before), t.action.key(), rules, binding)
+        if predicted.status == "GAME_OVER":
+            # Predicted death on a transition that SURVIVED: a false hazard.
+            # Grid equality must not absolve it — refusing safe moves is
+            # exactly the harm a wrong death-model causes. (The converse,
+            # an unpredicted death, is not penalized: deaths outside the
+            # DSL are handled model-free by autopsy bans.)
+            report.contradictions += 1
+            report.misses_by_level[t.level] += 1
+            if len(report.counterexamples) < 16:
+                report.counterexamples.append(t)
+            continue
         if masked_eq(
             predicted.grid, t.after, volatile, depleting, keep=binding.avatar_color
         ):
@@ -607,15 +633,25 @@ def infer_goal_candidates(timeline: Timeline, binding: Binding) -> list[Goal]:
         # The state satisfying the predicate is unobservable (the board swaps
         # to the next level on completion), so soundness comes from the
         # NEGATIVE examples: the predicate must be false at every earlier
-        # state of each level segment.
+        # state of each level segment. counter_eq is judged on grid counts
+        # (consumed-so-far vs target) — exempting it let a coincidental
+        # consumption goal persist unfalsified.
         for seg in timeline.levels():
+            start = seg.transitions[0].before if seg.transitions else None
+            start_n = (
+                start.count(goal.color)
+                if goal.kind == "counter_eq" and start is not None
+                else None
+            )
             for t in seg.transitions[:-1]:
                 if t.before is None:
                     continue
-                if goal.kind in ("reach_color", "clear_color") and is_goal(
-                    State(t.before), goal, binding
-                ):
-                    return False
+                if goal.kind in ("reach_color", "clear_color"):
+                    if is_goal(State(t.before), goal, binding):
+                        return False
+                elif start_n is not None:
+                    if start_n - t.before.count(goal.color) == goal.count:
+                        return False
         return True
 
     consistent_goals = [g for g in candidates if consistent(g)]
@@ -831,9 +867,28 @@ def induce(
             for c in rule.colors:
                 hazard_colors[c] += n
     if hazard_colors:
-        rules.append(
-            HazardRule(colors=frozenset(c for c, n in hazard_colors.items() if n >= 1))
+        # Falsify against survival evidence: the DSL's hazard predicts death
+        # on ADJACENCY, so one observed adjacent-and-survived transition
+        # refutes the color (a wall you happened to die next to, not a
+        # hazard). Without this, a single coincidental death permanently
+        # walls the planner off from a color — and the backtest could not
+        # indict the rule.
+        survived: Counter = Counter()
+        if binding.avatar_color is not None:
+            for t in _informative(timeline):
+                if t.after is None or t.state_after == "GAME_OVER":
+                    continue
+                for x, y in avatar_cells(t.after, binding):
+                    for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                        if 0 <= nx < 64 and 0 <= ny < 64:
+                            c = t.after[ny * 64 + nx]
+                            if c in hazard_colors:
+                                survived[c] += 1
+        lethal = frozenset(
+            c for c, n in hazard_colors.items() if n >= 1 and survived[c] == 0
         )
+        if lethal:
+            rules.append(HazardRule(colors=lethal))
 
     ruleset: RuleSet = tuple(rules)
     report = evaluate(ruleset, timeline, binding, volatile, depleting)

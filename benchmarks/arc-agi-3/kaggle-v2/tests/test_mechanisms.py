@@ -25,22 +25,39 @@ def append_step(tl: Timeline, before: bytes, action: ActionSpec, after: bytes) -
 # -- far-click cell volatility ---------------------------------------------
 
 
-def test_far_click_cells_are_volatile_near_cells_are_not():
+def test_far_click_needs_distinct_origins_switch_door_stays_visible():
+    # A HUD counter changes for far clicks at MANY coordinates -> masked.
+    # A door toggled by its one remote switch changes under a single far
+    # origin -> must stay visible (remote-effect gameplay, not HUD).
     tl = Timeline()
-    click = ActionSpec(6, 5, 5)
-    base = EMPTY
     for i in range(14):
         cells = {}
-        if i in (3, 7):  # HUD counter at (60, 60): far from every click
+        if i in (3, 7):  # counter reacts to far clicks from two origins
             cells[(60, 60)] = 9
-        if i in (4, 8):  # gameplay change adjacent to the click
-            cells[(6, 5)] = 5
-        after = put(base, cells)
-        append_step(tl, base, click, after)
-        base = EMPTY  # changes revert so each transition diffs afresh
+        if i in (4, 8):  # door reacts only to its one switch at (5, 5)
+            cells[(50, 50)] = 7
+        click = ActionSpec(6, 5, 5) if i != 7 else ActionSpec(6, 20, 20)
+        append_step(tl, EMPTY, click, put(EMPTY, cells))
     vol = volatile_cells(tl)
-    assert 60 * W + 60 in vol  # 2 far-click changes suffice
-    assert 5 * W + 6 not in vol  # near-click churn stays visible
+    assert 60 * W + 60 in vol  # two distinct far origins -> HUD
+    assert 50 * W + 50 not in vol  # single-switch door stays gameplay
+
+
+def test_churn_masking_requires_action_independence():
+    # A cell churning on nearly every transition is masked only when >=2
+    # distinct actions drove the churn (action-independence = HUD); the
+    # same churn under a single repeated action stays visible.
+    def build(actions):
+        tl = Timeline()
+        for i, a in enumerate(actions):
+            before = put(EMPTY, {(30, 30): 5 if i % 2 else 6})
+            after = put(EMPTY, {(30, 30): 6 if i % 2 else 5})
+            append_step(tl, before, ActionSpec(a), after)
+        return tl
+    both = volatile_cells(build([1, 2] * 10))
+    single = volatile_cells(build([1] * 20))
+    assert 30 * W + 30 in both
+    assert 30 * W + 30 not in single
 
 
 # -- reset-aware depleting colors ------------------------------------------
@@ -115,14 +132,18 @@ def test_rebind_keeps_prior_binding_when_evidence_evaporates():
 # -- cell-precision click targets -------------------------------------------
 
 
-def test_click_targets_enumerate_pattern_board_cells():
-    board = {(x, y): 2 for x in range(10, 16) for y in range(20, 26)}  # 6x6
+def test_click_targets_enumerate_cells_once_color_shows_click_evidence():
+    # 10x10 board (size 100 — outside the old 9-49 window): once a click
+    # on its color has produced a change, its cells are enumerated.
+    board = {(x, y): 2 for x in range(10, 20) for y in range(20, 30)}
     g = put(EMPTY, {**board, (50, 50): 5})
     ex = Explorer()
+    # No evidence yet: centroids only, no cell sweep.
+    assert sum(1 for t in ex._click_targets(g) if t in board) <= 1
+    ex.note_result("s0", ActionSpec(6, 12, 22), changed=True, grid=g)
     targets = ex._click_targets(g)
-    # Centroids come first; the mid-sized board then contributes every cell.
-    assert (10, 20) in targets and (15, 25) in targets
-    assert sum(1 for t in targets if t in board) >= 36
+    assert (10, 20) in targets and (19, 29) in targets
+    assert sum(1 for t in targets if t in board) >= 100
 
 
 # -- review findings: director mask/key regressions -------------------------
@@ -146,16 +167,173 @@ def test_avatar_color_zero_survives_mask_update():
     assert d.mask_avatar == 0
 
 
-def test_rebuild_keys_records_masked_noops_as_bans():
+def test_bans_key_off_raw_change_masks_only_rank():
     from ouro2.director import Director
 
-    # A transition that only ticked a masked HUD cell must rebuild as a
-    # no-op (ban), exactly as _record would have judged it live.
+    # A truly changeless transition rebuilds as a ban; a transition whose
+    # only change sits under a mask does NOT — a wrong mask must never be
+    # able to permanently bury an action (the remote-switch scenario).
     d = Director()
     hud = (60, 60)
     d.mask_volatile = frozenset({hud[1] * W + hud[0]})
-    before = EMPTY
-    after = put(EMPTY, {hud: 9})
-    d.timeline.append(before, ActionSpec(1), after, "NOT_FINISHED", 0, 0)
+    noop_after = EMPTY
+    masked_after = put(EMPTY, {hud: 9})
+    d.timeline.append(EMPTY, ActionSpec(1), noop_after, "NOT_FINISHED", 0, 0)
+    d.timeline.append(EMPTY, ActionSpec(2), masked_after, "NOT_FINISHED", 0, 0)
     d._rebuild_keys()
-    assert (d._key(before), (1, None, None)) in d.explorer.noop_bans
+    key = d._key(EMPTY)
+    assert (key, (1, None, None)) in d.explorer.noop_bans
+    assert (key, (2, None, None)) not in d.explorer.noop_bans
+
+
+# -- generalization pass: death-model accountability -------------------------
+
+
+def test_hazard_falsified_by_survival_while_adjacent():
+    from ouro2.induce import induce
+
+    # Avatar 5 walks along a color-9 wall for many steps, dies ONCE next to
+    # it: survival evidence must refute the hazard. A second color (7) seen
+    # only at the death stays lethal.
+    tl = Timeline()
+    def g(x, extra=None):
+        cells = {(xx, 12): 9 for xx in range(8, 20)}  # wall above the walk
+        cells[(x, 13)] = 5
+        cells.update(extra or {})
+        return put(EMPTY, cells)
+    for i in range(8, 18):
+        append_step(tl, g(i), ActionSpec(4), g(i + 1))
+    death = put(EMPTY, {(18, 13): 5, (19, 13): 7, (18, 12): 9})
+    tl.append(g(18), ActionSpec(4), death, "GAME_OVER", 0, 0)
+    model = induce(tl)
+    from ouro2.rules import HazardRule
+    hazards = [r for r in model.rules if isinstance(r, HazardRule)]
+    lethal = set().union(*(h.colors for h in hazards)) if hazards else set()
+    assert 9 not in lethal  # survived adjacent 10x -> falsified
+    assert 7 in lethal  # only ever seen at the death
+
+
+def test_backtest_penalizes_predicted_death_on_survival():
+    from ouro2.induce import evaluate
+    from ouro2.rules import Binding, HazardRule
+
+    # Model wrongly claims color 9 kills on adjacency; the avatar stands
+    # next to a 9 and lives. Grid equality must not absolve the false
+    # hazard — it must count as a contradiction.
+    binding = Binding(avatar_color=5)
+    before = put(EMPTY, {(10, 10): 5, (10, 9): 9})
+    tl = Timeline()
+    append_step(tl, before, ActionSpec(7), before)  # survived, unchanged
+    report = evaluate((HazardRule(colors=frozenset({9})),), tl, binding)
+    assert report.contradictions == 1 and report.support == 0
+
+
+def test_soft_lock_reset_requires_movement_to_have_worked():
+    from ouro2.director import Director
+    from ouro2.timeline import RESET
+
+    class View:
+        state = "NOT_FINISHED"
+        levels_completed = 0
+        full_reset = False
+        available_actions = [1, 2, 3, 4]
+        def __init__(self, grid):
+            self.grid = grid
+
+    def drive(worked_first: bool) -> list[str]:
+        d = Director()
+        g0 = put(EMPTY, {(10, 10): 5})
+        g1 = put(EMPTY, {(11, 10): 5})
+        d.choose(View(g0))
+        if worked_first:  # one move that visibly worked this level
+            d.last_action = ActionSpec(1)
+            d.choose(View(g1))
+        reasons = []
+        cur = g1 if worked_first else g0
+        for _ in range(10):  # then moves go dead
+            d.last_action = ActionSpec(1)
+            a = d.choose(View(cur))
+            reasons.append(a.reason)
+        return reasons
+
+    assert any("soft-lock" in r for r in drive(True))
+    assert not any("soft-lock" in r for r in drive(False))
+
+
+# -- generalization pass: evidence-relative thresholds -----------------------
+
+
+def test_diagonal_avatar_binds():
+    # The old axis-jump gate (single-axis, 1-8) rejected diagonal movers;
+    # recurrence is the evidence now.
+    tl = Timeline()
+    def g(x, y):
+        return put(EMPTY, {(x, y): 5})
+    for i in range(6):
+        append_step(tl, g(10 + i, 10 + i), ActionSpec(4), g(11 + i, 11 + i))
+    assert rebind(tl).avatar_color == 5
+
+
+def test_inert_cell_suppression_decays():
+    g = put(EMPTY, {(3, 3): 5, (30, 30): 6})
+    ex = Explorer()
+    for _ in range(2):  # (3,3) proven inert twice
+        ex.note_result("s", ActionSpec(6, 3, 3), changed=False, grid=g)
+    assert (3, 3) not in ex._ranked_clicks(g)  # suppressed while fresh
+    ex.clock += 200  # ...but the suppression decays
+    assert (3, 3) in ex._ranked_clicks(g)
+
+
+def test_counter_eq_goal_rejected_by_negative_example():
+    from ouro2.induce import infer_goal_candidates
+    from ouro2.rules import Binding
+
+    # Level completes with 2 of color 7 consumed — but an EARLIER state in
+    # the level already had exactly 2 consumed without completing, so
+    # counter_eq(7, 2) is refuted by the negative example.
+    binding = Binding(avatar_color=5)
+    def g(n_pellets, ax):
+        cells = {(x, 40): 7 for x in range(n_pellets)}
+        cells[(ax, 41)] = 5
+        return put(EMPTY, cells)
+    tl = Timeline()
+    append_step(tl, g(3, 0), ActionSpec(4), g(1, 1))   # consumed 2 already
+    append_step(tl, g(1, 1), ActionSpec(4), g(1, 2))   # wandered
+    tl.append(g(1, 2), ActionSpec(4), g(0, 3), "NOT_FINISHED", 0, 1)  # level up
+    goals = infer_goal_candidates(tl, binding)
+    assert all(
+        not (goal.kind == "counter_eq" and goal.color == 7 and goal.count == 2)
+        for goal in goals
+    )
+
+
+# -- generalization pass: reversible masks -----------------------------------
+
+
+def test_masks_rederive_and_shrink_with_evidence():
+    from ouro2.director import Director
+
+    # A mask must follow the CURRENT evidence: when re-induction stops
+    # supporting a masked cell, the mask releases it (old behavior: masks
+    # were monotone unions and never shrank).
+    d = Director()
+    d.mask_volatile = frozenset({123})
+
+    class FakeModel:
+        volatile = frozenset()
+        depleting = frozenset()
+
+        class binding:
+            avatar_color = None
+
+    import ouro2.director as director_mod
+
+    real_induce = director_mod.induce
+    director_mod.induce = lambda *a, **k: FakeModel()
+    try:
+        for i in range(5):
+            append_step(d.timeline, EMPTY, ActionSpec(1), EMPTY)
+        d._maybe_reinduce()
+    finally:
+        director_mod.induce = real_induce
+    assert d.mask_volatile == frozenset()

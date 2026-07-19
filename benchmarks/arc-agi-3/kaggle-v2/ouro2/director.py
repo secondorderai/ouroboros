@@ -96,13 +96,16 @@ class Director:
         self.graph_edges: dict[tuple[str, tuple], Counter] = {}
         self.lethal_edges: set[tuple[str, tuple]] = set()
         self.key_grids: dict[str, Grid] = {}  # representative grid per key
-        # Cumulative identity masks: monotone unions, so mask jitter between
-        # inductions cannot thrash the key epoch (every rebuild wipes
-        # exploration memory — rebuilds must be rare and meaningful).
+        # Identity masks, RE-DERIVED at every induction (accountable and
+        # reversible — a wrongly-masked cell gets unmasked when the evidence
+        # stops supporting it). Rebuilds are lossless: _rebuild_keys
+        # reconstructs every derived structure from the timeline, so a mask
+        # change costs CPU, never exploration memory.
         self.mask_volatile: frozenset[int] = frozenset()
         self.mask_depleting: frozenset[int] = frozenset()
         self.mask_avatar: int | None = None
         self.consec_move_noops = 0  # all-moves-dead soft-lock detector
+        self.level_moves_worked = False  # gate for the soft-lock reset
 
     def _key(self, g: Grid) -> str:
         from .induce import masked
@@ -253,16 +256,21 @@ class Director:
             full_reset=view.full_reset,
         )
         if view.grid is not None and self.last_grid is not None:
-            changed = view.grid != self.last_grid
+            raw_changed = view.grid != self.last_grid
             # For LEARNING, "changed" means changed outside the masks: a
             # click that only ticks an attempt counter is a no-op in every
-            # way that matters.
+            # way that matters. Bans are the exception — they key off
+            # raw_changed inside note_result, so a wrong mask can cost
+            # ranking, never a permanent ban.
+            changed = raw_changed
             if changed and self.model is not None:
                 changed = not self.model.matches(view.grid, self.last_grid)
             if not changed and not action.is_reset():
                 self.ledger.noops += 1
             if action.action in (1, 2, 3, 4):
                 self.consec_move_noops = 0 if changed else self.consec_move_noops + 1
+                if changed:
+                    self.level_moves_worked = True
             elif action.is_reset():
                 self.consec_move_noops = 0
             key = self._key(view.grid)
@@ -275,7 +283,7 @@ class Director:
             self.key_grids.setdefault(key, view.grid)
             self.explorer.note_result(
                 self._key(self.last_grid), action, changed,
-                grid=self.last_grid, novel=novel,
+                grid=self.last_grid, novel=novel, raw_changed=raw_changed,
             )
             if not action.is_reset():
                 edge = (self._key(self.last_grid), action.key())
@@ -321,6 +329,10 @@ class Director:
             self.explorer.ban(self._key(self.last_grid), action)
             self.lethal_edges.add((self._key(self.last_grid), action.key()))
         # Track the level-start grid for consumed-counter reconstruction.
+        if view.levels_completed != self.last_levels or view.full_reset:
+            # New level: what we know about movement no longer applies.
+            # (A within-level reset keeps the knowledge — same mechanics.)
+            self.level_moves_worked = False
         if view.levels_completed != self.last_levels or view.full_reset or (
             action.is_reset() and view.grid is not None
         ):
@@ -345,9 +357,16 @@ class Director:
             return RESET
         if view.grid is None:
             return self._explore(view)
-        # Soft-lock escape: every recent move no-oped (ls20-class energy
-        # exhaustion) — a level reset refills the resource; one action.
-        if self.consec_move_noops >= 4 and self.timeline.current_level_transitions():
+        # Soft-lock escape: every recent move no-oped AFTER movement had
+        # been working this level (energy-exhaustion class) — a level reset
+        # refills the resource; one action. Gated on level_moves_worked:
+        # in a game where moves were never the mechanic, dead moves are
+        # normal and a reset would only forfeit click progress.
+        if (
+            self.consec_move_noops >= 4
+            and self.level_moves_worked
+            and self.timeline.current_level_transitions()
+        ):
             self.consec_move_noops = 0
             self.reinduce_pending = True
             return ActionSpec(0, source="director", reason="soft-lock: moves dead")
@@ -390,8 +409,8 @@ class Director:
                 self.induced_at = len(self.timeline)
                 self.reinduce_pending = False
                 self.plan_retry_at = 0  # new evidence: planning may retry
-                new_vol = self.mask_volatile | self.model.volatile
-                new_dep = self.mask_depleting | self.model.depleting
+                new_vol = self.model.volatile
+                new_dep = self.model.depleting
                 new_avatar = (
                     self.model.binding.avatar_color
                     if self.model.binding.avatar_color is not None
@@ -431,11 +450,11 @@ class Director:
             ex.clock += 1
             if not t.action.is_reset():
                 ex.last_used[(key, t.action.key())] = ex.clock
-            # Masked comparison, matching _record's live semantics: a
-            # transition that only ticked a HUD counter must rebuild as a
-            # no-op or every rebuild wipes the explorer's paid-for bans.
+            # Masked comparison for learning, raw for bans — matching
+            # _record's live semantics exactly.
             changed = t.after is not None and self._key(t.after) != key
-            ex.note_result(key, t.action, changed, grid=t.before)
+            raw = t.after is not None and t.after != t.before
+            ex.note_result(key, t.action, changed, grid=t.before, raw_changed=raw)
             if t.after is not None and not t.action.is_reset():
                 self.graph_edges.setdefault(
                     (key, t.action.key()), Counter()
@@ -482,13 +501,20 @@ class Director:
             and not any(isinstance(r, TickRule) for r in model.rules)
             and model.binding.avatar_color is not None
             and model.report.support >= 12
-            # Miss RATE, not zero misses: real games carry residual events
-            # (ls20's terrain transforms) a mostly-right model mispredicts;
-            # cheap per-step-verified probes + the one-strike policy bound
-            # the cost of being wrong.
+            # Miss RATE at THIS level, not zero misses: real games carry
+            # residual events a mostly-right model mispredicts. Rate is
+            # per-level misses over per-level evidence (dividing by global
+            # support let one noisy level ride on another's clean record),
+            # with a small-sample floor so a fresh level isn't disarmed by
+            # its first residual.
             and (
                 model.report.misses_by_level.get(view.levels_completed, 0)
-                <= 0.2 * max(1, model.report.support)
+                <= 0.2
+                * max(
+                    5,
+                    model.report.matches_by_level.get(view.levels_completed, 0)
+                    + model.report.misses_by_level.get(view.levels_completed, 0),
+                )
             )
         )
 
