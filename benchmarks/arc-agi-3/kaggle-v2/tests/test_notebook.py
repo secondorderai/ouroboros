@@ -29,6 +29,8 @@ def test_notebook_emits_required_cells(tmp_path):
     assert meta["enable_internet"] is False
     assert meta["competition_sources"] == ["arc-prize-2026-arc-agi-3"]
     assert meta["model_sources"] == []  # deterministic default
+    assert meta["dataset_sources"] == []  # no wheels needed without the model
+    assert "transformers-qwen35-wheels" not in joined
 
 
 def test_notebook_model_variant_attaches_model(tmp_path):
@@ -53,3 +55,13 @@ def test_notebook_model_variant_attaches_model(tmp_path):
     assert "model-smoke" in joined
     assert "._transformers(" in joined
     assert "traceback.print_exc()" in joined
+    # The rerun image's transformers is too old for qwen3_5: the model
+    # variant must attach the pinned-wheels dataset and upgrade offline,
+    # BEFORE the run cell.
+    assert meta["dataset_sources"] == ["kinwochan/transformers-qwen35-wheels"]
+    install = "--find-links /kaggle/input/transformers-qwen35-wheels transformers"
+    assert install in joined
+    sources = ["".join(c["source"]) for c in nb["cells"]]
+    wheel_idx = next(i for i, s in enumerate(sources) if "transformers-qwen35-wheels" in s)
+    run_idx = next(i for i, s in enumerate(sources) if "KAGGLE_IS_COMPETITION_RERUN" in s)
+    assert wheel_idx < run_idx

@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_FILES = sorted(p.name for p in (ROOT / "ouro2").glob("*.py"))
 KERNEL_ID = "kinwochan/ouroboros-arc-agi-3-v2"
 MODEL_SOURCE = "kinwochan/qwen-3-5-4b/transformers/qwen-3-5-4b/1"
+# The rerun image's transformers predates the qwen3_5 architecture
+# (KeyError 'qwen3_5', proven by the v2 save-run smoke) — the model
+# variant upgrades from this pinned-wheels dataset, offline.
+WHEELS_DATASET = "kinwochan/transformers-qwen35-wheels"
 COMP = "arc-prize-2026-arc-agi-3"
 
 
@@ -127,6 +131,15 @@ def build(model: bool) -> dict:
         ),
         code_cell("import os\nos.makedirs('/tmp/ouro2', exist_ok=True)"),
     ]
+    if model:
+        cells.insert(
+            1,
+            code_cell(
+                "%pip install --no-index --no-deps --upgrade --find-links "
+                f"/kaggle/input/{WHEELS_DATASET.split('/')[1]} "
+                "transformers tokenizers huggingface-hub safetensors"
+            ),
+        )
     for name in PACKAGE_FILES:
         cells.append(
             writefile_cell(f"/tmp/ouro2/{name}", (ROOT / "ouro2" / name).read_text())
@@ -165,7 +178,7 @@ def kernel_metadata(model: bool) -> dict:
         "enable_gpu": bool(model),
         "enable_internet": False,
         "competition_sources": [COMP],
-        "dataset_sources": [],
+        "dataset_sources": [WHEELS_DATASET] if model else [],
         "kernel_sources": [],
         "model_sources": [MODEL_SOURCE] if model else [],
     }
