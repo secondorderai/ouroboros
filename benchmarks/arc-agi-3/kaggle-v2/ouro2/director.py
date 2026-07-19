@@ -88,7 +88,6 @@ class Director:
         self.last_stuck_reset_at = 0
         self.aborts_since_induce = 0
         self.model_paused_until = 0  # circuit breaker: timeline length gate
-        self.breaker_trips: dict[int, int] = {}
         self.model_disabled_levels: set[int] = set()
         self.frontier_disabled_levels: set[int] = set()
         self.frontier_strikes: dict[int, int] = {}
@@ -311,12 +310,9 @@ class Director:
                 if self.aborts_since_induce >= 6:
                     # Circuit breaker: a chronically mispredicting model must
                     # not keep steering (strict additivity) — floor only for
-                    # a long window; two trips on one level disable the model
-                    # path for that level entirely.
+                    # a long window, then new evidence may earn control back.
                     self.model_paused_until = len(self.timeline) + 64
                     self.aborts_since_induce = 0
-                    level = view.levels_completed
-                    self.breaker_trips[level] = self.breaker_trips.get(level, 0) + 1
             else:
                 self.ledger.plan_steps += 1
             self.pending_prediction = None
