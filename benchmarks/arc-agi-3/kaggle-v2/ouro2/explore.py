@@ -95,6 +95,18 @@ class Explorer:
             if not added:
                 break
             round_idx += 1
+        # Cell-precision targets for small pattern boards: paint/copy games
+        # respond to individual CELLS, not object centroids (the audit's
+        # "center-of-object only" blind spot). Enumerate cells of up to two
+        # mid-sized objects.
+        boards = [
+            o for o in components(g) if 9 <= o.size <= 49 and o.width >= 3 and o.height >= 3
+        ][:2]
+        for o in boards:
+            for x, y in sorted(o.cells):
+                if len(out) >= 140:
+                    break
+                out.append((x, y))
         return out
 
     def _ranked_clicks(self, g: Grid) -> list[tuple[int, int]]:
