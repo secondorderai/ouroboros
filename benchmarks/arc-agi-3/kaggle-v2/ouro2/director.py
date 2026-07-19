@@ -81,6 +81,9 @@ class Director:
         self.induced_at = 0  # timeline length at last induction
         self.level_start_grid: Grid | None = None
         self.plan_retry_at = 0  # timeline length gate after a failed plan
+        # Post-WIN speedrun replay (a new play can only raise the score)
+        self.speedrun_queue: list[tuple[ActionSpec, Grid | None]] = []
+        self.speedrun_done = False
 
     # -- framework hooks -------------------------------------------------
     def wants_speedrun(self) -> bool:
@@ -102,7 +105,77 @@ class Director:
         return self.wants_speedrun_flag
 
     def _decide_speedrun(self, remaining_actions: int) -> bool:
-        return False  # enabled in M4
+        """After WIN: re-earn the game in a fresh play with a COMPRESSED
+        path — per level, a BFS plan inside the induced model if shorter,
+        else the recorded actions. Score = max over plays, so this can only
+        raise the score; per-step verification aborts back to live play on
+        any divergence. Skipped when nothing compresses (a verbatim replay
+        can only tie)."""
+        if self.speedrun_done:
+            return False
+        win_play = next(
+            (
+                p
+                for p in self.timeline.plays()
+                if any(t.state_after == "WIN" for t in p)
+            ),
+            None,
+        )
+        if win_play is None:
+            return False
+        queue: list[tuple[ActionSpec, Grid | None]] = []
+        recorded_total = 0
+        compressed = False
+        segments: dict[int, list] = {}
+        for t in win_play:
+            if not t.full_reset:
+                segments.setdefault(t.level, []).append(t)
+        model = self.model
+        for level in sorted(segments):
+            ts = segments[level]
+            recorded_total += len(ts)
+            start = ts[0].before
+            planned = None
+            if model is not None and model.goal is not None and start is not None:
+                planned = plan(
+                    State(start),
+                    model.rules,
+                    model.binding,
+                    model.goal,
+                    node_cap=self.config.node_cap,
+                    deadline_s=2.0,
+                )
+            if planned and len(planned) < len(ts):
+                compressed = True
+                sim = State(start)
+                for i, spec in enumerate(planned):
+                    sim, _ = step(sim, spec.key(), model.rules, model.binding)
+                    expected = None if i == len(planned) - 1 else sim.grid
+                    queue.append(
+                        (
+                            ActionSpec(
+                                spec.action, spec.x, spec.y,
+                                source="speedrun", reason="planned replay",
+                            ),
+                            expected,  # level-up swaps the board: unverifiable
+                        )
+                    )
+            else:
+                for t in ts:
+                    a = t.action
+                    queue.append(
+                        (
+                            ActionSpec(a.action, a.x, a.y, source="speedrun",
+                                       reason="recorded replay"),
+                            t.after,
+                        )
+                    )
+        needed = len(queue) + 1  # +1 for the RESET opening the new play
+        if not queue or not compressed or remaining_actions < needed * 1.15:
+            return False
+        self.speedrun_queue = queue
+        self.speedrun_done = True
+        return True
 
     def choose(self, view: FrameView) -> ActionSpec:
         started = time.monotonic()
@@ -161,15 +234,21 @@ class Director:
                 self.ledger.revisits += 1
             self.seen_keys.add(key)
             self.explorer.note_result(grid_key(self.last_grid), action, changed)
-        # Verify the committed plan step: reality outranks the model.
+        # Verify the committed step (plan or speedrun): reality outranks
+        # the model/recording.
         if self.pending_prediction is not None:
             if view.grid is not None and view.grid != self.pending_prediction:
                 self.plan_queue.clear()
+                self.speedrun_queue.clear()
+                self.wants_speedrun_flag = False
                 self.ledger.plan_aborts += 1
                 self.reinduce_pending = True
             else:
                 self.ledger.plan_steps += 1
             self.pending_prediction = None
+        # Autopsy: never repeat the exact action that ended the game.
+        if view.state == "GAME_OVER" and self.last_grid is not None:
+            self.explorer.ban(grid_key(self.last_grid), action)
         # Track the level-start grid for consumed-counter reconstruction.
         if view.levels_completed != self.last_levels or view.full_reset or (
             action.is_reset() and view.grid is not None
@@ -183,14 +262,23 @@ class Director:
             return RESET
         if view.state == "GAME_OVER":
             self.plan_queue.clear()
+            self.speedrun_queue.clear()
+            self.wants_speedrun_flag = False
             self.pending_prediction = None
             self.reinduce_pending = True
             return RESET
         if view.state == "WIN":
+            if self.wants_speedrun_flag and self.speedrun_queue:
+                return RESET  # full reset at WIN: starts the replay play
             self.wants_speedrun_flag = False
-            return RESET  # only reached if is_done was overridden to continue
+            return RESET
         if view.grid is None:
             return self._explore(view)
+        if self.speedrun_queue:
+            action, expected = self.speedrun_queue.pop(0)
+            self.pending_prediction = expected
+            self.ledger.speedrun_actions += 1
+            return action
         if self.plan_queue:
             action, predicted = self.plan_queue.pop(0)
             self.pending_prediction = predicted
@@ -202,6 +290,8 @@ class Director:
         return self._explore(view)
 
     def _maybe_reinduce(self) -> None:
+        if self.ledger.think_time_s > self.config.time_budget_s:
+            return  # over budget: degrade to the explorer floor
         grown = len(self.timeline) - self.induced_at
         if self.model is None or self.reinduce_pending or grown >= 16:
             if len(self.timeline) >= 4:
@@ -229,6 +319,7 @@ class Director:
             or model.goal is None
             or not model.healthy_for(view.levels_completed)
             or len(self.timeline) < self.plan_retry_at
+            or self.ledger.think_time_s > self.config.time_budget_s
         ):
             return None
         state = State(view.grid, counters=self._consumed_counters(view.grid))

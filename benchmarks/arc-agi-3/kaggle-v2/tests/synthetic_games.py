@@ -172,3 +172,95 @@ class CollectGame(SyntheticGame):
         pellets.discard((nx, ny))
         s = dict(s, avatar=(nx, ny), pellets=pellets)
         return s, not pellets, False
+
+
+class HazardTickGame(SyntheticGame):
+    """A patrolling enemy sweeps a corridor; touching it is death.
+
+    The enemy bounces between x=5 and x=7 on row 6; columns 4 and 8 are
+    always safe crossings. Avatar must reach the goal below the corridor.
+    """
+
+    n_levels = 1
+    available = (0, 1, 2, 3, 4)
+    LO, HI = 5, 7
+
+    def initial(self, level: int) -> dict:
+        walls = set()
+        for x in range(3, 10):
+            walls |= {(x, 3), (x, 9)}
+        for y in range(3, 10):
+            walls |= {(3, y), (9, y)}
+        return {
+            "avatar": (6, 4),
+            "goal": (6, 8),
+            "enemy": (5, 6),
+            "dir": 1,
+            "walls": walls,
+        }
+
+    def render(self, s: dict) -> list[list[int]]:
+        rows = empty_rows()
+        for x, y in s["walls"]:
+            rows[y][x] = WALL
+        gx, gy = s["goal"]
+        rows[gy][gx] = GOAL
+        ex, ey = s["enemy"]
+        rows[ey][ex] = HZ
+        ax, ay = s["avatar"]
+        rows[ay][ax] = AV
+        return rows
+
+    def apply(self, s: dict, action: ActionSpec):
+        delta = DELTAS.get(action.action)
+        ax, ay = s["avatar"]
+        if delta is not None:
+            nx, ny = ax + delta[0], ay + delta[1]
+            if (nx, ny) not in s["walls"]:
+                ax, ay = nx, ny
+        # Enemy ticks every action, bouncing between LO and HI.
+        ex, ey = s["enemy"]
+        d = s["dir"]
+        if not self.LO <= ex + d <= self.HI:
+            d = -d
+        ex += d
+        s = dict(s, avatar=(ax, ay), enemy=(ex, ey), dir=d)
+        if (ax, ay) == (ex, ey):
+            return s, False, True
+        return s, (ax, ay) == s["goal"], False
+
+
+class NoopGame(SyntheticGame):
+    """Actions 1, 5 and 7 do nothing; 2/3/4 move. Tests the futility ledger."""
+
+    n_levels = 1
+    available = (0, 1, 2, 3, 4, 5, 7)
+
+    def initial(self, level: int) -> dict:
+        walls = set()
+        for x in range(2, 9):
+            walls |= {(x, 2), (x, 8)}
+        for y in range(2, 9):
+            walls |= {(2, y), (8, y)}
+        return {"avatar": (3, 3), "goal": (7, 7), "walls": walls}
+
+    def render(self, s: dict) -> list[list[int]]:
+        rows = empty_rows()
+        for x, y in s["walls"]:
+            rows[y][x] = WALL
+        gx, gy = s["goal"]
+        rows[gy][gx] = GOAL
+        ax, ay = s["avatar"]
+        rows[ay][ax] = AV
+        return rows
+
+    def apply(self, s: dict, action: ActionSpec):
+        if action.action not in (2, 3, 4):
+            return s, False, False  # 1/5/7 are no-ops in this game
+        delta = DELTAS[action.action]
+        ax, ay = s["avatar"]
+        nx, ny = ax + delta[0], ay + delta[1]
+        if (nx, ny) in s["walls"]:
+            return s, False, False
+        s = dict(s, avatar=(nx, ny))
+        return s, (nx, ny) == s["goal"], False

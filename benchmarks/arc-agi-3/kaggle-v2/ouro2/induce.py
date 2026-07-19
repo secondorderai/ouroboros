@@ -61,10 +61,12 @@ def translated(before: Grid, after: Grid, color: int) -> tuple[int, int] | None:
 
 
 def rebind(timeline: Timeline) -> Binding:
-    """Pick the avatar color: the color most often rigidly translated by
-    unit distance under simple actions. This is the representation-revision
-    entry point — called fresh on every (re)induction."""
-    votes: Counter[int] = Counter()
+    """Pick the avatar color: the color whose translation is a FUNCTION of
+    the action. A passive ticker moves identically whatever you press; the
+    controlled object answers different actions with different deltas.
+    This is the representation-revision entry point — called fresh on every
+    (re)induction."""
+    per_color: dict[int, dict[int, Counter]] = defaultdict(lambda: defaultdict(Counter))
     for t in _informative(timeline):
         if t.before is None or t.after is None or t.action.action not in SIMPLE_MOVE_ACTIONS:
             continue
@@ -74,10 +76,20 @@ def rebind(timeline: Timeline) -> Binding:
         for color in {old for _, _, old, _ in changed}:
             delta = translated(t.before, t.after, color)
             if delta is not None and abs(delta[0]) + abs(delta[1]) == 1:
-                votes[color] += 1
-    if not votes:
+                per_color[color][t.action.action][delta] += 1
+    best_color = None
+    best_score = 0
+    for color, by_action in per_color.items():
+        majority = {a: c.most_common(1)[0] for a, c in by_action.items()}
+        distinct = {delta for delta, _ in majority.values()}
+        if len(majority) >= 2 and len(distinct) < 2:
+            continue  # constant delta across actions: a ticker, not an avatar
+        score = sum(n for _, n in majority.values())
+        if score > best_score:
+            best_color, best_score = color, score
+    if best_color is None:
         return Binding()
-    return Binding(avatar_color=votes.most_common(1)[0][0])
+    return Binding(avatar_color=best_color)
 
 
 # ---------------------------------------------------------------------------
@@ -428,12 +440,16 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
                     mapping.setdefault(src, dst)
         if mapping:
             rules.append(ClickRule(scope=scope, mapping=tuple(sorted(mapping.items()))))
-    tick_votes = Counter()
+    tick_by_color: dict[int, Counter] = defaultdict(Counter)
     for rule, n in votes.items():
         if isinstance(rule, TickRule):
-            tick_votes[(rule.color, rule.delta)] += n
-    for (color, delta), n in tick_votes.items():
-        if n >= 3 and (binding.avatar_color is None or color != binding.avatar_color):
+            if binding.avatar_color is None or rule.color != binding.avatar_color:
+                tick_by_color[rule.color][rule.delta] += n
+    for color, deltas in tick_by_color.items():
+        delta, n = deltas.most_common(1)[0]
+        # Majority delta only — a bouncing patroller votes both directions;
+        # emitting both would cancel out in the interpreter.
+        if n >= 3:
             rules.append(TickRule(color=color, delta=delta))
     hazard_colors: Counter[int] = Counter()
     for rule, n in votes.items():

@@ -29,6 +29,11 @@ class Explorer:
         if not changed and not action.is_reset():
             self.noop_bans.add((state_key, action.key()))
 
+    def ban(self, state_key: str, action: ActionSpec) -> None:
+        """Permanent ban (deaths): never repeat this exact mistake."""
+        self.noop_bans.add((state_key, action.key()))
+        self.tried.setdefault(state_key, set()).add(action.key())
+
     def _click_targets(self, g: Grid) -> list[tuple[int, int]]:
         return [o.centroid for o in components(g)[:24]]
 
