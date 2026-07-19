@@ -1,0 +1,105 @@
+<mxfile host="app.diagrams.net" agent="ouroboros" version="24.7.8">
+  <diagram id="ouro2-v2-arch" name="ARC-AGI-3 Kaggle V2 Architecture">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1660" pageHeight="1260" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ============ Lane A: Kaggle publish pipeline ============ -->
+        <mxCell id="laneA" value="Kaggle publish pipeline" style="rounded=1;html=1;fillColor=#FFF7EE;strokeColor=#D79B00;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="1580" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="build" value="&lt;b&gt;build_notebook.py&lt;/b&gt;&lt;br&gt;deterministic pack of ouro2/*.py&lt;br&gt;(derived file list) + kernel metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="80" y="120" width="230" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="cpuKernel" value="&lt;b&gt;ouroboros-arc-agi-3-v2&lt;/b&gt;&lt;br&gt;CPU kernel — deterministic, 0 LLM calls (the product)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="390" y="85" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="gpuKernel" value="&lt;b&gt;ouroboros-arc-agi-3-v2-qwen&lt;/b&gt;&lt;br&gt;GPU kernel — T4 pin, offline wheels install,&lt;br&gt;save-run model smoke (subprocess)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="390" y="175" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="wheels" value="&lt;b&gt;Wheels dataset&lt;/b&gt;&lt;br&gt;transformers 5.14.1 (+deps)&lt;br&gt;— image lacks qwen3_5 arch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="770" y="85" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="qwenModel" value="&lt;b&gt;Model source&lt;/b&gt;&lt;br&gt;Qwen 3.5 4B (bf16, cuda:0)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="770" y="185" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="rerun" value="&lt;b&gt;Competition rerun&lt;/b&gt;&lt;br&gt;KAGGLE_IS_COMPETITION_RERUN&lt;br&gt;gateway :8001 → framework main.py&lt;br&gt;→ MyAgent adapter (per hidden game)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="1180" y="110" width="340" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="eA1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="build" target="cpuKernel"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eA2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="build" target="gpuKernel"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eA3" value="attached" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1" edge="1" parent="1" source="wheels" target="gpuKernel"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eA4" value="attached" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1" edge="1" parent="1" source="qwenModel" target="gpuKernel"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eA5" value="scored rerun" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="cpuKernel" target="rerun"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eA6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="gpuKernel" target="rerun"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ============ Lane B: ouro2 core loop ============ -->
+        <mxCell id="laneB" value="ouro2 core — per-game loop (320 actions, rules-as-data, no codegen)" style="rounded=1;html=1;fillColor=#F4F8FD;strokeColor=#6C8EBF;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="330" width="1580" height="590" as="geometry" />
+        </mxCell>
+        <mxCell id="env" value="&lt;b&gt;Game environment&lt;/b&gt;&lt;br&gt;64x64 frames, levels,&lt;br&gt;WIN / GAME_OVER,&lt;br&gt;actions 1-5, 7 + click 6" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666" vertex="1" parent="1">
+          <mxGeometry x="80" y="560" width="210" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="director" value="&lt;b&gt;Director&lt;/b&gt;&lt;br&gt;record → decide; budgets,&lt;br&gt;gated soft-lock / stuck escapes,&lt;br&gt;post-WIN compressed speedrun" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf" vertex="1" parent="1">
+          <mxGeometry x="350" y="400" width="260" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="timeline" value="&lt;b&gt;Timeline&lt;/b&gt;&lt;br&gt;append-only transitions&lt;br&gt;(ground truth)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf" vertex="1" parent="1">
+          <mxGeometry x="350" y="560" width="260" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="induction" value="&lt;b&gt;Induction&lt;/b&gt;&lt;br&gt;identity masks — re-derived, reversible&lt;br&gt;(volatility needs action-independence,&lt;br&gt;far-click needs 2+ distinct origins)&lt;br&gt;avatar binding (recurring deltas)&lt;br&gt;rule candidates + specialize-by-counterexample&lt;br&gt;goal inference (+ negative examples)&lt;br&gt;hazards falsified by survival evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10" vertex="1" parent="1">
+          <mxGeometry x="670" y="560" width="330" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="model" value="&lt;b&gt;Model&lt;/b&gt;&lt;br&gt;DSL: move / click_effect /&lt;br&gt;tick_move / hazard + goal predicates&lt;br&gt;backtest Report (per-level support/misses)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366" vertex="1" parent="1">
+          <mxGeometry x="1070" y="600" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="planner" value="&lt;b&gt;Planner&lt;/b&gt;&lt;br&gt;BFS exploit to goal,&lt;br&gt;frontier probes (per-level miss-rate gate,&lt;br&gt;three strikes), graph routing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf" vertex="1" parent="1">
+          <mxGeometry x="1070" y="400" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="executor" value="&lt;b&gt;Executor&lt;/b&gt;&lt;br&gt;committed queue, per-step verification&lt;br&gt;(reality outranks the model)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf" vertex="1" parent="1">
+          <mxGeometry x="670" y="400" width="310" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="explorer" value="&lt;b&gt;Explorer floor&lt;/b&gt; (plays what the DSL cannot model)&lt;br&gt;untried actions → evidence-ranked clicks → LRU rotor;&lt;br&gt;RAW no-op bans, decaying inert priors,&lt;br&gt;novelty-guarded click milking" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
+          <mxGeometry x="80" y="740" width="440" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="oracle" value="&lt;b&gt;Oracle (optional 4B)&lt;/b&gt;&lt;br&gt;multiple-choice JSON tie-break, temp 0,&lt;br&gt;fail-open + load-failure latch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="1070" y="770" width="280" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="eB0" value="MyAgent drives" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1" edge="1" parent="1" source="rerun" target="director"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB1" value="frame" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="env" target="director"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB2" value="record" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="director" target="timeline"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB3" value="reinduce (every 16)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="timeline" target="induction"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB4" value="certified by backtest" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="induction" target="model"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB5" value="healthy_for gates" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="model" target="planner"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB6" value="plan queue" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="planner" target="executor"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB7" value="verified actions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="executor" target="director"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB8" value="abort → counterexample" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1" edge="1" parent="1" source="executor" target="induction"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB9" value="no plan → floor" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="director" target="explorer"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB10" value="action" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="explorer" target="env"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB11" value="goal tie-break" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1" edge="1" parent="1" source="oracle" target="induction"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eB12" value="act" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="director" target="env"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ============ Lane C: local validation harness ============ -->
+        <mxCell id="laneC" value="Local validation harness (anti-overfit discipline)" style="rounded=1;html=1;fillColor=#FDF3F2;strokeColor=#B85450;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="950" width="1580" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="fakeenv" value="&lt;b&gt;FakeEnv + 6 synthetic games&lt;/b&gt;&lt;br&gt;unit + gate tests&lt;br&gt;(every mechanism pinned)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450" vertex="1" parent="1">
+          <mxGeometry x="80" y="1030" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="playlocal" value="&lt;b&gt;play_local.py&lt;/b&gt;&lt;br&gt;offline arcade;&lt;br&gt;DEV(13) / TEST(9) / QUARANTINE(3) folds" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450" vertex="1" parent="1">
+          <mxGeometry x="440" y="1030" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="gate" value="&lt;b&gt;holdout_gate.py&lt;/b&gt;&lt;br&gt;TEST ratchet (never tune on TEST),&lt;br&gt;source-hash freshness binding,&lt;br&gt;overfit lint (no game-id/coord literals)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450" vertex="1" parent="1">
+          <mxGeometry x="800" y="1030" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="rehearse" value="&lt;b&gt;rehearse.py&lt;/b&gt;&lt;br&gt;arc_agi listen_and_serve :8001 +&lt;br&gt;framework main.py ONLINE&lt;br&gt;= exact rerun topology, locally" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450" vertex="1" parent="1">
+          <mxGeometry x="1190" y="1030" width="330" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="eC1" value="drives the same agent offline" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1" edge="1" parent="1" source="playlocal" target="explorer"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eC2" value="fold results + source hash" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1" edge="1" parent="1" source="playlocal" target="gate"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eC3" value="gates make submit / submit-model" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0.25;exitY=0;exitDx=0;exitDy=0" edge="1" parent="1" source="gate" target="build"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eC4" value="pre-push topology check" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1" edge="1" parent="1" source="rehearse" target="rerun"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
