@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 baselines/*_latest.json
 notebooks/*.ipynb
+.rehearse/
