@@ -160,18 +160,26 @@ def depleting_colors(timeline: Timeline) -> frozenset[int]:
 # Binding (representation) induction
 
 
-def _consistent_majorities(by_action: dict) -> dict:
-    """Per action, the majority delta — kept only when it truly dominates.
+def _direction(delta: tuple[int, int]) -> tuple[int, int]:
+    dx, dy = delta
+    return ((dx > 0) - (dx < 0), (dy > 0) - (dy < 0))
 
-    A controlled object answers the same action with the same delta almost
-    every time; a phase-correlated ticker (bouncing patroller) splits its
-    votes ~50/50 and must not qualify."""
+
+def _consistent_majorities(by_action: dict) -> dict:
+    """Per action, the majority DIRECTION — kept only when it dominates.
+
+    Judged on direction rather than exact delta: a sliding avatar keeps its
+    direction while its per-move distance varies with obstacles. A
+    phase-correlated ticker still splits ~50/50 and must not qualify."""
     out = {}
     for action, counter in by_action.items():
-        delta, n = counter.most_common(1)[0]
-        total = sum(counter.values())
+        dirs = Counter()
+        for delta, n in counter.items():
+            dirs[_direction(delta)] += n
+        direction, n = dirs.most_common(1)[0]
+        total = sum(dirs.values())
         if total >= 2 and n / total >= 0.7:
-            out[action] = (delta, n)
+            out[action] = (direction, n)
     return out
 
 
@@ -646,10 +654,30 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
                 floors[rule.floor] += n
     rules: list[Rule] = []
     if move_deltas:
-        deltas = tuple(
-            (action, counter.most_common(1)[0][0])
-            for action, counter in sorted(move_deltas.items())
-        )
+        assembled = []
+        slide = False
+        for action, counter in sorted(move_deltas.items()):
+            dirs = Counter()
+            for delta, n in counter.items():
+                dirs[_direction(delta)] += n
+            direction = dirs.most_common(1)[0][0]
+            mags = Counter(
+                abs(d[0]) + abs(d[1])
+                for d, n in counter.items()
+                if _direction(d) == direction
+                for _ in range(n)
+            )
+            if len([m for m, n in mags.items() if n >= 2]) >= 2:
+                # Same direction, varying distance: a slide (move until
+                # blocked). Unit delta; the interpreter repeats the step.
+                slide = True
+                assembled.append((action, direction))
+            else:
+                mag = mags.most_common(1)[0][0]
+                assembled.append(
+                    (action, (direction[0] * mag, direction[1] * mag))
+                )
+        deltas = tuple(assembled)
         delta_map = dict(deltas)
         # Level-up transitions hide their consume event behind the board
         # swap (after = next level's grid), so mine the BEFORE grid: the
@@ -730,6 +758,7 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
                 consumes=frozenset(consumes),
                 pushable=frozenset(pushable),
                 floor=floors.most_common(1)[0][0] if floors else None,
+                slide=slide,
             )
         )
     click_votes = [
