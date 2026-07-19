@@ -87,6 +87,36 @@ else:
         columns=["row_id", "game_id", "end_of_game", "score"],
     ).to_parquet("/kaggle/working/submission.parquet")
     print("wrote dummy submission.parquet")
+
+    model_path = os.environ.get("OURO2_MODEL_PATH", "")
+    if model_path:
+        # Save-run model smoke: the agent only runs in a competition rerun,
+        # so this is the one chance to prove the attached model loads on the
+        # rerun image before a scored run bets on it (the V1 V7/V8 zeroes
+        # were exactly this failure). Fail-open: a failure here is loud in
+        # the log but never fails the notebook.
+        import traceback
+
+        print(f"model-smoke: path={{model_path}} isdir={{os.path.isdir(model_path)}}")
+        if not os.path.isdir(model_path):
+            for root, dirs, _ in os.walk("/kaggle/input"):
+                if root.count("/") <= 6:
+                    print("  " + root)
+                else:
+                    dirs[:] = []
+        try:
+            t0 = time.time()
+            sys.path.insert(0, "/tmp")
+            from ouro2.config import Config
+            from ouro2.oracle import Oracle
+
+            raw = Oracle(Config.from_env())._transformers(
+                'Reply with JSON: {{"choice": "alpha"}}'
+            )
+            print(f"model-smoke: OK {{time.time() - t0:.1f}}s raw={{raw[:200]!r}}")
+        except Exception:
+            traceback.print_exc()
+            print("model-smoke: FAILED (a rerun would fail open to CPU defaults)")
 '''
 
 

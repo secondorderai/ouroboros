@@ -45,3 +45,8 @@ def test_notebook_model_variant_attaches_model(tmp_path):
     nb = json.loads((tmp_path / "submission.ipynb").read_text())
     joined = "\n".join("".join(c["source"]) for c in nb["cells"])
     assert 'OURO2_DISABLE_MODEL", "0"' in joined
+    # The save-run smoke must exercise the real transformers load path and
+    # stay fail-open (traceback, not raise) so it can never sink a save.
+    assert "model-smoke" in joined
+    assert "._transformers(" in joined
+    assert "traceback.print_exc()" in joined
