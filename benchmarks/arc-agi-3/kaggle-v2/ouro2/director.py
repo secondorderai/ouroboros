@@ -91,6 +91,7 @@ class Director:
         self.breaker_trips: dict[int, int] = {}
         self.model_disabled_levels: set[int] = set()
         self.frontier_disabled_levels: set[int] = set()
+        self.frontier_strikes: dict[int, int] = {}
         self.plan_queue_source = ""
         # Observed transition graph over masked keys (model-free navigation)
         self.graph_edges: dict[tuple[str, tuple], Counter] = {}
@@ -276,13 +277,10 @@ class Director:
         if self.pending_prediction is not None:
             mismatch = view.grid is not None and view.grid != self.pending_prediction
             if mismatch and self.model is not None:
-                # Strict masked equality: the depleting/volatile masks absorb
-                # legitimate HUD churn; any remaining difference is a real
-                # misprediction (a lenient executor never aborts, which
-                # defeats the one-strike frontier policy).
-                mismatch = self.model.masked(view.grid) != self.model.masked(
-                    self.pending_prediction
-                )
+                # Union-masked equality: absorbs HUD churn including freshly
+                # DRAINED depleting cells (stale bar vs revealed floor); any
+                # remaining difference is a real misprediction.
+                mismatch = not self.model.matches(view.grid, self.pending_prediction)
             if mismatch:
                 self.plan_queue.clear()
                 self.speedrun_queue.clear()
@@ -291,11 +289,16 @@ class Director:
                 self.reinduce_pending = True
                 self.aborts_since_induce += 1
                 if self.plan_queue_source == "plan-frontier":
-                    # One strike per level: a model whose curiosity plans
-                    # mispredict loses frontier control until the next level
-                    # (goal plans keep their own breaker). The floor owns
-                    # unreliable-model games.
-                    self.frontier_disabled_levels.add(view.levels_completed)
+                    # Three strikes per level: an abort feeds the model its
+                    # counterexample (abort -> revise -> retry), but a model
+                    # that keeps mispredicting loses frontier control until
+                    # the next level.
+                    level = view.levels_completed
+                    self.frontier_strikes[level] = (
+                        self.frontier_strikes.get(level, 0) + 1
+                    )
+                    if self.frontier_strikes[level] >= 3:
+                        self.frontier_disabled_levels.add(level)
                 if self.aborts_since_induce >= 6:
                     # Circuit breaker: a chronically mispredicting model must
                     # not keep steering (strict additivity) — floor only for
@@ -339,7 +342,7 @@ class Director:
             return self._explore(view)
         # Soft-lock escape: every recent move no-oped (ls20-class energy
         # exhaustion) — a level reset refills the resource; one action.
-        if self.consec_move_noops >= 8 and self.timeline.current_level_transitions():
+        if self.consec_move_noops >= 4 and self.timeline.current_level_transitions():
             self.consec_move_noops = 0
             self.reinduce_pending = True
             return ActionSpec(0, source="director", reason="soft-lock: moves dead")

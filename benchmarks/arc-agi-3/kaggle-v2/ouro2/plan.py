@@ -88,7 +88,7 @@ def plan_frontier(
     legal: tuple[int, ...] = (1, 2, 3, 4),
     node_cap: int = 20000,
     deadline_s: float = 1.0,
-    max_len: int = 16,
+    max_len: int = 40,
     volatile: frozenset[int] = frozenset(),
     depleting: frozenset[int] = frozenset(),
     banned: set | None = None,

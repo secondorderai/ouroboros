@@ -102,6 +102,31 @@ def masked(
     return bytes(flat)
 
 
+def masked_eq(
+    a: Grid,
+    b: Grid,
+    volatile: frozenset[int],
+    depleting: frozenset[int],
+    keep: int | None = None,
+) -> bool:
+    """Equality under the identity masks, with depleting colors masked by
+    UNION of both grids' positions: a freshly drained bar cell holds the
+    depleting color in the stale grid but the revealed floor in the real
+    one — both sides of that index must be ignored."""
+    if a == b:
+        return True
+    for i in range(4096):
+        av, bv = a[i], b[i]
+        if av == bv:
+            continue
+        if i in volatile and av != keep and bv != keep:
+            continue
+        if (av in depleting or bv in depleting) and av != keep and bv != keep:
+            continue
+        return False
+    return True
+
+
 def depleting_colors(timeline: Timeline) -> frozenset[int]:
     """Colors whose cell count only ever falls within a level (energy bars,
     progress strips). They deplete on every action — unpredictable by any
@@ -424,9 +449,9 @@ def evaluate(
         ):
             continue
         predicted, _ = step(State(t.before), t.action.key(), rules, binding)
-        pg = masked(predicted.grid, volatile, depleting)
-        ag = masked(t.after, volatile, depleting)
-        if pg == ag or len(diff(pg, ag)) <= 2:
+        if masked_eq(
+            predicted.grid, t.after, volatile, depleting, keep=binding.avatar_color
+        ):
             report.support += 1
             report.matches_by_level[t.level] += 1
         else:
@@ -585,6 +610,11 @@ class Model:
     def masked(self, g: Grid) -> Grid:
         return masked(
             g, self.volatile, self.depleting, keep=self.binding.avatar_color
+        )
+
+    def matches(self, a: Grid, b: Grid) -> bool:
+        return masked_eq(
+            a, b, self.volatile, self.depleting, keep=self.binding.avatar_color
         )
 
     def healthy_for(self, level: int) -> bool:
