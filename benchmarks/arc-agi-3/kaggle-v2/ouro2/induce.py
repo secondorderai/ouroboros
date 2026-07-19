@@ -65,20 +65,28 @@ def translated(before: Grid, after: Grid, color: int) -> tuple[int, int] | None:
 
 def volatile_cells(timeline: Timeline, sample: int = 200) -> frozenset[int]:
     counts = [0] * 4096
+    far_click = [0] * 4096
     n = 0
     for t in timeline.transitions[-sample:]:
         if t.before is None or t.after is None or t.action.is_reset() or t.level_up:
             continue
         n += 1
+        is_click = t.action.action == 6 and t.action.x is not None
         for x, y, _, _ in diff(t.before, t.after):
             counts[y * 64 + x] += 1
+            if is_click and max(abs(x - t.action.x), abs(y - t.action.y)) > 12:
+                # Changed although the click was far away: action-independent
+                # (attempt counters, progress strips) — HUD, not gameplay.
+                far_click[y * 64 + x] += 1
     if n < 12:
         return frozenset()
     # Only near-every-transition churn qualifies (energy bars, timers,
     # animations). Gameplay cells an oscillating walk revisits stay firmly
     # below this — masking them would blind the executor where it matters.
     threshold = max(8, int(0.45 * n))
-    return frozenset(i for i, c in enumerate(counts) if c >= threshold)
+    out = {i for i, c in enumerate(counts) if c >= threshold}
+    out |= {i for i, c in enumerate(far_click) if c >= 2}
+    return frozenset(out)
 
 
 def masked(
@@ -154,14 +162,10 @@ def depleting_colors(timeline: Timeline) -> frozenset[int]:
                     elif d > 0:
                         increases[color] += 1
             prev = dict(counts)
-    monotone = set()
-    for c, n in decreases.items():
-        if n >= 5 and increases.get(c, 0) == 0:
-            monotone.add(c)  # depleting (energy bars, timers)
-    for c, n in increases.items():
-        if n >= 5 and decreases.get(c, 0) == 0:
-            monotone.add(c)  # accumulating (attempt counters, progress fill)
-    return frozenset(monotone)
+    return frozenset(
+        c for c, n in decreases.items() if n >= 5 and increases.get(c, 0) == 0
+    )  # depleting only: grow-only colors are often GAMEPLAY (paint); their
+    # counter cells are caught cell-level via far-click volatility instead
 
 
 # ---------------------------------------------------------------------------
