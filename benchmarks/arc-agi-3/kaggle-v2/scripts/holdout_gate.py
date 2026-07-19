@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -37,6 +38,30 @@ def lint() -> list[str]:
                 if pattern.search(line):
                     problems.append(f"{rel}:{lineno}: game-id literal: {line.strip()}")
     return problems
+
+
+def source_hash() -> str:
+    """Fingerprint of the agent source a fold run was produced from."""
+    h = hashlib.sha256()
+    for target in ("ouro2", "agent"):
+        for path in sorted((ROOT / target).rglob("*.py")):
+            h.update(path.relative_to(ROOT).as_posix().encode())
+            h.update(path.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def staleness(results: dict) -> str | None:
+    """--check-only gates on a CACHED fold run; without this binding, edit
+    ouro2, skip `make holdout`, and the gate compares stale numbers to
+    themselves and prints ok."""
+    recorded = results.get("source_hash")
+    current = source_hash()
+    if recorded != current:
+        return (
+            f"stale TEST run (source {recorded or 'unrecorded'} != {current}); "
+            "run `make holdout` first"
+        )
+    return None
 
 
 def main() -> None:
@@ -70,6 +95,10 @@ def main() -> None:
         print("nothing to gate (pass --test or --check-only)")
         return
     test_results = json.loads(Path(args.test).read_text())
+    if args.check_only:
+        stale = staleness(test_results)
+        if stale:
+            raise SystemExit(f"holdout gate: {stale}")
     if args.dev:
         dev = json.loads(Path(args.dev).read_text())
         print(f"DEV score {dev.get('score', 0.0):.4f} levels {sum(dev.get('levels', {}).values())}")

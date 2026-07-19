@@ -16,7 +16,10 @@ def test_notebook_emits_required_cells(tmp_path):
     sources = ["".join(c["source"]) for c in nb["cells"]]
     joined = "\n".join(sources)
     assert "--no-index" in joined and "arc_agi_3_wheels" in joined
-    assert "%%writefile /tmp/ouro2/director.py" in joined
+    # Every ouro2 module must be packed: a dropped file only surfaces as an
+    # ImportError inside a no-internet Kaggle rerun.
+    for src in (ROOT / "ouro2").glob("*.py"):
+        assert f"%%writefile /tmp/ouro2/{src.name}" in joined, src.name
     assert "%%writefile /tmp/my_agent.py" in joined
     assert "KAGGLE_IS_COMPETITION_RERUN" in joined
     assert "gateway:8001" in joined

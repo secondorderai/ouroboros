@@ -146,11 +146,16 @@ def main() -> None:
     if args.results_json:
         path = Path(args.results_json)
         path.parent.mkdir(parents=True, exist_ok=True)
+        from holdout_gate import source_hash  # sibling script, same dir
+
         payload = {
             "score": score,
             "max_steps": args.max_steps,
             "levels": {g: rows[g].get("levels_completed", 0) for g in rows},
             "games": [rows[g] for g in game_ids if g in rows],
+            # Binds this run to the agent source that produced it; the
+            # submit gate refuses to certify a cached run of other code.
+            "source_hash": source_hash(),
         }
         path.write_text(json.dumps(payload, indent=2, sort_keys=True))
         print(f"Wrote {path}")

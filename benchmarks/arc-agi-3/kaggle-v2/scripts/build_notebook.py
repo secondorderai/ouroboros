@@ -13,11 +13,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_FILES = [
-    "config.py", "grid.py", "timeline.py", "rules.py", "induce.py",
-    "plan.py", "explore.py", "oracle.py", "director.py", "holdout.py",
-    "__init__.py",
-]
+# Derived, not hand-listed: a new ouro2 module dropped from the pack would
+# only surface as an ImportError inside a no-internet Kaggle rerun.
+PACKAGE_FILES = sorted(p.name for p in (ROOT / "ouro2").glob("*.py"))
 KERNEL_ID = "kinwochan/ouroboros-arc-agi-3-v2"
 MODEL_SOURCE = "kinwochan/qwen-3-5-4b/transformers/qwen-3-5-4b/1"
 COMP = "arc-prize-2026-arc-agi-3"
