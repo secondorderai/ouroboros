@@ -396,7 +396,11 @@ class Director:
                 self.plan_retry_at = 0  # new evidence: planning may retry
                 new_vol = self.mask_volatile | self.model.volatile
                 new_dep = self.mask_depleting | self.model.depleting
-                new_avatar = self.model.binding.avatar_color or self.mask_avatar
+                new_avatar = (
+                    self.model.binding.avatar_color
+                    if self.model.binding.avatar_color is not None
+                    else self.mask_avatar  # color 0 is a legal avatar
+                )
                 if (
                     new_vol != self.mask_volatile
                     or new_dep != self.mask_depleting
@@ -431,7 +435,10 @@ class Director:
             ex.clock += 1
             if not t.action.is_reset():
                 ex.last_used[(key, t.action.key())] = ex.clock
-            changed = t.after is not None and t.after != t.before
+            # Masked comparison, matching _record's live semantics: a
+            # transition that only ticked a HUD counter must rebuild as a
+            # no-op or every rebuild wipes the explorer's paid-for bans.
+            changed = t.after is not None and self._key(t.after) != key
             ex.note_result(key, t.action, changed, grid=t.before)
             if t.after is not None and not t.action.is_reset():
                 self.graph_edges.setdefault(

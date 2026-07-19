@@ -123,3 +123,39 @@ def test_click_targets_enumerate_pattern_board_cells():
     # Centroids come first; the mid-sized board then contributes every cell.
     assert (10, 20) in targets and (15, 25) in targets
     assert sum(1 for t in targets if t in board) >= 36
+
+
+# -- review findings: director mask/key regressions -------------------------
+
+
+def test_avatar_color_zero_survives_mask_update():
+    from ouro2.director import Director
+
+    # Avatar of color 0 on a color-3 background: `avatar or prior` dropped
+    # the binding because 0 is falsy.
+    def g(x: int) -> bytes:
+        flat = bytearray([3]) * 4096
+        flat[10 * W + x] = 0
+        return bytes(flat)
+
+    d = Director()
+    for i in range(6):
+        d.timeline.append(g(10 + i), ActionSpec(4), g(11 + i), "NOT_FINISHED", 0, 0)
+    d._maybe_reinduce()
+    assert d.model is not None and d.model.binding.avatar_color == 0
+    assert d.mask_avatar == 0
+
+
+def test_rebuild_keys_records_masked_noops_as_bans():
+    from ouro2.director import Director
+
+    # A transition that only ticked a masked HUD cell must rebuild as a
+    # no-op (ban), exactly as _record would have judged it live.
+    d = Director()
+    hud = (60, 60)
+    d.mask_volatile = frozenset({hud[1] * W + hud[0]})
+    before = EMPTY
+    after = put(EMPTY, {hud: 9})
+    d.timeline.append(before, ActionSpec(1), after, "NOT_FINISHED", 0, 0)
+    d._rebuild_keys()
+    assert (d._key(before), (1, None, None)) in d.explorer.noop_bans
