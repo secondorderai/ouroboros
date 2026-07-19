@@ -1,0 +1,533 @@
+{
+  "games": [
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "ar25",
+        "levels_completed": 0,
+        "noops": 119,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 31,
+        "revisits": 304,
+        "speedrun_actions": 0,
+        "think_time_s": 12.595,
+        "transitions": 320
+      },
+      "game_id": "ar25",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "bp35",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 19,
+        "revisits": 303,
+        "speedrun_actions": 0,
+        "think_time_s": 7.734,
+        "transitions": 320
+      },
+      "game_id": "bp35",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "cd82",
+        "levels_completed": 0,
+        "noops": 93,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 3,
+        "revisits": 163,
+        "speedrun_actions": 0,
+        "think_time_s": 7.092,
+        "transitions": 320
+      },
+      "game_id": "cd82",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "cn04",
+        "levels_completed": 0,
+        "noops": 163,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 5,
+        "revisits": 304,
+        "speedrun_actions": 0,
+        "think_time_s": 4.724,
+        "transitions": 320
+      },
+      "game_id": "cn04",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "dc22",
+        "levels_completed": 0,
+        "noops": 100,
+        "plan_aborts": 1,
+        "plan_steps": 107,
+        "probes": 108,
+        "resets": 2,
+        "revisits": 168,
+        "speedrun_actions": 0,
+        "think_time_s": 5.867,
+        "transitions": 320
+      },
+      "game_id": "dc22",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "ft09",
+        "levels_completed": 0,
+        "noops": 87,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 7,
+        "revisits": 230,
+        "speedrun_actions": 0,
+        "think_time_s": 3.431,
+        "transitions": 320
+      },
+      "game_id": "ft09",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "g50t",
+        "levels_completed": 0,
+        "noops": 156,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 3,
+        "revisits": 250,
+        "speedrun_actions": 0,
+        "think_time_s": 3.453,
+        "transitions": 320
+      },
+      "game_id": "g50t",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "ka59",
+        "levels_completed": 0,
+        "noops": 108,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 3,
+        "revisits": 304,
+        "speedrun_actions": 0,
+        "think_time_s": 4.049,
+        "transitions": 320
+      },
+      "game_id": "ka59",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "lf52",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 5,
+        "revisits": 199,
+        "speedrun_actions": 0,
+        "think_time_s": 4.252,
+        "transitions": 320
+      },
+      "game_id": "lf52",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "lp85",
+        "levels_completed": 1,
+        "noops": 1,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 5,
+        "revisits": 149,
+        "speedrun_actions": 0,
+        "think_time_s": 5.609,
+        "transitions": 320
+      },
+      "game_id": "lp85",
+      "levels_completed": 1,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "ls20",
+        "levels_completed": 0,
+        "noops": 100,
+        "plan_aborts": 1,
+        "plan_steps": 27,
+        "probes": 28,
+        "resets": 25,
+        "revisits": 270,
+        "speedrun_actions": 0,
+        "think_time_s": 11.238,
+        "transitions": 320
+      },
+      "game_id": "ls20",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "m0r0",
+        "levels_completed": 0,
+        "noops": 165,
+        "plan_aborts": 3,
+        "plan_steps": 6,
+        "probes": 9,
+        "resets": 3,
+        "revisits": 302,
+        "speedrun_actions": 0,
+        "think_time_s": 3.871,
+        "transitions": 320
+      },
+      "game_id": "m0r0",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "r11l",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 5,
+        "revisits": 115,
+        "speedrun_actions": 0,
+        "think_time_s": 5.233,
+        "transitions": 320
+      },
+      "game_id": "r11l",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "re86",
+        "levels_completed": 0,
+        "noops": 90,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 4,
+        "revisits": 248,
+        "speedrun_actions": 0,
+        "think_time_s": 5.444,
+        "transitions": 320
+      },
+      "game_id": "re86",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "s5i5",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 6,
+        "revisits": 269,
+        "speedrun_actions": 0,
+        "think_time_s": 2.909,
+        "transitions": 320
+      },
+      "game_id": "s5i5",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "sb26",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 5,
+        "revisits": 255,
+        "speedrun_actions": 0,
+        "think_time_s": 2.282,
+        "transitions": 320
+      },
+      "game_id": "sb26",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "sc25",
+        "levels_completed": 0,
+        "noops": 113,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 7,
+        "revisits": 305,
+        "speedrun_actions": 0,
+        "think_time_s": 4.557,
+        "transitions": 320
+      },
+      "game_id": "sc25",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "sk48",
+        "levels_completed": 0,
+        "noops": 201,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 2,
+        "revisits": 247,
+        "speedrun_actions": 0,
+        "think_time_s": 3.867,
+        "transitions": 320
+      },
+      "game_id": "sk48",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "sp80",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 11,
+        "revisits": 280,
+        "speedrun_actions": 0,
+        "think_time_s": 5.453,
+        "transitions": 320
+      },
+      "game_id": "sp80",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "su15",
+        "levels_completed": 0,
+        "noops": 51,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 7,
+        "revisits": 239,
+        "speedrun_actions": 0,
+        "think_time_s": 4.589,
+        "transitions": 320
+      },
+      "game_id": "su15",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "tn36",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 6,
+        "revisits": 258,
+        "speedrun_actions": 0,
+        "think_time_s": 2.876,
+        "transitions": 320
+      },
+      "game_id": "tn36",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "tr87",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 2,
+        "revisits": 205,
+        "speedrun_actions": 0,
+        "think_time_s": 6.638,
+        "transitions": 320
+      },
+      "game_id": "tr87",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "tu93",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 7,
+        "revisits": 201,
+        "speedrun_actions": 0,
+        "think_time_s": 5.593,
+        "transitions": 320
+      },
+      "game_id": "tu93",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "vc33",
+        "levels_completed": 0,
+        "noops": 0,
+        "plan_aborts": 0,
+        "plan_steps": 0,
+        "probes": 0,
+        "resets": 6,
+        "revisits": 269,
+        "speedrun_actions": 0,
+        "think_time_s": 2.856,
+        "transitions": 320
+      },
+      "game_id": "vc33",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    },
+    {
+      "actions": 321,
+      "director": {
+        "actions": 321,
+        "game_id": "wa30",
+        "levels_completed": 0,
+        "noops": 201,
+        "plan_aborts": 3,
+        "plan_steps": 0,
+        "probes": 3,
+        "resets": 1,
+        "revisits": 208,
+        "speedrun_actions": 0,
+        "think_time_s": 4.786,
+        "transitions": 320
+      },
+      "game_id": "wa30",
+      "levels_completed": 0,
+      "state": "GameState.NOT_FINISHED"
+    }
+  ],
+  "levels": {
+    "ar25": 0,
+    "bp35": 0,
+    "cd82": 0,
+    "cn04": 0,
+    "dc22": 0,
+    "ft09": 0,
+    "g50t": 0,
+    "ka59": 0,
+    "lf52": 0,
+    "lp85": 1,
+    "ls20": 0,
+    "m0r0": 0,
+    "r11l": 0,
+    "re86": 0,
+    "s5i5": 0,
+    "sb26": 0,
+    "sc25": 0,
+    "sk48": 0,
+    "sp80": 0,
+    "su15": 0,
+    "tn36": 0,
+    "tr87": 0,
+    "tu93": 0,
+    "vc33": 0,
+    "wa30": 0
+  },
+  "max_steps": 320,
+  "score": 0.1111111111111111
+}
