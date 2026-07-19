@@ -18,17 +18,21 @@ Grid = bytes
 
 
 def to_grid(frame_stack: list[list[list[int]]] | None) -> Grid | None:
-    """Last grid of a FrameData.frame stack, or None for empty/burned frames."""
-    if not frame_stack:
+    """Last grid of a FrameData.frame stack, or None for empty/burned frames.
+
+    Duck-typed (len/int casts, no truthiness): the real engine returns numpy
+    arrays, whose truth value raises.
+    """
+    if frame_stack is None or len(frame_stack) == 0:
         return None
     rows = frame_stack[-1]
-    if not rows:
+    if rows is None or len(rows) == 0:
         return None
     flat = bytearray(CELLS)
-    for y, row in enumerate(rows[:SIZE]):
-        base = y * SIZE
-        for x, color in enumerate(row[:SIZE]):
-            flat[base + x] = color & 0x0F
+    for y in range(min(len(rows), SIZE)):
+        row = rows[y]
+        for x in range(min(len(row), SIZE)):
+            flat[y * SIZE + x] = int(row[x]) & 0x0F
     return bytes(flat)
 
 

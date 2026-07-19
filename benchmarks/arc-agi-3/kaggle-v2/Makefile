@@ -4,10 +4,12 @@ FRAMEWORK := vendor/ARC-AGI-3-Agents
 
 .PHONY: setup test play-local holdout rehearse notebook submit lint
 
+PYTHON ?= python3.12
+
 setup:
-	python3 -m venv .venv
+	$(PYTHON) -m venv .venv
 	$(PIP) install -q --upgrade pip
-	$(PIP) install -q pytest arc-agi python-dotenv
+	$(PIP) install -q pytest "arc-agi>=0.9.9" python-dotenv
 	@test -d $(FRAMEWORK) || git clone -q https://github.com/arcprize/ARC-AGI-3-Agents $(FRAMEWORK)
 	@test -e environment_files || ln -s ../kaggle/environment_files environment_files
 	@echo "setup complete"

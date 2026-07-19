@@ -233,7 +233,9 @@ class Director:
             if key in self.seen_keys:
                 self.ledger.revisits += 1
             self.seen_keys.add(key)
-            self.explorer.note_result(grid_key(self.last_grid), action, changed)
+            self.explorer.note_result(
+                grid_key(self.last_grid), action, changed, grid=self.last_grid
+            )
         # Verify the committed step (plan or speedrun): reality outranks
         # the model/recording.
         if self.pending_prediction is not None:
