@@ -131,8 +131,10 @@ def avatar_cells(g: Grid, binding: Binding) -> frozenset[tuple[int, int]]:
 def _avatar_cells_cached(
     g: Grid, color: int, extra: frozenset[int], conn: int
 ) -> frozenset[tuple[int, int]]:
-    # Fast path: collect candidate cells in one scan, flood-fill among them,
-    # then keep the largest component that CONTAINS the primary color.
+    # Collect candidate cells in one scan, flood-fill among them, and keep
+    # EVERY component containing at least one primary-color cell: games run
+    # multiple simultaneously-controlled avatars (m0r0's twin sprites), and
+    # companion-color parts attach per component.
     union = {color} | set(extra)
     cells = {(i % SIZE, i // SIZE) for i, c in enumerate(g) if c in union}
     if not cells:
@@ -142,7 +144,7 @@ def _avatar_cells_cached(
         if conn == 4
         else ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
     )
-    best: set[tuple[int, int]] = set()
+    out: set[tuple[int, int]] = set()
     remaining = set(cells)
     while remaining:
         seed = remaining.pop()
@@ -156,11 +158,9 @@ def _avatar_cells_cached(
                     remaining.remove(p)
                     group.add(p)
                     frontier.append(p)
-        if len(group) > len(best) and any(
-            g[y * SIZE + x] == color for x, y in group
-        ):
-            best = group
-    return frozenset(best)
+        if any(g[y * SIZE + x] == color for x, y in group):
+            out |= group
+    return frozenset(out)
 
 
 def extract_state(g: Grid) -> State:

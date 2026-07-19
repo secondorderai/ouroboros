@@ -378,7 +378,10 @@ class Director:
         grown = len(self.timeline) - self.induced_at
         if self.model is None or self.reinduce_pending or grown >= 16:
             if len(self.timeline) >= 4:
-                self.model = induce(self.timeline)
+                self.model = induce(
+                    self.timeline,
+                    prior_binding=self.model.binding if self.model else None,
+                )
                 self.induced_at = len(self.timeline)
                 self.reinduce_pending = False
                 self.plan_retry_at = 0  # new evidence: planning may retry

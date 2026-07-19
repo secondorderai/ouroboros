@@ -190,7 +190,7 @@ def _axis_jump(delta: tuple[int, int]) -> bool:
     return (dx == 0) != (dy == 0) and abs(dx) + abs(dy) <= 8
 
 
-def rebind(timeline: Timeline) -> Binding:
+def rebind(timeline: Timeline, prior: Binding | None = None) -> Binding:
     """Pick the avatar color: the color whose translation is a FUNCTION of
     the action. A passive ticker moves identically whatever you press; the
     controlled object answers different actions with different deltas.
@@ -246,6 +246,11 @@ def rebind(timeline: Timeline) -> Binding:
         if strict_winner is None and score > best_score:
             best_color, best_score = color, score
     if best_color is None:
+        # Sticky binding: the window slides over phases where the avatar
+        # stops moving (votes evaporate), but a binding is a durable fact —
+        # keep the prior unless fresh evidence crowns a new winner.
+        if prior is not None and prior.avatar_color is not None:
+            return prior
         return Binding()
     companions: Counter = Counter()
     moves = 0
@@ -296,6 +301,8 @@ def rebind(timeline: Timeline) -> Binding:
     extra = frozenset(
         c for c, n in companions.items() if moves >= 3 and n >= 0.6 * moves
     )
+    if not extra and prior is not None and prior.avatar_color == best_color:
+        extra = prior.avatar_extra  # companions are sticky too
     return Binding(avatar_color=best_color, avatar_extra=extra)
 
 
@@ -629,10 +636,14 @@ class Model:
         return bool(self.rules) and self.report.healthy_for(level)
 
 
-def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
-    """Full (re)induction from scratch over the timeline. Time cost is
-    bounded by the caller's cadence, not internally."""
-    binding = rebind(timeline)
+def induce(
+    timeline: Timeline,
+    max_specialize_rounds: int = 4,
+    prior_binding: Binding | None = None,
+) -> Model:
+    """Full (re)induction over the timeline. Time cost is bounded by the
+    caller's cadence; the binding is sticky across calls via prior_binding."""
+    binding = rebind(timeline, prior=prior_binding)
     volatile = volatile_cells(timeline)
     depleting = depleting_colors(timeline)
     votes: Counter[Rule] = Counter()

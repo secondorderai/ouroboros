@@ -116,7 +116,9 @@ def test_goals():
     assert is_goal(st2, Goal("counter_eq", PELLET, 2), BINDING)
 
 
-def test_avatar_cells_largest_component():
+def test_avatar_cells_all_instances():
+    # Multi-instance avatars are real (m0r0's twin sprites move together):
+    # every component containing the avatar color belongs to the patch.
     g = make([(5, 5, AV), (5, 6, AV), (20, 20, AV)])
     cells = avatar_cells(g, BINDING)
-    assert cells == frozenset({(5, 5), (5, 6)})
+    assert cells == frozenset({(5, 5), (5, 6), (20, 20)})
