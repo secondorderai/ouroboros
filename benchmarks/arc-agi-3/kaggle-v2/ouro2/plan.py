@@ -90,6 +90,7 @@ def plan_frontier(
     deadline_s: float = 1.0,
     max_len: int = 16,
     volatile: frozenset[int] = frozenset(),
+    depleting: frozenset[int] = frozenset(),
     banned: set | None = None,
 ) -> list[ActionSpec] | None:
     """BFS inside the model to the nearest state NOT seen in reality yet.
@@ -109,7 +110,7 @@ def plan_frontier(
     avatar = binding.avatar_color
     bg = binding.bg(state.grid)
     move = next((r for r in rules if isinstance(r, MoveRule)), None)
-    start_masked = _mask(state.grid, volatile)
+    start_masked = _mask(state.grid, volatile, depleting, keep=avatar)
     # rank: 0 = interaction novelty, 1 = untested-block probe, 2 = reposition
     found: list[tuple[int, int, list[tuple[int, int | None, int | None]]]] = []
     stop_depth = max_len
@@ -139,7 +140,10 @@ def plan_frontier(
                 ):
                     entered = _entered_colors(current, action_key, move, binding)
                     already = banned is not None and (
-                        masked_key(current.grid, volatile, keep_color=avatar),
+                        masked_key(
+                            _mask(current.grid, volatile, depleting, keep=avatar),
+                            frozenset(),
+                        ),
                         action_key,
                     ) in banned
                     if entered and not (entered & move.blockers) and not already:
@@ -150,12 +154,12 @@ def plan_frontier(
                 continue
             seen_model.add(key)
             new_path = path + [action_key]
-            if masked_key(nxt.grid, volatile, keep_color=avatar) not in seen:
+            if masked_key(_mask(nxt.grid, volatile, depleting, keep=avatar), frozenset()) not in seen:
                 # Interactions (a non-avatar object changed, judged on the
                 # MASKED grids so tickers don't pollute) outrank walking.
                 interaction = any(
                     old not in (avatar, bg) or new not in (avatar, bg)
-                    for _, _, old, new in _diff(start_masked, _mask(nxt.grid, volatile))
+                    for _, _, old, new in _diff(start_masked, _mask(nxt.grid, volatile, depleting, keep=avatar))
                 )
                 found.append((0 if interaction else 2, len(new_path), new_path))
                 if interaction:
@@ -177,13 +181,15 @@ def plan_frontier(
     ]
 
 
-def _mask(g: Grid, volatile: frozenset[int]) -> Grid:
-    if not volatile:
-        return g
-    flat = bytearray(g)
-    for i in volatile:
-        flat[i] = 0
-    return bytes(flat)
+def _mask(
+    g: Grid,
+    volatile: frozenset[int],
+    depleting: frozenset[int] = frozenset(),
+    keep: int | None = None,
+) -> Grid:
+    from .induce import masked
+
+    return masked(g, volatile, depleting, keep=keep)
 
 
 def _entered_colors(state: State, action_key, move: MoveRule, binding: Binding):

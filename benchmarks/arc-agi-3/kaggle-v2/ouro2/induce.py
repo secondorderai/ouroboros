@@ -81,17 +81,80 @@ def volatile_cells(timeline: Timeline, sample: int = 200) -> frozenset[int]:
     return frozenset(i for i, c in enumerate(counts) if c >= threshold)
 
 
-def masked(g: Grid, volatile: frozenset[int]) -> Grid:
-    if not volatile:
+def masked(
+    g: Grid,
+    volatile: frozenset[int],
+    depleting: frozenset[int] = frozenset(),
+    keep: int | None = None,
+) -> Grid:
+    """Zero volatile cells and depleting-color cells — except cells holding
+    ``keep`` (the avatar): its position is the state."""
+    if not volatile and not depleting:
         return g
     flat = bytearray(g)
     for i in volatile:
-        flat[i] = 0
+        if keep is None or flat[i] != keep:
+            flat[i] = 0
+    if depleting:
+        for i in range(4096):
+            if flat[i] in depleting and flat[i] != keep:
+                flat[i] = 0
     return bytes(flat)
+
+
+def depleting_colors(timeline: Timeline) -> frozenset[int]:
+    """Colors whose cell count only ever falls within a level (energy bars,
+    progress strips). They deplete on every action — unpredictable by any
+    mechanic rule and poisonous to state identity — so they are masked at
+    the COLOR level (their cells move as the bar drains, so per-cell
+    frequency masking cannot see them)."""
+    from collections import Counter as C
+
+    decreases: C = C()
+    increases: C = C()
+    for seg in timeline.levels():
+        prev: dict[int, int] | None = None
+        for t in seg.transitions:
+            if t.before is None or t.after is None or t.action.is_reset():
+                continue
+            counts = C(t.after)
+            if prev is not None:
+                for color in set(prev) | set(counts):
+                    d = counts.get(color, 0) - prev.get(color, 0)
+                    if d < 0:
+                        decreases[color] += 1
+                    elif d > 0:
+                        increases[color] += 1
+            prev = dict(counts)
+    return frozenset(
+        c for c, n in decreases.items() if n >= 5 and increases.get(c, 0) == 0
+    )
 
 
 # ---------------------------------------------------------------------------
 # Binding (representation) induction
+
+
+def _consistent_majorities(by_action: dict) -> dict:
+    """Per action, the majority delta — kept only when it truly dominates.
+
+    A controlled object answers the same action with the same delta almost
+    every time; a phase-correlated ticker (bouncing patroller) splits its
+    votes ~50/50 and must not qualify."""
+    out = {}
+    for action, counter in by_action.items():
+        delta, n = counter.most_common(1)[0]
+        total = sum(counter.values())
+        if total >= 2 and n / total >= 0.7:
+            out[action] = (delta, n)
+    return out
+
+
+def _axis_jump(delta: tuple[int, int]) -> bool:
+    """A plausible move delta: along one axis, 1-8 cells (ls20's avatar
+    jumps 5 cells per press)."""
+    dx, dy = delta
+    return (dx == 0) != (dy == 0) and abs(dx) + abs(dy) <= 8
 
 
 def rebind(timeline: Timeline) -> Binding:
@@ -109,14 +172,14 @@ def rebind(timeline: Timeline) -> Binding:
             continue
         for color in {old for _, _, old, _ in changed}:
             delta = translated(t.before, t.after, color)
-            if delta is not None and abs(delta[0]) + abs(delta[1]) == 1:
+            if delta is not None and _axis_jump(delta):
                 per_color[color][t.action.action][delta] += 1
     best_color = None
     best_score = 0
     for color, by_action in per_color.items():
-        majority = {a: c.most_common(1)[0] for a, c in by_action.items()}
+        majority = _consistent_majorities(by_action)
         distinct = {delta for delta, _ in majority.values()}
-        if len(majority) >= 2 and len(distinct) < 2:
+        if len(majority) < 1 or (len(majority) >= 2 and len(distinct) < 2):
             continue  # constant delta across actions: a ticker, not an avatar
         score = sum(n for _, n in majority.values())
         if score > best_score:
@@ -141,12 +204,12 @@ def rebind(timeline: Timeline) -> Binding:
             bx = sum(x for x, _ in b) / len(b)
             by = sum(y for _, y in b) / len(b)
             delta = (round(bx - ax), round(by - ay))
-            if abs(delta[0]) + abs(delta[1]) == 1:
+            if _axis_jump(delta):
                 per_color[color][t.action.action][delta] += 1
     for color, by_action in per_color.items():
-        majority = {a: c.most_common(1)[0] for a, c in by_action.items()}
+        majority = _consistent_majorities(by_action)
         distinct = {delta for delta, _ in majority.values()}
-        if len(majority) >= 2 and len(distinct) < 2:
+        if len(majority) < 1 or (len(majority) >= 2 and len(distinct) < 2):
             continue
         score = sum(n for _, n in majority.values())
         if score > best_score:
@@ -289,6 +352,7 @@ def evaluate(
     timeline: Timeline,
     binding: Binding,
     volatile: frozenset[int] = frozenset(),
+    depleting: frozenset[int] = frozenset(),
 ) -> Report:
     """Replay recorded transitions through the interpreter and compare grids
     exactly outside the volatility mask (level-up frames excluded: the env
@@ -305,7 +369,9 @@ def evaluate(
         ):
             continue
         predicted, _ = step(State(t.before), t.action.key(), rules, binding)
-        if masked(predicted.grid, volatile) == masked(t.after, volatile):
+        pg = masked(predicted.grid, volatile, depleting)
+        ag = masked(t.after, volatile, depleting)
+        if pg == ag or len(diff(pg, ag)) <= 2:
             report.support += 1
             report.matches_by_level[t.level] += 1
         else:
@@ -452,9 +518,12 @@ class Model:
     report: Report
     goal: Goal | None
     volatile: frozenset[int] = frozenset()
+    depleting: frozenset[int] = frozenset()
 
     def masked(self, g: Grid) -> Grid:
-        return masked(g, self.volatile)
+        return masked(
+            g, self.volatile, self.depleting, keep=self.binding.avatar_color
+        )
 
     def healthy_for(self, level: int) -> bool:
         return bool(self.rules) and self.report.healthy_for(level)
@@ -465,6 +534,7 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
     bounded by the caller's cadence, not internally."""
     binding = rebind(timeline)
     volatile = volatile_cells(timeline)
+    depleting = depleting_colors(timeline)
     votes: Counter[Rule] = Counter()
     for t in _informative(timeline):
         for rule in candidates_from(t, binding):
@@ -593,7 +663,7 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
         )
 
     ruleset: RuleSet = tuple(rules)
-    report = evaluate(ruleset, timeline, binding, volatile)
+    report = evaluate(ruleset, timeline, binding, volatile, depleting)
     for _ in range(max_specialize_rounds):
         if not report.counterexamples:
             break
@@ -609,7 +679,7 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
                 predicted, _ = step(State(ce.before), ce.action.key(), trial, binding)
                 if masked(predicted.grid, volatile) != masked(ce.after, volatile):
                     continue
-                trial_report = evaluate(trial, timeline, binding, volatile)
+                trial_report = evaluate(trial, timeline, binding, volatile, depleting)
                 if trial_report.contradictions < report.contradictions:
                     ruleset, report = trial, trial_report
                     improved = True
@@ -620,4 +690,4 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
             break
 
     goal = infer_goal(timeline, binding)
-    return Model(binding=binding, rules=ruleset, report=report, goal=goal, volatile=volatile)
+    return Model(binding=binding, rules=ruleset, report=report, goal=goal, volatile=volatile, depleting=depleting)

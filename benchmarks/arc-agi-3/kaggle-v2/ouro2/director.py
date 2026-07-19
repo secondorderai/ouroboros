@@ -90,15 +90,24 @@ class Director:
         self.model_paused_until = 0  # circuit breaker: timeline length gate
         self.breaker_trips: dict[int, int] = {}
         self.model_disabled_levels: set[int] = set()
+        self.frontier_disabled_levels: set[int] = set()
+        self.plan_queue_source = ""
         # Observed transition graph over masked keys (model-free navigation)
         self.graph_edges: dict[tuple[str, tuple], Counter] = {}
         self.lethal_edges: set[tuple[str, tuple]] = set()
+        # Cumulative identity masks: monotone unions, so mask jitter between
+        # inductions cannot thrash the key epoch (every rebuild wipes
+        # exploration memory — rebuilds must be rare and meaningful).
+        self.mask_volatile: frozenset[int] = frozenset()
+        self.mask_depleting: frozenset[int] = frozenset()
+        self.mask_avatar: int | None = None
 
     def _key(self, g: Grid) -> str:
-        if self.model is None:
-            return masked_key(g, frozenset())
+        from .induce import masked
+
         return masked_key(
-            g, self.model.volatile, keep_color=self.model.binding.avatar_color
+            masked(g, self.mask_volatile, self.mask_depleting, keep=self.mask_avatar),
+            frozenset(),
         )
 
     # -- framework hooks -------------------------------------------------
@@ -262,6 +271,10 @@ class Director:
         if self.pending_prediction is not None:
             mismatch = view.grid is not None and view.grid != self.pending_prediction
             if mismatch and self.model is not None:
+                # Strict masked equality: the depleting/volatile masks absorb
+                # legitimate HUD churn; any remaining difference is a real
+                # misprediction (a lenient executor never aborts, which
+                # defeats the one-strike frontier policy).
                 mismatch = self.model.masked(view.grid) != self.model.masked(
                     self.pending_prediction
                 )
@@ -272,6 +285,12 @@ class Director:
                 self.ledger.plan_aborts += 1
                 self.reinduce_pending = True
                 self.aborts_since_induce += 1
+                if self.plan_queue_source == "plan-frontier":
+                    # One strike per level: a model whose curiosity plans
+                    # mispredict loses frontier control until the next level
+                    # (goal plans keep their own breaker). The floor owns
+                    # unreliable-model games.
+                    self.frontier_disabled_levels.add(view.levels_completed)
                 if self.aborts_since_induce >= 6:
                     # Circuit breaker: a chronically mispredicting model must
                     # not keep steering (strict additivity) — floor only for
@@ -345,17 +364,21 @@ class Director:
         grown = len(self.timeline) - self.induced_at
         if self.model is None or self.reinduce_pending or grown >= 16:
             if len(self.timeline) >= 4:
-                old_sig = (
-                    (self.model.volatile, self.model.binding.avatar_color)
-                    if self.model is not None
-                    else (frozenset(), None)
-                )
                 self.model = induce(self.timeline)
                 self.induced_at = len(self.timeline)
                 self.reinduce_pending = False
                 self.plan_retry_at = 0  # new evidence: planning may retry
-                new_sig = (self.model.volatile, self.model.binding.avatar_color)
-                if new_sig != old_sig:
+                new_vol = self.mask_volatile | self.model.volatile
+                new_dep = self.mask_depleting | self.model.depleting
+                new_avatar = self.model.binding.avatar_color or self.mask_avatar
+                if (
+                    new_vol != self.mask_volatile
+                    or new_dep != self.mask_depleting
+                    or new_avatar != self.mask_avatar
+                ):
+                    self.mask_volatile = new_vol
+                    self.mask_depleting = new_dep
+                    self.mask_avatar = new_avatar
                     self._rebuild_keys()
                 self._oracle_goal_tiebreak()
 
@@ -417,8 +440,14 @@ class Director:
         # Schema's bar: frontier probing (which steers real actions on pure
         # curiosity) only from a model with a CLEAN backtest for this level.
         # Goal-directed exploit planning keeps its small tolerance elsewhere.
+        from .rules import TickRule
+
         return (
             any(isinstance(r, MoveRule) for r in model.rules)
+            # v2.0 restriction: no frontier probing in ticker games — a
+            # patroller's phase leaks into model-novelty in ways the masks
+            # cannot fully hide, and the floor handles these games better.
+            and not any(isinstance(r, TickRule) for r in model.rules)
             and model.binding.avatar_color is not None
             and model.report.misses_by_level.get(view.levels_completed, 0) == 0
             and model.report.support >= 12
@@ -461,7 +490,11 @@ class Director:
                 node_cap=self.config.node_cap,
                 deadline_s=2.0,
             )
-        if not actions and self._frontier_eligible(model, view):
+        if (
+            not actions
+            and view.levels_completed not in self.frontier_disabled_levels
+            and self._frontier_eligible(model, view)
+        ):
             # No goal yet (level 0 is the lab) or goal unreachable: use the
             # verified move-model for shortest-path novelty probing instead
             # of rotor-router wandering.
@@ -473,7 +506,8 @@ class Director:
                 legal=legal,
                 node_cap=self.config.node_cap,
                 deadline_s=1.0,
-                volatile=model.volatile,
+                volatile=self.mask_volatile,
+                depleting=self.mask_depleting,
                 banned=self.explorer.noop_bans,
             )
             if actions:
@@ -489,6 +523,7 @@ class Director:
             sim, _ = step(sim, spec.key(), model.rules, model.binding)
             queue.append((spec, sim.grid))
         self.plan_queue = queue
+        self.plan_queue_source = actions[0].source if actions else ""
         action, predicted = self.plan_queue.pop(0)
         self.pending_prediction = predicted
         return action
