@@ -124,6 +124,17 @@ if not os.path.isdir(path):
         else:
             dirs[:] = []
 try:
+    import torch
+
+    dev = (
+        f"{torch.cuda.get_device_name(0)} cap={torch.cuda.get_device_capability(0)}"
+        if torch.cuda.is_available()
+        else "no-cuda"
+    )
+    print(f"model-smoke: torch={torch.__version__} cuda={torch.version.cuda} dev={dev}")
+except Exception:
+    traceback.print_exc()
+try:
     t0 = time.time()
     sys.path.insert(0, "/tmp")
     from ouro2.config import Config
@@ -193,6 +204,10 @@ def kernel_metadata(model: bool) -> dict:
         "kernel_type": "notebook",
         "is_private": True,
         "enable_gpu": bool(model),
+        # Pin the newest supported save-pool GPU: the image's torch has
+        # dropped Pascal (sm_60) kernels, so an unpinned P100 allocation
+        # fails every CUDA op with 'no kernel image' (seen on kernel v4).
+        **({"machine_shape": "NvidiaTeslaT4"} if model else {}),
         "enable_internet": False,
         "competition_sources": [COMP],
         "dataset_sources": [WHEELS_DATASET] if model else [],
