@@ -449,8 +449,15 @@ class Director:
             # cannot fully hide, and the floor handles these games better.
             and not any(isinstance(r, TickRule) for r in model.rules)
             and model.binding.avatar_color is not None
-            and model.report.misses_by_level.get(view.levels_completed, 0) == 0
             and model.report.support >= 12
+            # Miss RATE, not zero misses: real games carry residual events
+            # (ls20's terrain transforms) a mostly-right model mispredicts;
+            # cheap per-step-verified probes + the one-strike policy bound
+            # the cost of being wrong.
+            and (
+                model.report.misses_by_level.get(view.levels_completed, 0)
+                <= 0.2 * max(1, model.report.support)
+            )
         )
 
     def _consumed_counters(self, current: Grid) -> tuple[tuple[int, int], ...]:
