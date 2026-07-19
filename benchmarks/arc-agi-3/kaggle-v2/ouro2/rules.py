@@ -23,6 +23,7 @@ class Binding:
     """How raw pixels are read as entities (the representation)."""
 
     avatar_color: int | None = None
+    avatar_extra: frozenset[int] = frozenset()  # companion sprite colors
     background: int | None = None
     conn: int = 4
 
@@ -59,6 +60,7 @@ class MoveRule:
     consumes: frozenset[int] = frozenset()
     on_block: str = "stay"  # stay | die
     slide: bool = False  # repeat the step until blocked (ice)
+    floor: int | None = None  # color vacated cells restore to (default: bg)
 
     kind: str = field(default="move", init=False)
 
@@ -116,17 +118,23 @@ class Goal:
 
 
 def avatar_cells(g: Grid, binding: Binding) -> frozenset[tuple[int, int]]:
-    """Largest connected component of the avatar color (empty if unbound)."""
+    """The avatar patch: the largest avatar-color component, grown over the
+    companion colors (multi-color sprites move as one rigid patch)."""
     if binding.avatar_color is None:
         return frozenset()
-    return _avatar_cells_cached(g, binding.avatar_color, binding.conn)
+    return _avatar_cells_cached(
+        g, binding.avatar_color, binding.avatar_extra, binding.conn
+    )
 
 
 @lru_cache(maxsize=8192)
-def _avatar_cells_cached(g: Grid, color: int, conn: int) -> frozenset[tuple[int, int]]:
-    # Fast path: collect the color's cells in one scan, then flood-fill only
-    # among them (avatar components are tiny).
-    cells = {(i % SIZE, i // SIZE) for i, c in enumerate(g) if c == color}
+def _avatar_cells_cached(
+    g: Grid, color: int, extra: frozenset[int], conn: int
+) -> frozenset[tuple[int, int]]:
+    # Fast path: collect candidate cells in one scan, flood-fill among them,
+    # then keep the largest component that CONTAINS the primary color.
+    union = {color} | set(extra)
+    cells = {(i % SIZE, i // SIZE) for i, c in enumerate(g) if c in union}
     if not cells:
         return frozenset()
     offsets = (
@@ -148,7 +156,9 @@ def _avatar_cells_cached(g: Grid, color: int, conn: int) -> frozenset[tuple[int,
                     remaining.remove(p)
                     group.add(p)
                     frontier.append(p)
-        if len(group) > len(best):
+        if len(group) > len(best) and any(
+            g[y * SIZE + x] == color for x, y in group
+        ):
             best = group
     return frozenset(best)
 
@@ -167,6 +177,8 @@ def _move_once(
     avatar_color: int,
 ) -> tuple[frozenset[tuple[int, int]], list[int], bool]:
     """One movement step. Returns (new cells, consumed colors, moved?)."""
+    restore = bg if rule.floor is None else rule.floor
+    walkable = {bg, restore}
     dest = {(x + dx, y + dy) for x, y in cells}
     if any(not (0 <= x < SIZE and 0 <= y < SIZE) for x, y in dest):
         return cells, [], False
@@ -188,14 +200,17 @@ def _move_once(
                 blocked = True
                 break
             c = flat[y * SIZE + x]
-            if c in rule.blockers or (c not in rule.pushable and c != bg and c not in rule.consumes):
+            if c in rule.blockers or (
+                c not in rule.pushable and c not in walkable and c not in rule.consumes
+            ):
                 blocked = True
                 break
         if blocked:
             return cells, [], False
         frontier = {p for p in nxt if flat[p[1] * SIZE + p[0]] in rule.pushable}
     if any(
-        c in rule.blockers or (c != bg and c not in rule.consumes and c not in rule.pushable)
+        c in rule.blockers
+        or (c not in walkable and c not in rule.consumes and c not in rule.pushable)
         for c in entered_colors
     ):
         return cells, [], False
@@ -204,6 +219,7 @@ def _move_once(
         for x, y in entered
         if flat[y * SIZE + x] in rule.consumes
     ]
+    patch_colors = {(x, y): flat[y * SIZE + x] for x, y in cells}
     # Move pushed groups first (furthest groups were appended later).
     for group in reversed(push_groups):
         colors = {(x, y): flat[y * SIZE + x] for x, y in group}
@@ -212,9 +228,9 @@ def _move_once(
         for (x, y), c in colors.items():
             flat[(y + dy) * SIZE + (x + dx)] = c
     for x, y in cells:
-        flat[y * SIZE + x] = bg
-    for x, y in dest:
-        flat[y * SIZE + x] = avatar_color
+        flat[y * SIZE + x] = restore
+    for (x, y), c in patch_colors.items():
+        flat[(y + dy) * SIZE + (x + dx)] = c
     return frozenset(dest), consumed, True
 
 

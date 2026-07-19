@@ -101,6 +101,7 @@ class Director:
         self.mask_volatile: frozenset[int] = frozenset()
         self.mask_depleting: frozenset[int] = frozenset()
         self.mask_avatar: int | None = None
+        self.consec_move_noops = 0  # all-moves-dead soft-lock detector
 
     def _key(self, g: Grid) -> str:
         from .induce import masked
@@ -254,6 +255,10 @@ class Director:
             changed = view.grid != self.last_grid
             if not changed and not action.is_reset():
                 self.ledger.noops += 1
+            if action.action in (1, 2, 3, 4):
+                self.consec_move_noops = 0 if changed else self.consec_move_noops + 1
+            elif action.is_reset():
+                self.consec_move_noops = 0
             key = self._key(view.grid)
             if key in self.seen_keys:
                 self.ledger.revisits += 1
@@ -332,6 +337,12 @@ class Director:
             return RESET
         if view.grid is None:
             return self._explore(view)
+        # Soft-lock escape: every recent move no-oped (ls20-class energy
+        # exhaustion) — a level reset refills the resource; one action.
+        if self.consec_move_noops >= 8 and self.timeline.current_level_transitions():
+            self.consec_move_noops = 0
+            self.reinduce_pending = True
+            return ActionSpec(0, source="director", reason="soft-lock: moves dead")
         # Stuck escape: no novel state for a long stretch usually means an
         # irreversible dead position (cornered sokoban box) — a level reset
         # is the only exit, and it costs one action.

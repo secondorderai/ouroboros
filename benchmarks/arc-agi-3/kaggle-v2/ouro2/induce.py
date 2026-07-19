@@ -184,12 +184,10 @@ def rebind(timeline: Timeline) -> Binding:
         score = sum(n for _, n in majority.values())
         if score > best_score:
             best_color, best_score = color, score
-    if best_color is not None:
-        return Binding(avatar_color=best_color)
     # Loose pass (representation revision): multi-color sprites never
-    # translate rigidly per color — vote on unit CENTROID displacement with
-    # size tolerance instead (ls20's cyan+maroon block with a mutating
-    # direction indicator).
+    # translate rigidly per color — vote on CENTROID displacement with
+    # size tolerance instead (ls20's block with a mutating indicator).
+    strict_winner = best_color
     per_color = defaultdict(lambda: defaultdict(Counter))
     for t in _informative(timeline):
         if t.before is None or t.after is None or t.action.action not in SIMPLE_MOVE_ACTIONS:
@@ -212,11 +210,60 @@ def rebind(timeline: Timeline) -> Binding:
         if len(majority) < 1 or (len(majority) >= 2 and len(distinct) < 2):
             continue
         score = sum(n for _, n in majority.values())
-        if score > best_score:
+        if strict_winner is None and score > best_score:
             best_color, best_score = color, score
     if best_color is None:
         return Binding()
-    return Binding(avatar_color=best_color)
+    companions: Counter = Counter()
+    moves = 0
+    for t in _informative(timeline):
+        if t.before is None or t.after is None or t.action.action not in SIMPLE_MOVE_ACTIONS:
+            continue
+        # Loose delta (centroid displacement): the sprite's indicator part
+        # mutates between frames, so exact-shape translation rarely holds.
+        a = _cells_of(t.before, best_color)
+        b = _cells_of(t.after, best_color)
+        if not a or not b or abs(len(a) - len(b)) > max(2, len(a) // 4):
+            continue
+        ax = sum(x for x, _ in a) / len(a); ay = sum(y for _, y in a) / len(a)
+        bx = sum(x for x, _ in b) / len(b); by = sum(y for _, y in b) / len(b)
+        delta = (round(bx - ax), round(by - ay))
+        if not _axis_jump(delta):
+            continue
+        moves += 1
+        av = _cells_of(t.before, best_color)
+        near = {
+            (x + dx, y + dy)
+            for x, y in av
+            for dx in (-2, -1, 0, 1, 2)
+            for dy in (-2, -1, 0, 1, 2)
+        }
+        changed = diff(t.before, t.after)
+        dx, dy = delta
+        for color in {old for _, _, old, _ in changed}:
+            if color == best_color:
+                continue
+            # Cell-local: the same color may exist elsewhere on the board
+            # (ls20's goal room shares the sprite's color), so whole-color
+            # translation can never match — look for c-cells NEAR the avatar
+            # that vanish and reappear shifted by the avatar's delta.
+            gone = {
+                (x, y) for x, y, old, new in changed if old == color and new != color
+            }
+            came = {
+                (x, y) for x, y, old, new in changed if new == color and old != color
+            }
+            shifted = {(x + dx, y + dy) for x, y in gone}
+            if (
+                gone
+                and gone & near
+                and len(shifted & came) >= max(2, len(gone) // 2)
+            ):
+                companions[color] += 1
+    extra = frozenset(
+        c for c, n in companions.items() if moves >= 3 and n >= 0.6 * moves
+    )
+    return Binding(avatar_color=best_color, avatar_extra=extra)
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +287,15 @@ def candidates_from(t: Transition, binding: Binding) -> list[Rule]:
 
     if action in SIMPLE_MOVE_ACTIONS and binding.avatar_color in moved_colors:
         delta = moved_colors[binding.avatar_color]
-        out.append(MoveRule(deltas=((action, delta),)))
+        # The color vacated cells actually became — maze floors are NOT the
+        # global background (most-common is often the WALL color).
+        floors = Counter(
+            new
+            for _, _, old, new in changed
+            if old == binding.avatar_color and new != binding.avatar_color
+        )
+        floor = floors.most_common(1)[0][0] if floors else None
+        out.append(MoveRule(deltas=((action, delta),), floor=floor))
         # Colors that vanished where the avatar landed -> consumable.
         av_after = _cells_of(t.after, binding.avatar_color)
         eaten = {
@@ -402,7 +457,14 @@ def specialize(rule: MoveRule, counterexample: Transition, binding: Binding) -> 
         if 0 <= x < 64 and 0 <= y < 64
     }
     moved = translated(t.before, t.after, binding.avatar_color or -1) is not None
-    if t.before == t.after and entered_colors:
+    unchanged = t.before == t.after
+    if not unchanged:
+        av = binding.avatar_color
+        unchanged = (
+            av is not None
+            and avatar_cells(t.before, binding) == avatar_cells(t.after, binding)
+        )
+    if unchanged and entered_colors:
         # Predicted a move but nothing happened: entered color blocks.
         for c in entered_colors - rule.blockers - {binding.bg(t.before)}:
             out.append(
@@ -543,12 +605,15 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
     move_deltas: dict[int, Counter] = defaultdict(Counter)
     consumes: set[int] = set()
     pushable: set[int] = set()
+    floors: Counter = Counter()
     for rule, n in votes.items():
         if isinstance(rule, MoveRule):
             for action, delta in rule.deltas:
                 move_deltas[action][delta] += n
             consumes |= set(rule.consumes)
             pushable |= set(rule.pushable)
+            if rule.floor is not None:
+                floors[rule.floor] += n
     rules: list[Rule] = []
     if move_deltas:
         deltas = tuple(
@@ -578,14 +643,33 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
         # prediction never yields a counterexample, so specialization alone
         # would leave blockers empty and every wall an "untested assumption").
         blockers: Counter = Counter()
-        for t in _informative(timeline):
+        # Regime guard: only count blocker evidence while the movement
+        # system is demonstrably ALIVE (an energy-exhausted avatar no-ops
+        # against everything, which would teach "the floor is a wall").
+        informative = _informative(timeline)
+        moved_recently: list[bool] = []
+        window: list[bool] = []
+        for t in informative:
+            moved = (
+                t.before is not None
+                and t.after is not None
+                and binding.avatar_color is not None
+                and avatar_cells(t.before, binding) != avatar_cells(t.after, binding)
+            )
+            moved_recently.append(any(window[-4:]) or moved)
+            window.append(moved)
+        for idx, t in enumerate(informative):
             if (
                 t.before is None
                 or t.after is None
-                or t.before != t.after
                 or t.action.action not in delta_map
+                or not moved_recently[idx]
             ):
                 continue
+            if masked(t.before, volatile, depleting) != masked(
+                t.after, volatile, depleting
+            ):
+                continue  # something real changed: not a blocked move
             delta = delta_map[t.action.action]
             cells = avatar_cells(t.before, binding)
             bgc = binding.bg(t.before)
@@ -615,6 +699,7 @@ def induce(timeline: Timeline, max_specialize_rounds: int = 4) -> Model:
                 blockers=confirmed,
                 consumes=frozenset(consumes),
                 pushable=frozenset(pushable),
+                floor=floors.most_common(1)[0][0] if floors else None,
             )
         )
     click_votes = [
