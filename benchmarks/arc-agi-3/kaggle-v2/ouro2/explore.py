@@ -17,6 +17,9 @@ SIMPLE_ACTIONS = (1, 2, 3, 4, 5, 7)
 class Explorer:
     def __init__(self) -> None:
         self.noop_bans: set[tuple[str, tuple[int, int | None, int | None]]] = set()
+        # Milk-the-productive-click: consecutive same-click changes
+        self.last_click: tuple[int, int] | None = None
+        self.last_click_streak = 0
         self.tried: dict[str, set[tuple[int, int | None, int | None]]] = {}
         # LRU is keyed per (state, action): per-state rotor-router sweeps
         # provably cover the reachable state graph, while a global LRU would
@@ -27,11 +30,29 @@ class Explorer:
         self.cell_stats: dict[tuple[int, int], list[int]] = {}  # (x,y) -> same
 
     def note_result(
-        self, state_key: str, action: ActionSpec, changed: bool, grid: Grid | None = None
+        self,
+        state_key: str,
+        action: ActionSpec,
+        changed: bool,
+        grid: Grid | None = None,
+        novel: bool = True,
     ) -> None:
         self.tried.setdefault(state_key, set()).add(action.key())
         if not changed and not action.is_reset():
             self.noop_bans.add((state_key, action.key()))
+        if action.action == 6 and action.x is not None:
+            # Milk only while the click produces NOVEL states: a changing-
+            # but-revisiting board is an oscillating toggle (the cn04
+            # reward-hack), not progress.
+            productive = changed and novel
+            if productive and self.last_click == (action.x, action.y):
+                self.last_click_streak += 1
+            elif productive:
+                self.last_click = (action.x, action.y)
+                self.last_click_streak = 1
+            else:
+                self.last_click = None
+                self.last_click_streak = 0
         # Global click priors: most targets are inert in EVERY state, and
         # per-state bans alone re-pay the whole sweep after each board
         # change. Learn per-cell and per-color outcomes once, globally.
@@ -100,6 +121,18 @@ class Explorer:
         self.clock += 1
         key = grid_key(g)
         tried = self.tried.get(key, set())
+        # Milk a productive click: a click that keeps changing the board is
+        # doing WORK (counters, fills, cycles) — repeat it until it stops
+        # (V1's paired-control and large-click replay, generalized).
+        if (
+            6 in legal
+            and self.last_click is not None
+            and 1 <= self.last_click_streak < 24
+        ):
+            x, y = self.last_click
+            if (key, (6, x, y)) not in self.noop_bans:
+                self.last_used[(key, (6, x, y))] = self.clock
+                return ActionSpec(6, x, y, source="explore", reason="milk click")
         for action in SIMPLE_ACTIONS:
             if action in legal:
                 k = (action, None, None)

@@ -140,7 +140,10 @@ def depleting_colors(timeline: Timeline) -> frozenset[int]:
     for seg in timeline.levels():
         prev: dict[int, int] | None = None
         for t in seg.transitions:
-            if t.before is None or t.after is None or t.action.is_reset():
+            if t.action.is_reset():
+                prev = None  # a reset refills timers: break the count chain,
+                continue      # or the refill masquerades as an "increase"
+            if t.before is None or t.after is None:
                 continue
             counts = C(t.after)
             if prev is not None:

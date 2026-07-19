@@ -96,6 +96,7 @@ class Director:
         # Observed transition graph over masked keys (model-free navigation)
         self.graph_edges: dict[tuple[str, tuple], Counter] = {}
         self.lethal_edges: set[tuple[str, tuple]] = set()
+        self.key_grids: dict[str, Grid] = {}  # representative grid per key
         # Cumulative identity masks: monotone unions, so mask jitter between
         # inductions cannot thrash the key epoch (every rebuild wipes
         # exploration memory — rebuilds must be rare and meaningful).
@@ -261,13 +262,16 @@ class Director:
             elif action.is_reset():
                 self.consec_move_noops = 0
             key = self._key(view.grid)
-            if key in self.seen_keys:
+            novel = key not in self.seen_keys
+            if not novel:
                 self.ledger.revisits += 1
             else:
                 self.last_novel_at = len(self.timeline)
             self.seen_keys.add(key)
+            self.key_grids.setdefault(key, view.grid)
             self.explorer.note_result(
-                self._key(self.last_grid), action, changed, grid=self.last_grid
+                self._key(self.last_grid), action, changed,
+                grid=self.last_grid, novel=novel,
             )
             if not action.is_reset():
                 edge = (self._key(self.last_grid), action.key())
@@ -406,13 +410,16 @@ class Director:
         self.seen_keys.clear()
         self.graph_edges.clear()
         self.lethal_edges.clear()
+        self.key_grids.clear()
         ex = self.explorer
         ex.tried.clear()
         ex.noop_bans.clear()
         ex.last_used.clear()
         for t in self.timeline.transitions:
             if t.after is not None:
-                self.seen_keys.add(self._key(t.after))
+                k_after = self._key(t.after)
+                self.seen_keys.add(k_after)
+                self.key_grids.setdefault(k_after, t.after)
             if t.before is None:
                 continue
             key = self._key(t.before)
@@ -590,7 +597,20 @@ class Director:
                 tried = self.explorer.tried.get(key, set())
                 for a in legal:
                     if a == 6:
-                        continue  # graph nav targets simple-action frontiers
+                        grid = self.key_grids.get(key)
+                        if grid is None:
+                            continue
+                        has_untried_click = any(
+                            (6, x, y) not in tried
+                            and (key, (6, x, y)) not in self.explorer.noop_bans
+                            for x, y in self.explorer._ranked_clicks(grid)[:16]
+                        )
+                        if has_untried_click and first is not None:
+                            return ActionSpec(
+                                first[0], first[1], first[2],
+                                source="graph-frontier", reason="route to untried click",
+                            )
+                        continue
                     k = (a, None, None)
                     if k not in tried and (key, k) not in self.explorer.noop_bans:
                         if first is None:
