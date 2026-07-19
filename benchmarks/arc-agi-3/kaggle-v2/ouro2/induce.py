@@ -154,9 +154,14 @@ def depleting_colors(timeline: Timeline) -> frozenset[int]:
                     elif d > 0:
                         increases[color] += 1
             prev = dict(counts)
-    return frozenset(
-        c for c, n in decreases.items() if n >= 5 and increases.get(c, 0) == 0
-    )
+    monotone = set()
+    for c, n in decreases.items():
+        if n >= 5 and increases.get(c, 0) == 0:
+            monotone.add(c)  # depleting (energy bars, timers)
+    for c, n in increases.items():
+        if n >= 5 and decreases.get(c, 0) == 0:
+            monotone.add(c)  # accumulating (attempt counters, progress fill)
+    return frozenset(monotone)
 
 
 # ---------------------------------------------------------------------------

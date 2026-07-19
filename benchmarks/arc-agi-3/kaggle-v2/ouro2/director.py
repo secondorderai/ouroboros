@@ -255,6 +255,11 @@ class Director:
         )
         if view.grid is not None and self.last_grid is not None:
             changed = view.grid != self.last_grid
+            # For LEARNING, "changed" means changed outside the masks: a
+            # click that only ticks an attempt counter is a no-op in every
+            # way that matters.
+            if changed and self.model is not None:
+                changed = not self.model.matches(view.grid, self.last_grid)
             if not changed and not action.is_reset():
                 self.ledger.noops += 1
             if action.action in (1, 2, 3, 4):
