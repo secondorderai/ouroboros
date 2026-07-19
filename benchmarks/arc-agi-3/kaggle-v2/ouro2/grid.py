@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 from collections import Counter, deque
 from dataclasses import dataclass
+from functools import lru_cache
 
 SIZE = 64
 CELLS = SIZE * SIZE
@@ -58,6 +59,7 @@ def color_counts(g: Grid) -> dict[int, int]:
     return dict(Counter(g))
 
 
+@lru_cache(maxsize=8192)
 def most_common_color(g: Grid) -> int:
     return Counter(g).most_common(1)[0][0]
 

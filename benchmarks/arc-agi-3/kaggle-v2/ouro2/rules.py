@@ -13,6 +13,7 @@ under the avatar are represented via ``consumes``).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from .grid import CELLS, SIZE, Grid, components, most_common_color
 
@@ -118,10 +119,38 @@ def avatar_cells(g: Grid, binding: Binding) -> frozenset[tuple[int, int]]:
     """Largest connected component of the avatar color (empty if unbound)."""
     if binding.avatar_color is None:
         return frozenset()
-    objs = components(
-        g, colors={binding.avatar_color}, conn=binding.conn, background=binding.bg(g)
+    return _avatar_cells_cached(g, binding.avatar_color, binding.conn)
+
+
+@lru_cache(maxsize=8192)
+def _avatar_cells_cached(g: Grid, color: int, conn: int) -> frozenset[tuple[int, int]]:
+    # Fast path: collect the color's cells in one scan, then flood-fill only
+    # among them (avatar components are tiny).
+    cells = {(i % SIZE, i // SIZE) for i, c in enumerate(g) if c == color}
+    if not cells:
+        return frozenset()
+    offsets = (
+        ((1, 0), (-1, 0), (0, 1), (0, -1))
+        if conn == 4
+        else ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
     )
-    return objs[0].cells if objs else frozenset()
+    best: set[tuple[int, int]] = set()
+    remaining = set(cells)
+    while remaining:
+        seed = remaining.pop()
+        group = {seed}
+        frontier = [seed]
+        while frontier:
+            x, y = frontier.pop()
+            for dx, dy in offsets:
+                p = (x + dx, y + dy)
+                if p in remaining:
+                    remaining.remove(p)
+                    group.add(p)
+                    frontier.append(p)
+        if len(group) > len(best):
+            best = group
+    return frozenset(best)
 
 
 def extract_state(g: Grid) -> State:

@@ -59,3 +59,116 @@ class MazeGame(SyntheticGame):
             return s, False, False
         s = dict(s, avatar=(nx, ny))
         return s, (nx, ny) == s["goal"], False
+
+
+class PushGame(SyntheticGame):
+    """Push the box onto the target cell (sokoban, one box)."""
+
+    n_levels = 1
+    available = (0, 1, 2, 3, 4)
+
+    def initial(self, level: int) -> dict:
+        walls = set()
+        for x in range(2, 11):
+            walls |= {(x, 2), (x, 10)}
+        for y in range(2, 11):
+            walls |= {(2, y), (10, y)}
+        return {"avatar": (4, 6), "box": (6, 6), "target": (8, 6), "walls": walls}
+
+    def render(self, s: dict) -> list[list[int]]:
+        rows = empty_rows()
+        for x, y in s["walls"]:
+            rows[y][x] = WALL
+        tx, ty = s["target"]
+        rows[ty][tx] = TARGET
+        bx, by = s["box"]
+        rows[by][bx] = BOX
+        ax, ay = s["avatar"]
+        rows[ay][ax] = AV
+        return rows
+
+    def apply(self, s: dict, action: ActionSpec):
+        delta = DELTAS.get(action.action)
+        if delta is None:
+            return s, False, False
+        ax, ay = s["avatar"]
+        nx, ny = ax + delta[0], ay + delta[1]
+        if (nx, ny) in s["walls"]:
+            return s, False, False
+        if (nx, ny) == s["box"]:
+            bx, by = nx + delta[0], ny + delta[1]
+            if (bx, by) in s["walls"]:
+                return s, False, False
+            s = dict(s, avatar=(nx, ny), box=(bx, by))
+            return s, (bx, by) == s["target"], False
+        s = dict(s, avatar=(nx, ny))
+        return s, False, False
+
+
+class ToggleDoorsGame(SyntheticGame):
+    """Click each button to switch it off; level done when all are off."""
+
+    n_levels = 1
+    available = (0, 6)
+    BUTTONS = ((5, 5), (9, 5), (7, 8))
+
+    def initial(self, level: int) -> dict:
+        return {"on": set(self.BUTTONS)}
+
+    def render(self, s: dict) -> list[list[int]]:
+        rows = empty_rows()
+        for x, y in self.BUTTONS:
+            rows[y][x] = BTN if (x, y) in s["on"] else DOOR
+        return rows
+
+    def apply(self, s: dict, action: ActionSpec):
+        if action.action != 6:
+            return s, False, False
+        p = (action.x, action.y)
+        if p in self.BUTTONS:
+            on = set(s["on"])
+            if p in on:
+                on.remove(p)
+            else:
+                on.add(p)
+            s = dict(s, on=on)
+        return s, not s["on"], False
+
+
+class CollectGame(SyntheticGame):
+    """Eat every pellet; level completes when the last one is consumed."""
+
+    n_levels = 1
+    available = (0, 1, 2, 3, 4)
+    PELLETS = ((5, 4), (8, 7), (4, 8))
+
+    def initial(self, level: int) -> dict:
+        walls = set()
+        for x in range(2, 11):
+            walls |= {(x, 2), (x, 10)}
+        for y in range(2, 11):
+            walls |= {(2, y), (10, y)}
+        return {"avatar": (3, 3), "pellets": set(self.PELLETS), "walls": walls}
+
+    def render(self, s: dict) -> list[list[int]]:
+        rows = empty_rows()
+        for x, y in s["walls"]:
+            rows[y][x] = WALL
+        for x, y in s["pellets"]:
+            rows[y][x] = PELLET
+        ax, ay = s["avatar"]
+        rows[ay][ax] = AV
+        return rows
+
+    def apply(self, s: dict, action: ActionSpec):
+        delta = DELTAS.get(action.action)
+        if delta is None:
+            return s, False, False
+        ax, ay = s["avatar"]
+        nx, ny = ax + delta[0], ay + delta[1]
+        if (nx, ny) in s["walls"]:
+            return s, False, False
+        pellets = set(s["pellets"])
+        pellets.discard((nx, ny))
+        s = dict(s, avatar=(nx, ny), pellets=pellets)
+        return s, not pellets, False

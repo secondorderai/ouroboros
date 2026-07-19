@@ -9,11 +9,15 @@ last resort is the explorer.
 from __future__ import annotations
 
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 from .config import Config
 from .explore import Explorer
 from .grid import Grid, grid_key, to_grid
+from .induce import Model, induce
+from .plan import plan
+from .rules import State, step
 from .timeline import RESET, ActionSpec, Timeline
 
 
@@ -69,6 +73,14 @@ class Director:
         self.last_state = "NOT_PLAYED"
         self.seen_keys: set[str] = set()
         self.wants_speedrun_flag = False
+        # World-model path
+        self.model: Model | None = None
+        self.plan_queue: list[tuple[ActionSpec, Grid]] = []
+        self.pending_prediction: Grid | None = None
+        self.reinduce_pending = False
+        self.induced_at = 0  # timeline length at last induction
+        self.level_start_grid: Grid | None = None
+        self.plan_retry_at = 0  # timeline length gate after a failed plan
 
     # -- framework hooks -------------------------------------------------
     def wants_speedrun(self) -> bool:
@@ -149,18 +161,101 @@ class Director:
                 self.ledger.revisits += 1
             self.seen_keys.add(key)
             self.explorer.note_result(grid_key(self.last_grid), action, changed)
+        # Verify the committed plan step: reality outranks the model.
+        if self.pending_prediction is not None:
+            if view.grid is not None and view.grid != self.pending_prediction:
+                self.plan_queue.clear()
+                self.ledger.plan_aborts += 1
+                self.reinduce_pending = True
+            else:
+                self.ledger.plan_steps += 1
+            self.pending_prediction = None
+        # Track the level-start grid for consumed-counter reconstruction.
+        if view.levels_completed != self.last_levels or view.full_reset or (
+            action.is_reset() and view.grid is not None
+        ):
+            self.level_start_grid = view.grid
+            self.plan_queue.clear()
+            self.pending_prediction = None
 
     def _decide(self, view: FrameView) -> ActionSpec:
         if view.state == "NOT_PLAYED":
             return RESET
         if view.state == "GAME_OVER":
+            self.plan_queue.clear()
+            self.pending_prediction = None
+            self.reinduce_pending = True
             return RESET
         if view.state == "WIN":
             self.wants_speedrun_flag = False
             return RESET  # only reached if is_done was overridden to continue
         if view.grid is None:
             return self._explore(view)
+        if self.plan_queue:
+            action, predicted = self.plan_queue.pop(0)
+            self.pending_prediction = predicted
+            return action
+        self._maybe_reinduce()
+        planned = self._try_plan(view)
+        if planned is not None:
+            return planned
         return self._explore(view)
+
+    def _maybe_reinduce(self) -> None:
+        grown = len(self.timeline) - self.induced_at
+        if self.model is None or self.reinduce_pending or grown >= 16:
+            if len(self.timeline) >= 4:
+                self.model = induce(self.timeline)
+                self.induced_at = len(self.timeline)
+                self.reinduce_pending = False
+                self.plan_retry_at = 0  # new evidence: planning may retry
+
+    def _consumed_counters(self, current: Grid) -> tuple[tuple[int, int], ...]:
+        if self.level_start_grid is None:
+            return ()
+        start = Counter(self.level_start_grid)
+        now = Counter(current)
+        consumed = {
+            c: start[c] - now.get(c, 0)
+            for c in start
+            if start[c] - now.get(c, 0) > 0
+        }
+        return tuple(sorted(consumed.items()))
+
+    def _try_plan(self, view: FrameView) -> ActionSpec | None:
+        model = self.model
+        if (
+            model is None
+            or model.goal is None
+            or not model.healthy_for(view.levels_completed)
+            or len(self.timeline) < self.plan_retry_at
+        ):
+            return None
+        state = State(view.grid, counters=self._consumed_counters(view.grid))
+        legal = tuple(a for a in view.available_actions if a != 0) or (1, 2, 3, 4)
+        actions = plan(
+            state,
+            model.rules,
+            model.binding,
+            model.goal,
+            legal=legal,
+            node_cap=self.config.node_cap,
+            deadline_s=2.0,
+        )
+        if not actions:
+            # Cool down: don't re-pay BFS cost until new evidence arrives.
+            self.plan_retry_at = len(self.timeline) + 8
+            return None
+        # Precompute per-step predicted grids for the executor.
+        queue: list[tuple[ActionSpec, Grid]] = []
+        sim = state
+        for spec in actions:
+            sim, _ = step(sim, spec.key(), model.rules, model.binding)
+            queue.append((spec, sim.grid))
+        self.plan_queue = queue
+        action, predicted = self.plan_queue.pop(0)
+        self.pending_prediction = predicted
+        return action
 
     def _explore(self, view: FrameView) -> ActionSpec:
         if view.grid is None:
