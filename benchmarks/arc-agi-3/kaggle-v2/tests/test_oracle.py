@@ -64,3 +64,21 @@ def test_transformers_load_failure_latches_after_one_attempt():
     assert o.failures == 2
     assert o._load_failed is True
     assert o._load_attempts == 1  # second call latched, no reload attempt
+
+
+def test_thinking_block_is_stripped_before_json_scan():
+    # A thinking model reasons (with stray braces!) before answering; only
+    # the post-</think> text is the answer.
+    o = make(
+        lambda p: '<think>Options {a, b}... weighing {"choice": "a"}? No.</think>\n'
+        '{"choice": "b"}'
+    )
+    assert o.select("RULE_SELECT", "pick", ["a", "b"], default="a") == "b"
+    assert o.failures == 0
+
+
+def test_thinking_config_from_env(monkeypatch):
+    monkeypatch.setenv("OURO2_MODEL_THINKING", "1")
+    assert Config.from_env().model_thinking is True
+    monkeypatch.delenv("OURO2_MODEL_THINKING")
+    assert Config.from_env().model_thinking is False

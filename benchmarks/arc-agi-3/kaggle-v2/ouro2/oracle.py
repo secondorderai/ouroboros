@@ -50,6 +50,11 @@ class Oracle:
                     if self.transport is not None
                     else self._complete(prompt)
                 )
+            if "</think>" in raw:
+                # Thinking models reason before answering; only the text
+                # after the think block is the answer (the reasoning may
+                # itself contain braces that would confuse the JSON scan).
+                raw = raw.rsplit("</think>", 1)[-1]
             match = re.search(r"\{.*\}", raw, re.DOTALL)
             answer = json.loads(match.group(0)) if match else {}
             choice = answer.get("choice")
@@ -75,9 +80,12 @@ class Oracle:
                     {"role": "user", "content": prompt},
                 ],
                 "stream": False,
-                "think": False,
+                "think": self.config.model_thinking,
                 "format": "json",
-                "options": {"temperature": 0, "num_predict": 160},
+                "options": {
+                    "temperature": 0.6 if self.config.model_thinking else 0,
+                    "num_predict": 1024 if self.config.model_thinking else 160,
+                },
             }
         ).encode()
         req = urllib.request.Request(
@@ -118,13 +126,32 @@ class Oracle:
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=False,
+            enable_thinking=self.config.model_thinking,
         )
         inputs = self._tokenizer(text, return_tensors="pt").to(self._model.device)
-        out = self._model.generate(
-            **inputs, max_new_tokens=160, do_sample=False,
-            pad_token_id=self._tokenizer.eos_token_id,
-        )
-        return self._tokenizer.decode(
-            out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
-        )
+        if self.config.model_thinking:
+            # Qwen3 model card: thinking mode must NOT use greedy decoding
+            # (repetition loops); recommended sampling, seeded so a rerun
+            # of the same prompt reproduces the same answer.
+            import torch
+
+            torch.manual_seed(0)
+            out = self._model.generate(
+                **inputs, max_new_tokens=1024, do_sample=True,
+                temperature=0.6, top_p=0.95, top_k=20,
+                pad_token_id=self._tokenizer.eos_token_id,
+            )
+        else:
+            out = self._model.generate(
+                **inputs, max_new_tokens=160, do_sample=False,
+                pad_token_id=self._tokenizer.eos_token_id,
+            )
+        out_ids = out[0][inputs["input_ids"].shape[1]:].tolist()
+        if self.config.model_thinking:
+            # </think> is a SPECIAL token: skip_special_tokens erases it,
+            # merging reasoning into the answer — split on the token id
+            # before decoding (select() also strips any string-level tags).
+            end_id = self._tokenizer.convert_tokens_to_ids("</think>")
+            if isinstance(end_id, int) and end_id in out_ids:
+                out_ids = out_ids[len(out_ids) - out_ids[::-1].index(end_id):]
+        return self._tokenizer.decode(out_ids, skip_special_tokens=True)

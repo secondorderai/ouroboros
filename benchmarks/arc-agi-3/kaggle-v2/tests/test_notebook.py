@@ -62,7 +62,10 @@ def test_notebook_model_variant_attaches_model(tmp_path):
     # variant must attach the pinned-wheels dataset and upgrade offline,
     # BEFORE the run cell.
     assert meta["dataset_sources"] == ["kinwochan/transformers-qwen35-wheels"]
-    assert meta["machine_shape"] == "NvidiaTeslaT4"  # image torch lacks Pascal kernels
+    # Rerun-class GPU; never unpinned (image torch lacks Pascal kernels).
+    assert meta["machine_shape"] == "NvidiaRtxPro6000"
+    assert meta["model_sources"] == ["qwen-lm/qwen-3/transformers/4b/1"]
+    assert 'OURO2_MODEL_THINKING", "1"' in joined
     install = "--find-links /kaggle/input/transformers-qwen35-wheels transformers"
     assert install in joined
     sources = ["".join(c["source"]) for c in nb["cells"]]

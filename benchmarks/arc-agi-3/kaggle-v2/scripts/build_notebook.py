@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # only surface as an ImportError inside a no-internet Kaggle rerun.
 PACKAGE_FILES = sorted(p.name for p in (ROOT / "ouro2").glob("*.py"))
 KERNEL_ID = "kinwochan/ouroboros-arc-agi-3-v2"
-MODEL_SOURCE = "kinwochan/qwen-3-5-4b/transformers/qwen-3-5-4b/1"
+MODEL_SOURCE = "qwen-lm/qwen-3/transformers/4b/1"  # Qwen3-4B, thinking-capable
 # The rerun image's transformers predates the qwen3_5 architecture
 # (KeyError 'qwen3_5', proven by the v2 save-run smoke) — the model
 # variant upgrades from this pinned-wheels dataset, offline.
@@ -178,6 +178,7 @@ def build(model: bool) -> dict:
     model_env = (
         'os.environ.setdefault("OURO2_DISABLE_MODEL", "0")\n'
         'os.environ.setdefault("OURO2_MODEL_BACKEND", "transformers")\n'
+        'os.environ.setdefault("OURO2_MODEL_THINKING", "1")\n'
         f'os.environ.setdefault("OURO2_MODEL_PATH", "/kaggle/input/models/{MODEL_SOURCE}")'
         if model
         else 'os.environ.setdefault("OURO2_DISABLE_MODEL", "1")'
@@ -204,10 +205,10 @@ def kernel_metadata(model: bool) -> dict:
         "kernel_type": "notebook",
         "is_private": True,
         "enable_gpu": bool(model),
-        # Pin the newest supported save-pool GPU: the image's torch has
-        # dropped Pascal (sm_60) kernels, so an unpinned P100 allocation
-        # fails every CUDA op with 'no kernel image' (seen on kernel v4).
-        **({"machine_shape": "NvidiaTeslaT4"} if model else {}),
+        # RTX PRO 6000 — the rerun-class hardware (V1's parity validation
+        # ran on it). Never leave the shape unpinned: the image's torch has
+        # dropped Pascal kernels, so a pool P100 fails every CUDA op.
+        **({"machine_shape": "NvidiaRtxPro6000"} if model else {}),
         "enable_internet": False,
         "competition_sources": [COMP],
         "dataset_sources": [WHEELS_DATASET] if model else [],
