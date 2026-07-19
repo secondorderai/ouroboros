@@ -126,9 +126,10 @@ def build(model: bool) -> dict:
 
 
 def kernel_metadata(model: bool) -> dict:
+    suffix = "-qwen" if model else ""
     meta = {
-        "id": KERNEL_ID,
-        "title": "ouroboros-arc-agi-3-v2",
+        "id": KERNEL_ID + suffix,
+        "title": "ouroboros-arc-agi-3-v2" + suffix,
         "code_file": "submission.ipynb",
         "language": "python",
         "kernel_type": "notebook",

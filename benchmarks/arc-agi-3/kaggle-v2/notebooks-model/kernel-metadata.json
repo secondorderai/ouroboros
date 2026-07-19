@@ -1,6 +1,6 @@
 {
- "id": "kinwochan/ouroboros-arc-agi-3-v2",
- "title": "ouroboros-arc-agi-3-v2",
+ "id": "kinwochan/ouroboros-arc-agi-3-v2-qwen",
+ "title": "ouroboros-arc-agi-3-v2-qwen",
  "code_file": "submission.ipynb",
  "language": "python",
  "kernel_type": "notebook",
