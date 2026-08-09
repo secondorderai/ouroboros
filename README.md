@@ -70,6 +70,29 @@ converting repeated observations into durable checkpoints and reusable skills.
 This lets Ouroboros combine the flexibility of neural reasoning with the
 predictability, traceability, and safety of explicit symbolic structures.
 
+#### Mitigating LLM Hallucinations
+
+Neuro-Symbolic AI does not eliminate hallucinations, but it reduces the model's
+ability to make unsupported claims or take invalid actions:
+
+- **Grounding:** The model can use tools to retrieve files, search results, test
+  output, and other observations instead of relying only on generated text.
+- **Constraints:** Schemas, task dependencies, permission tiers, and sandbox
+  rules reject malformed requests or actions outside the current context.
+- **Evidence-based completion:** The verifier checks a structured done contract
+  against the tool-result evidence ledger and can request another attempt when
+  the evidence does not support completion.
+- **Traceability:** Structured observations and checkpoints preserve what was
+  observed, the supporting evidence, and the resulting decisions, making claims
+  easier to inspect and correct.
+- **Human oversight:** Approval gates remain in the loop for sensitive or
+  high-risk operations, so the model cannot unilaterally turn an uncertain
+  prediction into an external side effect.
+
+The practical effect is a grounded feedback loop: the LLM proposes, explicit
+runtime rules constrain, tools provide observations, and verification tests the
+result before the agent presents it as complete.
+
 ## Installation
 
 ### macOS Beta Release Build
