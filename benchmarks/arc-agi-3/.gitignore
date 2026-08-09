@@ -4,3 +4,8 @@ smoke*.log
 smoke*.json
 *-results.json
 *-run.log
+
+# Kaggle harness generations moved to the standalone repository.
+kaggle/
+kaggle-v2/
+kaggle-v3/
