@@ -8,51 +8,67 @@ and a JSON-RPC bridge between the CLI and desktop.
 The CLI owns agent intelligence. The desktop app is a presentation layer that
 spawns the CLI in JSON-RPC mode and talks to it over NDJSON on stdio.
 
-## Screenshots
+## Architecture
 
-A few snapshots of the desktop app showing what it produces in real sessions.
-Click any image for the full-resolution view.
+![Current architecture](./docs/architecture.svg)
 
-### HTML5 app artifact - Nasdaq 100 performance and prediction
+Ouroboros is split into four primary layers:
 
-Ouroboros generated a self-contained interactive dashboard from a chat prompt
-and previewed it inline next to the conversation.
+- `packages/cli`: core agent, CLI entrypoint, tools, JSON-RPC server, memory,
+  RSI, MCP, subagents, teams, artifacts, and Bun tests.
+- `packages/desktop`: Electron 41 + React 19 presentation layer. Main process
+  owns native services and the CLI child process; preload exposes typed APIs;
+  renderer owns chat, settings, artifacts, RSI, approvals, and team graph UI.
+- `packages/shared`: protocol/domain/result types consumed by CLI and desktop.
+- Runtime data at the repo root: `skills/`, `memory/`, `docs/`, and `tickets/`.
 
-<a href="docs/screenshots/Ouroboros-HTML5-Nasdaq-full.png">
-  <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of Nasdaq 100 performance and prediction" src="docs/screenshots/Ouroboros-HTML5-Nasdaq.png" width="900">
-</a>
+The JSON-RPC bridge currently exposes these method groups:
 
-Prompt to try: Create a HTML app report on Nasdaq 100 performance this year and predict next 4 weeks performance based on current news and events.
+- `agent/*`: run, cancel, steer
+- `session/*`: list, load, new, delete, rename
+- `config/*`: get, set, API key storage, connection test
+- `auth/*`: ChatGPT subscription login lifecycle
+- `skills/*`: list and get instructions
+- `rsi/*`, `evolution/*`: dream, status, history, checkpoint, stats
+- `approval/*`, `askUser/*`: approval queue and interactive prompts
+- `workspace/*`: set and clear workspace roots
+- `team/*`: create, workflow creation, start/cancel/cleanup, task assignment,
+  team messaging
+- `mode/*`: mode state, enter, exit, plan submission
+- `artifacts/*`: list and read session artifacts
+- `mcp/*`: list and restart configured MCP servers
 
-### HTML5 app artifact - 30 years of Australian interest rate moves
+Notifications cover streamed text, context usage, tool calls, turn completion,
+errors, steering injection/orphaning, turn aborts, thinking/status updates,
+subagent lifecycle, permission leases, team graph updates, memory updates, skill
+activation, approval and Ask User requests, RSI events/runtime, mode lifecycle,
+artifact creation, and MCP server lifecycle.
 
-<a href="docs/screenshots/Ouroboros-HTML5-AU-interest-rate-full.png">
-  <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of 30 years of Australian interest rate moves" src="docs/screenshots/Ouroboros-HTML5-AU-interest-rate.png" width="900">
-</a>
+### Neuro-Symbolic AI
 
-Prompt to try: Create HTML5 app showing Australian RBA interest rate change over the last 30 years.
+Ouroboros uses a hybrid Neuro-Symbolic AI architecture. The neural layer is the
+provider-agnostic language model: it interprets natural-language goals, proposes
+plans, selects tools, synthesizes results, and creates artifacts. The symbolic
+layer is the explicit runtime structure that constrains and grounds those
+proposals:
 
-### HTML5 app artifact - Artemis II Orion trajectory in 3D
+- Typed tool contracts and JSON Schemas define valid actions and arguments.
+- Plan modes, task graphs, dependencies, quality gates, and permission tiers
+  represent state, constraints, and allowable transitions.
+- Structured observations, checkpoints, durable memory, and Agent Skills turn
+  session experience into machine-readable context that can be reused later.
+- The completion verifier compares the model's proposed completion against a
+  structured done contract and an evidence ledger, allowing the agent to retry
+  when required criteria are not met.
+- Approval queues and the OS sandbox enforce safety boundaries independently of
+  the model's intent.
 
-The agent rendered NASA/JPL Horizons vector data for Orion, the Moon, and the
-Sun as an embedded WebGL/Three.js artifact, scaled for readability.
-
-<a href="docs/screenshots/Ouroboros-HTML5-Orion-full.png">
-  <img alt="Ouroboros desktop app showing a chat session that produced an interactive 3D WebGL visualization of the Artemis II Orion trajectory" src="docs/screenshots/Ouroboros-HTML5-Orion.png" width="900">
-</a>
-
-Prompt to try: Create a HTML5 app to render trajectory of NASA/JPL Horizons vector data for Orion, the Moon, and the Sun, with display scaling applied for readability. Use WebGL and real data from the Artemis I! mission. Make sure to test the app thoroughly until it is fully functional. Pay close attention to the rendering of the planets and fly paths. I want to be able to interact with the 3D rendering. Ensure it has realistic orbital mechanics.
-
-### Architecture diagram preview
-
-When asked for a high-level Ouroboros architecture diagram, the agent produced
-a Mermaid diagram artifact with a fullscreen preview and zoom controls.
-
-<a href="docs/screenshots/Ouroboros-diagram-full.png">
-  <img alt="Ouroboros desktop app rendering a Mermaid architecture diagram of Ouroboros with zoomable fullscreen preview" src="docs/screenshots/Ouroboros-diagram.png" width="900">
-</a>
-
-Prompt to try: Create a high level architecture diagram.
+In each turn, the model proposes an action, the runtime validates and authorizes
+it, a tool produces an observation, and that observation is fed back into the
+next neural decision. RSI reflection and crystallization extend the loop by
+converting repeated observations into durable checkpoints and reusable skills.
+This lets Ouroboros combine the flexibility of neural reasoning with the
+predictability, traceability, and safety of explicit symbolic structures.
 
 ## Installation
 
@@ -186,42 +202,6 @@ bun run release      # publish through electron-builder config
 - **Auth:** API-key providers plus `openai-chatgpt` OAuth login stored outside
   project config in `~/.ouroboros/auth.json`.
 
-## Architecture
-
-![Current architecture](./docs/architecture.svg)
-
-Ouroboros is split into four primary layers:
-
-- `packages/cli`: core agent, CLI entrypoint, tools, JSON-RPC server, memory,
-  RSI, MCP, subagents, teams, artifacts, and Bun tests.
-- `packages/desktop`: Electron 41 + React 19 presentation layer. Main process
-  owns native services and the CLI child process; preload exposes typed APIs;
-  renderer owns chat, settings, artifacts, RSI, approvals, and team graph UI.
-- `packages/shared`: protocol/domain/result types consumed by CLI and desktop.
-- Runtime data at the repo root: `skills/`, `memory/`, `docs/`, and `tickets/`.
-
-The JSON-RPC bridge currently exposes these method groups:
-
-- `agent/*`: run, cancel, steer
-- `session/*`: list, load, new, delete, rename
-- `config/*`: get, set, API key storage, connection test
-- `auth/*`: ChatGPT subscription login lifecycle
-- `skills/*`: list and get instructions
-- `rsi/*`, `evolution/*`: dream, status, history, checkpoint, stats
-- `approval/*`, `askUser/*`: approval queue and interactive prompts
-- `workspace/*`: set and clear workspace roots
-- `team/*`: create, workflow creation, start/cancel/cleanup, task assignment,
-  team messaging
-- `mode/*`: mode state, enter, exit, plan submission
-- `artifacts/*`: list and read session artifacts
-- `mcp/*`: list and restart configured MCP servers
-
-Notifications cover streamed text, context usage, tool calls, turn completion,
-errors, steering injection/orphaning, turn aborts, thinking/status updates,
-subagent lifecycle, permission leases, team graph updates, memory updates, skill
-activation, approval and Ask User requests, RSI events/runtime, mode lifecycle,
-artifact creation, and MCP server lifecycle.
-
 ## What Ouroboros can and cannot do
 
 Ouroboros can:
@@ -238,6 +218,7 @@ Ouroboros cannot:
 - Guarantee correct, safe, or useful agent output without human review.
 - Modify protected system areas or external services unless you configure
   credentials, workspace access, tools, and permissions for that work.
+
 - Replace source control, tests, code review, backups, or operational safeguards.
 - Promise stable behavior across beta releases, especially for desktop
   packaging, update behavior, RSI, memory, subagents, and team workflows.
@@ -573,6 +554,52 @@ and [docs/architecture.svg](docs/architecture.svg) as the current status sources
 ## License
 
 MIT. See [LICENSE](LICENSE) for details.
+
+## Demo
+
+A few snapshots of the desktop app showing what it produces in real sessions.
+Click any image for the full-resolution view.
+
+### HTML5 app artifact - Nasdaq 100 performance and prediction
+
+Ouroboros generated a self-contained interactive dashboard from a chat prompt
+and previewed it inline next to the conversation.
+
+<a href="docs/screenshots/Ouroboros-HTML5-Nasdaq-full.png">
+  <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of Nasdaq 100 performance and prediction" src="docs/screenshots/Ouroboros-HTML5-Nasdaq.png" width="900">
+</a>
+
+Prompt to try: Create a HTML app report on Nasdaq 100 performance this year and predict next 4 weeks performance based on current news and events.
+
+### HTML5 app artifact - 30 years of Australian interest rate moves
+
+<a href="docs/screenshots/Ouroboros-HTML5-AU-interest-rate-full.png">
+  <img alt="Ouroboros desktop app showing a chat session that produced an interactive HTML5 dashboard of 30 years of Australian interest rate moves" src="docs/screenshots/Ouroboros-HTML5-AU-interest-rate.png" width="900">
+</a>
+
+Prompt to try: Create HTML5 app showing Australian RBA interest rate change over the last 30 years.
+
+### HTML5 app artifact - Artemis II Orion trajectory in 3D
+
+The agent rendered NASA/JPL Horizons vector data for Orion, the Moon, and the
+Sun as an embedded WebGL/Three.js artifact, scaled for readability.
+
+<a href="docs/screenshots/Ouroboros-HTML5-Orion-full.png">
+  <img alt="Ouroboros desktop app showing a chat session that produced an interactive 3D WebGL visualization of the Artemis II Orion trajectory" src="docs/screenshots/Ouroboros-HTML5-Orion.png" width="900">
+</a>
+
+Prompt to try: Create a HTML5 app to render trajectory of NASA/JPL Horizons vector data for Orion, the Moon, and the Sun, with display scaling applied for readability. Use WebGL and real data from the Artemis I! mission. Make sure to test the app thoroughly until it is fully functional. Pay close attention to the rendering of the planets and fly paths. I want to be able to interact with the 3D rendering. Ensure it has realistic orbital mechanics.
+
+### Architecture diagram preview
+
+When asked for a high-level Ouroboros architecture diagram, the agent produced
+a Mermaid diagram artifact with a fullscreen preview and zoom controls.
+
+<a href="docs/screenshots/Ouroboros-diagram-full.png">
+  <img alt="Ouroboros desktop app rendering a Mermaid architecture diagram of Ouroboros with zoomable fullscreen preview" src="docs/screenshots/Ouroboros-diagram.png" width="900">
+</a>
+
+Prompt to try: Create a high level architecture diagram.
 
 ## Author
 
