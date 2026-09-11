@@ -143,6 +143,12 @@ the PR's workflow runs as required by [GitHub's automation event rules](https://
 
 ## Checkpoints and recovery
 
+To investigate a blocked Codex call without revealing session contents, run the
+main workflow manually with the issue number and operation `diagnose`. Its read-only
+job decrypts the checkpoint on Blacksmith and prints only fixed, allowlisted error
+categories. It does not launch Codex, load the subscription login, or change pipeline
+state. Raw transcripts remain encrypted.
+
 Checkpoints contain requirements, the plan, ticket manifests and GitHub mappings,
 stage reports, native session files, worktree commits (including unfinished work),
 and the original deadline. They use AES-256-GCM, bound to repository, issue, and

@@ -12,6 +12,7 @@ import {
   subscriptionWaitUntil,
 } from '../controller'
 import { Git } from '../git'
+import { safeDiagnostics } from '../diagnostics'
 import { GitHub, parseState } from '../github'
 import {
   AuditResult,
@@ -195,14 +196,16 @@ describe('commands and authorization', () => {
       return new Response(JSON.stringify({ permission: 'read' }))
     }) as typeof fetch)
     try {
-      await expect(
-        gate(github, {
-          repository: { default_branch: 'main' },
-          inputs: { issue_number: '12', operation: 'approve' },
-        }),
-      ).rejects.toThrow('maintainers')
+      for (const operation of ['approve', 'diagnose']) {
+        await expect(
+          gate(github, {
+            repository: { default_branch: 'main' },
+            inputs: { issue_number: '12', operation },
+          }),
+        ).rejects.toThrow('maintainers')
+      }
       expect(mutations).toHaveLength(0)
-      expect(await readFile(output, 'utf8')).toBe('execute=false\n')
+      expect(await readFile(output, 'utf8')).toBe('execute=false\nexecute=false\n')
     } finally {
       for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[key]
@@ -764,6 +767,7 @@ describe('encrypted storage and GitHub provenance', () => {
   })
   test('artifact restoration verifies workflow, branch, run, and controller commit', async () => {
     let branch = 'main'
+    let path = '.github/workflows/codex-team-sdlc.yml'
     const client = new GitHub(
       'owner/repo',
       'token',
@@ -778,8 +782,8 @@ describe('encrypted storage and GitHub provenance', () => {
                 }
               : {
                   id: 4,
-                  name: 'Codex Team SDLC',
-                  path: '.github/workflows/codex-team-sdlc.yml',
+                  name: 'Codex SDLC issue #12 [issues]',
+                  path,
                   head_branch: branch,
                 },
           ),
@@ -795,6 +799,9 @@ describe('encrypted storage and GitHub provenance', () => {
     }
     await client.validateArtifact(ref, 'main')
     branch = 'untrusted'
+    await expect(client.validateArtifact(ref, 'main')).rejects.toThrow('provenance')
+    branch = 'main'
+    path = '.github/workflows/untrusted.yml'
     await expect(client.validateArtifact(ref, 'main')).rejects.toThrow('provenance')
   })
 
@@ -981,6 +988,14 @@ describe('workflow contracts', () => {
     expect(workflow.jobs.execute['runs-on']).toBe('blacksmith-8vcpu-ubuntu-2404')
     expect(workflow.jobs['command-gate'].permissions.contents).toBe('read')
     expect(JSON.stringify(workflow)).not.toMatch(/CLAUDE_CODE|FLY_API_TOKEN|OPENAI_API_KEY/i)
+    expect(workflow.jobs.diagnose.permissions).toEqual({
+      contents: 'read',
+      issues: 'read',
+      actions: 'read',
+    })
+    expect(JSON.stringify(workflow.jobs.diagnose)).not.toMatch(
+      /CODEX_AUTH_JSON|CODEX_AUTH_WRITE_TOKEN|CODEX_GITHUB_TOKEN/,
+    )
   })
   test('ordinary CI tests the controller without subscription credentials', async () => {
     const workflow = parse(await readFile(join(root, 'workflows/build.yml'), 'utf8'))
@@ -995,5 +1010,44 @@ describe('workflow contracts', () => {
     expect(continuation.on.schedule[0].cron).toBe('*/15 * * * *')
     expect(continuation.on.workflow_run.workflows).toEqual(['Codex Team SDLC'])
     expect(JSON.stringify(continuation)).not.toContain('secrets.')
+  })
+})
+
+describe('private checkpoint diagnostics', () => {
+  test('prints only fixed signals, excluding prompts, secret values and raw errors', () => {
+    const stdout = [
+      JSON.stringify({ type: 'thread.started', thread_id: 'private-session' }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { type: 'agent_message', text: 'prompt secret-token invalid schema' },
+      }),
+      JSON.stringify({
+        type: 'turn.failed',
+        error: { message: '400 invalid schema: additionalProperties. Bearer secret-token' },
+      }),
+    ].join('\n')
+    const result = safeDiagnostics(stdout, 'private-account-id')
+    expect(result).toEqual({
+      events: ['thread.started', 'turn.failed'],
+      signals: ['invalid_schema', 'schema_required_fields', 'http_bad_request'],
+    })
+    expect(JSON.stringify(result)).not.toMatch(
+      /secret-token|private-session|private-account-id|prompt/,
+    )
+    expect(
+      safeDiagnostics(
+        JSON.stringify({ type: 'item.completed', item: { text: 'invalid schema' } }),
+        '',
+      ),
+    ).toEqual({ events: [], signals: [] })
+  })
+  test('recognizes unavailable models, transport failures and credential errors', () => {
+    expect(safeDiagnostics('', 'The model gpt-example was not found').signals).toContain(
+      'unavailable_model',
+    )
+    expect(
+      safeDiagnostics('', 'stream disconnected before completion: 403 Forbidden').signals,
+    ).toEqual(['forbidden', 'network'])
+    expect(safeDiagnostics('', 'refresh_token_reused').signals).toContain('authentication')
   })
 })

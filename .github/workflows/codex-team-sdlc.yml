@@ -18,7 +18,7 @@ on:
         required: true
         default: plan
         type: choice
-        options: [plan, approve, implement, review, resume, cancel, continue]
+        options: [plan, approve, implement, review, resume, cancel, continue, diagnose]
       pipeline_id:
         description: Saved pipeline ID (scheduler continuation only)
         required: false
@@ -42,6 +42,7 @@ jobs:
       issues: write
       actions: write
     outputs:
+      diagnose: ${{ steps.gate.outputs.diagnose }}
       execute: ${{ steps.gate.outputs.execute }}
       issue: ${{ steps.gate.outputs.issue }}
       pipeline: ${{ steps.gate.outputs.pipeline }}
@@ -66,6 +67,38 @@ jobs:
           operation: gate
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+  diagnose:
+    needs: command-gate
+    if: needs.command-gate.outputs.diagnose == 'true'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    environment: codex-sdlc
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: npm ci --prefix control/.github/codex --ignore-scripts
+      - name: Classify saved execution failures without exposing transcripts
+        uses: ./control/.github/codex
+        with:
+          operation: diagnose
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CODEX_SDLC_STATE_KEY: ${{ secrets.CODEX_SDLC_STATE_KEY }}
+          SDLC_ISSUE: ${{ needs.command-gate.outputs.issue }}
 
   execute:
     needs: command-gate

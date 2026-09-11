@@ -2,9 +2,11 @@ name: Codex SDLC controller
 description: Run the trusted SDLC controller with the Actions artifact runtime.
 inputs:
   operation:
-    description: gate, execute, or continue
+    description: gate, execute, continue, or diagnose
     required: true
 outputs:
+  diagnose:
+    description: Whether this trigger requested read-only checkpoint diagnostics
   execute:
     description: Whether this trigger enqueued runnable work
   issue:

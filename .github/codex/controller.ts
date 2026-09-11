@@ -31,6 +31,7 @@ import {
 } from './model'
 import { Interrupted, command, runCodex } from './process'
 import { Storage, stateKey, validateAuth, writeBackAuth } from './storage'
+import { diagnoseCheckpoint } from './diagnostics'
 
 type Event = {
   action?: string
@@ -81,6 +82,15 @@ export async function gate(github: GitHub, event: Event): Promise<void> {
   if (!Number.isSafeInteger(issue) || issue < 1)
     throw new Error('A positive issue number is required.')
   const actor = process.env.GITHUB_TRIGGERING_ACTOR ?? process.env.GITHUB_ACTOR ?? ''
+  if (event.inputs?.operation === 'diagnose') {
+    if (!authorized(await github.permission(actor)))
+      throw new Error('Only repository maintainers may diagnose Codex SDLC.')
+    const record = await github.state(issue)
+    if (!record?.state.checkpoint) throw new Error('The issue has no saved checkpoint to diagnose.')
+    await output('issue', String(issue))
+    await output('diagnose', 'true')
+    return
+  }
   if (event.inputs?.operation === 'continue') {
     // Only dispatches from the companion workflow (or an authorized maintainer)
     // can wake a previously authorized pipeline. No state is accepted as input.
@@ -964,6 +974,15 @@ export async function main(): Promise<void> {
   const operation = process.argv[2]
   if (operation === 'gate') return gate(github, event)
   if (operation === 'continue') return continueQueue(github, branch)
+  if (operation === 'diagnose') {
+    const actor = process.env.GITHUB_TRIGGERING_ACTOR ?? process.env.GITHUB_ACTOR ?? ''
+    if (!authorized(await github.permission(actor)))
+      throw new Error('Only repository maintainers may diagnose Codex SDLC.')
+    const issue = Number(required('SDLC_ISSUE'))
+    if (!Number.isSafeInteger(issue) || issue < 1)
+      throw new Error('A positive issue number is required.')
+    return diagnoseCheckpoint(github, issue, token, required('CODEX_SDLC_STATE_KEY'), branch)
+  }
   if (operation !== 'execute') throw new Error('Unknown controller operation.')
   const issue = Number(required('SDLC_ISSUE'))
   const record = await github.state(issue)

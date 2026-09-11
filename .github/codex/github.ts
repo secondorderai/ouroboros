@@ -1,5 +1,5 @@
 import { appendFile } from 'node:fs/promises'
-import { QueueState, STATE_LABEL, STATE_MARKER, WORKFLOW, WORKFLOW_NAME } from './model'
+import { QueueState, STATE_LABEL, STATE_MARKER, WORKFLOW } from './model'
 
 export interface Issue {
   number: number
@@ -188,11 +188,10 @@ export class GitHub {
     defaultBranch: string,
   ): Promise<void> {
     const run = await this.run(ref.runId)
-    if (
-      run.name !== WORKFLOW_NAME ||
-      run.path !== `.github/workflows/${WORKFLOW}` ||
-      run.head_branch !== defaultBranch
-    )
+    // GitHub's run.name is the custom run-name, not the workflow identity.
+    // Trust the workflow source path and default branch, then bind the artifact
+    // to this run and its controller commit below.
+    if (run.path !== `.github/workflows/${WORKFLOW}` || run.head_branch !== defaultBranch)
       throw new Error('Checkpoint workflow provenance mismatch.')
     const artifact = await this.call<{
       id: number
