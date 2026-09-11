@@ -538,7 +538,7 @@ class Pipeline {
         workDir: join(this.records, `stage-${this.snapshot.revision}-${phase}`),
         prompt: `${common}\n\n${prompt}\n\n${context}`,
         resultSchema,
-        model: process.env.CODEX_MODEL || 'gpt-6-astra',
+        model: process.env.CODEX_MODEL || 'gpt-5.6-sol',
         effort: process.env.CODEX_EFFORT || 'xhigh',
         readOnly: ['plan', 'tickets', 'audit', 'review'].includes(phase),
         sessionId,

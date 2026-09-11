@@ -105,7 +105,7 @@ Repository variables:
 
 | Variable                    | Default                                                           |
 | --------------------------- | ----------------------------------------------------------------- |
-| `CODEX_MODEL`               | `gpt-6-astra`                                                     |
+| `CODEX_MODEL`               | `gpt-5.6-sol`                                                     |
 | `CODEX_EFFORT`              | `xhigh`                                                           |
 | `CODEX_SDLC_WINDOW_MINUTES` | `300`; an integer from 1 to 300, useful for testing interruption. |
 
