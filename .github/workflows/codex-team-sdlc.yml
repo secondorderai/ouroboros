@@ -1,0 +1,123 @@
+name: Codex Team SDLC
+run-name: >-
+  Codex SDLC issue #${{ github.event.issue.number || inputs.issue_number }} [${{ inputs.operation || github.event_name }}]
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue or PRD number
+        required: true
+        type: string
+      operation:
+        description: SDLC operation (continue is reserved for the scheduler)
+        required: true
+        default: plan
+        type: choice
+        options: [plan, approve, implement, review, resume, cancel, continue]
+      pipeline_id:
+        description: Saved pipeline ID (scheduler continuation only)
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  command-gate:
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.label.name == 'codex-team-sdlc') ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+      (contains(github.event.comment.body, '/approve-team-sdlc') ||
+      contains(github.event.comment.body, '/codex-team-'))))
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    outputs:
+      execute: ${{ steps.gate.outputs.execute }}
+      issue: ${{ steps.gate.outputs.issue }}
+      pipeline: ${{ steps.gate.outputs.pipeline }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install controller dependencies
+        run: npm ci --prefix control/.github/codex --ignore-scripts
+      - name: Authorize and enqueue command
+        id: gate
+        uses: ./control/.github/codex
+        with:
+          operation: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  execute:
+    needs: command-gate
+    if: needs.command-gate.outputs.execute == 'true'
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 330
+    # Environment secrets are read after this serialized job starts, so the
+    # previous runner's refreshed auth is used. Restrict the environment to main.
+    environment: codex-sdlc
+    concurrency:
+      group: codex-sdlc-subscription
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install controller and pinned Codex
+        run: |
+          npm ci --prefix control/.github/codex --ignore-scripts
+          npm install --global @openai/codex@0.149.0
+      - name: Prepare Electron system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 bubblewrap socat ripgrep
+      - name: Run or resume the approved pipeline
+        uses: ./control/.github/codex
+        with:
+          operation: execute
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_AUTH_WRITE_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
+          CODEX_SDLC_STATE_KEY: ${{ secrets.CODEX_SDLC_STATE_KEY }}
+          CODEX_GITHUB_TOKEN: ${{ secrets.CODEX_GITHUB_TOKEN }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          CODEX_EFFORT: ${{ vars.CODEX_EFFORT }}
+          CODEX_SDLC_WINDOW_MINUTES: ${{ vars.CODEX_SDLC_WINDOW_MINUTES }}
+          SDLC_ISSUE: ${{ needs.command-gate.outputs.issue }}
+          SDLC_PIPELINE: ${{ needs.command-gate.outputs.pipeline }}
+      - name: Remove runner credential files
+        if: always()
+        run: rm -rf /tmp/codex-sdlc-work/auth

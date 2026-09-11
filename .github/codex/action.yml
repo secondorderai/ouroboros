@@ -1,0 +1,16 @@
+name: Codex SDLC controller
+description: Run the trusted SDLC controller with the Actions artifact runtime.
+inputs:
+  operation:
+    description: gate, execute, or continue
+    required: true
+outputs:
+  execute:
+    description: Whether this trigger enqueued runnable work
+  issue:
+    description: Authorized issue number
+  pipeline:
+    description: Authorized pipeline identifier
+runs:
+  using: node24
+  main: bootstrap.cjs

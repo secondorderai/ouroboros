@@ -8,16 +8,43 @@ on:
       - "package.json"
       - "bun.lock"
       - ".github/workflows/build.yml"
+      - ".github/codex/**"
+      - ".github/workflows/codex-team-sdlc*.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ main ]
     paths:
       - "packages/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/build.yml"
+      - ".github/codex/**"
+      - ".github/workflows/codex-team-sdlc*.yml"
   workflow_dispatch:
 
 jobs:
+  sdlc-checks:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: npm ci --prefix .github/codex --ignore-scripts
+      - run: npm --prefix .github/codex run check
+      - run: npm --prefix .github/codex test
+      - name: Validate workflow syntax
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -ignore 'label "blacksmith-' .github/workflows/codex-team-sdlc.yml .github/workflows/codex-team-sdlc-continue.yml .github/workflows/build.yml
   verify:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:

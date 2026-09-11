@@ -1,0 +1,43 @@
+name: Continue Codex SDLC
+
+on:
+  workflow_run:
+    workflows: [Codex Team SDLC]
+    types: [completed]
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  continue:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    concurrency:
+      group: codex-sdlc-scheduler
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install controller dependencies
+        run: npm ci --prefix control/.github/codex --ignore-scripts
+      - name: Dispatch eligible saved work
+        uses: ./control/.github/codex
+        with:
+          operation: continue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
