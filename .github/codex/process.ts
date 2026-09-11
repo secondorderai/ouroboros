@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { z } from 'zod'
 import { z as schema } from 'zod'
+import { failureSignals } from './failure-signals'
 import { retryAt } from './model'
 
 export class Interrupted extends Error {
@@ -248,16 +249,15 @@ export async function runCodex<T>(options: {
   if (options.signal.aborted) throw new Interrupted('time', 'Execution window ended.')
   const failure = classifyFailure(`${eventError}\n${result.stderr}`)
   if (failure) throw failure
-  if (
-    /model_not_found|model[^\n]*(?:not available|not supported|does not exist)|unsupported[^\n]*(?:model|reasoning)/i.test(
-      `${eventError}\n${result.stderr}`,
-    )
-  )
+  const signals = failureSignals(`${eventError}\n${result.stderr}`)
+  if (signals.includes('unavailable_model') || signals.includes('unsupported_reasoning'))
     throw new Error(
-      `Configured Codex model ${options.model} or reasoning effort ${options.effort} is unavailable; check repository variables and subscription access.`,
+      `Configured Codex model ${options.model} or reasoning effort ${options.effort} is unavailable to the CI login. Check CODEX_MODEL and CODEX_EFFORT repository variables, or reseed CODEX_AUTH_JSON from a dedicated login with access. Then resume the issue; no model was substituted.`,
     )
   if (result.code !== 0 || eventError)
-    throw new Error(`Codex stage failed (exit ${result.code}); see encrypted execution records.`)
+    throw new Error(
+      `Codex stage failed (exit ${result.code}; signals: ${signals.join(', ') || 'unclassified'}); use the diagnose operation to inspect the encrypted checkpoint safely.`,
+    )
   if (
     pending.size ||
     [...workers.values()].some((status) =>

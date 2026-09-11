@@ -113,6 +113,13 @@ Codex is pinned to `0.149.0`. Model availability errors stop the pipeline; there
 no silent downgrade or API-key fallback. Update the CLI version in both `model.ts`
 and the execution workflow together, and run the controller tests.
 
+An HTTP 400 model rejection can mean the CI login lacks access even when the model
+appears in your desktop account. Check the model picker using the dedicated CI
+login. Restore its access and reseed `CODEX_AUTH_JSON`, or explicitly set
+`CODEX_MODEL` to a model that login can use (and `CODEX_EFFORT` to a supported
+effort). Then use `/codex-team-resume` or the manual `resume` operation. The
+controller reports fixed error categories publicly and keeps raw errors encrypted.
+
 Each job reserves 30 minutes beyond the normal five-hour execution window for
 shutdown, credential write-back, and checkpoint upload. It can yield earlier to
 stay within the artifact-count budget. The companion workflow runs after pipeline

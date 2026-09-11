@@ -683,6 +683,38 @@ describe('Codex subprocess boundary', () => {
       'Configured Codex model gpt-unavailable or reasoning effort xhigh is unavailable',
     )
   })
+  test.each([
+    '400 Bad Request: The model gpt-6-astra was not found',
+    '400 Bad Request: Invalid model: gpt-6-astra',
+    '400 Bad Request: Unknown model gpt-6-astra',
+    'Unsupported reasoning effort: xhigh',
+  ])('reports model configuration failures from JSON events: %s', async (message) => {
+    const dir = await temp()
+    const binary = join(dir, 'model-error')
+    await writeFile(
+      binary,
+      '#!/usr/bin/env bun\n' +
+        `console.log(JSON.stringify({type:'turn.failed',error:{message:${JSON.stringify(`${message}; private-diagnostic-value`)}}}));\n` +
+        'process.exit(1);\n',
+    )
+    await chmod(binary, 0o755)
+    const error = await runCodex({
+      cwd: dir,
+      home: dir,
+      workDir: join(dir, 'stage'),
+      prompt: 'Test',
+      resultSchema: z.object({ ok: z.boolean() }),
+      model: 'gpt-6-astra',
+      effort: 'xhigh',
+      signal: new AbortController().signal,
+      onSession: () => {},
+      binary,
+    }).catch((error: Error) => error)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain('Configured Codex model gpt-6-astra')
+    expect((error as Error).message).toContain('CODEX_MODEL')
+    expect((error as Error).message).not.toContain('private-diagnostic-value')
+  })
   test('a successful exit with no report cannot reuse a stale result', async () => {
     const dir = await temp()
     const binary = join(dir, 'no-result')
