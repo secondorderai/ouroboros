@@ -8,10 +8,6 @@ The pipeline is:
 
 `issue/PRD → plan → approval → tickets → implementation waves → audit/fix → review/fix → verification → PR`
 
-The Leesy workflow supplied the stage structure and recovery entry points. Its
-Fly runners, Claude action/plugins, databases, and application-specific setup are
-not used here.
-
 ## One-time setup
 
 Merge the workflow infrastructure to the repository's default branch before
@@ -30,11 +26,11 @@ repository access to the 2-vCPU and 8-vCPU Ubuntu 24.04 runners.
 4. Create the `codex-team-sdlc` issue label. The workflow creates its internal
    `codex-sdlc-tracked` label when first used.
 
-| Environment secret | Purpose |
-| --- | --- |
-| `CODEX_AUTH_JSON` | A dedicated Codex ChatGPT login's complete managed `auth.json`. |
-| `CODEX_AUTH_WRITE_TOKEN` | A fine-grained GitHub PAT limited to this repository, with **Environments: read/write**, used only to persist refreshed authentication. Its owner must be able to manage the environment. |
-| `CODEX_SDLC_STATE_KEY` | A base64-encoded random 32-byte key for authenticated checkpoint encryption. Keep it unchanged while saved pipelines exist. |
+| Environment secret              | Purpose                                                                                                                                                                                            |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CODEX_AUTH_JSON`               | A dedicated Codex ChatGPT login's complete managed `auth.json`.                                                                                                                                    |
+| `CODEX_AUTH_WRITE_TOKEN`        | A fine-grained GitHub PAT limited to this repository, with **Environments: read/write**, used only to persist refreshed authentication. Its owner must be able to manage the environment.          |
+| `CODEX_SDLC_STATE_KEY`          | A base64-encoded random 32-byte key for authenticated checkpoint encryption. Keep it unchanged while saved pipelines exist.                                                                        |
 | `CODEX_GITHUB_TOKEN` (optional) | A repository member's GitHub token with **Contents: read**, **Issues: read/write**, and **Pull requests: read/write**, used to publish PRs without the default token's PR CI approval requirement. |
 
 Create a dedicated subscription login on a trusted computer. Do not copy a login
@@ -71,14 +67,14 @@ All commands must be the entire comment, with optional surrounding whitespace.
 Only repository users with write, maintain, or admin permission can operate the
 pipeline. PR comments and commands embedded in prose are ignored.
 
-| Trigger | Behavior |
-| --- | --- |
-| Add `codex-team-sdlc` label | Generate a plan, post it on the issue, then wait for approval. |
-| `/approve-team-sdlc` | Approve the saved plan; without a waiting plan, approve the issue body as the PRD. |
-| `/codex-team-implement-now` | Normalize existing sub-issues and implement them; requires sub-issues. |
-| `/codex-team-review-now` | Audit/review/fix/test the existing SDLC branch without implementing a new ticket wave. Requires changes ahead of the default branch. |
-| `/codex-team-resume` | Resume a blocked or cancelled checkpoint with a newly authorized five-day window. |
-| `/codex-team-cancel` | Stop the pipeline and cancel its current Actions run. |
+| Trigger                     | Behavior                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Add `codex-team-sdlc` label | Generate a plan, post it on the issue, then wait for approval.                                                                       |
+| `/approve-team-sdlc`        | Approve the saved plan; without a waiting plan, approve the issue body as the PRD.                                                   |
+| `/codex-team-implement-now` | Normalize existing sub-issues and implement them; requires sub-issues.                                                               |
+| `/codex-team-review-now`    | Audit/review/fix/test the existing SDLC branch without implementing a new ticket wave. Requires changes ahead of the default branch. |
+| `/codex-team-resume`        | Resume a blocked or cancelled checkpoint with a newly authorized five-day window.                                                    |
+| `/codex-team-cancel`        | Stop the pipeline and cancel its current Actions run.                                                                                |
 
 The Actions **Run workflow** form provides equivalent operations with an issue
 number. `continue` and `pipeline_id` are for the companion scheduler, not a way to
@@ -107,10 +103,10 @@ workspace-write sandbox with network access and noninteractive approval denial.
 
 Repository variables:
 
-| Variable | Default |
-| --- | --- |
-| `CODEX_MODEL` | `gpt-6-astra` |
-| `CODEX_EFFORT` | `xhigh` |
+| Variable                    | Default                                                           |
+| --------------------------- | ----------------------------------------------------------------- |
+| `CODEX_MODEL`               | `gpt-6-astra`                                                     |
+| `CODEX_EFFORT`              | `xhigh`                                                           |
 | `CODEX_SDLC_WINDOW_MINUTES` | `300`; an integer from 1 to 300, useful for testing interruption. |
 
 Codex is pinned to `0.149.0`. Model availability errors stop the pipeline; there is

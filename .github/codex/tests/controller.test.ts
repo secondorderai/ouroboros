@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { chmod, cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { z } from 'zod'
 import { parse } from 'yaml'
+import { z } from 'zod'
+import {
+  continueQueue,
+  eligible,
+  gate,
+  requestedOperation,
+  subscriptionWaitUntil,
+} from '../controller'
+import { Git } from '../git'
+import { GitHub, parseState } from '../github'
 import {
   AuditResult,
   FIVE_DAYS,
@@ -24,15 +33,6 @@ import {
   validateTickets,
   validateWork,
 } from '../model'
-import { GitHub, parseState } from '../github'
-import { Git } from '../git'
-import {
-  continueQueue,
-  eligible,
-  gate,
-  requestedOperation,
-  subscriptionWaitUntil,
-} from '../controller'
 import {
   Interrupted,
   availableSession,
@@ -980,7 +980,7 @@ describe('workflow contracts', () => {
     expect(workflow.jobs.execute.concurrency['cancel-in-progress']).toBe(false)
     expect(workflow.jobs.execute['runs-on']).toBe('blacksmith-8vcpu-ubuntu-2404')
     expect(workflow.jobs['command-gate'].permissions.contents).toBe('read')
-    expect(JSON.stringify(workflow)).not.toMatch(/CLAUDE_CODE|FLY_API_TOKEN|OPENAI_API_KEY|leesy/i)
+    expect(JSON.stringify(workflow)).not.toMatch(/CLAUDE_CODE|FLY_API_TOKEN|OPENAI_API_KEY/i)
   })
   test('ordinary CI tests the controller without subscription credentials', async () => {
     const workflow = parse(await readFile(join(root, 'workflows/build.yml'), 'utf8'))
