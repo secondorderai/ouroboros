@@ -16,6 +16,7 @@ import { Git } from '../git'
 import { safeDiagnostics } from '../diagnostics'
 import { NodeArtifactStore, artifactEnvironment } from '../artifact-client'
 import { runPlanningPhase } from '../plan-phase'
+import { prepareRunner } from '../prepare-runner'
 import { GitHub, parseState } from '../github'
 import {
   AuditResult,
@@ -1248,5 +1249,64 @@ describe('durable plan approval', () => {
     expect(calls).toBe(1)
     expect(updates.at(-1)?.status).toBe('waiting-approval')
     expect(state.stage).toBe('plan')
+  })
+})
+
+describe('bounded Ubuntu runner preparation', () => {
+  test('uses isolated signed HTTPS sources and bounds network retries', async () => {
+    const dir = await temp()
+    const calls: string[][] = []
+    await prepareRunner(dir, async (args) => {
+      calls.push(args)
+      const source = args.find((arg) => arg.startsWith('Dir::Etc::sourcelist='))!.split('=')[1]!
+      const text = await readFile(source, 'utf8')
+      expect(source).toBe(join(dir, 'ubuntu.sources'))
+      expect(text).toContain('URIs: https://archive.ubuntu.com/ubuntu')
+      expect(text).toContain('URIs: https://security.ubuntu.com/ubuntu')
+      expect(text).toContain('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg')
+      expect(text).not.toContain('http://')
+      expect(args).toContain('Dir::Etc::sourceparts=-')
+      expect(args).toContain('Acquire::Retries=2')
+      expect(args).toContain('Acquire::https::Timeout=20')
+      return { code: 0, stdout: '', stderr: '' }
+    })
+    expect(calls[0]!.at(-1)).toBe('update')
+    expect(calls[1]).toContain('--no-install-recommends')
+    expect(calls[1]).toContain('bubblewrap')
+    expect(calls[1]).toContain('xvfb')
+    const workflow = parse(
+      await readFile(join(import.meta.dir, '../../workflows/codex-team-sdlc.yml'), 'utf8'),
+    )
+    expect(
+      workflow.jobs.execute.steps.find(
+        (step: { name: string }) => step.name === 'Prepare Electron system dependencies',
+      )['timeout-minutes'],
+    ).toBe(6)
+  })
+
+  test('failed index refresh stops before installing packages', async () => {
+    let calls = 0
+    await expect(
+      prepareRunner(await temp(), async () => {
+        calls++
+        return { code: 100, stdout: '', stderr: 'fixture mirror unavailable' }
+      }),
+    ).rejects.toThrow('update failed using Ubuntu HTTPS sources')
+    expect(calls).toBe(1)
+  })
+
+  test('a stalled apt process receives a bounded cancellation signal', async () => {
+    await expect(
+      prepareRunner(
+        await temp(),
+        async (_args, options) => {
+          await new Promise<void>((resolve) =>
+            options.signal!.addEventListener('abort', () => resolve(), { once: true }),
+          )
+          return { code: 130, stdout: '', stderr: '' }
+        },
+        25,
+      ),
+    ).rejects.toThrow('five-minute deadline')
   })
 })

@@ -133,9 +133,8 @@ jobs:
           npm ci --prefix control/.github/codex --ignore-scripts
           npm install --global @openai/codex@0.149.0
       - name: Prepare Electron system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 bubblewrap socat ripgrep
+        timeout-minutes: 6
+        run: bun control/.github/codex/prepare-runner.ts
       - name: Run or resume the approved pipeline
         uses: ./control/.github/codex
         with:

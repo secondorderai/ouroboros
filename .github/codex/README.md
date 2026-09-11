@@ -127,6 +127,11 @@ completion and every 15 minutes. It resumes eligible work without retaining a
 Blacksmith VM while waiting. GitHub scheduling may be delayed; it is not an exact
 wakeup timer.
 
+Ubuntu dependencies use an isolated list of official HTTPS package sources with
+20-second network timeouts and two retries. Setup has a five-minute deadline and
+a six-minute step timeout, so unavailable mirrors do not hold a runner
+indefinitely. Apt still checks Ubuntu archive signatures.
+
 On quota exhaustion, a structured reset timestamp is used when available; otherwise
 the next check is an hour later. Automatic continuation preserves the original
 five-day deadline, measured from implementation approval. Waiting for human plan
