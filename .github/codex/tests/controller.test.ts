@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { z } from 'zod'
@@ -13,6 +14,8 @@ import {
 } from '../controller'
 import { Git } from '../git'
 import { safeDiagnostics } from '../diagnostics'
+import { NodeArtifactStore, artifactEnvironment } from '../artifact-client'
+import { runPlanningPhase } from '../plan-phase'
 import { GitHub, parseState } from '../github'
 import {
   AuditResult,
@@ -1081,5 +1084,169 @@ describe('private checkpoint diagnostics', () => {
       safeDiagnostics('', 'stream disconnected before completion: 403 Forbidden').signals,
     ).toEqual(['forbidden', 'network'])
     expect(safeDiagnostics('', 'refresh_token_reused').signals).toContain('authentication')
+  })
+})
+
+describe('bounded Node artifact transfers', () => {
+  test('the real large-archive uploader completes through the default storage transport', async () => {
+    const dir = await temp()
+    const home = join(dir, 'home')
+    const records = join(dir, 'records')
+    await mkdir(join(home, 'sessions'), { recursive: true })
+    await mkdir(records)
+    await mkdir(join(dir, 'storage'))
+    await writeFile(join(home, 'auth.json'), 'excluded-credential')
+    await writeFile(join(home, 'sessions', 'fixture.jsonl'), randomBytes(4_000_000))
+    const launcher = join(dir, 'node-fixture')
+    await writeFile(
+      launcher,
+      '#!/usr/bin/env node\n' +
+        `import(${JSON.stringify(join(import.meta.dir, 'artifact-server.mjs'))}).then(() => import(process.argv[2]));\n`,
+    )
+    await chmod(launcher, 0o755)
+    const previous = process.env.CODEX_SDLC_NODE
+    process.env.CODEX_SDLC_NODE = launcher
+    try {
+      const storage = new Storage(
+        join(dir, 'storage'),
+        Buffer.alloc(32, 1),
+        new GitHub('owner/repo', 'unused'),
+        'unused',
+      )
+      const ref = await storage.save(snapshot(), home, records, join(dir, 'absent.bundle'), 4, sha)
+      expect(ref.artifactId).toBe(9)
+      expect(ref.digest).toMatch(/^[a-f0-9]{64}$/)
+    } finally {
+      if (previous === undefined) delete process.env.CODEX_SDLC_NODE
+      else process.env.CODEX_SDLC_NODE = previous
+    }
+  }, 15_000)
+
+  test('only the artifact service receives its required environment', () => {
+    const env = artifactEnvironment({
+      PATH: '/bin',
+      ACTIONS_RUNTIME_TOKEN: 'artifact-only',
+      ACTIONS_RESULTS_URL: 'https://example.com',
+      GITHUB_TOKEN: 'github-write',
+      CODEX_AUTH_JSON: 'subscription',
+      CODEX_AUTH_WRITE_TOKEN: 'writer',
+      CODEX_SDLC_STATE_KEY: 'state-key',
+      CODEX_GITHUB_TOKEN: 'publication',
+      NODE_OPTIONS: '--import untrusted',
+    })
+    expect(env.ACTIONS_RUNTIME_TOKEN).toBe('artifact-only')
+    expect(env.ACTIONS_ARTIFACT_UPLOAD_TIMEOUT_MS).toBe('60000')
+    expect(JSON.stringify(env)).not.toMatch(
+      /github-write|subscription|writer|state-key|publication|untrusted/,
+    )
+  })
+
+  test('kills a stuck transfer and never prints the worker diagnostics', async () => {
+    const dir = await temp()
+    const worker = join(dir, 'stuck.mjs')
+    await writeFile(worker, "console.error('private-signed-url'); setInterval(() => {}, 1000);\n")
+    const started = Date.now()
+    const store = new NodeArtifactStore(
+      (args, options) => command([args[0]!, worker], options),
+      250,
+    )
+    await expect(store.uploadArtifact('fixture', [], dir, { retentionDays: 1 })).rejects.toThrow(
+      'time limit',
+    )
+    expect(Date.now() - started).toBeLessThan(5000)
+  })
+
+  test('rejects failure, missing reports and invalid IDs even if the worker exits', async () => {
+    for (const result of [
+      { code: 1, stdout: '{"type":"artifact-result","id":3}', stderr: 'private-signed-url' },
+      { code: 0, stdout: '', stderr: '' },
+      { code: 0, stdout: '{"type":"artifact-result","id":0}', stderr: '' },
+    ]) {
+      const store = new NodeArtifactStore(async () => result)
+      await expect(
+        store.uploadArtifact('fixture', [], '/tmp', { retentionDays: 1 }),
+      ).rejects.toThrow('Checkpoint upload')
+    }
+  })
+
+  test('download credentials travel on stdin, not in arguments or environment', async () => {
+    const store = new NodeArtifactStore(async (args, options) => {
+      expect(JSON.stringify(args)).not.toContain('read-token')
+      expect(JSON.stringify(options.env)).not.toContain('read-token')
+      expect(JSON.parse(options.input!).args[1].findBy.token).toBe('read-token')
+      return { code: 0, stdout: '{"type":"artifact-result"}', stderr: '' }
+    })
+    await store.downloadArtifact(3, {
+      path: '/tmp',
+      findBy: {
+        token: 'read-token',
+        workflowRunId: 4,
+        repositoryOwner: 'owner',
+        repositoryName: 'repo',
+      },
+    })
+  })
+})
+
+describe('durable plan approval', () => {
+  const plan = { title: 'Plan', summary: 'Summary', markdown: 'A concrete plan', questions: [] }
+  test('a failed checkpoint cannot publish the plan or request approval', async () => {
+    const state = { ...snapshot(), stage: 'plan' as const, plan: null }
+    const updates: Array<Partial<QueueState>> = []
+    let published = false
+    await expect(
+      runPlanningPhase(state, {
+        infer: async () => plan,
+        writePlan: async () => {},
+        checkpoint: async () => {
+          throw new Error('upload stalled')
+        },
+        publish: async () => {
+          published = true
+        },
+        update: async (patch) => {
+          updates.push(patch)
+        },
+      }),
+    ).rejects.toThrow('upload stalled')
+    expect(published).toBe(false)
+    expect(updates.some((patch) => patch.status === 'waiting-approval')).toBe(false)
+    expect(updates[0]?.reason).toContain('Saving its encrypted checkpoint')
+  })
+
+  test('resuming after a publication failure reuses the saved plan without Codex', async () => {
+    const dir = await temp()
+    const file = join(dir, 'snapshot.json')
+    let state = { ...snapshot(), stage: 'plan' as const, plan: null as Snapshot['plan'] }
+    let calls = 0
+    const operations = {
+      infer: async () => {
+        calls++
+        return plan
+      },
+      writePlan: async () => {},
+      checkpoint: async () => {
+        await writeFile(file, JSON.stringify(state))
+      },
+      publish: async (_plan: typeof plan) => {
+        throw new Error('GitHub unavailable')
+      },
+      update: async (_patch: Partial<QueueState>) => {},
+    }
+    await expect(runPlanningPhase(state, operations)).rejects.toThrow('GitHub unavailable')
+    state = JSON.parse(await readFile(file, 'utf8'))
+    const updates: Array<Partial<QueueState>> = []
+    await runPlanningPhase(state, {
+      ...operations,
+      publish: async (posted) => {
+        expect(posted).toEqual(plan)
+      },
+      update: async (patch) => {
+        updates.push(patch)
+      },
+    })
+    expect(calls).toBe(1)
+    expect(updates.at(-1)?.status).toBe('waiting-approval')
+    expect(state.stage).toBe('plan')
   })
 })

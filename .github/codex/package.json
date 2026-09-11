@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "bun test tests",
-    "check": "tsc --noEmit && prettier --check '*.ts' 'tests/*.ts' 'prompts/*.md'",
-    "format": "prettier --write '*.ts' 'tests/*.ts' 'prompts/*.md'"
+    "check": "tsc --noEmit && node --check artifact-worker.mjs && node --check tests/artifact-server.mjs && prettier --check '*.ts' '*.mjs' 'tests/*.ts' 'tests/*.mjs' 'prompts/*.md'",
+    "format": "prettier --write '*.ts' '*.mjs' 'tests/*.ts' 'tests/*.mjs' 'prompts/*.md'"
   },
   "dependencies": {
     "@actions/artifact": "6.2.1",

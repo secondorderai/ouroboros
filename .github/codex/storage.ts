@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { DefaultArtifactClient } from '@actions/artifact'
+import { NodeArtifactStore } from './artifact-client'
 import { GitHub } from './github'
 import { hash, Snapshot, type QueueState } from './model'
 import { childEnvironment, command } from './process'
@@ -106,7 +106,7 @@ export class Storage {
     private readonly key: Buffer,
     private readonly github: GitHub,
     private readonly token: string,
-    private readonly artifacts: ArtifactStore = new DefaultArtifactClient(),
+    private readonly artifacts: ArtifactStore = new NodeArtifactStore(),
   ) {}
 
   context(issue: number, pipelineId: string): string {
@@ -143,6 +143,7 @@ export class Storage {
     )
     const file = join(this.directory, 'checkpoint.enc')
     await writeFile(file, encrypted)
+    console.log(`Encrypted checkpoint revision ${snapshot.revision}: ${encrypted.length} bytes.`)
     const name = `codex-sdlc-${snapshot.issue}-${snapshot.pipelineId}-${runId}-${snapshot.revision}-${Date.now()}`
     const upload = await this.artifacts.uploadArtifact(name, [file], this.directory, {
       retentionDays: 14,

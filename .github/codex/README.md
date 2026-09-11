@@ -150,6 +150,20 @@ the PR's workflow runs as required by [GitHub's automation event rules](https://
 
 ## Checkpoints and recovery
 
+Artifact transfers run in a separate Node process: the Azure streaming uploader
+can stall on larger archives under Bun. The controller remains in Bun. Uploads
+have a 60-second inactivity limit, and all transfers have a three-minute deadline
+plus at most 20 seconds to terminate an unresponsive process. Transfer subprocesses
+receive artifact-service credentials but no subscription credentials, state key,
+publication token, or secret-writer token. The GitHub token used for downloads
+travels on stdin rather than in arguments or the environment. Only fixed progress
+messages and archive sizes appear in the public log.
+
+The issue status distinguishes Codex execution from saving a completed plan.
+Plans are checkpointed before they are posted for approval. If publication fails,
+resuming reuses the saved plan instead of calling Codex again. A failed upload
+keeps the prior checkpoint authoritative and cannot advance to human approval.
+
 To investigate a blocked Codex call without revealing session contents, run the
 main workflow manually with the issue number and operation `diagnose`. Its read-only
 job decrypts the checkpoint on Blacksmith and prints only fixed, allowlisted error

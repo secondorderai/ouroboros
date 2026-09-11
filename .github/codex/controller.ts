@@ -30,6 +30,7 @@ import {
   type QueueState,
 } from './model'
 import { Interrupted, command, runCodex } from './process'
+import { runPlanningPhase } from './plan-phase'
 import { Storage, stateKey, validateAuth, writeBackAuth } from './storage'
 import { diagnoseCheckpoint } from './diagnostics'
 
@@ -522,6 +523,9 @@ class Pipeline {
   }
 
   private async infer<T>(phase: string, resultSchema: z.ZodType<T>, extra = ''): Promise<T> {
+    const started = Date.now()
+    await this.update({ reason: `Codex is running the ${phase} phase.` })
+    console.log(`Codex ${phase} started.`)
     const key = `${phase}:${this.snapshot.assignments.map((a) => a.ticketId).join(',')}`
     const sessionId = this.snapshot.session?.key === key ? this.snapshot.session.id : undefined
     const common = await readFile(join(import.meta.dir, 'prompts', 'common.md'), 'utf8')
@@ -532,7 +536,7 @@ class Pipeline {
       `Approved requirements:\n${this.snapshot.requirements}\n\nImplementation plan:\n${this.snapshot.plan?.markdown ?? 'Use the approved issue PRD.'}\n` +
       `\nTicket manifest:\n${JSON.stringify(this.snapshot.tickets)}\n\n${extra}`
     try {
-      return await runCodex({
+      const result = await runCodex({
         cwd: this.repoDir,
         home: this.home,
         workDir: join(this.records, `stage-${this.snapshot.revision}-${phase}`),
@@ -552,6 +556,8 @@ class Pipeline {
             ? (result) => WorkResult.parse(result).workers.map((worker) => worker.sessionId)
             : undefined,
       })
+      console.log(`Codex ${phase} completed in ${Math.ceil((Date.now() - started) / 1000)}s.`)
+      return result
     } finally {
       await this.persistAuth()
     }
@@ -567,18 +573,18 @@ class Pipeline {
     const s = this.snapshot
     switch (s.stage) {
       case 'plan': {
-        s.plan = await this.infer('plan', PlanResult)
-        await writeFile(join(this.records, 'implementation-plan.md'), s.plan.markdown)
-        await this.github.comment(
-          s.issue,
-          `${s.plan.markdown}\n\nReview the plan and answer any questions, then comment \`/approve-team-sdlc\`.`,
-        )
-        // Keep stage=plan in the checkpoint; approval advances it on the next run.
-        await this.checkpoint()
-        await this.update({
-          status: 'waiting-approval',
-          reason: 'Plan ready for human approval.',
-          activeRunId: null,
+        await runPlanningPhase(s, {
+          infer: () => this.infer('plan', PlanResult),
+          writePlan: (plan) =>
+            writeFile(join(this.records, 'implementation-plan.md'), plan.markdown),
+          checkpoint: () => this.checkpoint(),
+          publish: async (plan) => {
+            await this.github.comment(
+              s.issue,
+              `${plan.markdown}\n\nReview the plan and answer any questions, then comment \`/approve-team-sdlc\`.`,
+            )
+          },
+          update: (patch) => this.update(patch),
         })
         return
       }
