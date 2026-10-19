@@ -25,6 +25,21 @@ const HISTORY_FILE = join(homedir(), '.ouroboros_history')
 const MAX_HISTORY_LINES = 1000
 let historyLineCount = 0
 
+const LOCAL_HELP = [
+  'Interactive commands:',
+  '  help, /help       Show this help without contacting a model',
+  '  /plan <task>      Start a task in plan mode',
+  '  /<skill> <task>   Invoke an available Agent Skill',
+  '  Ctrl+C twice     Exit the REPL',
+  '',
+  'To reconnect ChatGPT subscription auth, exit and run:',
+  '  bun run dev -- auth login --provider openai-chatgpt',
+].join('\n')
+
+export function getLocalReplResponse(input: string): string | undefined {
+  return input === 'help' || input === '/help' ? LOCAL_HELP : undefined
+}
+
 export interface ReplOptions {
   /** The configured agent instance */
   agent: Agent
@@ -132,6 +147,13 @@ export async function startRepl(options: ReplOptions): Promise<void> {
 
     // Skip empty lines
     if (!input) {
+      renderer.writePrompt()
+      continue
+    }
+
+    const localResponse = getLocalReplResponse(input)
+    if (localResponse) {
+      renderer.writeLine(localResponse)
       renderer.writePrompt()
       continue
     }

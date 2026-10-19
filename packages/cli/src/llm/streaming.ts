@@ -241,6 +241,10 @@ function classifyError(error: unknown): Error {
     const name = details.name.toLowerCase()
     const code = details.code?.toLowerCase() ?? ''
 
+    if (msg.includes('chatgpt subscription login expired')) {
+      return new Error(details.message)
+    }
+
     // Authentication errors
     if (
       msg.includes('api key') ||

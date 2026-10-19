@@ -74,8 +74,8 @@ jobs:
         working-directory: packages/cli
         run: |
           mkdir -p release
-          bun build --compile --minify ./src/cli.ts --target=bun-darwin-arm64 --outfile release/ouroboros-cli-darwin-arm64
-          bun build --compile --minify ./src/cli.ts --target=bun-darwin-x64 --outfile release/ouroboros-cli-darwin-x64
+          bun scripts/build.ts release/ouroboros-cli-darwin-arm64 bun-darwin-arm64
+          bun scripts/build.ts release/ouroboros-cli-darwin-x64 bun-darwin-x64
           chmod +x release/ouroboros-cli-darwin-arm64 release/ouroboros-cli-darwin-x64
 
           if [[ "$(uname -m)" == "arm64" ]]; then

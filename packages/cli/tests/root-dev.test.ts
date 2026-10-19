@@ -205,15 +205,19 @@ describe('root verify workflow regressions', () => {
     ])
   })
 
-  test('root desktop tests build the Electron app before launching Playwright', () => {
+  test('root desktop tests run unit tests and build Electron before Playwright', () => {
     const pkg = readJsonFile<RootPackageJson>(ROOT_PACKAGE_JSON)
     const desktopTestScript = pkg.scripts?.['test:desktop']
 
     expect(typeof desktopTestScript).toBe('string')
     if (typeof desktopTestScript !== 'string') return
 
+    expect(desktopTestScript).toContain('test:unit')
     expect(desktopTestScript).toContain('build:vite')
     expect(desktopTestScript).toContain('test:e2e')
+    expect(desktopTestScript.indexOf('test:unit')).toBeLessThan(
+      desktopTestScript.indexOf('test:e2e'),
+    )
     expect(desktopTestScript.indexOf('build:vite')).toBeLessThan(
       desktopTestScript.indexOf('test:e2e'),
     )

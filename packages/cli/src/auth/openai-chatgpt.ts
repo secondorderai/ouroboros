@@ -72,6 +72,12 @@ interface TokenResponse {
   expires_in?: number
 }
 
+class TokenRefreshError extends Error {
+  constructor(readonly status: number) {
+    super(`Token refresh failed: ${status}`)
+  }
+}
+
 interface DeviceCodeResponse {
   device_auth_id: string
   user_code: string
@@ -233,7 +239,7 @@ export async function refreshOpenAIChatGPTAccessToken(
   })
 
   if (!response.ok) {
-    throw new Error(`Token refresh failed: ${response.status}`)
+    throw new TokenRefreshError(response.status)
   }
 
   return (await response.json()) as TokenResponse
@@ -273,6 +279,14 @@ export async function ensureOpenAIChatGPTAuth(configDir?: string): Promise<Resul
     }
     return ok(nextAuth)
   } catch (error) {
+    if (error instanceof TokenRefreshError && error.status === 401) {
+      return err(
+        new Error(
+          'ChatGPT subscription login expired (refresh returned 401). ' +
+            'Run `ouroboros auth login --provider openai-chatgpt` to reconnect.',
+        ),
+      )
+    }
     const message = error instanceof Error ? error.message : String(error)
     return err(new Error(`Failed to refresh ChatGPT subscription token: ${message}`))
   }

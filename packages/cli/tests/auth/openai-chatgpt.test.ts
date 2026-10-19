@@ -143,6 +143,27 @@ describe('openai-chatgpt auth', () => {
     )
   })
 
+  test('a rejected refresh gives installed CLI users a usable reconnect command', async () => {
+    expect(
+      setAuth(OPENAI_CHATGPT_PROVIDER, {
+        type: 'oauth',
+        refresh: 'revoked-refresh-token',
+        access: 'expired-access-token',
+        expires: Date.now() - 1_000,
+      }).ok,
+    ).toBe(true)
+    globalThis.fetch = createTypedFetch(async () => new Response(null, { status: 401 }))
+
+    const result = await ensureOpenAIChatGPTAuth()
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('ChatGPT subscription login expired')
+    expect(result.error.message).toContain('ouroboros auth login --provider openai-chatgpt')
+    expect(result.error.message).not.toContain('bun run dev')
+    expect(result.error.message).not.toContain('API key')
+  })
+
   test('createOpenAIChatGPTFetch rewrites requests and injects subscription auth headers', async () => {
     const saveResult = setAuth(OPENAI_CHATGPT_PROVIDER, {
       type: 'oauth',

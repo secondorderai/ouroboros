@@ -65,27 +65,20 @@ skills use the Agent Skills `SKILL.md` format.
 
 ## Testing Policy
 
-Every feature, improvement, and bug fix must ship with automated tests that
-would catch the regression if reverted. A change without a matching test is
-incomplete.
+Every new feature or behavioral enhancement must ship with **both** unit tests
+for its logic and integration regression tests for the affected public path
+(for example, agent/tool wiring, JSON-RPC, CLI subprocess, or Electron UI). The
+integration test must exercise real components across that boundary; mock only
+external services or nondeterministic dependencies. Both layers must run in
+`bun run verify`, except for the benchmark-only verification path below. A
+change without either layer is incomplete.
 
-- CLI tool changes: add/update unit tests in `packages/cli/tests/tools/`.
-- Agent loop, LLM, memory, or RSI changes: add/update matching
-  `packages/cli/tests/` coverage.
-- RPC method changes: update `RPC_METHOD_NAMES`; protocol contract tests must
-  pass.
-- Notification changes: update `NOTIFICATION_METHOD_NAMES`; protocol contract
-  tests must pass.
-- JSON-RPC transport/server/dispatcher changes: extend
-  `packages/cli/tests/integration/json-rpc-transport.test.ts`.
-- Desktop main process or IPC changes: add/update E2E in `main-process.spec.ts`
-  or `real-flows.spec.ts`.
-- Desktop renderer UI changes: add/update E2E in `renderer-contract.spec.ts` or
-  a focused spec.
-- Zustand store logic: add/update unit tests in `packages/desktop/tests/`.
-- Shared package changes: cover behavior from the consuming package, at minimum
-  from the CLI side.
-- Bug fixes: the new test must fail before the fix and pass after it.
+Bug fixes need a regression test that fails before the fix and passes after it;
+add both layers when the bug spans component boundaries. Before implementation,
+identify the unit and integration tests to add. Read and update the relevant
+coverage row in [docs/test-plan.md](docs/test-plan.md) for test locations,
+protocol obligations, and examples. Keep detailed test guidance there rather
+than expanding this root file.
 
 ## Verification
 

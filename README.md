@@ -537,8 +537,9 @@ bun run ts-check
 
 ## Verification Policy
 
-Every feature, improvement, and bug fix should include automated coverage that
-would fail if the change were reverted. Before reporting completion, run:
+Every new feature or behavioral enhancement must include unit and integration
+coverage that would fail if the change were reverted. Bug fixes need a matching
+regression test. Before reporting completion, run:
 
 ```bash
 bun run verify

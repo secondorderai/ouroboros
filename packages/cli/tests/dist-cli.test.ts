@@ -18,10 +18,11 @@ const TIMEOUT_MS = 10_000
 // ── Setup ────────────────────────────────────────────────────────────
 
 beforeAll(async () => {
-  const proc = Bun.spawn(
-    ['bun', 'build', '--compile', '--minify', './src/cli.ts', '--outfile', 'dist/ouroboros'],
-    { cwd: join(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' },
-  )
+  const proc = Bun.spawn(['bun', 'run', 'build'], {
+    cwd: join(import.meta.dir, '..'),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
   const exitCode = await proc.exited
   if (exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text()
@@ -86,6 +87,18 @@ function assertNoUsageText(result: SpawnResult): void {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('dist/ouroboros binary', () => {
+  test('macOS binary has a valid code signature', async () => {
+    if (process.platform !== 'darwin') return
+
+    const proc = Bun.spawn(['codesign', '--verify', '--verbose=2', BINARY], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const exitCode = await proc.exited
+    const stderr = await new Response(proc.stderr).text()
+    expect(exitCode, stderr).toBe(0)
+  })
+
   test('--help shows usage', async () => {
     const result = await spawnBinary(['--help'])
     expect(result.stdout).toContain('Usage:')
