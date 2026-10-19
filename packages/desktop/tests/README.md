@@ -28,7 +28,12 @@ mocked CLI JSON-RPC behavior.
 
 From [packages/desktop](/Users/henry/workspace/ouroboros/packages/desktop):
 
+The standalone engineering explorer tests also use Playwright Chromium. Install
+it once before running the full suite; CI installs Chromium and its Linux
+dependencies automatically.
+
 ```bash
+bunx playwright install chromium
 bun run build:vite
 bun run test:unit
 bun run test:e2e:contracts
