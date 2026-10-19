@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Virtuoso as VirtuosoOrig, type VirtuosoHandle } from 'react-virtuoso'
+import { Virtuoso as VirtuosoOrig, type Components, type VirtuosoHandle } from 'react-virtuoso'
 import { useConversationStore } from '../stores/conversationStore'
 import { useStreamingBuffer } from '../hooks/useStreamingBuffer'
 import { UserMessage } from '../components/UserMessage'
@@ -31,6 +31,19 @@ const chatAreaStyle: React.CSSProperties = {
 const listContainerStyle: React.CSSProperties = {
   flex: 1,
   overflow: 'hidden',
+}
+
+// Virtuoso treats these as React component types. Defining them in ChatView
+// remounts every visible message on each stream/store update, restarting
+// effects and feeding list measurements back into another render.
+const chatListComponents: Components = {
+  Header: () => <div style={{ height: 24 }} />,
+  Footer: () => <div style={{ height: 28 }} />,
+  Item: ({ children, style, context: _context, item: _item, ...props }) => (
+    <div {...props} style={{ ...style, paddingBottom: 22 }}>
+      {children}
+    </div>
+  ),
 }
 
 // ---------------------------------------------------------------------------
@@ -252,21 +265,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           atBottomStateChange={handleAtBottomChange}
           atBottomThreshold={60}
           style={{ height: '100%' }}
-          components={{
-            Header: () => <div style={{ height: 24 }} />,
-            Footer: () => <div style={{ height: 28 }} />,
-            Item: ({
-              children,
-              ...props
-            }: {
-              children: React.ReactNode
-              [key: string]: unknown
-            }) => (
-              <div {...props} style={{ paddingBottom: 22 }}>
-                {children}
-              </div>
-            ),
-          }}
+          components={chatListComponents}
         />
       </div>
 

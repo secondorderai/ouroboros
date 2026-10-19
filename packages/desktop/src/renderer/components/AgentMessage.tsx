@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 import type { CompletedToolCall, Message, SubagentRun, ToolCallState } from '../../shared/protocol'
+import { useElapsedDurationMs } from '../hooks/useElapsedDuration'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { StreamingCursor } from './StreamingCursor'
 import { SubagentActivityList } from './SubagentActivity'
@@ -184,29 +185,6 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
-
-function useElapsedDurationMs(startedAt: string | null | undefined, isRunning: boolean): number | null {
-  const getElapsed = (): number | null => {
-    if (!startedAt) return null
-    const start = Date.parse(startedAt)
-    if (!Number.isFinite(start)) return null
-    return Math.max(0, Date.now() - start)
-  }
-
-  const [elapsed, setElapsed] = useState<number | null>(() => getElapsed())
-
-  useEffect(() => {
-    setElapsed(getElapsed())
-    if (!startedAt || !isRunning) return undefined
-
-    const interval = window.setInterval(() => {
-      setElapsed(getElapsed())
-    }, 1000)
-    return () => window.clearInterval(interval)
-  }, [startedAt, isRunning])
-
-  return elapsed
 }
 
 interface MessageMetaRowProps {
