@@ -315,7 +315,7 @@ describe('streamResponse', () => {
   test('preserves the ChatGPT reconnect instruction without an API-key hint', async () => {
     const model = createMockModel({
       error: new Error(
-        'ChatGPT subscription login expired (refresh returned 401). Run `bun run dev -- auth login --provider openai-chatgpt` from the repo root.',
+        'ChatGPT subscription login expired (refresh returned 401). Run `ouroboros auth login --provider openai-chatgpt` to reconnect.',
       ),
     })
 
@@ -328,7 +328,7 @@ describe('streamResponse', () => {
     const errorChunk = chunks.find((c) => c.type === 'error')
     expect(errorChunk?.type).toBe('error')
     if (errorChunk?.type !== 'error') return
-    expect(errorChunk.error.message).toContain('bun run dev -- auth login')
+    expect(errorChunk.error.message).toContain('ouroboros auth login --provider openai-chatgpt')
     expect(errorChunk.error.message).not.toContain('API key')
   })
 

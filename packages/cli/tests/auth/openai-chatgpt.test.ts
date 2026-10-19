@@ -143,7 +143,7 @@ describe('openai-chatgpt auth', () => {
     )
   })
 
-  test('a rejected refresh directs local CLI users to reconnect their subscription', async () => {
+  test('a rejected refresh gives installed CLI users a usable reconnect command', async () => {
     expect(
       setAuth(OPENAI_CHATGPT_PROVIDER, {
         type: 'oauth',
@@ -159,7 +159,8 @@ describe('openai-chatgpt auth', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.message).toContain('ChatGPT subscription login expired')
-    expect(result.error.message).toContain('bun run dev -- auth login --provider openai-chatgpt')
+    expect(result.error.message).toContain('ouroboros auth login --provider openai-chatgpt')
+    expect(result.error.message).not.toContain('bun run dev')
     expect(result.error.message).not.toContain('API key')
   })
 

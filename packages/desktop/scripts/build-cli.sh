@@ -12,7 +12,7 @@ AGENT_BROWSER_OUT_DIR="$DESKTOP_DIR/resources/agent-browser"
 
 echo "==> Building CLI binary from $CLI_DIR ..."
 cd "$CLI_DIR"
-bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/ouroboros
+bun scripts/build.ts dist/ouroboros
 
 echo "==> Copying binary to $OUT_DIR ..."
 mkdir -p "$OUT_DIR"
@@ -29,17 +29,19 @@ if [[ "$OSTYPE" == darwin* ]]; then
   if [[ "$(uname -m)" == "arm64" ]]; then
     cp "$CLI_DIR/dist/ouroboros" "$OUT_DIR/ouroboros-darwin-arm64"
     chmod +x "$OUT_DIR/ouroboros-darwin-arm64"
+    codesign --verify --verbose=2 "$OUT_DIR/ouroboros-darwin-arm64"
     echo "    Copied host ouroboros-darwin-arm64"
 
-    bun build --compile --minify --sourcemap ./src/cli.ts --target=bun-darwin-x64 --outfile "$OUT_DIR/ouroboros-darwin-x64"
+    bun scripts/build.ts "$OUT_DIR/ouroboros-darwin-x64" bun-darwin-x64
     chmod +x "$OUT_DIR/ouroboros-darwin-x64"
     echo "    Built ouroboros-darwin-x64"
   else
     cp "$CLI_DIR/dist/ouroboros" "$OUT_DIR/ouroboros-darwin-x64"
     chmod +x "$OUT_DIR/ouroboros-darwin-x64"
+    codesign --verify --verbose=2 "$OUT_DIR/ouroboros-darwin-x64"
     echo "    Copied host ouroboros-darwin-x64"
 
-    bun build --compile --minify --sourcemap ./src/cli.ts --target=bun-darwin-arm64 --outfile "$OUT_DIR/ouroboros-darwin-arm64"
+    bun scripts/build.ts "$OUT_DIR/ouroboros-darwin-arm64" bun-darwin-arm64
     chmod +x "$OUT_DIR/ouroboros-darwin-arm64"
     echo "    Built ouroboros-darwin-arm64"
   fi

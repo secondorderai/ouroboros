@@ -283,7 +283,7 @@ export async function ensureOpenAIChatGPTAuth(configDir?: string): Promise<Resul
       return err(
         new Error(
           'ChatGPT subscription login expired (refresh returned 401). ' +
-            'Run `bun run dev -- auth login --provider openai-chatgpt` from the repo root.',
+            'Run `ouroboros auth login --provider openai-chatgpt` to reconnect.',
         ),
       )
     }
