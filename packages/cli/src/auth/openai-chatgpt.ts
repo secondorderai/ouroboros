@@ -1,3 +1,13 @@
+import {
+  getBundledSubscriptionModels,
+  getModelDescriptor,
+  SUBSCRIPTION_MODEL_IDS,
+  RETIRED_SUBSCRIPTION_MODELS,
+  type ModelCatalogSnapshot,
+  type ModelMigration,
+} from '@ouroboros/shared'
+import { subscriptionModelCatalog } from './model-catalog'
+import { hydrateContextWindowConfig, saveConfig, type OuroborosConfig } from '@src/config'
 import { err, ok, type Result } from '@src/types'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -9,17 +19,7 @@ export const OPENAI_CHATGPT_PROVIDER = 'openai-chatgpt'
 export const OPENAI_CHATGPT_AUTH_METHODS = ['browser', 'headless'] as const
 export type OpenAIChatGPTAuthMethod = (typeof OPENAI_CHATGPT_AUTH_METHODS)[number]
 
-export const OPENAI_CHATGPT_SUPPORTED_MODELS = [
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-max',
-  'gpt-5.1-codex-mini',
-  'gpt-5.2',
-  'gpt-5.2-codex',
-  'gpt-5.3-codex',
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.5',
-] as const
+export const OPENAI_CHATGPT_SUPPORTED_MODELS = getBundledSubscriptionModels().map((m) => m.id)
 
 export const OPENAI_CHATGPT_OAUTH_DUMMY_KEY = 'ouroboros-oauth-dummy-key'
 
@@ -38,7 +38,8 @@ const CODEX_ORIGINATOR = 'codex_cli_rs'
 const AUTHORIZE_SCOPE =
   'openid profile email offline_access api.connectors.read api.connectors.invoke'
 
-export interface OpenAIChatGPTStatus {
+export interface OpenAIChatGPTStatus extends ModelCatalogSnapshot {
+  modelMigration?: ModelMigration
   provider: typeof OPENAI_CHATGPT_PROVIDER
   connected: boolean
   authType: 'oauth' | null
@@ -110,8 +111,10 @@ interface FlowRecord {
 }
 
 export function isSupportedOpenAIChatGPTModel(model: string): boolean {
-  return OPENAI_CHATGPT_SUPPORTED_MODELS.includes(
-    model as (typeof OPENAI_CHATGPT_SUPPORTED_MODELS)[number],
+  return (
+    getModelDescriptor(model, OPENAI_CHATGPT_PROVIDER)?.sourceUrl.startsWith(
+      'https://chatgpt.com/backend-api/codex/models',
+    ) === true || (SUBSCRIPTION_MODEL_IDS as readonly string[]).includes(model)
   )
 }
 
@@ -234,27 +237,6 @@ export async function refreshOpenAIChatGPTAccessToken(
   }
 
   return (await response.json()) as TokenResponse
-}
-
-async function probeOpenAIChatGPTAuth(accessToken: string, accountId?: string): Promise<void> {
-  const headers = new Headers({
-    Authorization: `Bearer ${accessToken}`,
-    originator: CODEX_ORIGINATOR,
-    'User-Agent': `ouroboros/${process.platform}-${process.arch}`,
-  })
-  if (accountId) {
-    headers.set('ChatGPT-Account-Id', accountId)
-  }
-
-  const response = await fetch(CODEX_API_ENDPOINT, {
-    method: 'OPTIONS',
-    headers,
-    signal: AbortSignal.timeout(10000),
-  })
-
-  if (response.status === 401 || response.status === 403) {
-    throw new Error('OpenAI ChatGPT authentication was rejected')
-  }
 }
 
 export async function ensureOpenAIChatGPTAuth(configDir?: string): Promise<Result<AuthInfo>> {
@@ -434,20 +416,87 @@ const HTML_ERROR = (message: string) => `<!doctype html>
 
 export class OpenAIChatGPTAuthManager {
   private activeFlow: FlowRecord | null = null
+  private modelMigration?: ModelMigration
 
-  async getStatus(): Promise<OpenAIChatGPTStatus> {
+  async getStatus(refresh = false): Promise<OpenAIChatGPTStatus> {
     const authResult = getAuth(OPENAI_CHATGPT_PROVIDER)
-    const auth = authResult.ok ? authResult.value : undefined
+    const stored = authResult.ok ? authResult.value : undefined
+    const ensured = stored ? await ensureOpenAIChatGPTAuth() : undefined
+    const auth = ensured?.ok ? ensured.value : undefined
+    const catalog = await subscriptionModelCatalog.get(auth, refresh)
 
     return {
+      ...catalog,
+      ...(this.modelMigration ? { modelMigration: this.modelMigration } : {}),
       provider: OPENAI_CHATGPT_PROVIDER,
       connected: Boolean(auth?.type === 'oauth'),
       authType: auth?.type ?? null,
       pending: this.activeFlow?.status === 'pending',
       accountId: auth?.accountId,
       availableMethods: [...OPENAI_CHATGPT_AUTH_METHODS],
-      models: [...OPENAI_CHATGPT_SUPPORTED_MODELS],
+      models: catalog.modelDetails.map((m) => m.id),
     }
+  }
+
+  async resolveModel(
+    config: OuroborosConfig,
+    configDir: string,
+    explicit = false,
+  ): Promise<Result<OuroborosConfig>> {
+    if (config.model.provider !== OPENAI_CHATGPT_PROVIDER) return ok(config)
+    const status = await this.getStatus()
+    const id = config.model.name
+    const verified = status.connected && status.catalogSource !== 'bundled' && !status.catalogError
+    if (verified && status.models.includes(id)) return ok(hydrateContextWindowConfig(config))
+    if (
+      explicit &&
+      (RETIRED_SUBSCRIPTION_MODELS.has(id) || (verified && !status.models.includes(id)))
+    ) {
+      return err(
+        new Error(
+          `Subscription model "${id}" is unavailable. Choose one of: ${status.models.join(', ')}`,
+        ),
+      )
+    }
+    if (!explicit && !status.connected) return ok(hydrateContextWindowConfig(config))
+    if (!explicit && RETIRED_SUBSCRIPTION_MODELS.has(id)) {
+      if (!verified)
+        return err(
+          new Error(
+            'Cannot repair a retired subscription model until the account catalogue is verified. Reconnect or refresh models.',
+          ),
+        )
+      const preferred = id.includes('mini')
+        ? ['gpt-6-luna', 'gpt-6.1-sol']
+        : ['gpt-6.1-sol', 'gpt-6-luna']
+      const replacement =
+        preferred.find((name) => status.models.includes(name)) ??
+        status.modelDetails.find((m) => !m.accessRestriction && !m.id.includes('daybreak'))?.id
+      if (!replacement)
+        return err(
+          new Error('No general subscription model is available. Choose a model in settings.'),
+        )
+      const next = hydrateContextWindowConfig({
+        ...config,
+        model: { ...config.model, name: replacement },
+      })
+      const saved = saveConfig(configDir, next)
+      if (!saved.ok) return saved
+      this.modelMigration = {
+        from: id,
+        to: replacement,
+        message: `Replaced retired subscription model ${id} with ${replacement}.`,
+      }
+      process.stderr.write(`${this.modelMigration.message}\n`)
+      return ok(next)
+    }
+    if (verified && !status.models.includes(id))
+      return err(
+        new Error(
+          `Subscription model "${id}" is unavailable for this account. Refresh models or choose an available model.`,
+        ),
+      )
+    return ok(hydrateContextWindowConfig(config))
   }
 
   async startLogin(
@@ -457,6 +506,9 @@ export class OpenAIChatGPTAuthManager {
       this.cancelFlow(this.activeFlow, 'Cancelled previous login attempt')
     }
 
+    // Successful login forces a refresh in pollLogin. Keep the last successful
+    // account catalogue available if reconnecting or the refresh fails.
+    this.modelMigration = undefined
     return method === 'browser' ? this.startBrowserLogin() : this.startHeadlessLogin()
   }
 
@@ -466,7 +518,7 @@ export class OpenAIChatGPTAuthManager {
       return err(new Error('Auth flow not found'))
     }
 
-    const status = await this.getStatus()
+    const status = await this.getStatus(flow.status === 'success')
     return ok({
       ...status,
       flowId: flow.id,
@@ -492,6 +544,8 @@ export class OpenAIChatGPTAuthManager {
     if (this.activeFlow?.status === 'pending') {
       this.cancelFlow(this.activeFlow, 'Login cancelled')
     }
+    subscriptionModelCatalog.clear()
+    this.modelMigration = undefined
     return removeAuth(OPENAI_CHATGPT_PROVIDER)
   }
 
@@ -521,9 +575,11 @@ export class OpenAIChatGPTAuthManager {
     }
 
     try {
-      await probeOpenAIChatGPTAuth(authResult.value.access, authResult.value.accountId)
+      const catalog = await subscriptionModelCatalog.get(authResult.value, true)
+      if (catalog.catalogSource !== 'live')
+        return err(new Error(catalog.catalogError ?? 'Unable to verify subscription models'))
       return ok({
-        models: [...OPENAI_CHATGPT_SUPPORTED_MODELS],
+        models: catalog.modelDetails.map((m) => m.id),
         accountId: authResult.value.accountId,
       })
     } catch (error) {

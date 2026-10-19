@@ -50,11 +50,26 @@ Explain this simply: how should I prioritize urgent tasks versus important tasks
 - `OpenAI-compatible` requires a base URL such as `https://api.example.com/v1`.
 - Reasoning effort appears only for models the app recognizes as reasoning
   models.
-- OpenAI reasoning supports `minimal`, `low`, `medium`, and `high`; OpenAI
-  `max` is clamped to `high`.
-- Anthropic adaptive reasoning supports `low`, `medium`, `high`, and `max`.
+- New OpenAI configurations default to `gpt-6.1-sol` with medium reasoning.
+- ChatGPT Subscription discovers models for the signed-in account. Use `Refresh
+  models` to check again; cached or bundled choices are identified when a refresh
+  fails. Account availability may differ from API-key access.
+- Confirmed retired saved subscription selections are repaired with a notice.
+  Unavailable explicit CLI subscription overrides return an error; API-key and
+  custom-endpoint selections are preserved.
+- Reasoning choices depend on the model and access method. Current OpenAI and
+  Claude models support `xhigh` and `max`; `none` appears only where supported.
+  Legacy `minimal` settings are normalised when a model requires reasoning.
+- Codex Ultra is an orchestration mode and is not sent as a model reasoning effort.
+- For compatible endpoints, choose `API format` in settings. Current OpenAI
+  reasoning models need Responses for agent tool calls.
+- Subscription context limits come from the account catalogue; API context
+  limits come from the shared model registry. Explicit context overrides win.
 - The composer also has a reasoning chip for quick changes when the active
   model supports reasoning.
+
+The [model catalogue research](../../model-catalogue-2026-10-19.md) records the
+verified families, access restrictions, and integration decisions.
 
 ## Related Guides
 

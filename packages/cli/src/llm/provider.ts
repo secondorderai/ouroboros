@@ -1,3 +1,4 @@
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 /**
  * LLM Provider Factory
  *
@@ -68,7 +69,7 @@ export function createProvider(modelConfig: ModelConfig): Result<LanguageModel> 
         apiKey,
         fetch: createProviderFetch('openai'),
       })
-      return ok(openai(modelId))
+      return ok(openai.responses(modelId))
     }
 
     case 'openai-compatible': {
@@ -92,7 +93,14 @@ export function createProvider(modelConfig: ModelConfig): Result<LanguageModel> 
 
       switch (apiMode) {
         case 'chat':
-          return ok(openai.chat(modelId))
+          return ok(
+            createOpenAICompatible({
+              baseURL: modelConfig.baseUrl,
+              apiKey: apiKey || undefined,
+              name: 'openai-compatible',
+              fetch: createProviderFetch('openai-compatible'),
+            }).chatModel(modelId),
+          )
         case 'completion':
           return ok(openai.completion(modelId))
         case 'responses':

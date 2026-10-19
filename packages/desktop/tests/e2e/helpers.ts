@@ -24,6 +24,7 @@ export interface TestRpcOverride {
 }
 
 export interface LaunchScenario {
+  authStatus?: Record<string, unknown>
   config?: Record<string, unknown>
   workspace?: string | null
   approvals?: Array<Record<string, unknown>>

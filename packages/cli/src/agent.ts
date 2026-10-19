@@ -1,3 +1,4 @@
+import { DEFAULT_ANTHROPIC_MODEL } from '@ouroboros/shared'
 /**
  * Agent Loop — ReAct Pattern
  *
@@ -36,6 +37,7 @@ import { streamResponse } from '@src/llm/streaming'
 import {
   llmUserContentToText,
   type FinishReason,
+  type AssistantResponseState,
   type LLMFilePart,
   type LLMMessage,
   type LLMToolSpec,
@@ -658,6 +660,9 @@ function estimateConversationTokens(messages: LLMMessage[]): { live: number; too
       text = [message.content, toolCallText].filter((value) => value.length > 0).join('\n')
     }
 
+    if (message.role === 'assistant' && message.providerState) {
+      text = JSON.stringify(message.providerState.message)
+    }
     live += estimateTextTokens(text)
   }
 
@@ -843,7 +848,7 @@ export class Agent {
           : ({
               model: {
                 provider: 'anthropic',
-                name: 'claude-opus-4-7',
+                name: DEFAULT_ANTHROPIC_MODEL,
                 reasoningEffort: 'medium',
               },
               permissions: {
@@ -1154,6 +1159,7 @@ export class Agent {
             role: 'assistant',
             content: assistantText,
             toolCalls,
+            ...(turnResult.providerState ? { providerState: turnResult.providerState } : {}),
           })
 
           // Execute tool calls (in parallel where possible). The abortSignal is
@@ -1172,10 +1178,11 @@ export class Agent {
         }
 
         // No tool calls — turn is complete
-        if (assistantText) {
+        if (assistantText || turnResult.providerState) {
           this.conversationHistory.push({
             role: 'assistant',
             content: assistantText,
+            ...(turnResult.providerState ? { providerState: turnResult.providerState } : {}),
           })
         }
 
@@ -2456,7 +2463,9 @@ export class Agent {
     toolCalls: ToolCall[]
     error: Error | null
     finishReason: FinishReason
+    providerState?: AssistantResponseState
   }> {
+    let providerState: AssistantResponseState | undefined
     let text = ''
     const toolCalls: ToolCall[] = []
     let streamError: Error | null = null
@@ -2464,6 +2473,9 @@ export class Agent {
 
     for await (const chunk of stream) {
       switch (chunk.type) {
+        case 'assistant-state':
+          providerState = chunk.state
+          break
         case 'text-delta':
           text += chunk.textDelta
           this.emitEvent({ type: 'text', text: chunk.textDelta })
@@ -2497,7 +2509,7 @@ export class Agent {
       }
     }
 
-    return { text, toolCalls, error: streamError, finishReason }
+    return { text, toolCalls, error: streamError, finishReason, providerState }
   }
 
   /**

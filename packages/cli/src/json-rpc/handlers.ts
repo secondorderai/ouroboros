@@ -1,3 +1,9 @@
+import {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_OPENAI_MODEL,
+  RETIRED_SUBSCRIPTION_MODELS,
+} from '@ouroboros/shared'
+import { readAssistantState } from '@src/llm/assistant-state'
 /**
  * JSON-RPC Method Handlers
  *
@@ -548,6 +554,17 @@ export function bridgeAgentEvent(event: AgentEvent, sessionId: string | null = n
  */
 export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> {
   const handlers = new Map<string, MethodHandler>()
+  const repairRetiredSelection = async () => {
+    if (
+      ctx.config.model.provider !== OPENAI_CHATGPT_PROVIDER ||
+      !RETIRED_SUBSCRIPTION_MODELS.has(ctx.config.model.name)
+    )
+      return false
+    const resolved = await ctx.authManager.resolveModel(ctx.config, ctx.configDir)
+    if (!resolved.ok || resolved.value.model.name === ctx.config.model.name) return false
+    ctx.setConfig(resolved.value)
+    return true
+  }
   const validClients = new Set(['desktop', 'cli'])
   const validResponseStyles = new Set(['default', 'desktop-readable'])
   const validResponseFormats = new Set(['html5', 'markdown'])
@@ -980,6 +997,9 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
   // ── config/* ─────────────────────────────────────────────────────
 
   handlers.set('config/get', async () => {
+    const resolved = await ctx.authManager.resolveModel(ctx.config, ctx.configDir)
+    if (resolved.ok && JSON.stringify(resolved.value) !== JSON.stringify(ctx.config))
+      ctx.setConfig(resolved.value)
     return ctx.config
   })
 
@@ -992,6 +1012,16 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
 
     // Deep-set the value in the config object
     const updated = deepSet(structuredClone(ctx.config) as Record<string, unknown>, path, value)
+    if (
+      path === 'model.provider' &&
+      value !== ctx.config.model.provider &&
+      value !== 'openai-compatible'
+    ) {
+      updated.model = {
+        ...(updated.model as Record<string, unknown>),
+        name: value === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL,
+      }
+    }
     // Re-validate through the config schema by using the raw object
     const { configSchema } = await import('@src/config')
     const parsed = configSchema.safeParse(updated)
@@ -1002,7 +1032,14 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
       throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, `Invalid config: ${issues}`)
     }
 
-    const hydratedConfig = hydrateContextWindowConfig(parsed.data)
+    const resolved = await ctx.authManager.resolveModel(
+      parsed.data,
+      ctx.configDir,
+      path === 'model.name',
+    )
+    if (!resolved.ok)
+      throw new HandlerError(JSON_RPC_ERRORS.INVALID_PARAMS.code, resolved.error.message)
+    const hydratedConfig = hydrateContextWindowConfig(resolved.value)
 
     // Persist to disk
     const saveResult = saveConfig(ctx.configDir, hydratedConfig)
@@ -1137,7 +1174,10 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
         models: [],
       }
     }
-    return ctx.authManager.getStatus()
+    const status = await ctx.authManager.getStatus(params.refresh === true)
+    return status.connected && (await repairRetiredSelection())
+      ? ctx.authManager.getStatus()
+      : status
   })
 
   handlers.set('auth/startLogin', async (params) => {
@@ -1180,6 +1220,9 @@ export function createHandlers(ctx: HandlerContext): Map<string, MethodHandler> 
     const pollResult = await ctx.authManager.pollLogin(flowId)
     if (!pollResult.ok) {
       throw new HandlerError(JSON_RPC_ERRORS.INTERNAL_ERROR.code, pollResult.error.message)
+    }
+    if (pollResult.value.success && (await repairRetiredSelection())) {
+      return { ...pollResult.value, ...(await ctx.authManager.getStatus()) }
     }
     return pollResult.value
   })
@@ -2085,31 +2128,94 @@ function toDesktopSessionData(session: SessionWithMessages) {
   }
 }
 
-export function toConversationHistory(session: SessionWithMessages): LLMMessage[] {
-  return session.messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) => {
-      if (message.role === 'assistant') {
-        return { role: 'assistant' as const, content: message.content }
-      }
-
-      const images = parseImageAttachmentMetadata(message.toolArgs)
+export function toConversationHistory(
+  session: SessionWithMessages,
+  model?: { provider: string; name: string; apiMode?: string },
+): LLMMessage[] {
+  const history: LLMMessage[] = []
+  for (const row of session.messages) {
+    if (row.role === 'assistant') {
+      const state = readAssistantState(row.metadata?.providerState)
+      const compatible =
+        state &&
+        (!model ||
+          (state.modelId === model.name &&
+            state.provider.split('.')[0] === model.provider &&
+            (model.provider !== 'openai-compatible' ||
+              state.provider === `openai-compatible.${model.apiMode ?? 'chat'}`)))
+      if (compatible) {
+        const parts = typeof state.message.content === 'string' ? [] : state.message.content
+        const toolCalls = parts
+          .filter((p) => p.type === 'tool-call')
+          .map((p) => ({
+            toolCallId: p.toolCallId,
+            toolName: p.toolName,
+            input: p.input as Record<string, unknown>,
+          }))
+        history.push({
+          role: 'assistant',
+          content: row.content,
+          providerState: state,
+          ...(toolCalls.length ? { toolCalls } : {}),
+        })
+      } else if (row.content.trim()) history.push({ role: 'assistant', content: row.content })
+    } else if (row.role === 'user') {
+      const images = parseImageAttachmentMetadata(row.toolArgs)
         .map(readImageFilePart)
-        .filter((part): part is LLMFilePart => part != null)
-
-      return {
-        role: 'user' as const,
-        content:
-          images.length > 0
-            ? [
-                ...(message.content.trim().length > 0
-                  ? [{ type: 'text' as const, text: message.content }]
-                  : []),
-                ...images,
-              ]
-            : message.content,
+        .filter((p): p is LLMFilePart => p != null)
+      history.push({
+        role: 'user',
+        content: images.length
+          ? [
+              ...(row.content.trim() ? [{ type: 'text' as const, text: row.content }] : []),
+              ...images,
+            ]
+          : row.content,
+      })
+    } else if (row.role === 'tool-result') {
+      const result = row.metadata?.llmToolResult as
+        | { toolCallId?: unknown; toolName?: unknown; result?: unknown }
+        | undefined
+      if (!result || typeof result.toolCallId !== 'string' || typeof result.toolName !== 'string')
+        continue
+      const previous = history.at(-1)
+      const assistant = previous?.role === 'assistant' ? previous : history.at(-2)
+      if (
+        assistant?.role !== 'assistant' ||
+        !assistant.providerState ||
+        !assistant.toolCalls?.some((t) => t.toolCallId === result.toolCallId)
+      )
+        continue
+      const tool = {
+        toolCallId: result.toolCallId,
+        toolName: result.toolName,
+        result: result.result,
       }
-    })
+      if (previous?.role === 'tool') previous.content.push(tool)
+      else history.push({ role: 'tool', content: [tool] })
+    }
+  }
+  // Incomplete/truncated tool rounds cannot replay signed state safely.
+  return history.filter((message, index) => {
+    if (message.role === 'tool') {
+      const owner = history[index - 1]
+      return (
+        owner?.role === 'assistant' &&
+        owner.toolCalls?.every((t) => message.content.some((r) => r.toolCallId === t.toolCallId))
+      )
+    }
+    if (message.role === 'assistant' && message.toolCalls?.length) {
+      const results = history[index + 1]
+      if (
+        results?.role !== 'tool' ||
+        !message.toolCalls.every((t) => results.content.some((r) => r.toolCallId === t.toolCallId))
+      ) {
+        delete message.providerState
+        delete message.toolCalls
+      }
+    }
+    return message.role !== 'assistant' || Boolean(message.content || message.providerState)
+  })
 }
 
 function getSessionTitle(session: SessionWithMessages): string | undefined {
@@ -2382,8 +2488,10 @@ function persistConversationDelta(
     }
 
     if (message.role === 'assistant') {
-      if (message.content.trim().length > 0) {
-        const metadata: Record<string, unknown> = {}
+      if (message.content.trim().length > 0 || message.providerState) {
+        const metadata: Record<string, unknown> = message.providerState
+          ? { providerState: message.providerState }
+          : {}
         if (!assistantSkillsConsumed && activatedSkills.length > 0) {
           metadata.activatedSkills = activatedSkills
           assistantSkillsConsumed = true
@@ -2419,6 +2527,7 @@ function persistConversationDelta(
           role: 'tool-result',
           content: JSON.stringify(toolResult.result),
           toolName: toolResult.toolName,
+          metadata: { llmToolResult: toolResult },
         })
         if (!addResult.ok) return addResult
       }

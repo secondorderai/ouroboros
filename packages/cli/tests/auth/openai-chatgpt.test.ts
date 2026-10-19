@@ -1,3 +1,6 @@
+import { getBundledSubscriptionModels } from '@ouroboros/shared'
+import { configSchema } from '@src/config'
+import { subscriptionModelCatalog } from '@src/auth/model-catalog'
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 let mockedHomedir: string | undefined
@@ -17,6 +20,7 @@ import {
   extractAccountIdFromClaims,
   isSupportedOpenAIChatGPTModel,
   OPENAI_CHATGPT_PROVIDER,
+  OpenAIChatGPTAuthManager,
   parseJwtClaims,
 } from '@src/auth/openai-chatgpt'
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -212,8 +216,9 @@ describe('openai-chatgpt auth', () => {
     expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:1455/auth/callback')
   })
 
-  test('isSupportedOpenAIChatGPTModel accepts gpt-5.5 family', () => {
-    expect(isSupportedOpenAIChatGPTModel('gpt-5.5')).toBe(true)
+  test('subscription models include GPT-6 and reject retired GPT-5.5', () => {
+    expect(isSupportedOpenAIChatGPTModel('gpt-5.5')).toBe(false)
+    expect(isSupportedOpenAIChatGPTModel('gpt-6.1-sol')).toBe(true)
   })
 
   test('setAuth preserves existing ~/.ouroboros runtime config', () => {
@@ -255,5 +260,132 @@ describe('openai-chatgpt auth', () => {
 
     expect(getAuthFilePath()).toBe(join(tempDir, '.ouroboros'))
     expect(authResult.ok).toBe(false)
+  })
+  test('repairs only retired saved subscription selections and preserves API models and explicit overrides', async () => {
+    const manager = new OpenAIChatGPTAuthManager()
+    manager.getStatus = async () => ({
+      provider: 'openai-chatgpt',
+      connected: true,
+      authType: 'oauth',
+      pending: false,
+      availableMethods: ['browser', 'headless'],
+      models: ['gpt-6.1-sol', 'gpt-6-luna'],
+      modelDetails: getBundledSubscriptionModels().filter((m) =>
+        ['gpt-6.1-sol', 'gpt-6-luna'].includes(m.id),
+      ),
+      catalogSource: 'live',
+    })
+    const config = configSchema.parse({ model: { provider: 'openai-chatgpt', name: 'gpt-5.5' } })
+    const result = await manager.resolveModel(config, tempDir)
+    expect(result.ok && result.value.model.name).toBe('gpt-6.1-sol')
+    expect(result.ok && result.value.memory.contextWindowTokens).toBe(500_000)
+    expect(JSON.parse(readFileSync(join(tempDir, '.ouroboros'), 'utf8')).model.name).toBe(
+      'gpt-6.1-sol',
+    )
+    const mini = await manager.resolveModel(
+      { ...config, model: { ...config.model, name: 'gpt-5.4-mini' } },
+      tempDir,
+    )
+    expect(mini.ok && mini.value.model.name).toBe('gpt-6-luna')
+    const overridden = await manager.resolveModel(
+      {
+        ...config,
+        memory: { ...config.memory, contextWindowTokens: 40_000, contextWindowSource: 'config' },
+      },
+      tempDir,
+    )
+    expect(overridden.ok && overridden.value.memory.contextWindowTokens).toBe(40_000)
+    expect((await manager.resolveModel(config, tempDir, true)).ok).toBe(false)
+    const api = await manager.resolveModel(
+      { ...config, model: { ...config.model, provider: 'openai' } },
+      tempDir,
+    )
+    expect(api.ok && api.value.model.name).toBe('gpt-5.5')
+    const custom = await manager.resolveModel(
+      {
+        ...config,
+        model: {
+          ...config.model,
+          provider: 'openai-compatible',
+          baseUrl: 'https://example.invalid/v1',
+        },
+      },
+      tempDir,
+    )
+    expect(custom.ok && custom.value.model.name).toBe('gpt-5.5')
+    const explicitUnavailable = await manager.resolveModel(
+      { ...config, model: { ...config.model, name: 'gpt-6-astra' } },
+      tempDir,
+      true,
+    )
+    expect(explicitUnavailable.ok).toBe(false)
+  })
+
+  test('status includes account catalogue descriptors and honours refresh; logout clears capabilities', async () => {
+    subscriptionModelCatalog.clear()
+    setAuth(OPENAI_CHATGPT_PROVIDER, {
+      type: 'oauth',
+      access: 'test-access',
+      refresh: 'test-refresh',
+      expires: Date.now() + 60_000,
+      accountId: 'test-refresh-account',
+    })
+    let calls = 0
+    globalThis.fetch = createTypedFetch(async () => {
+      calls++
+      return Response.json({
+        models: [
+          {
+            slug: 'gpt-future-model',
+            display_name: 'Future Model',
+            visibility: 'list',
+            context_window: 123_000,
+            supported_reasoning_levels: [{ effort: 'high' }],
+          },
+        ],
+      })
+    })
+    const manager = new OpenAIChatGPTAuthManager()
+    const first = await manager.getStatus()
+    expect(first.models).toEqual(['gpt-future-model'])
+    expect(first.modelDetails[0].displayName).toBe('Future Model')
+    expect(isSupportedOpenAIChatGPTModel('gpt-future-model')).toBe(true)
+    await manager.getStatus()
+    expect(calls).toBe(1)
+    await manager.getStatus(true)
+    expect(calls).toBe(2)
+    expect((await manager.logout()).ok).toBe(true)
+    expect(isSupportedOpenAIChatGPTModel('gpt-future-model')).toBe(false)
+  })
+  test('a failed reconnect retains the account last successful catalogue', async () => {
+    subscriptionModelCatalog.clear()
+    setAuth(OPENAI_CHATGPT_PROVIDER, {
+      type: 'oauth',
+      access: 'test-access',
+      refresh: 'test-refresh',
+      expires: Date.now() + 60_000,
+      accountId: 'reconnect-account',
+    })
+    globalThis.fetch = createTypedFetch(async () =>
+      Response.json({
+        models: [
+          {
+            slug: 'gpt-6.1-sol',
+            display_name: 'GPT-6.1 Sol',
+            visibility: 'list',
+            context_window: 500_000,
+          },
+        ],
+      }),
+    )
+    const manager = new OpenAIChatGPTAuthManager()
+    expect((await manager.getStatus()).catalogSource).toBe('live')
+    globalThis.fetch = createTypedFetch(async () => Response.json({}, { status: 503 }))
+    expect((await manager.startLogin('headless')).ok).toBe(false)
+    const status = await manager.getStatus(true)
+    expect(status.catalogSource).toBe('cache')
+    expect(status.models).toEqual(['gpt-6.1-sol'])
+    expect(status.catalogError).toContain('unverified')
+    await manager.logout()
   })
 })

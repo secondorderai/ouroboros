@@ -26,7 +26,7 @@ missing values are filled from schema defaults.
 {
   "model": {
     "provider": "openai",
-    "name": "gpt-5.5",
+    "name": "gpt-6.1-sol",
     "reasoningEffort": "medium"
   },
   "permissions": {
@@ -47,7 +47,7 @@ missing values are filled from schema defaults.
 {
   "model": {
     "provider": "openai",
-    "name": "gpt-5.5",
+    "name": "gpt-6.1-sol",
     "baseUrl": "https://api.openai.com/v1",
     "apiMode": "responses",
     "apiKey": "optional-fallback-key",
@@ -124,11 +124,22 @@ settings for credentials.
 `openai-chatgpt`.
 
 `model.name` is the provider model identifier. `model.reasoningEffort` accepts
-`minimal`, `low`, `medium`, `high`, or `max`; unsupported values for a provider
-are clamped or ignored by the provider adapter.
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Choices depend on
+the model and authentication method. Saved unsupported levels are normalised;
+an unsupported explicit CLI reasoning choice returns an error. New OpenAI
+configurations default to GPT-6.1 Sol with medium reasoning. Anthropic onboarding
+starts with Opus 5.5.
 
 Use `model.baseUrl` and `model.apiMode` for OpenAI-compatible endpoints.
-`apiMode` accepts `responses`, `chat`, or `completion`.
+`apiMode` accepts `responses`, `chat`, or `completion`. Native OpenAI uses
+Responses. Current OpenAI models also require Responses for agent tool calls
+through compatible endpoints; Completion mode supports plain text calls only.
+
+ChatGPT subscription models are discovered from the signed-in account and cached
+for ten minutes. Desktop settings can refresh the catalogue and show failures or
+unverified fallback choices. Confirmed retired saved subscription selections are
+repaired with a notice. API-key/custom-endpoint selections remain unchanged;
+unavailable explicit subscription overrides return an actionable error.
 
 ## Permissions
 
@@ -191,7 +202,10 @@ Memory ratios must be numbers from `0` through `1`. Token budgets and message
 counts must be positive integers.
 
 `memory.contextWindowTokens` is optional. When omitted, Ouroboros attempts to
-detect the active model context window from the model registry.
+detect the active model context window from the shared registry or subscription
+account catalogue. Explicit values override discovery. Subscription GPT-6.1 Sol
+has a verified 500,000-token context; the other returned models have 272,000.
+See the [model catalogue research](model-catalogue-2026-10-19.md) for sources.
 
 `rsi` controls observation cadence, checkpoint cadence, reflection, durable
 memory promotion, and whether skill crystallization requires repeated evidence.

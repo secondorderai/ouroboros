@@ -1,4 +1,12 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import { DEFAULT_OPENAI_MODEL } from '@ouroboros/shared'
+import {
+  getReasoningSupport,
+  getReasoningEfforts,
+  setSubscriptionModels,
+  type ReasoningEffort,
+} from '@ouroboros/shared'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { useConversationStore } from '../../stores/conversationStore'
 import type {
   AuthStatusResult,
   ConnectionTestResult,
@@ -11,8 +19,6 @@ interface ModelSectionProps {
 }
 
 type Provider = 'anthropic' | 'openai' | 'openai-compatible' | 'openai-chatgpt'
-type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'max'
-type ReasoningKind = 'anthropic-adaptive' | 'openai-reasoning'
 
 const PROVIDERS: Array<{ value: Provider; label: string }> = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -20,31 +26,6 @@ const PROVIDERS: Array<{ value: Provider; label: string }> = [
   { value: 'openai-chatgpt', label: 'ChatGPT Subscription' },
   { value: 'openai-compatible', label: 'OpenAI-compatible' },
 ]
-
-const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'max']
-
-// Keep this list in sync with packages/cli/src/llm/model-capabilities.ts —
-// only Claude 4.6+ supports adaptive thinking; older Claude 4.x is excluded.
-const ANTHROPIC_ADAPTIVE_PREFIXES = ['claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6']
-
-/**
- * Detect which reasoning style (if any) the given model supports. Pure
- * prefix-based check that mirrors `getReasoningSupport` in the CLI registry.
- */
-function reasoningKindFor(modelName: string): ReasoningKind | null {
-  if (!modelName) return null
-  const id = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName
-
-  for (const prefix of ANTHROPIC_ADAPTIVE_PREFIXES) {
-    if (id.startsWith(prefix)) return 'anthropic-adaptive'
-  }
-
-  if (id.startsWith('gpt-5') && !id.startsWith('gpt-5-chat')) {
-    return 'openai-reasoning'
-  }
-
-  return null
-}
 
 export function ModelSection({ config, onConfigChange }: ModelSectionProps): React.ReactElement {
   const [apiKey, setApiKey] = useState('')
@@ -63,27 +44,41 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
   const baseUrl = config?.model?.baseUrl ?? ''
   const reasoningEffort = config?.model?.reasoningEffort ?? 'medium'
   const isChatGPTProvider = provider === 'openai-chatgpt'
-  const reasoningKind = reasoningKindFor(modelName)
+  const reasoningKind = getReasoningSupport(modelName, provider)?.kind ?? null
+  const reasoningOptions =
+    authStatus?.modelDetails?.find((m) => m.id === modelName)?.reasoningEfforts ??
+    getReasoningEfforts(modelName, provider)
 
-  const loadAuthStatus = useCallback(async () => {
-    if (provider !== 'openai-chatgpt') {
-      setAuthStatus(null)
-      return
-    }
+  const statusRequest = useRef(0)
+  const loadAuthStatus = useCallback(
+    async (refresh = false) => {
+      const request = ++statusRequest.current
+      if (provider !== 'openai-chatgpt') {
+        setAuthStatus(null)
+        return
+      }
 
-    const status = await window.ouroboros.rpc('auth/getStatus', {
-      provider: 'openai-chatgpt',
-    })
-    setAuthStatus(status)
-  }, [provider])
+      const status = await window.ouroboros.rpc('auth/getStatus', {
+        provider: 'openai-chatgpt',
+        refresh,
+      })
+      if (request !== statusRequest.current) return
+      if (status.modelDetails) setSubscriptionModels(status.modelDetails)
+      setAuthStatus(status)
+      const current = useConversationStore.getState()
+      if (current.modelProvider === 'openai-chatgpt') {
+        current.setModelReasoningEfforts(
+          status.modelDetails?.find((m) => m.id === current.modelName)?.reasoningEfforts ?? null,
+        )
+      }
+    },
+    [provider],
+  )
 
   const handleProviderChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const nextProvider = e.target.value as Provider
       onConfigChange('model.provider', nextProvider)
-      if (nextProvider === 'openai-chatgpt') {
-        onConfigChange('model.name', 'gpt-5.5')
-      }
     },
     [onConfigChange],
   )
@@ -177,7 +172,7 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
           if (poll.success) {
             setTestResult({ success: true, message: 'Connected to ChatGPT subscription' })
             if (!poll.models.includes(modelName)) {
-              onConfigChange('model.name', poll.models[0] ?? 'gpt-5.5')
+              onConfigChange('model.name', poll.models[0] ?? DEFAULT_OPENAI_MODEL)
             }
           } else {
             setTestResult({
@@ -202,13 +197,15 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
     setTestResult(null)
     try {
       await window.ouroboros.rpc('auth/logout', { provider: 'openai-chatgpt' })
+      setSubscriptionModels([])
+      useConversationStore.getState().setModelReasoningEfforts(null)
       setAuthStatus({
         provider: 'openai-chatgpt',
         connected: false,
         authType: null,
         pending: false,
         availableMethods: ['browser', 'headless'],
-        models: ['gpt-5.5'],
+        models: [DEFAULT_OPENAI_MODEL],
       })
       setTestResult({ success: true, message: 'Disconnected from ChatGPT subscription' })
     } catch (error) {
@@ -233,6 +230,9 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
 
   useEffect(() => {
     void loadAuthStatus().catch(() => {})
+    return () => {
+      statusRequest.current++
+    }
   }, [loadAuthStatus])
 
   return (
@@ -305,6 +305,23 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
         </div>
       )}
 
+      {provider === 'openai-compatible' && (
+        <div style={styles.field}>
+          <label style={styles.label} htmlFor='settings-api-mode'>
+            API format
+          </label>
+          <select
+            id='settings-api-mode'
+            style={styles.select}
+            value={config?.model?.apiMode ?? 'chat'}
+            onChange={(e) => onConfigChange('model.apiMode', e.target.value)}
+          >
+            <option value='chat'>Chat Completions</option>
+            <option value='responses'>Responses</option>
+            <option value='completion'>Completions</option>
+          </select>
+        </div>
+      )}
       {/* Model selector */}
       <div style={styles.field}>
         <label style={styles.label} htmlFor='settings-model'>
@@ -317,9 +334,14 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
             value={modelName}
             onChange={handleModelChange}
           >
-            {(authStatus?.models.length ? authStatus.models : ['gpt-5.5']).map((model) => (
+            {authStatus && !authStatus.models.includes(modelName) && (
+              <option value={modelName} disabled>
+                {modelName} (unavailable)
+              </option>
+            )}
+            {(authStatus ? authStatus.models : [DEFAULT_OPENAI_MODEL]).map((model) => (
               <option key={model} value={model}>
-                {model}
+                {authStatus?.modelDetails?.find((m) => m.id === model)?.displayName ?? model}
               </option>
             ))}
           </select>
@@ -328,7 +350,7 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
             id='settings-model'
             type='text'
             style={styles.input}
-            placeholder='e.g. claude-sonnet-4-6'
+            placeholder='e.g. claude-sonnet-5-5'
             value={modelName}
             onChange={handleModelChange}
           />
@@ -346,7 +368,7 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
             value={reasoningEffort}
             onChange={handleReasoningEffortChange}
           >
-            {REASONING_EFFORT_OPTIONS.map((effort) => (
+            {reasoningOptions.map((effort) => (
               <option key={effort} value={effort}>
                 {effort}
               </option>
@@ -354,12 +376,37 @@ export function ModelSection({ config, onConfigChange }: ModelSectionProps): Rea
           </select>
           <div style={styles.helperText}>
             {reasoningKind === 'anthropic-adaptive'
-              ? 'Anthropic adaptive thinking. "minimal" clamps to "low" for Anthropic.'
-              : 'OpenAI reasoning. "max" clamps to "high" for OpenAI; "minimal" is GPT-5-only.'}
+              ? 'Adaptive thinking; options reflect the selected model.'
+              : 'Reasoning options reflect the selected model and access method.'}
           </div>
         </div>
       )}
 
+      {isChatGPTProvider && (
+        <div style={styles.field}>
+          <button
+            type='button'
+            style={styles.testButton}
+            disabled={testing || !authStatus?.connected}
+            onClick={() => {
+              void loadAuthStatus(true).catch(() => {})
+            }}
+          >
+            Refresh models
+          </button>
+          <div style={styles.helperText} role='status'>
+            {authStatus?.catalogError ??
+              (authStatus?.catalogSource === 'bundled'
+                ? 'Bundled models — account availability unverified'
+                : authStatus?.catalogFetchedAt
+                  ? `Models refreshed ${new Date(authStatus.catalogFetchedAt).toLocaleString()}`
+                  : '')}
+          </div>
+          {authStatus?.modelMigration && (
+            <div role='status'>{authStatus.modelMigration.message}</div>
+          )}
+        </div>
+      )}
       {isChatGPTProvider && (
         <div style={styles.field}>
           <label style={styles.label}>Authentication</label>

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { REASONING_EFFORTS, getReasoningEfforts, type ReasoningEffort } from '@ouroboros/shared'
 
 /**
  * Ouroboros CLI Entry Point
@@ -9,7 +10,7 @@
  *
  * CLI flags:
  *   --model <provider/model>           Override model selection
- *   --reasoning-effort <effort>        Reasoning effort (minimal|low|medium|high|max)
+ *   --reasoning-effort <effort>        Reasoning effort (none|minimal|low|medium|high|xhigh|max)
  *   --verbose / -v                     Show tool call details
  *   --no-stream                        Wait for full response before printing
  *   --config <path>                    Path to directory containing .ouroboros config file
@@ -72,7 +73,7 @@ program
   .option('--model <model>', 'Override model selection (e.g., openai/gpt-5.4)')
   .option(
     '--reasoning-effort <effort>',
-    'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on GPT-5. Ignored for unsupported models.',
+    'Reasoning effort (none|minimal|low|medium|high|xhigh|max). Supported choices depend on the model and account.',
   )
   .option('-v, --verbose', 'Show tool call details (name, args, result)')
   .option('--no-stream', 'Wait for full response before printing')
@@ -220,7 +221,7 @@ async function runMain(): Promise<void> {
 
   // Apply --reasoning-effort override
   if (opts.reasoningEffort !== undefined) {
-    const validEfforts = ['minimal', 'low', 'medium', 'high', 'max'] as const
+    const validEfforts = REASONING_EFFORTS
     type Effort = (typeof validEfforts)[number]
     if (!validEfforts.includes(opts.reasoningEffort as Effort)) {
       process.stderr.write(
@@ -234,6 +235,30 @@ async function runMain(): Promise<void> {
     }
   }
 
+  if (config.model.provider === OPENAI_CHATGPT_PROVIDER && !opts.jsonRpc) {
+    const resolved = await new OpenAIChatGPTAuthManager().resolveModel(
+      config,
+      resolveConfigDir(opts.config, getConfigDiscoveryOptions()),
+      Boolean(
+        opts.model || process.env.OUROBOROS_MODEL_NAME || process.env.OUROBOROS_MODEL_PROVIDER,
+      ),
+    )
+    if (!resolved.ok) {
+      process.stderr.write(`${resolved.error.message}\n`)
+      process.exit(1)
+    }
+    config = resolved.value
+  }
+  if (opts.reasoningEffort && !opts.jsonRpc) {
+    const supported = getReasoningEfforts(config.model.name, config.model.provider)
+    if (supported.length && !supported.some((e) => e === opts.reasoningEffort)) {
+      process.stderr.write(
+        `Reasoning effort "${opts.reasoningEffort}" is unavailable for ${config.model.name}. Choose: ${supported.join(', ')}\n`,
+      )
+      process.exit(1)
+    }
+  }
+
   // ── JSON-RPC server mode ───────────────────────────────────────────
   // Must branch early — the server creates its own provider, registry,
   // and manages its own Agent lifecycle.
@@ -243,7 +268,15 @@ async function runMain(): Promise<void> {
     // (e.g. enabling tier 3 so the memory tool is available) before the server
     // builds its registry and agents.
     const migratedConfig = migrateDesktopConfig(configDir, config)
-    await startJsonRpcServer({ config: migratedConfig, configDir, maxStepsOverride })
+    await startJsonRpcServer({
+      config: migratedConfig,
+      configDir,
+      maxStepsOverride,
+      explicitModelOverride: Boolean(
+        opts.model || process.env.OUROBOROS_MODEL_NAME || process.env.OUROBOROS_MODEL_PROVIDER,
+      ),
+      explicitReasoningEffort: opts.reasoningEffort as ReasoningEffort | undefined,
+    })
     // startJsonRpcServer runs indefinitely — this line is never reached.
     return
   }

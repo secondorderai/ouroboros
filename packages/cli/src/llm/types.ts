@@ -1,3 +1,5 @@
+import type { ModelMessage } from 'ai'
+
 /**
  * LLM types decoupled from Vercel AI SDK internals.
  * The rest of the codebase should import from here, not from 'ai' directly.
@@ -10,8 +12,20 @@
 export type LLMMessage =
   | { role: 'system'; content: string }
   | { role: 'user'; content: LLMUserContent }
-  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  | {
+      role: 'assistant'
+      content: string
+      toolCalls?: ToolCall[]
+      providerState?: AssistantResponseState
+    }
   | { role: 'tool'; content: ToolResult[] }
+
+/** Opaque response state, replayable only to its originating provider/model. */
+export interface AssistantResponseState {
+  provider: string
+  modelId: string
+  message: Extract<ModelMessage, { role: 'assistant' }>
+}
 
 export type LLMUserContent = string | LLMUserContentPart[]
 
@@ -78,6 +92,7 @@ export interface ToolResult {
  * A chunk from a streaming LLM response.
  */
 export type StreamChunk =
+  | { type: 'assistant-state'; state: AssistantResponseState }
   | { type: 'text-delta'; textDelta: string }
   | { type: 'tool-call'; toolCallId: string; toolName: string; input: Record<string, unknown> }
   | { type: 'tool-call-streaming-start'; toolCallId: string; toolName: string }
@@ -110,6 +125,7 @@ export interface TokenUsage {
  * The complete result from a non-streaming LLM call.
  */
 export interface GenerateResult {
+  assistantState?: AssistantResponseState
   /** The generated text */
   text: string
   /** Any tool calls made by the model */
@@ -131,13 +147,10 @@ export interface StreamResponse {
 /**
  * Unified reasoning effort levels across providers.
  *
- * - `'minimal'` is OpenAI GPT-5 only. On Anthropic adaptive thinking, it is
- *   clamped to `'low'`.
- * - `'max'` is Anthropic adaptive only. On OpenAI reasoning models, it is
- *   clamped to `'high'`.
- * - `'low' | 'medium' | 'high'` are accepted by both providers as-is.
+ * Supported choices are determined by the shared model catalogue and account.
  */
-export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'max'
+export type { ReasoningEffort } from '@ouroboros/shared'
+import type { ReasoningEffort } from '@ouroboros/shared'
 
 /**
  * Options for LLM calls (both streaming and non-streaming).
@@ -157,8 +170,8 @@ export interface LLMCallOptions {
   abortSignal?: AbortSignal
   /**
    * Reasoning effort for capable models. Maps to Anthropic adaptive thinking
-   * (`thinking.type: 'adaptive'` + `effort`) on Claude Opus 4.6/4.7 and Sonnet
-   * 4.6, or to OpenAI `reasoningEffort` on GPT-5 models. Silently
+   * (`thinking.type: 'adaptive'` + `effort`) on current Claude models,
+   * or to the model's `reasoningEffort` option. Silently
    * ignored on models that don't support reasoning. Values outside a provider's
    * accepted set are clamped to the closest level.
    */

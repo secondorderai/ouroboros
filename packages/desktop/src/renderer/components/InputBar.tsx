@@ -1,3 +1,4 @@
+import { getReasoningSupport, getReasoningEfforts, type ReasoningEffort } from '@ouroboros/shared'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ImageAttachment, RejectedImageAttachment, SkillInfo } from '../../shared/protocol'
 import { useConversationStore } from '../stores/conversationStore'
@@ -53,6 +54,8 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
   const sendMessage = useConversationStore((s) => s.sendMessage)
   const steerCurrentRun = useConversationStore((s) => s.steerCurrentRun)
   const cancelRun = useConversationStore((s) => s.cancelRun)
+  const modelReasoningEfforts = useConversationStore((s) => s.modelReasoningEfforts)
+  const modelProvider = useConversationStore((s) => s.modelProvider)
   const modelName = useConversationStore((s) => s.modelName)
   const reasoningEffort = useConversationStore((s) => s.reasoningEffort)
   const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
@@ -416,16 +419,10 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 
   // ---- Reasoning effort helpers --------------------------------------------
 
-  const reasoningKind = useMemo(() => reasoningKindForModel(modelName), [modelName])
-
-  const REASONING_EFFORT_OPTIONS = useMemo(() => {
-    if (reasoningKind === 'anthropic-adaptive') {
-      // Anthropic: low, medium, high, max (minimal not supported)
-      return ['low', 'medium', 'high', 'max'] as const
-    }
-    // OpenAI: minimal, low, medium, high (max clamped to high)
-    return ['minimal', 'low', 'medium', 'high'] as const
-  }, [reasoningKind])
+  const reasoningKind = useMemo(
+    () => getReasoningSupport(modelName ?? '', modelProvider ?? undefined)?.kind ?? null,
+    [modelName, modelProvider, modelReasoningEfforts],
+  )
 
   const handleReasoningChipClick = useCallback(() => {
     setReasoningMenuOpen((open) => !open)
@@ -433,7 +430,7 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 
   const handleReasoningSelect = useCallback(
     async (effort: string) => {
-      const next = effort as 'minimal' | 'low' | 'medium' | 'high' | 'max'
+      const next = effort as ReasoningEffort
       setSavingReasoning(true)
       setReasoningMenuOpen(false)
       setReasoningEffort(next)
@@ -642,7 +639,10 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
               </button>
               {reasoningMenuOpen && (
                 <div style={styles.reasoningMenu} role='menu' aria-label='Reasoning effort picker'>
-                  {REASONING_EFFORT_OPTIONS.map((effort) => (
+                  {(
+                    modelReasoningEfforts ??
+                    getReasoningEfforts(modelName ?? '', modelProvider ?? undefined)
+                  ).map((effort) => (
                     <button
                       key={effort}
                       style={{
@@ -670,28 +670,6 @@ export function InputBar({ isDragOver }: InputBarProps): React.ReactElement {
 // ---------------------------------------------------------------------------
 // Helper: truncate path for display
 // ---------------------------------------------------------------------------
-
-/**
- * Detect which reasoning style (if any) the given model supports.
- * Mirrors the logic in ModelSection.tsx and model-capabilities.ts.
- */
-function reasoningKindForModel(
-  modelName: string | null,
-): 'anthropic-adaptive' | 'openai-reasoning' | null {
-  if (!modelName) return null
-  const id = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName
-
-  const anthropicPrefixes = ['claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6']
-  for (const prefix of anthropicPrefixes) {
-    if (id.startsWith(prefix)) return 'anthropic-adaptive'
-  }
-
-  if (id.startsWith('gpt-5') && !id.startsWith('gpt-5-chat')) {
-    return 'openai-reasoning'
-  }
-
-  return null
-}
 
 function mergeUniquePaths(existingPaths: string[], nextPaths: string[]): string[] {
   const seen = new Set(existingPaths)

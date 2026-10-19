@@ -27,6 +27,8 @@ function resetStore(): void {
     selectedWorkspacePath: null,
     workspaceModeError: null,
     modelName: null,
+    modelProvider: null,
+    modelReasoningEfforts: null,
     contextUsage: null,
     responseStartedAt: null,
     reasoningEffort: null,
@@ -35,6 +37,18 @@ function resetStore(): void {
 }
 
 describe('conversation store normalization', () => {
+  test('retains the active provider and supported modern reasoning controls', () => {
+    resetStore()
+    const store = useConversationStore.getState()
+    store.setModelProvider('openai-chatgpt')
+    store.setModelName('gpt-6.1-sol')
+    store.setModelReasoningEfforts(['low', 'medium', 'high', 'xhigh', 'max'])
+    store.setReasoningEffort('xhigh')
+    expect(useConversationStore.getState().modelProvider).toBe('openai-chatgpt')
+    expect(useConversationStore.getState().modelReasoningEfforts).not.toContain('none')
+    expect(useConversationStore.getState().reasoningEffort).toBe('xhigh')
+    store.setModelReasoningEfforts(null)
+  })
   test('normalizes structured text payloads into readable strings', () => {
     expect(normalizeTextContent({ text: 'Hello desktop' })).toBe('Hello desktop')
     expect(normalizeTextContent({ message: 'Something failed' })).toBe('Something failed')

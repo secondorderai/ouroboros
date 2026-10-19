@@ -1,0 +1,51 @@
+diff --git a/index.js b/index.js
+index 4082cc12564ed53cce0c121d53a09653d91b3260..ef3a36ba3bbb947fce53d81c2f47fe168e3b3d91 100644
+--- a/index.js
++++ b/index.js
+@@ -1,6 +1,36 @@
+ import path from 'node:path';
++import fs from 'node:fs/promises';
+ import { extract as nativeExtract } from './binding.js';
+ 
++// The native extractor validates pending links using Unicode case folding.
++// Filesystems such as APFS equate additional names (for example Σ and ς),
++// so check every created link against the filesystem's actual resolution.
++async function checkSymlinks(dir) {
++  const root = await fs.realpath(dir);
++  async function visit(folder) {
++    for (const entry of await fs.readdir(folder, { withFileTypes: true })) {
++      const candidate = path.join(folder, entry.name);
++      if (entry.isDirectory()) {
++        await visit(candidate);
++      } else if (entry.isSymbolicLink()) {
++        let target;
++        try {
++          target = await fs.realpath(candidate);
++        } catch (error) {
++          await fs.unlink(candidate);
++          throw new Error(`extract: symlink target cannot be resolved: ${candidate}`, { cause: error });
++        }
++        const relative = path.relative(root, target);
++        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
++          await fs.unlink(candidate);
++          throw new Error(`extract: symlink escapes the extraction root: ${candidate}`);
++        }
++      }
++    }
++  }
++  await visit(root);
++}
++
+ /**
+  * Extract a zip archive to a directory.
+  *
+@@ -17,7 +47,8 @@ export async function extract(zipPath, opts) {
+   if (!path.isAbsolute(opts.dir)) {
+     throw new TypeError('extract: opts.dir must be an absolute path');
+   }
+-  return nativeExtract(zipPath, opts);
++  await nativeExtract(zipPath, opts);
++  await checkSymlinks(opts.dir);
+ }
+ 
+ export default extract;

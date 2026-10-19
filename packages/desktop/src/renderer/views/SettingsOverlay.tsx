@@ -171,6 +171,9 @@ export function SettingsOverlay({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, handleClose])
 
+  const setModelReasoningEfforts = useConversationStore((s) => s.setModelReasoningEfforts)
+  const setModelProvider = useConversationStore((s) => s.setModelProvider)
+  const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
   const setModelName = useConversationStore((s) => s.setModelName)
   const setDefaultResponseFormat = useConversationStore((s) => s.setDefaultResponseFormat)
 
@@ -185,8 +188,28 @@ export function SettingsOverlay({
       try {
         const savedConfig = await window.ouroboros.rpc('config/set', { path, value })
         setConfig(savedConfig)
-        if (path === 'model.name') {
-          setModelName(String(value))
+        setModelProvider(savedConfig.model.provider)
+        setModelReasoningEfforts(null)
+        if (savedConfig.model.provider === 'openai-chatgpt') {
+          void window.ouroboros
+            .rpc('auth/getStatus', { provider: 'openai-chatgpt' })
+            .then((status) => {
+              const current = useConversationStore.getState()
+              if (
+                current.modelProvider !== 'openai-chatgpt' ||
+                current.modelName !== savedConfig.model.name
+              )
+                return
+              setModelReasoningEfforts(
+                status.modelDetails?.find((m) => m.id === savedConfig.model.name)
+                  ?.reasoningEfforts ?? null,
+              )
+            })
+            .catch(() => {})
+        }
+        setReasoningEffort(savedConfig.model.reasoningEffort ?? 'medium')
+        if (path.startsWith('model.')) {
+          setModelName(savedConfig.model.name)
         } else if (path === 'desktop.defaultResponseFormat') {
           setDefaultResponseFormat(value as AgentResponseFormat)
         }
@@ -196,7 +219,14 @@ export function SettingsOverlay({
         setSaveError(message)
       }
     },
-    [config, setModelName, setDefaultResponseFormat],
+    [
+      config,
+      setModelName,
+      setModelProvider,
+      setModelReasoningEfforts,
+      setReasoningEffort,
+      setDefaultResponseFormat,
+    ],
   )
 
   if (!isOpen && !exiting) return null
