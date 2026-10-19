@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CATALOG_TTL_MS, SubscriptionModelCatalog } from '@src/auth/model-catalog'
@@ -130,6 +130,22 @@ describe('subscription catalogue', () => {
     finish()
     await request
     expect(getContextWindowTokens('gpt-future', 'openai-chatgpt')).toBeNull()
+  })
+  test('logout in a fresh process removes persisted account catalogues', async () => {
+    const { catalog, cacheDir } = setup(async () => Response.json({ models: [item()] }))
+    await catalog.get(auth('account-a'))
+    await catalog.get(auth('account-b'))
+    expect(readdirSync(cacheDir)).toHaveLength(2)
+
+    // CLI logout runs in a separate process with an empty in-memory map.
+    new SubscriptionModelCatalog({ cacheDir }).clear()
+    expect(existsSync(cacheDir)).toBe(false)
+
+    const offline = new SubscriptionModelCatalog({
+      cacheDir,
+      fetch: (async () => Response.json({}, { status: 503 })) as unknown as typeof fetch,
+    })
+    expect((await offline.get(auth('account-a'))).catalogSource).toBe('bundled')
   })
   test('an older account request cannot overwrite the active account capabilities', async () => {
     const finish: Array<() => void> = []

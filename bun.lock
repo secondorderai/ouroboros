@@ -44,6 +44,7 @@
       "name": "@ouroboros/desktop",
       "version": "0.1.0",
       "dependencies": {
+        "@ouroboros/shared": "workspace:*",
         "electron-store": "^10.1.0",
         "electron-updater": "^6.8.9",
         "fuse.js": "^7.3.0",

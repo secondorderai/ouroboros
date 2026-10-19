@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { createRequire } from 'node:module'
 import { generateKeyPairSync, X509Certificate, sign, constants } from 'node:crypto'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  rmSync,
+  mkdirSync,
+  symlinkSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -188,6 +196,55 @@ describe('Electron archive dependency', () => {
       )
       await expect(extract(file, { dir: join(dir, 'output') })).rejects.toThrow()
       expect(existsSync(join(dir, 'output/escape'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+  test('never writes through a Unicode alias outside the extraction root', async () => {
+    if (process.platform === 'win32') return
+    const dir = mkdtempSync(join(tmpdir(), 'ou-unicode-write-'))
+    try {
+      const file = join(dir, 'unicode-write.zip')
+      mkdirSync(join(dir, 'outside'))
+      writeFileSync(join(dir, 'outside/payload'), 'original')
+      writeFileSync(
+        file,
+        zip([
+          // Keep the reviewed order: the native extractor must queue files
+          // before creating either in-archive symlink.
+          { name: 'escape', text: 'a/ς/../outside', mode: 0o120777 },
+          { name: 'a/Σ', text: '..', mode: 0o120777 },
+          { name: 'escape/payload', text: 'overwritten' },
+          { name: 'escape/new-payload', text: 'created outside' },
+        ]),
+      )
+      await expect(extract(file, { dir: join(dir, 'output') })).rejects.toThrow()
+      expect(readFileSync(join(dir, 'outside/payload'), 'utf8')).toBe('original')
+      expect(existsSync(join(dir, 'outside/new-payload'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+  test('never writes through a pre-existing symlink outside the extraction root', async () => {
+    if (process.platform === 'win32') return
+    const dir = mkdtempSync(join(tmpdir(), 'ou-existing-link-'))
+    try {
+      const file = join(dir, 'pre-existing-link.zip')
+      const output = join(dir, 'output')
+      mkdirSync(join(dir, 'outside'))
+      mkdirSync(output)
+      symlinkSync(join(dir, 'outside'), join(output, 'escape'))
+      writeFileSync(join(dir, 'outside/payload'), 'original')
+      writeFileSync(
+        file,
+        zip([
+          { name: 'escape/payload', text: 'overwritten' },
+          { name: 'escape/new-payload', text: 'created outside' },
+        ]),
+      )
+      await expect(extract(file, { dir: output })).rejects.toThrow()
+      expect(readFileSync(join(dir, 'outside/payload'), 'utf8')).toBe('original')
+      expect(existsSync(join(dir, 'outside/new-payload'))).toBe(false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

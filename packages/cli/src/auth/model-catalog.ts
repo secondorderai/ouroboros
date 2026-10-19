@@ -60,21 +60,20 @@ export class SubscriptionModelCatalog {
       .update(auth.accountId ?? auth.access)
       .digest('hex')
   }
+  private directory(): string {
+    return this.options.cacheDir ?? join(homedir(), '.cache', 'ouroboros', 'models')
+  }
   private file(key: string): string {
-    return join(
-      this.options.cacheDir ?? join(homedir(), '.cache', 'ouroboros', 'models'),
-      `${key}.json`,
-    )
+    return join(this.directory(), `${key}.json`)
   }
   clear(): void {
     this.generation++
     this.activeKey = null
-    for (const key of this.cache.keys()) {
-      try {
-        rmSync(this.file(key), { force: true })
-      } catch {
-        /* best effort */
-      }
+    try {
+      // Logout may run in a new CLI process with an empty in-memory map.
+      rmSync(this.directory(), { recursive: true, force: true })
+    } catch {
+      /* best effort */
     }
     this.cache.clear()
     this.errors.clear()

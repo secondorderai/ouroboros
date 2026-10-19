@@ -181,6 +181,13 @@ describe('root dev workflow regressions', () => {
 })
 
 describe('root verify workflow regressions', () => {
+  test('desktop declares shared runtime imports as a workspace dependency', () => {
+    const desktop = readJsonFile<{ dependencies?: Record<string, string> }>(
+      join(REPO_ROOT, 'packages', 'desktop', 'package.json'),
+    )
+    expect(desktop.dependencies?.['@ouroboros/shared']).toBe('workspace:*')
+  })
+
   test('root verify script uses the Bun runner so extra args are not forwarded to Playwright', () => {
     const pkg = readJsonFile<RootPackageJson>(ROOT_PACKAGE_JSON)
     const verifyScript = pkg.scripts?.verify
