@@ -33,3 +33,5 @@ export type {
   EvolutionEntryType,
   ApprovalRequest,
 } from './domain-types'
+
+export * from './models'

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { loadConfig } from '@src/config'
+import { DEFAULT_OPENAI_MODEL } from '@ouroboros/shared'
 import { buildVerifyPlan } from '../../../scripts/verify'
 
 const REPO_ROOT = join(import.meta.dir, '..', '..', '..')
@@ -51,6 +51,8 @@ async function runRootDevInPty(): Promise<{ output: string }> {
     env: {
       ...process.env,
       HOME: tempHome,
+      OUROBOROS_MODEL_PROVIDER: 'openai',
+      OUROBOROS_MODEL_NAME: DEFAULT_OPENAI_MODEL,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? 'test-key',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? 'test-key',
       OUROBOROS_OPENAI_COMPATIBLE_API_KEY:
@@ -140,20 +142,13 @@ describe('root dev workflow regressions', () => {
     expect(devScript).not.toContain('--filter @ouroboros/cli')
   })
 
-  test('bun run dev from repo root enters the REPL and uses the repo config', async () => {
+  test('bun run dev from repo root enters the REPL with an explicit current model', async () => {
     if (process.platform === 'win32') {
       return
     }
 
-    const configResult = loadConfig(join(REPO_ROOT, 'packages', 'cli'))
-    expect(configResult.ok).toBe(true)
-    if (!configResult.ok) return
-
-    const provider = configResult.value.model.provider
-    const model = configResult.value.model.name
-
-    expect(typeof provider).toBe('string')
-    expect(typeof model).toBe('string')
+    const provider = 'openai'
+    const model = DEFAULT_OPENAI_MODEL
 
     const { output } = await runRootDevInPty()
 
@@ -186,6 +181,13 @@ describe('root dev workflow regressions', () => {
 })
 
 describe('root verify workflow regressions', () => {
+  test('desktop declares shared runtime imports as a workspace dependency', () => {
+    const desktop = readJsonFile<{ dependencies?: Record<string, string> }>(
+      join(REPO_ROOT, 'packages', 'desktop', 'package.json'),
+    )
+    expect(desktop.dependencies?.['@ouroboros/shared']).toBe('workspace:*')
+  })
+
   test('root verify script uses the Bun runner so extra args are not forwarded to Playwright', () => {
     const pkg = readJsonFile<RootPackageJson>(ROOT_PACKAGE_JSON)
     const verifyScript = pkg.scripts?.verify

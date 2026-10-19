@@ -2175,7 +2175,7 @@ describe('JSON-RPC', () => {
 
       const result = (await handlers.get('config/get')!({})) as OuroborosConfig
       expect(result.model.provider).toBe('openai')
-      expect(result.model.name).toBe('gpt-5.5')
+      expect(result.model.name).toBe('gpt-6.1-sol')
 
       ctx.transcriptStore.close()
     })
@@ -2255,18 +2255,18 @@ describe('JSON-RPC', () => {
 
       const setResult = (await handlers.get('config/set')!({
         path: 'model.name',
-        value: 'gpt-5.5',
+        value: 'gpt-6.1-sol',
       })) as OuroborosConfig
 
-      expect(setResult.model.name).toBe('gpt-5.5')
-      expect(setResult.memory.contextWindowTokens).toBe(1_050_000)
+      expect(setResult.model.name).toBe('gpt-6.1-sol')
+      expect(setResult.memory.contextWindowTokens).toBe(500_000)
       expect(setResult.memory.contextWindowSource).toBe('model-registry')
-      expect(ctx.config.memory.contextWindowTokens).toBe(1_050_000)
+      expect(ctx.config.memory.contextWindowTokens).toBe(500_000)
 
       const persisted = JSON.parse(readFileSync(join(tempDir, '.ouroboros'), 'utf-8')) as {
         memory?: { contextWindowTokens?: number; contextWindowSource?: string }
       }
-      expect(persisted.memory?.contextWindowTokens).toBe(1_050_000)
+      expect(persisted.memory?.contextWindowTokens).toBe(500_000)
       expect(persisted.memory?.contextWindowSource).toBe('model-registry')
 
       ctx.transcriptStore.close()
@@ -2369,6 +2369,47 @@ describe('JSON-RPC', () => {
   })
 
   describe('auth operations', () => {
+    test('login and catalogue refresh repair retired selections and return the repair notice', async () => {
+      for (const method of ['auth/getStatus', 'auth/pollLogin']) {
+        const config = makeTestConfig()
+        config.model.provider = 'openai-chatgpt'
+        config.model.name = 'gpt-5.5'
+        let repaired = false
+        const migration = {
+          from: 'gpt-5.5',
+          to: 'gpt-6.1-sol',
+          message: 'Replaced retired subscription model.',
+        }
+        const status = () => ({
+          provider: 'openai-chatgpt',
+          connected: true,
+          authType: 'oauth',
+          pending: false,
+          models: ['gpt-6.1-sol'],
+          availableMethods: ['browser'],
+          catalogSource: 'live',
+          ...(repaired ? { modelMigration: migration } : {}),
+        })
+        const authManager = {
+          getStatus: async () => status(),
+          pollLogin: async () =>
+            ok({ ...status(), flowId: 'flow', method: 'browser', success: true }),
+          resolveModel: async (saved: OuroborosConfig) => {
+            repaired = true
+            return ok({ ...saved, model: { ...saved.model, name: 'gpt-6.1-sol' } })
+          },
+        } as unknown as OpenAIChatGPTAuthManager
+        const ctx = createTestContext({ config, authManager })
+        const result = (await createHandlers(ctx).get(method)!({
+          provider: 'openai-chatgpt',
+          refresh: true,
+          flowId: 'flow',
+        })) as { modelMigration?: typeof migration }
+        expect(ctx.config.model.name).toBe('gpt-6.1-sol')
+        expect(result.modelMigration).toEqual(migration)
+        ctx.transcriptStore.close()
+      }
+    })
     test('auth RPC handlers proxy to auth manager', async () => {
       const authManager = {
         getStatus: async () => ({
@@ -3153,10 +3194,12 @@ describe('JSON-RPC', () => {
 
       expect(sessionResult.value.messages.map((message) => message.role)).toEqual([
         'user',
+        'assistant',
         'tool-call',
         'tool-result',
         'assistant',
       ])
+      expect(sessionResult.value.messages[1].metadata?.providerState).toBeDefined()
       expect(
         sessionResult.value.messages.some((message) =>
           message.content.includes('autonomous step limit'),

@@ -147,6 +147,48 @@ describe('json-rpc transport', () => {
     expect(Array.isArray(result.skills)).toBe(true)
   })
 
+  test('modern reasoning values and optional catalogue refresh cross NDJSON', async () => {
+    const model = await client.sendRequest(71, 'config/set', {
+      path: 'model.name',
+      value: 'gpt-6.1-sol',
+    })
+    expect(model.error).toBeUndefined()
+    const saved = await client.sendRequest(72, 'config/set', {
+      path: 'model.reasoningEffort',
+      value: 'xhigh',
+    })
+    expect(saved.error).toBeUndefined()
+    expect((saved.result as { model: { reasoningEffort: string } }).model.reasoningEffort).toBe(
+      'xhigh',
+    )
+    const status = await client.sendRequest(73, 'auth/getStatus', {
+      provider: 'openai',
+      refresh: true,
+    })
+    expect(status.error).toBeUndefined()
+    expect((status.result as { models: string[] }).models).toEqual([])
+  })
+
+  test('explicit retired models and unsupported reasoning fail before JSON-RPC starts', async () => {
+    const cliEntry = join(import.meta.dir, '..', '..', 'src', 'cli.ts')
+    for (const args of [
+      ['--model', 'openai-chatgpt/gpt-5.5'],
+      ['--model', 'openai-chatgpt/gpt-6.1-sol', '--reasoning-effort', 'none'],
+    ]) {
+      const proc = spawn({
+        cmd: ['bun', 'run', cliEntry, '--json-rpc', '--config', configDir, ...args],
+        stdin: 'ignore',
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: { ...process.env, HOME: configDir, OUROBOROS_DISABLE_RSI: '1' },
+      })
+      const stderr = await new Response(proc.stderr).text()
+      expect(await proc.exited).toBe(1)
+      expect(stderr).toContain('unavailable')
+      expect(stderr).toContain('gpt-6.1-sol')
+    }
+  })
+
   test('unknown method → METHOD_NOT_FOUND', async () => {
     const resp = await client.sendRequest(2, 'nonexistent/method', {})
     expect(resp.id).toBe(2)

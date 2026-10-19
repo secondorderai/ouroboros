@@ -10,6 +10,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { getReasoningEfforts, type ReasoningEffort } from '@ouroboros/shared'
 import { Agent, type AgentEventHandler } from '@src/agent'
 import { OpenAIChatGPTAuthManager } from '@src/auth/openai-chatgpt'
 import type { OuroborosConfig } from '@src/config'
@@ -68,6 +69,8 @@ export interface JsonRpcServerOptions {
   config: OuroborosConfig
   configDir: string
   maxStepsOverride?: number
+  explicitModelOverride?: boolean
+  explicitReasoningEffort?: ReasoningEffort
 }
 
 export function resolveSessionAgentConfig(
@@ -91,7 +94,23 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
   // can revert process.cwd() back to it.
   const initialCwd = process.cwd()
 
-  let config = initialConfig
+  const authManager = new OpenAIChatGPTAuthManager()
+  const resolvedModel = await authManager.resolveModel(
+    initialConfig,
+    initialConfigDir,
+    options.explicitModelOverride,
+  )
+  let config = resolvedModel.ok ? resolvedModel.value : initialConfig
+  if (!resolvedModel.ok && options.explicitModelOverride) throw resolvedModel.error
+  if (!resolvedModel.ok) debugLog(resolvedModel.error.message)
+  if (options.explicitReasoningEffort) {
+    const supported = getReasoningEfforts(config.model.name, config.model.provider)
+    if (supported.length && !supported.includes(options.explicitReasoningEffort)) {
+      throw new Error(
+        `Reasoning effort "${options.explicitReasoningEffort}" is unavailable for ${config.model.name}. Choose: ${supported.join(', ')}`,
+      )
+    }
+  }
   let configDir = initialConfigDir
   let askUserCounter = 0
   const pendingAskUserPrompts = new Map<string, (response: string) => void>()
@@ -491,7 +510,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
     )
     a.setSessionId(targetSessionId)
     if (sessionData.ok) {
-      a.setConversationHistory(toConversationHistory(sessionData.value))
+      a.setConversationHistory(toConversationHistory(sessionData.value, config.model))
     }
     agentsBySession.set(targetSessionId, a)
     return a
@@ -576,7 +595,7 @@ export async function startJsonRpcServer(options: JsonRpcServerOptions): Promise
       ctx.configDir = newConfigDir
       resetAllAgents()
     },
-    authManager: new OpenAIChatGPTAuthManager(),
+    authManager,
     modeManager,
     taskGraphStore,
     mcpManager,

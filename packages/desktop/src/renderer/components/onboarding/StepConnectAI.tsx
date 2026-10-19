@@ -1,3 +1,4 @@
+import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from '@ouroboros/shared'
 /**
  * Step 1 — "Connect your AI"
  *
@@ -210,10 +211,10 @@ const PROVIDER_HELP_URLS: Record<AIProvider, string> = {
 }
 
 const DEFAULT_MODELS: Record<AIProvider, string> = {
-  anthropic: 'claude-opus-4-7',
-  openai: 'gpt-5.5',
-  'openai-compatible': 'gpt-5.5',
-  'openai-chatgpt': 'gpt-5.5',
+  anthropic: DEFAULT_ANTHROPIC_MODEL,
+  openai: DEFAULT_OPENAI_MODEL,
+  'openai-compatible': DEFAULT_OPENAI_MODEL,
+  'openai-chatgpt': DEFAULT_OPENAI_MODEL,
 }
 
 // ── Component ───────────────────────────────────────────────
@@ -250,11 +251,10 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
   const isChatGPTProvider = provider === 'openai-chatgpt'
   const isOpenAICompatibleProvider = provider === 'openai-compatible'
   const hasRequiredApiConfig =
-    apiKey.trim().length > 0 &&
-    (!isOpenAICompatibleProvider || baseUrl.trim().length > 0)
+    apiKey.trim().length > 0 && (!isOpenAICompatibleProvider || baseUrl.trim().length > 0)
   const canTest = isChatGPTProvider ? !testing : hasRequiredApiConfig
   const canProceed = isChatGPTProvider
-    ? authStatus?.connected === true && model.trim().length > 0
+    ? authStatus?.connected === true && availableModels.includes(model)
     : hasRequiredApiConfig && testResult?.success === true && model.trim().length > 0
 
   const applyAvailableModels = useCallback(
@@ -280,13 +280,17 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
     [onModelChange, onProviderChange, provider],
   )
 
-  const syncChatGPTStatus = useCallback(async () => {
-    const status = await window.ouroboros.rpc('auth/getStatus', {
-      provider: 'openai-chatgpt',
-    })
-    setAuthStatus(status)
-    applyAvailableModels(status.models)
-  }, [applyAvailableModels])
+  const syncChatGPTStatus = useCallback(
+    async (refresh = false) => {
+      const status = await window.ouroboros.rpc('auth/getStatus', {
+        provider: 'openai-chatgpt',
+        refresh,
+      })
+      setAuthStatus(status)
+      applyAvailableModels(status.models)
+    },
+    [applyAvailableModels],
+  )
 
   useEffect(() => {
     if (!isChatGPTProvider) {
@@ -327,7 +331,15 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
     } finally {
       setTesting(false)
     }
-  }, [apiKey, applyAvailableModels, baseUrl, canTest, isOpenAICompatibleProvider, provider, testing])
+  }, [
+    apiKey,
+    applyAvailableModels,
+    baseUrl,
+    canTest,
+    isOpenAICompatibleProvider,
+    provider,
+    testing,
+  ])
 
   const handleChatGPTLogin = useCallback(async () => {
     if (testing) return
@@ -499,6 +511,26 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
         )}
       </div>
 
+      {isChatGPTProvider && (
+        <div style={styles.inputGroup}>
+          <button
+            type='button'
+            style={styles.testButton}
+            disabled={testing || !authStatus?.connected}
+            onClick={() => {
+              void syncChatGPTStatus(true).catch(() => {})
+            }}
+          >
+            Refresh models
+          </button>
+          <div role='status' style={styles.label}>
+            {authStatus?.catalogError ??
+              (authStatus?.catalogSource === 'bundled'
+                ? 'Bundled models — account availability unverified'
+                : '')}
+          </div>
+        </div>
+      )}
       {/* Model input */}
       <div style={styles.inputGroup}>
         <label style={styles.label} htmlFor='onboarding-model'>
@@ -511,13 +543,12 @@ export const StepConnectAI: React.FC<StepConnectAIProps> = ({
             onChange={(e) => onModelChange(e.target.value)}
             style={styles.select}
           >
-            {(availableModels.length > 0 ? availableModels : [DEFAULT_MODELS[provider]]).map(
-              (modelOption) => (
-                <option key={modelOption} value={modelOption}>
-                  {modelOption}
-                </option>
-              ),
-            )}
+            {(authStatus ? availableModels : [DEFAULT_MODELS[provider]]).map((modelOption) => (
+              <option key={modelOption} value={modelOption}>
+                {authStatus?.modelDetails?.find((m) => m.id === modelOption)?.displayName ??
+                  modelOption}
+              </option>
+            ))}
           </select>
         ) : (
           <input

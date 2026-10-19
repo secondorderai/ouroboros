@@ -31,7 +31,7 @@ describe('buildReasoningProviderOptions', () => {
     expect(result.forceTemperatureOne).toBe(false)
   })
 
-  test('Anthropic adaptive: medium passes through and forces temperature=1', () => {
+  test('Anthropic adaptive: medium passes through and omits unsupported sampling', () => {
     const result = buildReasoningProviderOptions(
       fakeModel('anthropic.messages', 'claude-opus-4-7'),
       'medium',
@@ -42,7 +42,8 @@ describe('buildReasoningProviderOptions', () => {
         effort: 'medium',
       },
     })
-    expect(result.forceTemperatureOne).toBe(true)
+    expect(result.forceTemperatureOne).toBe(false)
+    expect(result.omitTemperature).toBe(true)
   })
 
   test('Anthropic adaptive: max passes through unchanged', () => {

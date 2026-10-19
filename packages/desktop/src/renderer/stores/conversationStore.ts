@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '@ouroboros/shared'
 import { create } from 'zustand'
 import type {
   Message,
@@ -131,6 +132,10 @@ export interface ConversationState {
   workspaceModeError: string | null
 
   /** Current model name. */
+  modelReasoningEfforts: ReasoningEffort[] | null
+  setModelReasoningEfforts: (efforts: ReasoningEffort[] | null) => void
+  modelProvider: string | null
+  setModelProvider: (provider: string | null) => void
   modelName: string | null
 
   /** Current estimated context usage for the active conversation. */
@@ -281,10 +286,10 @@ export interface ConversationState {
   setModelName: (name: string | null) => void
 
   /** Current reasoning effort level for the active model (if supported). */
-  reasoningEffort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null
+  reasoningEffort: ReasoningEffort | null
 
   /** Set the reasoning effort level. */
-  setReasoningEffort: (effort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null) => void
+  setReasoningEffort: (effort: ReasoningEffort | null) => void
 
   /** Default response format for desktop agent runs. */
   defaultResponseFormat: AgentResponseFormat
@@ -1254,6 +1259,8 @@ export const useConversationStore = create<ConversationState>((set, get) => {
     selectedWorkspacePath: null,
     workspaceModeError: null,
     modelName: null,
+    modelProvider: null,
+    modelReasoningEfforts: null,
     reasoningEffort: null,
     defaultResponseFormat: 'html5',
     contextUsage: null,
@@ -2476,11 +2483,19 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       set({ workspaceModeError: null })
     },
 
+    setModelReasoningEfforts(efforts: ReasoningEffort[] | null) {
+      set({ modelReasoningEfforts: efforts })
+    },
+
+    setModelProvider(provider: string | null) {
+      set({ modelProvider: provider })
+    },
+
     setModelName(name: string | null) {
       set({ modelName: name })
     },
 
-    setReasoningEffort(effort: 'minimal' | 'low' | 'medium' | 'high' | 'max' | null) {
+    setReasoningEffort(effort: ReasoningEffort | null) {
       set({ reasoningEffort: effort })
     },
 

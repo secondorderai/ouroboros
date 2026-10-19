@@ -506,10 +506,13 @@ export class TranscriptStore {
       }
 
       if (message.role === 'assistant') {
-        if (message.content.trim().length > 0) {
+        if (message.content.trim().length > 0 || message.providerState) {
           const addResult = this.addMessage(sessionId, {
             role: 'assistant',
             content: message.content,
+            ...(message.providerState
+              ? { metadata: { providerState: message.providerState } }
+              : {}),
           })
           if (!addResult.ok) return addResult
         }
@@ -531,6 +534,7 @@ export class TranscriptStore {
           role: 'tool-result',
           content: JSON.stringify(toolResult.result),
           toolName: toolResult.toolName,
+          metadata: { llmToolResult: toolResult },
         })
         if (!addResult.ok) return addResult
       }

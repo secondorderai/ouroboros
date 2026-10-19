@@ -542,6 +542,7 @@ function toModeDisplayName(modeId) {
 
 function getAuthStatus(runtime) {
   return {
+    ...scenario.authStatus,
     provider: 'openai-chatgpt',
     connected: runtime.auth.connected,
     authType: runtime.auth.connected ? 'oauth' : null,

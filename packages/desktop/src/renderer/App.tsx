@@ -1,3 +1,4 @@
+import { setSubscriptionModels, type ReasoningEffort } from '@ouroboros/shared'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
@@ -117,6 +118,9 @@ export function App(): React.ReactElement {
   const messages = useConversationStore((s) => s.messages)
   const pendingSubagentRuns = useConversationStore((s) => s.pendingSubagentRuns)
   const isAgentRunning = useConversationStore((s) => s.isAgentRunning)
+  const [modelMigrationNotice, setModelMigrationNotice] = useState<string | null>(null)
+  const setModelReasoningEfforts = useConversationStore((s) => s.setModelReasoningEfforts)
+  const setModelProvider = useConversationStore((s) => s.setModelProvider)
   const setModelName = useConversationStore((s) => s.setModelName)
   const setReasoningEffort = useConversationStore((s) => s.setReasoningEffort)
   const setDefaultResponseFormat = useConversationStore((s) => s.setDefaultResponseFormat)
@@ -170,16 +174,45 @@ export function App(): React.ReactElement {
       ?.rpc('config/get', {})
       .then((result) => {
         const config = result as {
-          model?: { name?: string }
+          model?: { name?: string; provider?: string; reasoningEffort?: ReasoningEffort }
           desktop?: { defaultResponseFormat?: AgentResponseFormat }
         }
-        if (config?.model?.name) setModelName(config.model.name)
+        if (config?.model?.name) {
+          setModelName(config.model.name)
+          setModelProvider(config.model.provider ?? null)
+          setReasoningEffort(config.model.reasoningEffort ?? 'medium')
+          setModelReasoningEfforts(null)
+          if (config.model.provider === 'openai-chatgpt') {
+            void window.ouroboros
+              .rpc('auth/getStatus', { provider: 'openai-chatgpt' })
+              .then((status) => {
+                const current = useConversationStore.getState()
+                if (
+                  current.modelProvider !== 'openai-chatgpt' ||
+                  current.modelName !== config.model?.name
+                )
+                  return
+                if (status.modelDetails) setSubscriptionModels(status.modelDetails)
+                setModelReasoningEfforts(
+                  status.modelDetails?.find((m) => m.id === current.modelName)?.reasoningEfforts ??
+                    null,
+                )
+              })
+              .catch(() => {})
+          }
+        }
         if (config?.desktop?.defaultResponseFormat) {
           setDefaultResponseFormat(config.desktop.defaultResponseFormat)
         }
       })
       .catch(() => {})
-  }, [setModelName, setDefaultResponseFormat])
+  }, [
+    setModelName,
+    setModelProvider,
+    setReasoningEffort,
+    setModelReasoningEfforts,
+    setDefaultResponseFormat,
+  ])
 
   // Persist sidebar state
   useEffect(() => {
@@ -312,7 +345,7 @@ export function App(): React.ReactElement {
       .rpc('config/get', {})
       .then((result) => {
         const config = result as {
-          model?: { name?: string; reasoningEffort?: string }
+          model?: { name?: string; provider?: string; reasoningEffort?: string }
           desktop?: { defaultResponseFormat?: AgentResponseFormat }
         }
         if (config?.model?.name) {
@@ -322,20 +355,40 @@ export function App(): React.ReactElement {
           setDefaultResponseFormat(config.desktop.defaultResponseFormat)
         }
         if (config?.model) {
-          setReasoningEffort(
-            (config.model.reasoningEffort ?? 'medium') as
-              | 'minimal'
-              | 'low'
-              | 'medium'
-              | 'high'
-              | 'max',
-          )
+          setModelProvider(config.model.provider ?? null)
+          setModelReasoningEfforts(null)
+          if (config.model.provider === 'openai-chatgpt') {
+            void api
+              .rpc('auth/getStatus', { provider: 'openai-chatgpt' })
+              .then((status) => {
+                const current = useConversationStore.getState()
+                if (
+                  current.modelProvider !== 'openai-chatgpt' ||
+                  current.modelName !== config.model?.name
+                )
+                  return
+                if (status.modelDetails) setSubscriptionModels(status.modelDetails)
+                if (status.modelMigration) setModelMigrationNotice(status.modelMigration.message)
+                setModelReasoningEfforts(
+                  status.modelDetails?.find((m) => m.id === config.model?.name)?.reasoningEfforts ??
+                    null,
+                )
+              })
+              .catch(() => {})
+          }
+          setReasoningEffort((config.model.reasoningEffort ?? 'medium') as ReasoningEffort)
         }
       })
       .catch((err) => {
         console.error('config/get failed:', err)
       })
-  }, [setModelName, setReasoningEffort, setDefaultResponseFormat])
+  }, [
+    setModelName,
+    setModelProvider,
+    setModelReasoningEfforts,
+    setReasoningEffort,
+    setDefaultResponseFormat,
+  ])
 
   // ---- Command palette overlay callbacks ------------------------------------
 
@@ -533,6 +586,25 @@ export function App(): React.ReactElement {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
+            {modelMigrationNotice && (
+              <div
+                role='status'
+                style={{
+                  padding: '8px 16px',
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-secondary)',
+                }}
+              >
+                {modelMigrationNotice}
+                <button
+                  type='button'
+                  onClick={() => setModelMigrationNotice(null)}
+                  aria-label='Dismiss model update'
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
             {hasContent ? (
               <ChatView
                 crystallizations={rsi.crystallizations}

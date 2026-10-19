@@ -120,7 +120,7 @@ with, review permission prompts carefully, and keep backups of important work._
 
 - [Bun](https://bun.sh) v1.3+
 - One configured model provider:
-  - `OPENAI_API_KEY` for OpenAI, the default provider (`gpt-5.5`)
+  - `OPENAI_API_KEY` for OpenAI, the default provider (`gpt-6.1-sol`)
   - `ANTHROPIC_API_KEY` for Anthropic
   - an OpenAI-compatible endpoint plus `OUROBOROS_OPENAI_COMPATIBLE_API_KEY`
   - a ChatGPT Plus/Pro login for the `openai-chatgpt` provider
@@ -148,7 +148,7 @@ bun run build
 
 ./dist/ouroboros
 ./dist/ouroboros -m "Summarize this repo"
-./dist/ouroboros --model openai/gpt-5.5 --reasoning-effort medium --plan
+./dist/ouroboros --model openai/gpt-6.1-sol --reasoning-effort medium --plan
 echo "Explain this" | ./dist/ouroboros
 ./dist/ouroboros --json-rpc
 ./dist/ouroboros auth login --provider openai-chatgpt
@@ -335,7 +335,7 @@ discovery rules, schema details, and MCP examples.
 {
   "model": {
     "provider": "openai",
-    "name": "gpt-5.5",
+    "name": "gpt-6.1-sol",
     "baseUrl": "https://api.openai.com/v1",
     "apiMode": "responses",
     "reasoningEffort": "medium"

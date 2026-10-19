@@ -291,7 +291,7 @@ describe('createProvider', () => {
   test('returns remediation error when openai-chatgpt auth is missing', () => {
     const result = createProvider({
       provider: 'openai-chatgpt',
-      name: 'gpt-5.4',
+      name: 'gpt-6.1-sol',
     })
 
     expect(result.ok).toBe(false)
@@ -332,14 +332,14 @@ describe('createProvider', () => {
 
     const result = createProvider({
       provider: 'openai-chatgpt',
-      name: 'gpt-5.4',
+      name: 'gpt-6.1-sol',
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
     const model = result.value as Record<string, unknown>
-    expect(model.modelId).toBe('gpt-5.4')
+    expect(model.modelId).toBe('gpt-6.1-sol')
     expect(model.provider).toBe('openai-chatgpt.responses')
   })
 
@@ -369,12 +369,12 @@ describe('createProvider', () => {
         { encoding: 'utf-8', mode: 0o600 },
       )
 
-      const result = createProvider({ provider: 'openai-chatgpt', name: 'gpt-5.4' })
+      const result = createProvider({ provider: 'openai-chatgpt', name: 'gpt-6.1-sol' })
 
       expect(result.ok).toBe(true)
       if (!result.ok) return
       const model = result.value as Record<string, unknown>
-      expect(model.modelId).toBe('gpt-5.4')
+      expect(model.modelId).toBe('gpt-6.1-sol')
     } finally {
       mockedHomedir = undefined
       rmSync(fakeHome, { recursive: true, force: true })

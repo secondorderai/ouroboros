@@ -27,6 +27,7 @@
     "lint": "echo 'No linter configured yet'"
   },
   "dependencies": {
+    "@ouroboros/shared": "workspace:*",
     "electron-store": "^10.1.0",
     "electron-updater": "^6.8.9",
     "fuse.js": "^7.3.0",
@@ -42,7 +43,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "41.5.0",
+    "electron": "41.10.7",
     "@electron/notarize": "^3.1.1",
     "@playwright/test": "^1.59.1",
     "electron-builder": "^26.15.3",

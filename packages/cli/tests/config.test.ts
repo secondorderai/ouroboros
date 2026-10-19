@@ -73,7 +73,7 @@ describe('loadConfig', () => {
 
     // Model defaults
     expect(config.model.provider).toBe('openai')
-    expect(config.model.name).toBe('gpt-5.5')
+    expect(config.model.name).toBe('gpt-6.1-sol')
     expect(config.model.baseUrl).toBeUndefined()
     expect(config.model.apiKey).toBeUndefined()
 
@@ -96,7 +96,7 @@ describe('loadConfig', () => {
 
     // Memory defaults
     expect(config.memory.consolidationSchedule).toBe('session-end')
-    // Auto-detected from default model gpt-5.5
+    // Auto-detected from the default API model
     expect(config.memory.contextWindowTokens).toBe(1_050_000)
     expect(config.memory.contextWindowSource).toBe('model-registry')
     expect(config.memory.warnRatio).toBe(DEFAULT_MEMORY_CONFIG.warnRatio)
@@ -730,7 +730,7 @@ describe('loadConfig', () => {
     if (!result.ok) return
 
     expect(result.value.model.provider).toBe('openai')
-    expect(result.value.model.name).toBe('gpt-5.5')
+    expect(result.value.model.name).toBe('gpt-6.1-sol')
   })
 
   test('saveConfig preserves private top-level auth data', () => {
@@ -828,12 +828,12 @@ describe('loadConfig', () => {
     for (const effort of ['minimal', 'low', 'medium', 'high', 'max'] as const) {
       writeFileSync(
         join(tempDir, '.ouroboros'),
-        JSON.stringify({ model: { reasoningEffort: effort } }),
+        JSON.stringify({ model: { name: 'gpt-5.4', reasoningEffort: effort } }),
       )
       const result = loadConfig(tempDir)
       expect(result.ok).toBe(true)
       if (!result.ok) continue
-      expect(result.value.model.reasoningEffort).toBe(effort)
+      expect(result.value.model.reasoningEffort).toBe(effort === 'max' ? 'high' : effort)
     }
   })
 

@@ -517,7 +517,7 @@ describe('streamResponse', () => {
     expect(captured.openai.instructions.length).toBeGreaterThan(0)
   })
 
-  test('passes anthropic adaptive thinking + effort and forces temperature=1', async () => {
+  test('passes anthropic adaptive thinking + effort and omits unsupported temperature', async () => {
     let capturedOptions: Record<string, unknown> | undefined
 
     const model = {
@@ -553,7 +553,7 @@ describe('streamResponse', () => {
     expect(capturedOptions?.providerOptions).toEqual({
       anthropic: { thinking: { type: 'adaptive' }, effort: 'medium' },
     })
-    expect(capturedOptions?.temperature).toBe(1)
+    expect(capturedOptions?.temperature).toBeUndefined()
   })
 
   test('passes openai reasoning effort through providerOptions for GPT-5', async () => {
@@ -976,7 +976,7 @@ describe('generateResponse', () => {
     expect(captured.openai.instructions.length).toBeGreaterThan(0)
   })
 
-  test('passes anthropic adaptive thinking and forces temperature=1 in non-streaming path', async () => {
+  test('passes anthropic adaptive thinking and omits unsupported temperature in non-streaming path', async () => {
     let capturedOptions: Record<string, unknown> | undefined
 
     const model = {
@@ -1014,7 +1014,7 @@ describe('generateResponse', () => {
     expect(capturedOptions?.providerOptions).toEqual({
       anthropic: { thinking: { type: 'adaptive' }, effort: 'high' },
     })
-    expect(capturedOptions?.temperature).toBe(1)
+    expect(capturedOptions?.temperature).toBeUndefined()
   })
 
   test('passes openai reasoning effort in non-streaming path', async () => {

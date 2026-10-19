@@ -1,3 +1,9 @@
+import {
+  REASONING_EFFORTS,
+  getReasoningEfforts,
+  normalizeReasoningEffort,
+  DEFAULT_OPENAI_MODEL,
+} from '@ouroboros/shared'
 import { z } from 'zod'
 import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -406,7 +412,7 @@ export const configSchema = z.object({
         .enum(['anthropic', 'openai', 'openai-compatible', 'openai-chatgpt'])
         .default('openai')
         .describe('LLM provider to use'),
-      name: z.string().default('gpt-5.5').describe('Model name/identifier'),
+      name: z.string().default(DEFAULT_OPENAI_MODEL).describe('Model name/identifier'),
       baseUrl: z.string().url().optional().describe('Base URL for OpenAI-compatible endpoints'),
       apiMode: z
         .enum(['responses', 'chat', 'completion'])
@@ -414,13 +420,17 @@ export const configSchema = z.object({
         .describe('API style to use for OpenAI-compatible endpoints'),
       apiKey: z.string().min(1).optional().describe('Fallback API key for the selected provider'),
       reasoningEffort: z
-        .enum(['minimal', 'low', 'medium', 'high', 'max'])
+        .enum(REASONING_EFFORTS)
         .default('medium')
         .describe(
-          'Reasoning effort (minimal|low|medium|high|max). Maps to Anthropic adaptive thinking on Claude 4.6+ or to OpenAI reasoning_effort on GPT-5. Silently ignored on unsupported models. "minimal" is OpenAI-only; "max" is Anthropic-only — clamped to the closest supported level.',
+          'Model-specific reasoning effort. Unsupported saved levels are normalised to the closest supported lower level.',
         ),
     })
-    .default({ provider: 'openai' as const, name: 'gpt-5.5', reasoningEffort: 'medium' }),
+    .default({
+      provider: 'openai' as const,
+      name: DEFAULT_OPENAI_MODEL,
+      reasoningEffort: 'medium',
+    }),
 
   permissions: z
     .object(permissionSchema.shape)
@@ -635,6 +645,9 @@ export type OuroborosConfig = z.infer<typeof configSchema>
  * sources are derived and should follow the selected model.
  */
 export function hydrateContextWindowConfig(config: OuroborosConfig): OuroborosConfig {
+  const efforts = getReasoningEfforts(config.model.name, config.model.provider)
+  const effort = normalizeReasoningEffort(config.model.reasoningEffort, efforts)
+  if (effort) config.model.reasoningEffort = effort
   const hasContextWindowTokens = typeof config.memory.contextWindowTokens === 'number'
   const source = config.memory.contextWindowSource
   const isExplicitOverride = hasContextWindowTokens && (source === 'config' || source === undefined)

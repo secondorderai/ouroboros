@@ -1,3 +1,4 @@
+import { DEFAULT_OPENAI_MODEL } from '@ouroboros/shared'
 /**
  * OnboardingWizard — Full-screen 2-step wizard shown on first launch.
  *
@@ -51,7 +52,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
   const [provider, setProvider] = useState<AIProvider>('openai')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
-  const [model, setModel] = useState('gpt-5.5')
+  const [model, setModel] = useState(DEFAULT_OPENAI_MODEL)
 
   // Step 2 state
   const [workspace, setWorkspace] = useState('')

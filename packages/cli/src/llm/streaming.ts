@@ -19,6 +19,7 @@ import { OPENAI_CHATGPT_PROVIDER } from '@src/auth/openai-chatgpt'
 import { buildReasoningProviderOptions } from './reasoning'
 import type {
   LLMMessage,
+  AssistantResponseState,
   LLMCallOptions,
   StreamResponse,
   StreamChunk,
@@ -30,8 +31,41 @@ import type {
 /**
  * Convert our LLMMessage types to Vercel AI SDK ModelMessage types.
  */
-export function toModelMsgs(messages: LLMMessage[]): ModelMessage[] {
+export function toModelMsgs(messages: LLMMessage[], model?: LanguageModel): ModelMessage[] {
   return messages.map((msg) => {
+    if (
+      msg.role === 'assistant' &&
+      msg.providerState &&
+      typeof model === 'object' &&
+      msg.providerState.provider === model.provider &&
+      msg.providerState.modelId === model.modelId
+    ) {
+      const message = msg.providerState.message
+      if (model.provider.startsWith('openai-compatible.') && Array.isArray(message.content)) {
+        // Compatible 2.0.85 reads Gemini signatures from the provider namespace,
+        // but writes them from `google`. Translate only at replay, preserving
+        // the original persisted response and the signature value verbatim.
+        return {
+          ...message,
+          content: message.content.map((part) => {
+            if (part.type !== 'tool-call') return part
+            const options = { ...part.providerOptions }
+            const signature =
+              options.openaiCompatible?.thoughtSignature ??
+              options['openai-compatible']?.thoughtSignature
+            if (typeof signature !== 'string') return part
+            for (const key of ['openaiCompatible', 'openai-compatible']) {
+              if (!options[key]) continue
+              options[key] = { ...options[key] }
+              delete options[key].thoughtSignature
+            }
+            options.google = { ...options.google, thoughtSignature: signature }
+            return { ...part, providerOptions: options }
+          }),
+        }
+      }
+      return message
+    }
     if (msg.role === 'system') {
       return { role: 'system' as const, content: msg.content }
     }
@@ -102,11 +136,36 @@ function toToolSet(tools?: Record<string, LLMToolSpec>): ToolSet | undefined {
   return toolSet
 }
 
+async function captureAssistantState(
+  model: LanguageModel,
+  response: unknown,
+): Promise<AssistantResponseState | undefined> {
+  if (typeof model !== 'object') return undefined
+  const resolved = (await Promise.resolve(response).catch(() => undefined)) as
+    | { messages?: ModelMessage[] }
+    | undefined
+  const message = resolved?.messages?.findLast((m) => m.role === 'assistant')
+  if (message?.role !== 'assistant') return undefined
+  const parts = typeof message.content === 'string' ? [] : message.content
+  if (
+    !parts.some(
+      (p) =>
+        p.type === 'reasoning' ||
+        p.type === 'tool-call' ||
+        ('providerOptions' in p && Object.keys(p.providerOptions ?? {}).length > 0),
+    ) &&
+    !Object.keys(message.providerOptions ?? {}).length
+  )
+    return undefined
+  return { provider: model.provider, modelId: model.modelId, message }
+}
+
 interface PreparedPromptOptions {
   system?: string
   providerOptions?: Record<string, JSONObject>
   /** When set, callers must use this temperature in place of `options.temperature`. */
   effectiveTemperature?: number
+  omitTemperature?: boolean
 }
 
 /**
@@ -142,7 +201,7 @@ function getProviderPromptOptions(
     }
   }
 
-  const result: PreparedPromptOptions = {}
+  const result: PreparedPromptOptions = { omitTemperature: reasoning.omitTemperature }
 
   if (!isChatgptResponses && options?.system) {
     result.system = options.system
@@ -429,15 +488,20 @@ export function streamResponse(
   options?: LLMCallOptions,
 ): Result<StreamResponse> {
   try {
-    const modelMessages = toModelMsgs(messages)
+    const protocolError = validateToolProtocol(model, options)
+    if (protocolError) return err(protocolError)
+    const modelMessages = toModelMsgs(messages, model)
     const tools = toToolSet(options?.tools)
-    const { effectiveTemperature, ...promptOptions } = getProviderPromptOptions(model, options)
+    const { effectiveTemperature, omitTemperature, ...promptOptions } = getProviderPromptOptions(
+      model,
+      options,
+    )
 
     const result = streamText({
       model,
       ...promptOptions,
       messages: modelMessages,
-      temperature: effectiveTemperature ?? options?.temperature,
+      temperature: omitTemperature ? undefined : (effectiveTemperature ?? options?.temperature),
       maxOutputTokens: getMaxOutputTokens(model, options),
       stopSequences: options?.stopSequences,
       tools,
@@ -446,7 +510,10 @@ export function streamResponse(
 
     // fullStream is typed as AsyncIterable<TextStreamPart<TOOLS>> but we use `any`
     // in createChunkStream to avoid coupling to the AI SDK's complex generic types
-    const stream = createChunkStream(result.fullStream as AsyncIterable<unknown>)
+    const stream = createChunkStream(
+      result.fullStream as AsyncIterable<unknown>,
+      captureAssistantState(model, result.response),
+    )
 
     return ok({ stream })
   } catch (error) {
@@ -468,6 +535,7 @@ export function streamResponse(
 async function* createChunkStream(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   fullStream: AsyncIterable<any>,
+  assistantState?: Promise<AssistantResponseState | undefined>,
 ): AsyncIterable<StreamChunk> {
   try {
     for await (const part of fullStream) {
@@ -525,8 +593,27 @@ async function* createChunkStream(
           break
       }
     }
+    const state = await assistantState
+    if (state) yield { type: 'assistant-state', state }
   } catch (error) {
     yield { type: 'error', error: classifyError(error) }
+  }
+}
+
+function validateToolProtocol(model: LanguageModel, options?: LLMCallOptions): Error | undefined {
+  if (typeof model !== 'object' || !Object.keys(options?.tools ?? {}).length) return
+  if (model.provider === 'openai-compatible.completion') {
+    return new Error(
+      'Completions cannot run agent tools. Choose model.apiMode="chat" or "responses" in Model & API Keys.',
+    )
+  }
+  if (
+    model.provider === 'openai-compatible.chat' &&
+    /^(?:openai\/)?gpt-(?:6|5\.6)/.test(model.modelId)
+  ) {
+    return new Error(
+      'This OpenAI model requires model.apiMode="responses" for reasoning with tools. Choose Responses in Model & API Keys.',
+    )
   }
 }
 
@@ -541,9 +628,14 @@ export async function generateResponse(
   options?: LLMCallOptions,
 ): Promise<Result<GenerateResult>> {
   try {
-    const modelMessages = toModelMsgs(messages)
+    const protocolError = validateToolProtocol(model, options)
+    if (protocolError) return err(protocolError)
+    const modelMessages = toModelMsgs(messages, model)
     const tools = toToolSet(options?.tools)
-    const { effectiveTemperature, ...promptOptions } = getProviderPromptOptions(model, options)
+    const { effectiveTemperature, omitTemperature, ...promptOptions } = getProviderPromptOptions(
+      model,
+      options,
+    )
 
     // The ChatGPT subscription Responses backend rejects non-streaming
     // completions as 400 {"detail":"Stream must be set to true"}, so this
@@ -553,7 +645,7 @@ export async function generateResponse(
         model,
         ...promptOptions,
         messages: modelMessages,
-        temperature: effectiveTemperature ?? options?.temperature,
+        temperature: omitTemperature ? undefined : (effectiveTemperature ?? options?.temperature),
         maxOutputTokens: getMaxOutputTokens(model, options),
         stopSequences: options?.stopSequences,
         tools,
@@ -567,6 +659,7 @@ export async function generateResponse(
       ])
 
       return ok({
+        assistantState: await captureAssistantState(model, streamed.response),
         text,
         toolCalls: toolCalls.map((tc) => ({
           toolCallId: tc.toolCallId,
@@ -586,7 +679,7 @@ export async function generateResponse(
       model,
       ...promptOptions,
       messages: modelMessages,
-      temperature: effectiveTemperature ?? options?.temperature,
+      temperature: omitTemperature ? undefined : (effectiveTemperature ?? options?.temperature),
       maxOutputTokens: getMaxOutputTokens(model, options),
       stopSequences: options?.stopSequences,
       tools,
@@ -594,6 +687,7 @@ export async function generateResponse(
     })
 
     return ok({
+      assistantState: await captureAssistantState(model, result.response),
       text: result.text,
       toolCalls: result.toolCalls.map((tc) => ({
         toolCallId: tc.toolCallId,
