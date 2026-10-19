@@ -30,6 +30,7 @@ From [packages/desktop](/Users/henry/workspace/ouroboros/packages/desktop):
 
 ```bash
 bun run build:vite
+bun run test:unit
 bun run test:e2e:contracts
 bun run test:e2e:real
 bun run test:e2e

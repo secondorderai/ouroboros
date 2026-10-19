@@ -18,6 +18,7 @@
     "build:win": "bun run build:cli && electron-vite build && electron-builder --config electron-builder.yml --win --publish never",
     "build:dist": "bun run build:cli && electron-vite build && electron-builder --config electron-builder.yml --publish never",
     "release": "bun run build:cli && electron-vite build && electron-builder --config electron-builder.yml --publish always",
+    "test:unit": "bun test --isolate tests/*.test.ts",
     "test:e2e": "npx playwright test",
     "test:e2e:contracts": "npx playwright test tests/e2e/renderer-contract.spec.ts",
     "test:e2e:real": "npx playwright test tests/e2e/real-flows.spec.ts tests/e2e/main-process.spec.ts",

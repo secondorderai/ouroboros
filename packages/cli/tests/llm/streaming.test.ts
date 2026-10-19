@@ -312,6 +312,26 @@ describe('streamResponse', () => {
     expect(errorChunk.error.message).toContain('Authentication failed')
   })
 
+  test('preserves the ChatGPT reconnect instruction without an API-key hint', async () => {
+    const model = createMockModel({
+      error: new Error(
+        'ChatGPT subscription login expired (refresh returned 401). Run `bun run dev -- auth login --provider openai-chatgpt` from the repo root.',
+      ),
+    })
+
+    const result = streamResponse(model, testMessages)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of result.value.stream) chunks.push(chunk)
+    const errorChunk = chunks.find((c) => c.type === 'error')
+    expect(errorChunk?.type).toBe('error')
+    if (errorChunk?.type !== 'error') return
+    expect(errorChunk.error.message).toContain('bun run dev -- auth login')
+    expect(errorChunk.error.message).not.toContain('API key')
+  })
+
   test('handles mid-stream errors as error chunks', async () => {
     // When the underlying ReadableStream errors, the AI SDK throws during iteration.
     // Our createChunkStream catches these and yields error chunks.

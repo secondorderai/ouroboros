@@ -1,26 +1,49 @@
 # Ouroboros Automated Test Plan
 
 This matrix is the maintained source of truth for regression coverage across the
-CLI agent, JSON-RPC bridge, and Electron desktop app. New product behavior should
-add or update the matching row and ship with an automated test.
+CLI agent, JSON-RPC bridge, and Electron desktop app. Every new feature or
+behavioral enhancement must add or update both a unit test for its logic and an
+integration regression test for its public path. Update the matching row when
+adding coverage. Bug fixes need a regression test that fails before the fix and
+passes after it.
+
+## Choosing the Test Pair
+
+Write down the unit seam and the integration boundary before implementation.
+Unit tests exercise decisions, validation, state transitions, and error paths in
+isolation. Integration tests cross the real boundary used by the feature and
+would fail if its wiring were removed. Mock remote providers, clocks, and other
+nondeterministic edges, but do not mock the components whose connection the test
+is meant to prove. Put both tests in suites run by `bun run verify` (or the
+benchmark-only gate defined in `AGENTS.md`); a specialized suite such as
+`test:dist` can provide additional coverage, not replace that pair.
+
+| Change | Unit layer | Integration layer |
+| --- | --- | --- |
+| CLI tool or agent behavior | Tool/agent logic in `packages/cli/tests/` | Agent plus registry/tool execution in `packages/cli/tests/integration/` or a focused `*-integration.test.ts` |
+| Model or authentication behavior | Config, request mapping, refresh, and error decisions in `packages/cli/tests/` | Provider request/stream or agent turn through mocked HTTP in the standard CLI suite |
+| JSON-RPC or shared protocol | Handler/schema or consuming-package logic | NDJSON transport and protocol contract tests; update `RPC_METHOD_NAMES` or `NOTIFICATION_METHOD_NAMES` when applicable |
+| Desktop behavior | Zustand state or other testable renderer/main logic in `packages/desktop/tests/` | Electron/Playwright flow through preload, main process, and renderer in `packages/desktop/tests/e2e/` |
+| Compiled CLI or packaging | Build command/target decisions | Build a fresh binary and launch it in the standard CLI suite; run `test:dist` for the broader binary matrix |
 
 ## Verification Gates
 
 | Gate | Command | Purpose |
 | --- | --- | --- |
 | CLI unit and integration | `bun run test:cli` | Deterministic mock-LLM coverage for CLI, tools, memory, RSI, and JSON-RPC. |
-| Desktop E2E | `bun run test:desktop` | Playwright coverage for renderer, main process, and mock CLI transport flows. |
+| Desktop unit | `cd packages/desktop && bun run test:unit` | Isolated Bun tests for desktop state, policies, and main-process logic. |
+| Desktop unit and E2E | `bun run test:desktop` | Isolated unit tests followed by Playwright coverage for renderer, main process, and mock CLI transport flows. |
 | Types | `bun run ts-check` | TypeScript contract coverage for all packages. |
 | Formatting | `bun run lint` | Prettier check for CLI source and tests; desktop currently has no linter. |
-| Full release gate | `bun run verify` | Required pre-completion gate: lint, typecheck, CLI tests, desktop E2E. |
-| Binary smoke | `cd packages/cli && bun run test:dist` | Optional compiled CLI regression tests. |
+| Full release gate | `bun run verify` | Required pre-completion gate: lint, typecheck, CLI tests, desktop unit tests, desktop E2E. |
+| Binary smoke | `cd packages/cli && bun run test:dist` | Additional compiled CLI matrix; standard CLI tests must still include a build-and-launch regression. |
 | Live provider smoke | `bun run test:cli:live` | Optional manual LLM/provider smoke; not a CI gate. |
 
 ## CLI Coverage Matrix
 
 | Feature surface | Primary tests | Required scenarios |
 | --- | --- | --- |
-| CLI command surface | `packages/cli/tests/cli.test.ts`, `packages/cli/tests/dist-cli.test.ts`, `packages/cli/tests/root-dev.test.ts` | Help/version/debug tools, single-shot `-m` and piped stdin, REPL startup, model/config/max-step flags, streaming and verbose output, auth subcommands, dream subcommand. |
+| CLI command surface | `packages/cli/tests/cli.test.ts`, `packages/cli/tests/dist-cli.test.ts`, `packages/cli/tests/root-dev.test.ts`, `packages/cli/tests/build-commands.test.ts`, `packages/cli/tests/build-binary-integration.test.ts` | Help/version/debug tools, single-shot `-m` and piped stdin, REPL startup, model/config/max-step flags, streaming and verbose output, auth subcommands, dream subcommand, compiled binary signature and launch. |
 | Agent loop | `packages/cli/tests/agent.test.ts`, `packages/cli/tests/integration/agent-tools.test.ts` | Streaming text, tool calls, parallel tool calls, tool errors, unknown tools, thrown exceptions, max-step handoff, retryable and non-retryable provider failures, event-handler resilience, multi-turn state. |
 | LLM providers | `packages/cli/tests/llm/provider.test.ts`, `packages/cli/tests/llm/streaming.test.ts` | Anthropic, OpenAI, OpenAI-compatible, ChatGPT subscription auth, malformed tool-call deltas, provider error classification, image message conversion. |
 | Prompt assembly | `packages/cli/tests/llm/prompt.test.ts`, `packages/cli/tests/integration/prompt-assembly.test.ts`, `packages/cli/tests/agents-md.test.ts` | Tool schema injection, enabled-only skill catalog, layered memory, AGENTS.md stacking, desktop-readable hints, empty section omission. |
@@ -59,6 +82,10 @@ add or update the matching row and ship with an automated test.
 
 ## Maintenance Rules
 
+- For each feature or enhancement, name the unit test and integration test in
+  the change summary. Ensure both fail if their covered behavior is reverted.
+- If the existing suite has no suitable integration seam, add one to the
+  standard verification path; do not substitute a unit test with more mocks.
 - Prefer deterministic mocks and fixtures in CI. Live LLM tests remain manual and isolated.
 - Add regression tests before or with every bug fix.
 - Keep test-only fixture controls inside `tests/fixtures` or test preload hooks; do not add product APIs solely for testing.
