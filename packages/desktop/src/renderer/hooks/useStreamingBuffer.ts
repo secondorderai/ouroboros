@@ -55,6 +55,8 @@ export function useStreamingBuffer(): string | null {
     return () => {
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
+        // StrictMode and Fast Refresh may replay the setup after cleanup.
+        timerRef.current = null;
       }
     };
   }, []);

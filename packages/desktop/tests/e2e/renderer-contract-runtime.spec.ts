@@ -571,6 +571,62 @@ test('running sessions show sidebar and chat processing indicators', async ({}, 
   await expect(launched.page.getByText('Done')).toBeVisible()
 })
 
+test('streaming updates preserve the live row and tool details without crashing', async ({}, testInfo) => {
+  launched = await launchTestApp(testInfo)
+  await openMainApp()
+  const errors: string[] = []
+  launched.page.on('pageerror', (error) => errors.push(error.message))
+  await setRpcOverride(launched.page, 'agent/run', {
+    ok: true,
+    result: { text: 'Done', iterations: 1, stopReason: 'completed', maxIterationsReached: false },
+  })
+
+  await launched.page.getByLabel('Message input').fill('Inspect the repository and explain it')
+  await launched.page.getByLabel('Message input').press('Enter')
+  await emitNotification(launched.page, 'agent/toolCallStart', {
+    toolCallId: 'live-tool',
+    toolName: 'file-read',
+    input: { path: 'README.md' },
+  })
+  await emitNotification(launched.page, 'agent/toolCallEnd', {
+    toolCallId: 'live-tool',
+    toolName: 'file-read',
+    result: 'Repository details',
+    isError: false,
+  })
+  await launched.page.getByRole('button', { name: 'Read file — click to expand' }).click()
+  const liveRow = launched.page.getByTestId('agent-message').last()
+  const originalRow = await liveRow.elementHandle()
+
+  for (const text of [
+    '## Engineering views\n\n',
+    '| View | Purpose |\n| --- | --- |\n',
+    '| Harness | Tools |\n',
+  ]) {
+    await emitNotification(launched.page, 'agent/text', { text })
+    await expect(liveRow.locator('.markdown-body')).toBeVisible()
+    expect(await originalRow!.evaluate((node) => node.isConnected)).toBe(true)
+    await expect(launched.page.getByTestId('tool-chip-expanded')).toContainText('Repository details')
+  }
+
+  const duration = liveRow.getByTestId('agent-response-duration')
+  const initialDuration = await duration.textContent()
+  await expect.poll(() => duration.textContent()).not.toBe(initialDuration)
+  expect(await originalRow!.evaluate((node) => node.isConnected)).toBe(true)
+  expect(errors).toEqual([])
+
+  // Returning to a running session must show its existing buffer without
+  // waiting for another token from the CLI.
+  await launched.page.getByRole('button', { name: 'New conversation', exact: true }).click()
+  await expect(launched.page.getByTestId('agent-message')).toHaveCount(0)
+  await launched.page.getByRole('button', { name: /Session: Inspect the repository/ }).click()
+  await expect(liveRow.getByRole('table')).toContainText('Harness')
+
+  await emitNotification(launched.page, 'agent/turnComplete', { text: 'Done', iterations: 1 })
+  await expect(launched.page.getByText('Done', { exact: true })).toBeVisible()
+  await expect(launched.page.getByRole('button', { name: 'Send message' })).toBeVisible()
+})
+
 test('completed tool chip stays expanded and does not flash the jump button', async ({}, testInfo) => {
   launched = await launchTestApp(testInfo)
   await openMainApp()
