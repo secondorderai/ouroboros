@@ -70,3 +70,5 @@ Dockerfile.ci-repro
 .claude/scheduled_tasks.lock
 test-results/**/*
 packages/desktop/old-config-data/**/*
+packages/cli/skills/generated/agent-context-lifecycle-audit/SKILL.md
+packages/cli/skills/generated/agent-context-lifecycle-audit/scripts/test.ts
