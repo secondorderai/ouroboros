@@ -80,6 +80,12 @@ benchmark-only gate defined in `AGENTS.md`); a specialized suite such as
 | Modes and steering | `renderer-contract.spec.ts`, `steering.spec.ts` | Mode chip sync, Plan mode entry/exit/submit, mid-turn steering pending/injected/orphaned states, turn abort lifecycle. |
 | MCP status | `renderer-contract.spec.ts`, `real-flows.spec.ts` | Server connected/disconnected/error notifications, MCP list/restart methods, status display through desktop state. |
 
+## Standalone Documentation Apps
+
+| Feature surface | Unit and integration tests | Required scenarios |
+| --- | --- | --- |
+| Engineering explorer | `packages/cli/tests/docs/engineering-explorer.test.ts`, `packages/desktop/tests/e2e/engineering-explorer.spec.ts` | Actual inline simulation logic, prompt composition, context thresholds/checkpoint gate, tool authorization, evidence verdicts/retries, all five interactive labs, guided walkthrough, keyboard/theme controls, responsive/offline/no-JavaScript behavior, and real hardened artifact-panel execution. |
+
 ## Maintenance Rules
 
 - For each feature or enhancement, name the unit test and integration test in
